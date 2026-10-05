@@ -1,0 +1,394 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDelivery.h
+@@ -0,0 +1,89 @@
++#ifndef SWGXR_DELIVERY_H
++#define SWGXR_DELIVERY_H
++#include "SwgxrInventory.h"
++#include "SwgxrMissionItems.h"
++#include "server/zone/objects/mission/DeliverMissionObjective.h"
++#include "server/zone/objects/creature/conversation/screenhandlers/DeliverMissionScreenHandler.h"
++#include "server/zone/objects/creature/conversation/ConversationScreen.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++// Presentation of the original owned delivery objective. Native objective code
++// retains parcel creation/destruction, waypoint transitions and mission rewards.
++class SwgxrDelivery {
++ using Json=JSONSerializationType;
++ static std::string str(const String& value){return value.toCharArray();}
++ static std::string id(SceneObject* object){return object?std::to_string(object->getObjectID()):"0";}
++ class Dialogue:public DeliverMissionScreenHandler {
++ public:
++  std::string original(MissionObject* mission,bool pickup){ConversationScreen screen;if(pickup)performPickupConversation(&screen,mission);else performDeliverConversation(&screen,mission);return screen.getDialogText()->getFullPath().toCharArray();}
++ };
++ static ManagedReference<MissionObject*> owned(CreatureObject* player,const Json& request){
++  auto text=request.at("mission_id").get<std::string>();if(text.empty() || text.size()>20 || text.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_mission_id");
++  auto mission=player->getZoneServer()->getObject(std::stoull(text)).castTo<MissionObject*>();
++  if(mission==nullptr || mission->getParent().get()!=player->getSlottedObject("datapad") || !SwgxrMissionItems::eligible(mission))throw std::runtime_error("owned_active_delivery_mission_required");
++  return mission;
++ }
++ static Reference<DeliverMissionObjective*> objective(MissionObject* mission){
++  Reference<DeliverMissionObjective*> result=cast<DeliverMissionObjective*>(mission->getMissionObjective());
++  if(result==nullptr)throw std::runtime_error("native_delivery_objective_missing");return result;
++ }
++ static Json contact(CreatureObject* player,MissionObject* mission,DeliverMissionObjective* task,AiAgent* npc,bool giver){
++  auto point=npc->getWorldPosition();auto parent=npc->getParent().get();auto root=npc->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;
++  auto item=SwgxrMissionItems::parcel(player,mission);int stage=task->getObjectiveStatus();bool ownedItem=item!=nullptr && item->getParent().get()==player->getInventory();
++  Json value={{"id",id(npc)},{"npc_id",id(npc)},{"kind","delivery"},{"name",str(npc->getDisplayedName())},{"template",str(npc->getObjectTemplate()->getFullTemplateString())},{"client_crc",npc->getClientObjectCRC()},
++   {"position",Json::array({point.getX(),point.getZ(),point.getY()})},{"heading_radians",npc->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},
++   {"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"mission_id",id(mission)},{"mission_name",str(mission->getMissionTitle()->toString())},{"role",giver?"giver":"receiver"},
++   {"stage",stage==0?"pickup":stage==1?"deliver":"complete"},{"objective_status",stage},{"parcel_id",ownedItem?id(item):""},{"confirm_action",giver && stage==0?"delivery_pickup":!giver && stage==1 && ownedItem?"delivery_complete":""}};
++  value["mission_kind"]=mission->getTypeCRC()==MissionTypes::CRAFTING?"crafting":"deliver";value["parcel_ready"]=ownedItem;
++  if(mission->getTypeCRC()==MissionTypes::CRAFTING){value["recipe_template"]=str(mission->getTemplateString1());value["expected_template"]=str(mission->getTemplateString2());}
++  return value;
++ }
++ static ManagedReference<AiAgent*> nearby(CreatureObject* player,const Json& request,DeliverMissionObjective* task){
++  auto wanted=request.at("npc_id").get<std::string>();ManagedReference<AiAgent*> giver=task->getTargetSpawn().get(),receiver=task->getDestinationSpawn().get();
++  ManagedReference<AiAgent*> npc;
++  if(giver!=nullptr && id(giver)==wanted)npc=giver;else if(receiver!=nullptr && id(receiver)==wanted)npc=receiver;
++  if(npc==nullptr || npc->getZone()!=player->getZone() || npc->getParentID()!=player->getParentID() || !player->isInRange(npc,3))throw std::runtime_error("delivery_contact_cell_or_distance");
++  if(npc->isDead() || npc->isIncapacitated() || !CollisionManager::checkLineOfSight(player,npc))throw std::runtime_error("delivery_contact_unavailable_or_obstructed");return npc;
++ }
++public:
++ static void snapshot(CreatureObject* player,Json& output){
++  output["delivery_contacts"]=Json::array();output["parcels"]=Json::array();auto datapad=player->getSlottedObject("datapad");if(datapad==nullptr)return;
++  for(int i=0;i<datapad->getContainerObjectsSize() && output["delivery_contacts"].size()<32;++i){
++   auto mission=datapad->getContainerObject(i).castTo<MissionObject*>();if(mission==nullptr || !SwgxrMissionItems::eligible(mission))continue;
++   Reference<DeliverMissionObjective*> task=cast<DeliverMissionObjective*>(mission->getMissionObjective());if(task==nullptr)continue;Locker lock(task,player);ManagedReference<AiAgent*> giver=task->getTargetSpawn().get(),receiver=task->getDestinationSpawn().get();
++   if(giver!=nullptr && giver->getZone()==player->getZone())output["delivery_contacts"].push_back(contact(player,mission,task,giver,true));
++   if(receiver!=nullptr && receiver->getZone()==player->getZone())output["delivery_contacts"].push_back(contact(player,mission,task,receiver,false));
++   auto item=SwgxrMissionItems::parcel(player,mission);if(task->getObjectiveStatus()!=DeliverMissionObjective::PICKEDUPSTATUS || item==nullptr || item->getParent().get()!=player->getInventory())continue;
++   auto parcel=SwgxrInventory::describe(item,player);parcel["mission_id"]=id(mission);parcel["receiver_id"]=id(receiver);parcel["giver_id"]=id(giver);parcel["category"]="data";parcel["type"]="mission_parcel";parcel["stage"]="deliver";parcel["deletable"]=false;parcel["source"]="core3_delivery_objective";parcel["description"]=str(mission->getMissionDescription()->toString());
++   parcel["mission_kind"]=mission->getTypeCRC()==MissionTypes::CRAFTING?"crafting":"deliver";output["parcels"].push_back(parcel);
++  }
++ }
++ static Json open(CreatureObject* player,const Json& request){
++  auto mission=owned(player,request);auto task=objective(mission);Locker lock(task,player);auto npc=nearby(player,request,task);bool giver=npc==task->getTargetSpawn().get();auto view=contact(player,mission,task,npc,giver);int status=task->getObjectiveStatus();
++  Dialogue dialogue;
++  if(giver)view["dialogue"]=status==0?dialogue.original(mission,true):"@mission/mission_generic:deliver_already_picked_up";
++  else view["dialogue"]=status==1 && view["parcel_ready"].get<bool>()?dialogue.original(mission,false):"@mission/mission_generic:give_item";
++  return view;
++ }
++ static Json mutate(CreatureObject* player,const Json& request){
++  auto mission=owned(player,request);auto task=objective(mission);Locker lock(task,player);auto npc=nearby(player,request,task);auto action=request.at("action").get<std::string>();auto inventory=player->getInventory();if(inventory==nullptr)throw std::runtime_error("native_inventory_missing");
++  Json result={{"success",true},{"operation",action},{"mission_id",id(mission)},{"npc_id",id(npc)}};
++  Dialogue dialogue;
++  if(action=="delivery_pickup"){
++   if(npc!=task->getTargetSpawn().get() || task->getObjectiveStatus()!=DeliverMissionObjective::INITSTATUS)throw std::runtime_error("delivery_pickup_stage_or_giver_mismatch");
++   // Original updateMissionStatus aborts on transfer failure. Reject a full
++   // native inventory before invoking it, so a read/failed confirm is harmless.
++   if(inventory->getCountableObjectsRecursive()+SwgxrMissionItems::requiredSlots(mission)>inventory->getContainerVolumeLimit())throw std::runtime_error("inventory_full_for_native_mission_items");
++   result["dialogue"]=dialogue.original(mission,true);task->updateMissionStatus(player);auto parcel=SwgxrMissionItems::parcel(player,mission);
++   if(task->getObjectiveStatus()!=DeliverMissionObjective::PICKEDUPSTATUS || (mission->getTypeCRC()==MissionTypes::DELIVER && (parcel==nullptr || parcel->getParent().get()!=inventory)))throw std::runtime_error("native_delivery_pickup_failed");
++   result["parcel_id"]=parcel!=nullptr?id(parcel):"";result["stage"]="deliver";result["mission_kind"]=mission->getTypeCRC()==MissionTypes::CRAFTING?"crafting":"deliver";
++  }else if(action=="delivery_complete"){
++   auto parcel=SwgxrMissionItems::parcel(player,mission);if(npc!=task->getDestinationSpawn().get() || task->getObjectiveStatus()!=DeliverMissionObjective::PICKEDUPSTATUS || parcel==nullptr || id(parcel)!=request.at("parcel_id").get<std::string>() || parcel->getParent().get()!=inventory)throw std::runtime_error("owned_delivery_parcel_or_receiver_mismatch");
++   SwgxrMissionItems::selectForDelivery(player,mission,parcel);
++   result["parcel_id"]=id(parcel);result["dialogue"]=dialogue.original(mission,false);auto bank=player->getBankCredits(),cash=player->getCashCredits();task->updateMissionStatus(player);
++   if(task->getObjectiveStatus()!=DeliverMissionObjective::DELIVEREDSTATUS)throw std::runtime_error("native_delivery_completion_failed");
++   result["stage"]="complete";result["reward_bank_delta"]=player->getBankCredits()-bank;result["reward_cash_delta"]=player->getCashCredits()-cash;
++  }else throw std::runtime_error("unknown_delivery_mutation");
++  return result;
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMissionItems.h
+@@ -0,0 +1,76 @@
++#ifndef SWGXR_MISSION_ITEMS_H
++#define SWGXR_MISSION_ITEMS_H
++#include "SwgxrCraftingState.h"
++#include "server/zone/objects/mission/DeliverMissionObjective.h"
++#include "server/zone/objects/mission/MissionObject.h"
++#include "server/zone/managers/crafting/schematicmap/SchematicMap.h"
++#include "server/zone/objects/player/sessions/crafting/CraftingSession.h"
++#include "server/zone/objects/tangible/tool/CraftingTool.h"
++#include "server/zone/objects/manufactureschematic/ManufactureSchematic.h"
++#include <set>
++// Durable original-object provenance. A template match alone never authorizes
++// consuming a player's unrelated crafted item or deleting their possessions.
++class SwgxrMissionItems {
++ using Json=JSONSerializationType;
++ static std::string key(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static Json load(CreatureObject* c){auto s=c->getPlayerObject()->getScreenPlayData("swgxr_mission_items","state");return s.isEmpty()?Json::object():Json::parse(s.toCharArray());}
++ static void save(CreatureObject* c,const Json& s){auto g=c->getPlayerObject();g->setScreenPlayData("swgxr_mission_items","state",String(s.dump().c_str()));g->updateToDatabase();}
++ static ManagedReference<SceneObject*> object(CreatureObject* c,const std::string& id){return id.empty()?nullptr:c->getZoneServer()->getObject(std::stoull(id));}
++ static bool active(CreatureObject* c,MissionObject* m){return m!=nullptr && m->getParent().get()==c->getSlottedObject("datapad");}
++ static void erase(SceneObject* o,CreatureObject* c){if(o==nullptr)return;Locker lock(o,c);o->destroyObjectFromWorld(true);o->destroyObjectFromDatabase(true);}
++public:
++ static bool eligible(MissionObject* m){return m!=nullptr && (m->getTypeCRC()==MissionTypes::DELIVER || m->getTypeCRC()==MissionTypes::CRAFTING);}
++ static int requiredSlots(MissionObject* m){if(m->getTypeCRC()!=MissionTypes::CRAFTING)return 1;auto d=SchematicMap::instance()->get(m->getTemplateString1().hashCode());return d?d->getDraftSlotCount():0;}
++ static void registerComponent(CreatureObject* c,MissionObject* m,TangibleObject* item){auto s=load(c);auto k=key(m);if(!s.contains(k))s[k]={{"components",Json::array()},{"outputs",Json::array()}};s[k]["components"].push_back(key(item));save(c,s);}
++ static ManagedReference<TangibleObject*> parcel(CreatureObject* c,MissionObject* m){
++  if(!active(c,m) || !eligible(m))return nullptr;
++  auto task=cast<DeliverMissionObjective*>(m->getMissionObjective());if(task==nullptr || task->getObjectiveStatus()!=1)return nullptr;
++  if(m->getTypeCRC()==MissionTypes::DELIVER)return task->getItem();
++  auto s=load(c);auto k=key(m);if(!s.contains(k))return nullptr;
++  auto selected=s[k].value("selected",std::string());
++  for(auto& id:s[k].value("outputs",Json::array())){if(!selected.empty() && id!=selected)continue;auto o=object(c,id.get<std::string>()).castTo<TangibleObject*>();if(o!=nullptr && o->getParent().get()==c->getInventory() && o->getObjectTemplate()->getFullTemplateString()==m->getTemplateString2())return o;}
++  return nullptr;
++ }
++ static void selectForDelivery(CreatureObject* c,MissionObject* m,TangibleObject* item){
++  if(item==nullptr || !active(c,m) || item->getParent().get()!=c->getInventory())throw std::runtime_error("owned_mission_parcel_required");
++  if(m->getTypeCRC()==MissionTypes::DELIVER){if(parcel(c,m)!=item)throw std::runtime_error("bound_delivery_parcel_required");return;}
++  auto s=load(c);auto k=key(m);bool found=false;if(s.contains(k))for(auto& id:s[k].value("outputs",Json::array()))if(id==key(item))found=true;
++  if(!found || item->getObjectTemplate()->getFullTemplateString()!=m->getTemplateString2())throw std::runtime_error("mission_crafted_provenance_required");s[k]["selected"]=key(item);save(c,s);
++ }
++ static void recordCrafted(CreatureObject* c,DraftSchematic* draft,TangibleObject* prototype){
++  if(c==nullptr || draft==nullptr || prototype==nullptr)return;auto bag=c->getSlottedObject("datapad");if(bag==nullptr)return;
++  auto s=load(c);auto craft=SwgxrCraftingState::load(c);std::set<std::string> escrow;
++  if(craft["draft"].is_object())for(auto& e:craft["draft"].value("escrow",Json::array()))escrow.insert(e.at("id").get<std::string>());
++  for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m==nullptr || m->getTypeCRC()!=MissionTypes::CRAFTING || draft->getServerObjectCRC()!=m->getTemplateString1().hashCode() || prototype->getObjectTemplate()->getFullTemplateString()!=m->getTemplateString2())continue;
++   auto task=cast<DeliverMissionObjective*>(m->getMissionObjective());auto k=key(m);if(task==nullptr || task->getObjectiveStatus()!=1 || !s.contains(k))continue;
++   bool ingredients=escrow.empty();for(auto& id:s[k]["components"])if(escrow.count(id.get<std::string>()))ingredients=true;if(!ingredients)continue;
++   s[k]["outputs"].push_back(key(prototype));save(c,s);return;
++  }
++ }
++ static void cleanup(CreatureObject* c,MissionObject* m){
++  if(c==nullptr || m==nullptr || c->getPlayerObject()==nullptr)return;
++  Locker playerLock(c);
++  auto s=load(c);auto k=key(m);std::set<std::string> tagged;
++  if(s.contains(k))for(auto field:{"components","outputs"})for(auto& id:s[k].value(field,Json::array()))tagged.insert(id.get<std::string>());
++  auto task=cast<DeliverMissionObjective*>(m->getMissionObjective());if(m->getTypeCRC()==MissionTypes::DELIVER && task!=nullptr && task->getItem()!=nullptr)tagged.insert(key(task->getItem()));
++  // The original client keeps its session on the player; XR drafts keep it
++  // on the tool. Cancel a matching original draft through its normal refund.
++  auto original=c->getActiveSession(SessionFacadeType::CRAFTING).castTo<CraftingSession*>();
++  if(original!=nullptr && m->getTypeCRC()==MissionTypes::CRAFTING){auto manu=original->getSchematic().get();auto draft=manu==nullptr?nullptr:manu->getDraftSchematic();if(draft!=nullptr && draft->getServerObjectCRC()==m->getTemplateString1().hashCode()){Locker lock(original,c);original->cancelSession();}}
++  auto craft=SwgxrCraftingState::load(c);auto& d=craft["draft"];bool touched=false;
++  if(d.is_object())for(auto& e:d.value("escrow",Json::array()))if(tagged.count(e.at("id").get<std::string>()))touched=true;
++  if(touched){
++   auto tool=object(c,d.value("tool_id",std::string()));auto cs=tool==nullptr?nullptr:tool->getActiveSession(SessionFacadeType::CRAFTING).castTo<CraftingSession*>();if(cs!=nullptr){Locker lock(cs,c);cs->cancelSession();}
++   // Refund every exact original, including unrelated ingredients, using the
++   // journal's reserved slot before removing only this mission's tagged IDs.
++   auto& entries=d["escrow"];while(!entries.empty()){auto e=entries.back();auto o=object(c,e.at("id").get<std::string>()),parent=object(c,e.at("parent").get<std::string>());if(o==nullptr || parent==nullptr)throw std::runtime_error("mission_crafting_escrow_recovery_required");if(o->getParent().get()!=parent && !parent->transferObject(o,-1,true,true))throw std::runtime_error("mission_crafting_refund_failed");entries.erase(entries.end()-1);SwgxrCraftingState::save(c,craft);}
++   erase(object(c,d.value("store",std::string())),c);d=nullptr;SwgxrCraftingState::save(c,craft);
++  }
++  Json jobs=Json::array();for(auto& job:craft["jobs"]){auto tool=object(c,job.at("tool_id").get<std::string>()).castTo<CraftingTool*>();auto p=tool==nullptr?nullptr:tool->getPrototype();if(p!=nullptr && tagged.count(key(p))){erase(p,c);tool->setReady();tool->setCountdownTimer(0,true);}else jobs.push_back(job);}craft["jobs"]=jobs;SwgxrCraftingState::save(c,craft);
++  for(auto& id:tagged){auto o=object(c,id);if(o==nullptr)continue;
++   ManagedReference<SceneObject*> parent=o->getParent().get();auto tool=parent.castTo<CraftingTool*>();
++   if(tool!=nullptr && tool->getPrototype()==o){Locker lock(tool,c);erase(o,c);tool->setReady();tool->setCountdownTimer(0,true);}else erase(o,c);
++  }s.erase(k);save(c,s);
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -2,6 +2,7 @@
+ #define SWGXR_SERVICES_H
+ #include "SwgxrInventory.h"
+ #include "SwgxrTrainers.h"
++#include "SwgxrDelivery.h"
+ #include "server/zone/managers/auction/AuctionManager.h"
+ #include "server/zone/managers/auction/AuctionsMap.h"
+ #include "server/zone/objects/auction/AuctionItem.h"
+@@ -30,7 +31,7 @@
+  static int command(CreatureObject* c,const char* name,uint64 target,const std::string& args=""){
+   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name);if(cmd==nullptr)throw std::runtime_error("native_command_unavailable");int code=cmd->doQueueCommand(c,target,UnicodeString(String(args.c_str())));if(code!=QueueCommand::SUCCESS)throw std::runtime_error(std::string("native_")+name+"_rejected_"+std::to_string(code));return code;
+  }
+- static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon";}
++ static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon" || type=="deliver" || type=="crafting";}
+  static Json mission(MissionObject* m,bool active){return {{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};}
+  static Json missions(CreatureObject* c,bool active){Json a=Json::array();auto bag=c->getSlottedObject(active?"datapad":"mission_bag");if(bag!=nullptr)for(int i=0;i<bag->getContainerObjectsSize() && a.size()<64;++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRewardCredits()>0)a.push_back(mission(m,active));}return a;}
+  static Json listings(CreatureObject* c,const Json& r){Json rows=Json::array();int matched=0,offset=r.value("page",0)*100,category=r.value("category_id",0);auto manager=c->getZoneServer()->getAuctionManager();auto lists=manager->getAuctionMap()->getBazaarTerminalData("","",nullptr);for(int i=0;i<lists.size() && rows.size()<101;++i){auto list=lists.get(i);ReadLocker guard(list);for(int j=0;j<list->size() && rows.size()<101;++j){auto a=list->get(j);if(a==nullptr || (a->getStatus()!=AuctionItem::FORSALE && a->getBuyerID()!=c->getObjectID() && a->getOwnerID()!=c->getObjectID()))continue;if(!manager->checkItemCategory(category,a))continue;if(matched++<offset)continue;rows.push_back({{"id",std::to_string(a->getAuctionedItemObjectID())},{"name",str(a->getItemName())},{"description",str(a->getItemDescription())},{"price",a->getPrice()},{"category_id",a->getItemType()},{"auction",a->isAuction()},{"status",a->getStatus()},{"owner_id",std::to_string(a->getOwnerID())},{"buyer_id",std::to_string(a->getBuyerID())},{"vendor_id",std::to_string(a->getVendorID())},{"expires",a->getExpireTime()},{"min_bid",a->getPrice()+1},{"buy_eligible",a->getStatus()==AuctionItem::FORSALE && a->getOwnerID()!=c->getObjectID()},{"retrieve_eligible",a->getStatus()==AuctionItem::SOLD?a->getBuyerID()==c->getObjectID():a->getStatus()==AuctionItem::EXPIRED && a->getOwnerID()==c->getObjectID()}});}}return rows;}
+@@ -59,6 +60,8 @@
+   String customization;c->getCustomizationString(customization);std::string hex;static const char* digits="0123456789abcdef";for(int i=0;i<customization.length();++i){unsigned char b=customization[i];hex+=digits[b>>4];hex+=digits[b&15];}
+   Json out={{"backend","core3"},{"source_kind","core3_services"},{"character_id",id(c)},{"wallet",{{"cash",c->getCashCredits()},{"bank",c->getBankCredits()}}},{"player",location(c)},{"terminals",Json::array()},{"terminal",Json::object()},{"missions",missions(c,true)}};
+   out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
++  SwgxrDelivery::snapshot(c,out);
++  if(r.value("action",std::string())=="delivery_open" || r.value("action",std::string())=="delivery_pickup")out["terminal"]=SwgxrDelivery::open(c,r);
+   out["skills"]=SwgxrTrainers::skills(c);out["skills_complete"]=true;out["experience"]=SwgxrTrainers::experience(c);out["experience_complete"]=true;
+   out["player"]["appearance"]={{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"client_crc",c->getClientObjectCRC()},{"customization_hex",hex},{"height",c->getHeight(false)}};
+   SortedVector<TreeEntry*> objects;auto w=c->getWorldPosition();c->getZone()->getInRangeObjects(w.getX(),w.getZ(),w.getY(),64,&objects,true);
+@@ -71,10 +74,13 @@
+   }return out;
+  }
+  static Json run(CreatureObject* c,const Json& r){
+-  if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_services_required");auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=r)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;return out;}}
++  if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_services_required");auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
++  Json receiptRequest=r;if(action=="delivery_pickup" || action=="delivery_complete")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})receiptRequest.erase(field);
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && (c->isDead() || c->isIncapacitated() || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+   if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
++  else if(action=="delivery_open"){SwgxrDelivery::open(c,r);}
++  else if(action=="delivery_pickup" || action=="delivery_complete"){auto delivery=SwgxrDelivery::mutate(c,r);for(auto it=delivery.begin();it!=delivery.end();++it)result[it.key()]=it.value();}
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();int n=amount(r);if(target==nullptr || target==c || !target->isPlayerCreature() || !target->isOnline() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,3))throw std::runtime_error("payment_target_unavailable");if(int64(target->getCashCredits())+n>2147483647)throw std::runtime_error("recipient_balance_limit");command(c,"tip",target->getObjectID(),std::to_string(n));}
+@@ -86,8 +92,8 @@
+   else if(action=="travel_purchase"){nearby(c,r,"travel");auto pm=c->getZone()->getPlanetManager();auto departure=pm->getNearestPlanetTravelPoint(c,128);String destination(r.at("destination_id").get<std::string>().c_str());if(departure==nullptr || pm->getPlanetTravelPoint(destination)==nullptr || destination==departure->getPointName())throw std::runtime_error("invalid_tatooine_destination");std::string args="tatooine "+str(departure->getPointName().replaceAll(" ","_"))+" tatooine "+str(destination.replaceAll(" ","_"))+(r.value("round_trip",false)?" round":" single");auto before=tickets(c,Json::object()).size();ghost->closeSuiWindowType(SuiWindowType::TRAVEL_TICKET_SELECTION);try{command(c,"purchaseticket",0,args);}catch(const std::exception&){auto sui=ghost->getSuiBoxFromWindowType(SuiWindowType::TRAVEL_TICKET_SELECTION);auto callback=sui!=nullptr?dynamic_cast<TravelCouponUseSuiCallback*>(sui->getCallback()):nullptr;if(callback==nullptr)throw;Vector<UnicodeString> choices;callback->run(c,sui,1,&choices);ghost->closeSuiWindowType(SuiWindowType::TRAVEL_TICKET_SELECTION);}if(tickets(c,Json::object()).size()<=before)throw std::runtime_error("ticket_not_created");}
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || ticket->getArrivalPlanet()!="tatooine")throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+-  if(mutation){receipts.push_back({{"id",key},{"request",r},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/mission/DeliverMissionObjectiveImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/mission/DeliverMissionObjectiveImplementation.cpp
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "server/zone/objects/mission/DeliverMissionObjective.h"
++#include "server/zone/objects/creature/commands/SwgxrMissionItems.h"
+ #include "server/ServerCore.h"
+ #include "server/zone/objects/waypoint/WaypointObject.h"
+ #include "server/zone/Zone.h"
+@@ -142,6 +143,7 @@
+ }
+ 
+ void DeliverMissionObjectiveImplementation::abort() {
++	SwgxrMissionItems::cleanup(getPlayerOwner(), mission.get());
+ 	MissionObjectiveImplementation::abort();
+ 
+ 	despawnNpcs();
+@@ -198,8 +200,7 @@
+ 		if (inventory->transferObject(item, -1, true)) {
+ 			item->sendTo(player, true);
+ 		} else {
+-			abort();
+-			item->destroyObjectFromDatabase(true);
++			abort(); // Bound parcel cleanup is part of global abort.
+ 			return;
+ 		}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/mission/CraftingMissionObjectiveImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/mission/CraftingMissionObjectiveImplementation.cpp
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "server/zone/objects/mission/CraftingMissionObjective.h"
++#include "server/zone/objects/creature/commands/SwgxrMissionItems.h"
+ #include "server/zone/managers/crafting/schematicmap/SchematicMap.h"
+ #include "server/zone/objects/mission/MissionObject.h"
+ 
+@@ -34,6 +35,8 @@
+ 
+ 	switch (objectiveStatus) {
+ 	case 0:
++		// Check all component slots before granting any schematic or item.
++		if (inventory->getCountableObjectsRecursive()+schematic->getDraftSlotCount()>inventory->getContainerVolumeLimit()) return;
+ 		//Award schematic and resources needed for it.
+ 		ghost->addRewardedSchematic(schematic, SchematicList::MISSION, 1, true);
+ 
+@@ -44,13 +47,14 @@
+ 				Locker locker(item);
+ 
+ 				if (inventory->transferObject(item, -1, true)) {
++					SwgxrMissionItems::registerComponent(player, mission, item);
+ 					item->sendTo(player, true);
+ 				} else {
+ 					item->destroyObjectFromDatabase(true);
+ 					abort();
+ 					return;
+ 				}
+-			}
++			} else { abort(); return; }
+ 		}
+ 
+ 		updateMissionTarget(player);
+@@ -58,22 +62,17 @@
+ 		objectiveStatus = PICKEDUPSTATUS;
+ 		break;
+ 	case 1:
+-		//Check if player has the item.
+-		for (int i = 0; i < inventory->getContainerObjectsSize(); i++) {
+-			Reference<SceneObject*> item = inventory->getContainerObject(i);
+-
+-			Locker locker(item);
+-
+-			if (item != nullptr && item->getObjectTemplate()->getFullTemplateString() == mission->getTemplateString2()) {
+-				//Delete the item.
+-				item->destroyObjectFromWorld(true);
+-				item->destroyObjectFromDatabase(true);
+-
+-				complete();
+-
+-				objectiveStatus = DELIVEREDSTATUS;
+-			}
+-		}
++        // Consume exactly one output produced for this active mission. A
++        // same-template personal item is never an acceptable substitute.
++        {
++            auto output=SwgxrMissionItems::parcel(player,mission);
++            if(output==nullptr)return;
++            Locker locker(output,player);
++            SwgxrMissionItems::cleanup(player,mission);
++            ghost->removeRewardedSchematic(schematic,true);
++            objectiveStatus=DELIVEREDSTATUS;
++            complete();
++        }
+ 		break;
+ 	default:
+ 		break;
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrMissionItems.h"
+ /*
+  * CraftingSessionImplementation.cpp
+  *
+@@ -1396,6 +1397,7 @@
+ 		int xp = manufactureSchematic->getDraftSchematic()->getXpAmount();
+ 
+ 		if (createItem) {
++			SwgxrMissionItems::recordCrafted(crafter, manufactureSchematic->getDraftSchematic(), prototype.get());
+ 			startCreationTasks(manufactureSchematic->getComplexity() * 2, false);
+ 
+ 		} else {
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/events/CreateObjectTask.h
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/events/CreateObjectTask.h
+@@ -31,6 +31,7 @@
+ 	ManagedReference<CraftingTool*> craftingTool;
+ 	ManagedReference<CreatureObject*> crafter;
+ 	bool practice;
++	uint64 expectedPrototype = 0;
+ 
+ public:
+ 	CreateObjectTask(CreatureObject* player, CraftingTool* tool, bool pract) : Task() {
+@@ -38,12 +39,16 @@
+ 		craftingTool = tool;
+ 		crafter = player;
+ 		practice = pract;
++		auto original = tool->getPrototype();
++		expectedPrototype = original == nullptr ? 0 : original->getObjectID();
+ 	}
+ 
+ 	void run() {
+ 		Locker locker(crafter);
+ 		Locker clocker(craftingTool, crafter);
+ 
++		auto expected = craftingTool->getPrototype();
++		if ((expected == nullptr ? 0 : expected->getObjectID()) != expectedPrototype) return;
+ 		craftingTool->setCountdownTimer(0, true);
+ 
+ 		auto prototype = craftingTool->getPrototype();
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/events/UpdateToolCountdownTask.h
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/events/UpdateToolCountdownTask.h
+@@ -10,12 +10,16 @@
+ 	ManagedWeakReference<TangibleObject* > craftTool;
+ 	ManagedWeakReference<CreatureObject* > player;
+ 	int timeLeft;
++	uint64 expectedPrototype = 0;
+ 
+ public:
+ 	UpdateToolCountdownTask(CreatureObject* pl, TangibleObject* tool, int time) : Task() {
+ 		craftTool = tool;
+ 		player = pl;
+ 		timeLeft = time;
++		auto crafting = cast<CraftingTool*>(tool);
++		auto prototype = crafting == nullptr ? nullptr : crafting->getPrototype();
++		expectedPrototype = prototype == nullptr ? 0 : prototype->getObjectID();
+ 	}
+ 
+ 	void run() {
+@@ -36,6 +40,9 @@
+ 
+ 			Locker clocker(craftingTool, crafter);
+ 
++			auto crafting = cast<CraftingTool*>(craftingTool.get());
++			auto prototype = crafting == nullptr ? nullptr : crafting->getPrototype();
++			if ((prototype == nullptr ? 0 : prototype->getObjectID()) != expectedPrototype) return;
+ 			craftingTool->setCountdownTimer(timeLeft, true);
+ 
+ 		} catch (Exception& e) {

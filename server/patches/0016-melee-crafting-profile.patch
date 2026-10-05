@@ -1,0 +1,24 @@
+--- a/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
+@@ -225,10 +225,17 @@
+ 		alm->insertAttribute("swgxr.id", String(ref.id));
+ 		alm->insertAttribute("swgxr.valid", profile.valid ? 1 : 0);
+ 		if (!profile.valid) break;
+-		alm->insertAttribute("Rate of fire (RPM)", String::valueOf(profile.rpm));
+-		alm->insertAttribute("Capacity (shots)", profile.capacity);
+-		alm->insertAttribute("swgxr.rpm_modifier", String::valueOf(profile.rpmModifier));
+-		alm->insertAttribute("swgxr.capacity_modifier", String::valueOf(profile.capacityModifier));
++		if (ref.melee) {
++			alm->insertAttribute("Stance recovery", String::valueOf(profile.stanceRecovery));
++			alm->insertAttribute("Power", String::valueOf(profile.power));
++			alm->insertAttribute("swgxr.stance_recovery_modifier", String::valueOf(profile.rpmModifier));
++			alm->insertAttribute("swgxr.power_modifier", String::valueOf(profile.capacityModifier));
++		} else {
++			alm->insertAttribute("Rate of fire (RPM)", String::valueOf(profile.rpm));
++			alm->insertAttribute("Capacity (shots)", profile.capacity);
++			alm->insertAttribute("swgxr.rpm_modifier", String::valueOf(profile.rpmModifier));
++			alm->insertAttribute("swgxr.capacity_modifier", String::valueOf(profile.capacityModifier));
++		}
+ 		alm->insertAttribute("swgxr.attack_delay", String::valueOf(attackSpeed));
+ 		alm->insertAttribute("swgxr.health_cost", healthAttackCost);
+ 		alm->insertAttribute("swgxr.action_cost", actionAttackCost);

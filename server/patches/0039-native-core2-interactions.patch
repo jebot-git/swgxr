@@ -1,0 +1,128 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -24,16 +24,16 @@
+  static uint64 oid(const Json& r,const char* k){auto v=r.at(k).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_object_id");return std::stoull(v);}
+  static Json pos(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+  static std::string kind(SceneObject* o){int t=o->getGameObjectType();return t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":!SwgxrTrainers::type(o).empty()?"trainer":"";}
+- static Json terminal(SceneObject* o){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;return {{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};}
++ static Json terminal(SceneObject* o){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";}return out;}
+  static ManagedReference<SceneObject*> nearby(CreatureObject* c,const Json& r,const std::string& expected=""){
+   auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(t==nullptr || kind(t).empty() || (!expected.empty() && kind(t)!=expected) || t->getZone()!=c->getZone() || c->getParentID()!=t->getParentID() || !c->isInRange(t,kind(t)=="mission"?6:kind(t)=="crafting"?7:8))throw std::runtime_error("terminal_type_cell_or_distance");if(kind(t)=="trainer")SwgxrTrainers::validate(c,t);return t;
+  }
+  static int command(CreatureObject* c,const char* name,uint64 target,const std::string& args=""){
+   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name);if(cmd==nullptr)throw std::runtime_error("native_command_unavailable");int code=cmd->doQueueCommand(c,target,UnicodeString(String(args.c_str())));if(code!=QueueCommand::SUCCESS)throw std::runtime_error(std::string("native_")+name+"_rejected_"+std::to_string(code));return code;
+  }
+- static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon" || type=="deliver" || type=="crafting";}
++ static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon" || type=="deliver" || type=="crafting" || type=="survey";}
+  static Json mission(MissionObject* m,bool active){return {{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};}
+- static Json missions(CreatureObject* c,bool active){Json a=Json::array();auto bag=c->getSlottedObject(active?"datapad":"mission_bag");if(bag!=nullptr)for(int i=0;i<bag->getContainerObjectsSize() && a.size()<64;++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRewardCredits()>0)a.push_back(mission(m,active));}return a;}
++ static Json missions(CreatureObject* c,bool active){Json a=Json::array();auto bag=c->getSlottedObject(active?"datapad":"mission_bag");if(bag!=nullptr)for(int i=0;i<bag->getContainerObjectsSize() && a.size()<64;++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getTypeCRC()!=0 && m->getRewardCredits()>0)a.push_back(mission(m,active));}return a;}
+  static Json listings(CreatureObject* c,const Json& r){Json rows=Json::array();int matched=0,offset=r.value("page",0)*100,category=r.value("category_id",0);auto manager=c->getZoneServer()->getAuctionManager();auto lists=manager->getAuctionMap()->getBazaarTerminalData("","",nullptr);for(int i=0;i<lists.size() && rows.size()<101;++i){auto list=lists.get(i);ReadLocker guard(list);for(int j=0;j<list->size() && rows.size()<101;++j){auto a=list->get(j);if(a==nullptr || (a->getStatus()!=AuctionItem::FORSALE && a->getBuyerID()!=c->getObjectID() && a->getOwnerID()!=c->getObjectID()))continue;if(!manager->checkItemCategory(category,a))continue;if(matched++<offset)continue;rows.push_back({{"id",std::to_string(a->getAuctionedItemObjectID())},{"name",str(a->getItemName())},{"description",str(a->getItemDescription())},{"price",a->getPrice()},{"category_id",a->getItemType()},{"auction",a->isAuction()},{"status",a->getStatus()},{"owner_id",std::to_string(a->getOwnerID())},{"buyer_id",std::to_string(a->getBuyerID())},{"vendor_id",std::to_string(a->getVendorID())},{"expires",a->getExpireTime()},{"min_bid",a->getPrice()+1},{"buy_eligible",a->getStatus()==AuctionItem::FORSALE && a->getOwnerID()!=c->getObjectID()},{"retrieve_eligible",a->getStatus()==AuctionItem::SOLD?a->getBuyerID()==c->getObjectID():a->getStatus()==AuctionItem::EXPIRED && a->getOwnerID()==c->getObjectID()}});}}return rows;}
+  static Json tickets(CreatureObject* c,const Json& travel){Json out=Json::array();auto inv=c->getInventory();if(inv==nullptr)return out;for(int i=0;i<inv->getContainerObjectsSize();++i){auto ticket=inv->getContainerObject(i).castTo<TicketObject*>();if(ticket==nullptr)continue;out.push_back({{"id",id(ticket)},{"departure",str(ticket->getDeparturePoint())},{"departure_planet",str(ticket->getDeparturePlanet())},{"arrival",str(ticket->getArrivalPoint())},{"planet",str(ticket->getArrivalPlanet())},{"usable",ticket->getDeparturePlanet()==c->getZone()->getZoneName() && str(ticket->getDeparturePoint())==travel.value("departure",std::string()) && ticket->getArrivalPlanet()=="tatooine"}});}return out;}
+  static int amount(const Json& r){if(!r.at("amount").is_number_integer())throw std::runtime_error("invalid_amount");auto n=r.at("amount").get<int64>();if(n<=0 || n>2000000000)throw std::runtime_error("invalid_amount");return int(n);}
+@@ -84,7 +84,7 @@
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();int n=amount(r);if(target==nullptr || target==c || !target->isPlayerCreature() || !target->isOnline() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,3))throw std::runtime_error("payment_target_unavailable");if(int64(target->getCashCredits())+n>2147483647)throw std::runtime_error("recipient_balance_limit");command(c,"tip",target->getObjectID(),std::to_string(n));}
+-  else if(action=="mission_accept" || action=="mission_abort"){auto m=c->getZoneServer()->getObject(oid(r,"mission_id")).castTo<MissionObject*>();if(m==nullptr || !m->isASubChildOf(c))throw std::runtime_error("owned_mission_required");auto manager=c->getZoneServer()->getMissionManager();if(action=="mission_accept"){if(!supportedMission(m))throw std::runtime_error("mission_objective_interaction_not_supported");auto t=nearby(c,r,"mission");if(ghost->getScreenPlayData("swgxr_services","mission_terminal")!=String(id(t).c_str()))throw std::runtime_error("mission_terminal_changed");manager->handleMissionAccept(static_cast<MissionTerminal*>(t.get()),m,c);if(m->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("native_mission_accept_rejected");}else{if(m->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("active_mission_required");manager->handleMissionAbort(m,c);}}
++  else if(action=="mission_accept" || action=="mission_abort"){auto m=c->getZoneServer()->getObject(oid(r,"mission_id")).castTo<MissionObject*>();if(m==nullptr || !m->isASubChildOf(c))throw std::runtime_error("owned_mission_required");auto manager=c->getZoneServer()->getMissionManager();if(action=="mission_accept"){if(m->getTypeCRC()==0 || m->getRewardCredits()<=0)throw std::runtime_error("This mission offer is no longer available; refresh the terminal");if(m->getParent().get()!=c->getSlottedObject("mission_bag"))throw std::runtime_error("An unaccepted owned mission offer is required");if(missions(c,true).size()>=2)throw std::runtime_error("Two missions are already active; complete or cancel one first");if(!supportedMission(m))throw std::runtime_error("mission_objective_interaction_not_supported");auto t=nearby(c,r,"mission");if(ghost->getScreenPlayData("swgxr_services","mission_terminal")!=String(id(t).c_str()))throw std::runtime_error("mission_terminal_changed");manager->handleMissionAccept(static_cast<MissionTerminal*>(t.get()),m,c);if(m->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("native_mission_accept_rejected");}else{if(m->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("active_mission_required");manager->handleMissionAbort(m,c);}}
+   else if(action=="bazaar_buy" || action=="bazaar_retrieve"){auto t=nearby(c,r,"bazaar");auto manager=c->getZoneServer()->getAuctionManager();uint64 item=oid(r,"listing_id");auto sale=manager->getAuctionMap()->getItem(item);if(sale==nullptr || !sale->isOnBazaar())throw std::runtime_error("bazaar_listing_missing");if(action=="bazaar_buy"){int price=r.at("price").get<int>();if(price<sale->getPrice() || (!sale->isAuction() && price!=sale->getPrice()))throw std::runtime_error("listing_price_changed");manager->buyItem(c,item,price,sale->isAuction()?r.value("max_price",price+1):price);if(sale->getBuyerID()!=c->getObjectID())throw std::runtime_error("native_purchase_rejected");result["retrieval_required"]=true;}else{int code=manager->checkRetrieve(c,item,t);if(code!=0)throw std::runtime_error("native_retrieve_rejected_"+std::to_string(code));manager->retrieveItem(c,item,t->getObjectID());auto o=c->getZoneServer()->getObject(item);if(o==nullptr || !o->isASubChildOf(c))throw std::runtime_error("native_retrieve_failed");}}
+   else if(action=="bazaar_sell"){auto t=nearby(c,r,"bazaar");auto manager=c->getZoneServer()->getAuctionManager();auto item=c->getZoneServer()->getObject(oid(r,"item_id"));if(item==nullptr || !item->isASubChildOf(c))throw std::runtime_error("owned_sale_item_required");int price=r.at("price").get<int>();int code=manager->checkSaleItem(c,item,t,price,false,false);if(code!=0)throw std::runtime_error("native_sale_rejected_"+std::to_string(code));manager->addSaleItem(c,item->getObjectID(),t,UnicodeString(String(r.value("description",std::string()).c_str())),price,604800,r.value("auction",false),false);if(manager->getAuctionMap()->getItem(item->getObjectID())==nullptr)throw std::runtime_error("native_sale_not_created");result["listing_id"]=id(item);}
+   else if(action=="bazaar_cancel"){nearby(c,r,"bazaar");auto manager=c->getZoneServer()->getAuctionManager();uint64 item=oid(r,"listing_id");auto a=manager->getAuctionMap()->getItem(item);if(a==nullptr || !a->isOnBazaar() || a->getOwnerID()!=c->getObjectID())throw std::runtime_error("owned_bazaar_listing_required");manager->cancelItem(c,item);}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/managers/resource/ResourceManager.h"
+ #include "server/zone/objects/waypoint/WaypointObject.h"
+ #include "templates/manager/TemplateManager.h"
++#include "templates/params/ObserverEventType.h"
+ #include <ctime>
+ #include <cmath>
+ class SwgxrGathering {
+@@ -34,7 +35,7 @@
+  }
+  static Json describe(CreatureObject* c,SceneObject* tool){auto value=SwgxrInventory::describe(tool,c);tool->sendAttributeListTo(c);return value;}
+  static Json resource(ResourceSpawn* spawn){
+-  Json out={{"id",id(spawn)},{"name",std::string(spawn->getName().toCharArray())},{"type",std::string(spawn->getType().toCharArray())},{"family",std::string(spawn->getFamilyName().toCharArray())},{"expires_at_unix",spawn->getDespawned()},{"container_template",std::string(TemplateManager::instance()->getTemplateFile(spawn->getContainerCRC()).toCharArray())},{"attributes",Json::array()}};
++  Json out={{"id",id(spawn)},{"name",std::string(spawn->getName().toCharArray())},{"type",std::string(spawn->getType().toCharArray())},{"family",std::string(spawn->getFamilyName().toCharArray())},{"mission_family",std::string(spawn->getSurveyMissionSpawnFamilyName().toCharArray())},{"expires_at_unix",spawn->getDespawned()},{"container_template",std::string(TemplateManager::instance()->getTemplateFile(spawn->getContainerCRC()).toCharArray())},{"attributes",Json::array()}};
+   for(int i=0;i<32;++i){String key;int value=spawn->getAttributeAndValue(key,i);if(key.isEmpty())break;out["attributes"].push_back({{"name",std::string(key.toCharArray())},{"value",value}});}return out;
+  }
+  static Json position(const Json& request){
+@@ -103,6 +104,9 @@
+     survey->setRange(384);int range=survey->getRange(c),points=survey->getPoints();float step=float(range)/float(points-1);Json spots=Json::array(),highest={{"density",-1}};
+     for(int row=0;row<points;++row)for(int col=0;col<points;++col){float px=x-range/2.f+col*step,pz=z+range/2.f-row*step;float density=spawn->getDensityAt("tatooine",px,pz);Json spot={{"position",Json::array({px,0,pz})},{"density",density}};spots.push_back(spot);if(density>highest["density"].get<float>())highest=spot;}
+     Json waypoint=nullptr;if(highest["density"].get<float>()>0){auto ghost=c->getPlayerObject();ManagedReference<WaypointObject*> point=ghost->getSurveyWaypoint();if(point==nullptr)point=c->getZoneServer()->createObject(0xc456e788,1).castTo<WaypointObject*>();if(point==nullptr)throw std::runtime_error("Cannot create persistent survey waypoint");Locker lock(point,c);point->setCustomObjectName(UnicodeString("Resource Survey"),false);point->setPlanetCRC(STRING_HASHCODE("tatooine"));point->setPosition(highest["position"][0].get<float>(),0,highest["position"][2].get<float>());point->setColor(WaypointObject::COLOR_BLUE);point->setSpecialTypeID(WaypointObject::SPECIALTYPE_RESOURCE);point->setActive(true);ghost->addWaypoint(point,false,true);waypoint={{"id",id(point)},{"position",highest["position"]},{"name","Resource Survey"},{"planet","tatooine"}};}
++    // Original SurveySession converts the grid maximum to percent before notifying SurveyMissionObjective.
++    // Its original family, density and >1024m distance checks remain authoritative.
++    if(highest["density"].get<float>()>=.10f && std::hypot(x-c->getWorldPosition().getX(),z-c->getWorldPosition().getY())<=6.0)c->notifyObservers(ObserverEventType::SURVEY,spawn,int64(highest["density"].get<float>()*100));
+     mutation["survey"]={{"planet","tatooine"},{"position",pos},{"resource_id",id(spawn)},{"range_m",range},{"points_per_axis",points},{"spots",spots},{"highest",highest},{"waypoint",waypoint}};Json skill;checkpointSkills(c,skill);mutation["survey"]["minimum_productive_density"]=productiveDensity(skill);mutation["survey"]["recommended_density"]=productiveDensity(skill,true);return mutation;
+    }
+    if(s["deployments"].size()>=16)throw std::runtime_error("Maximum concurrent deployed tools reached");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -10,6 +10,8 @@
+ #include <fstream>
+ #include <mutex>
+ #include <chrono>
++#include <cstdlib>
++#include <sys/stat.h>
+ // VR seating is independent of the legacy single rider containment slot.
+ // Core3 control devices, ownership, decay and locomotion statistics remain native.
+ class SwgxrVehicles {
+@@ -26,9 +28,24 @@
+  static Json wire(const Vector3& p){return Json::array({p.getX(),p.getZ(),p.getY()});}
+  static Vector3 point(const Json& p){if(!p.is_array() || p.size()!=3)throw std::runtime_error("Invalid vehicle pose");for(auto& v:p)if(!v.is_number() || !std::isfinite(v.get<double>()) || std::abs(v.get<double>())>10000)throw std::runtime_error("Invalid vehicle pose");return Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>());}
+  static Json descriptor(CreatureObject* v){
+-  static Json catalog=[](){std::ifstream f("/workspace/runtime/assets/vehicles/catalog.json");Json data; if(f)f>>data;return data;}();
++  // Native deployments need only the bounded descriptor catalog, not client geometry.
++  // Recheck periodically so installing/replacing it never requires a world restart.
++  static std::mutex catalogMutex;std::lock_guard<std::mutex> guard(catalogMutex);
++  static Json catalog;static std::string loadedPath,error;static int64 stamp=-1,size=-1;static double checked=-10;
++  if(now()-checked>=2){
++   checked=now();const char* configured=std::getenv("SWGXR_VEHICLE_CATALOG");
++   std::vector<std::string> paths=configured && *configured?std::vector<std::string>{configured}:std::vector<std::string>{"../../../../runtime/assets/vehicles/catalog.json","runtime/assets/vehicles/catalog.json","/workspace/runtime/assets/vehicles/catalog.json"};
++   struct stat info{};std::string path;for(auto& candidate:paths)if(::stat(candidate.c_str(),&info)==0){path=candidate;break;}
++   if(path.empty()){catalog=Json();error="Native vehicle descriptor catalog is unavailable";loadedPath.clear();}
++   else if(path!=loadedPath || int64(info.st_mtime)!=stamp || int64(info.st_size)!=size || catalog.is_null()){
++    catalog=Json();loadedPath=path;stamp=info.st_mtime;size=info.st_size;
++    try{if(size<=0 || size>4*1024*1024)throw std::runtime_error("size");std::ifstream file(path);Json candidate;file>>candidate;if(!candidate.is_object() || !candidate.contains("items") || !candidate["items"].is_object() || candidate["items"].size()>256)throw std::runtime_error("shape");catalog=std::move(candidate);error.clear();}
++    catch(const std::exception&){error="Native vehicle descriptor catalog is invalid";}
++   }
++  }
++  if(catalog.is_null())throw std::runtime_error(error);
+   auto name=std::string(v->getObjectTemplate()->getFullTemplateString().toCharArray());
+-  if(!catalog.contains("items") || !catalog["items"].contains(name))throw std::runtime_error("Original vehicle asset not prepared");return catalog["items"][name];
++  if(!catalog["items"].contains(name))throw std::runtime_error("Original vehicle descriptor is not prepared for this template");return catalog["items"][name];
+  }
+  static Vector3 local(CreatureObject* v,const Json& p){
+   // Manifest has Godot -Z forward; Core3 is +Y forward, Z vertical.
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ServerDestroyObjectCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ServerDestroyObjectCommand.h
+@@ -52,7 +52,7 @@
+ 				if (ghost != nullptr)
+ 					for (int i = 0; i < ghost->getWaypointListSize(); ++i)
+ 						if (ghost->getWaypoint(i)->getObjectID() == target) owned = true;
+-				if (!owned || waypoint->getSpecialTypeID() != 0) return GENERALERROR;
++				if (!owned || (waypoint->getSpecialTypeID() != 0 && waypoint->getSpecialTypeID() != WaypointObject::SPECIALTYPE_RESOURCE)) return GENERALERROR;
+ 			} else if (object->getParent().get() != creature->getSlottedObject("datapad")) {
+ 				return GENERALERROR;
+ 			}
+@@ -69,6 +69,7 @@
+ 
+ 			if (ghost != nullptr) {
+ 				ghost->removeWaypoint(target);
++				ghost->updateToDatabase();
+ 			}
+ 
+ 			return SUCCESS;
+--- a/MMOCoreORB/src/server/zone/objects/waypoint/WaypointObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/waypoint/WaypointObjectImplementation.cpp
+@@ -45,7 +45,7 @@
+ 
+ void WaypointObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
+ 	IntangibleObjectImplementation::fillAttributeList(alm, object);
+-	alm->insertAttribute("swgxr.deletable", specialTypeID == 0 && questDetails.isEmpty() && !isClientObject() ? 1 : 0);
++	alm->insertAttribute("swgxr.deletable", (specialTypeID == 0 || specialTypeID == WaypointObject::SPECIALTYPE_RESOURCE) && questDetails.isEmpty() && !isClientObject() ? 1 : 0);
+ 
+ 	if (questDetails.length() > 0)
+ 		alm->insertAttribute("quest_details", questDetails);

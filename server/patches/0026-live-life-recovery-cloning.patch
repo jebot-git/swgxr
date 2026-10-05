@@ -1,0 +1,178 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -2,6 +2,7 @@
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+ 
++#include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/creature/ai/AiAgent.h"
+ #include "server/zone/objects/creature/ai/HelperDroidObject.h"
+@@ -699,6 +700,7 @@
+ }
+ 
+ void CreatureObjectImplementation::setIncapacitationTimer(uint32 timer, bool notifyClient) {
++	SwgxrLiveRecovery::duration(getObjectID(), timer);
+ 	cooldownTimerMap->updateToCurrentAndAddMili("incapTimer", timer*1000);
+ 
+ 	if (notifyClient) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,6 +1,11 @@
+ #ifndef SWGXR_LIVE_COMBAT_H
+ #define SWGXR_LIVE_COMBAT_H
+ #include "AttackCommand.h"
++#include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
++#include "server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h"
++#include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/objects/player/sui/listbox/SuiListBox.h"
++#include "templates/building/CloningBuildingObjectTemplate.h"
+ #include "SwgxrScout.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/tangible/LairObject.h"
+@@ -10,7 +15,7 @@
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+  struct Shot {std::string item;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
+- struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;};
++ struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+  static Json vector(const Json& p,bool direction=false){if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_vector");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(direction?2:i==1?2048:8192))throw std::runtime_error("invalid_vector");return p;}
+@@ -45,17 +50,62 @@
+   if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
+  }
++ static Json location(CreatureObject* c){
++  auto parent=c->getParent().get();auto root=c->getRootParent();int index=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;
++  return {{"position",position(c)},{"local_position",Json::array({c->getPositionX(),c->getPositionZ(),c->getPositionY()})},{"cell_id",parent?id(parent):"0"},{"building_id",index && root!=nullptr?id(root):"0"},{"cell_index",index},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"heading_radians",c->getDirection()->getRadians()}};
++ }
++ static uint64 cloneFacility(CreatureObject* c){
++  auto manager=c->getZoneServer()->getPlayerManager();auto ghost=c->getPlayerObject();manager->sendActivateCloneRequest(c);
++  auto box=ghost->getSuiBoxFromWindowType(SuiWindowType::CLONE_REQUEST);auto menu=box!=nullptr?dynamic_cast<SuiListBox*>(box.get()):nullptr;
++  if(menu==nullptr || menu->getMenuSize()==0)throw std::runtime_error("native_clone_facility_unavailable");
++  uint64 chosen=menu->getMenuObjectID(0);for(int i=0;i<menu->getMenuSize();++i)if(menu->getMenuObjectID(i)==ghost->getCloningFacility())chosen=menu->getMenuObjectID(i);
++  auto facility=c->getZoneServer()->getObject(chosen);auto templ=facility!=nullptr?dynamic_cast<CloningBuildingObjectTemplate*>(facility->getObjectTemplate()):nullptr;
++  if(templ==nullptr || templ->getRandomSpawnPoint()==nullptr)throw std::runtime_error("native_clone_destination_unavailable");return chosen;
++ }
+  static Json snapshot(CreatureObject* c,Session& session){
+-  Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),128,&objects,true);bool truncated=false;
++  Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);bool truncated=false;
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+-  return {{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",{{"combat_rangedspecialize_pistol",c->getPlayerObject()->getExperience("combat_rangedspecialize_pistol")},{"combat_general",c->getPlayerObject()->getExperience("combat_general")}}}}},{"weapon",profile}};
++  Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",{{"combat_rangedspecialize_pistol",c->getPlayerObject()->getExperience("combat_rangedspecialize_pistol")},{"combat_general",c->getPlayerObject()->getExperience("combat_general")}}}}},{"weapon",profile}};
++  auto loc=location(c);for(auto it=loc.begin();it!=loc.end();++it)out["player"][it.key()]=it.value();double remaining=SwgxrLiveRecovery::remaining(c->getObjectID());out["player"]["recovery_requested"]=c->isIncapacitated() && remaining>=0;out["player"]["recovery_remaining_seconds"]=c->isIncapacitated()?std::max(0.0,remaining):0.0;out["player"]["cloning"]=c->getPlayerObject()->isCloning();return out;
+  }
+- static void move(CreatureObject* c,const Json& request){auto p=vector(request.at("position"));double heading=request.value("heading_radians",0.0);if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");if(c->isDead() || c->isIncapacitated() || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");c->setDirection(float(heading));if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_session_required");if(c->getParent().get()!=nullptr)throw std::runtime_error("outdoor_session_required");c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);}
++ static void move(CreatureObject* c,const Json& request){
++  auto p=vector(request.at("position"));double heading=request.value("heading_radians",0.0);if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");
++  if(c->isDead() || c->isIncapacitated() || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_session_required");
++  ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> building=c->getRootParent();
++  if(request.contains("building_id")){
++   auto buildingID=std::stoull(request.at("building_id").get<std::string>());int index=request.value("cell_index",0);
++   if(buildingID==0 && index==0){cell=nullptr;building=nullptr;}
++   else {building=c->getZoneServer()->getObject(buildingID);if(building==nullptr || !building->isBuildingObject() || building->getZone()!=c->getZone() || index<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(building.get())->getCell(index);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");if(distance(position(building),p)>256)throw std::runtime_error("cell_position_outside_building");}
++  }
++  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();
++  if(cell!=nullptr){if(!cell->isCellObject() || building==nullptr || !building->isBuildingObject())throw std::runtime_error("unsupported_parent");double angle=building->getDirection()->getRadians(),dx=x-building->getPositionX(),dy=y-building->getPositionY();x=dx*std::cos(angle)-dy*std::sin(angle);y=dx*std::sin(angle)+dy*std::cos(angle);z-=building->getPositionZ();heading-=angle;}
++  c->setDirection(float(heading));c->teleport(float(x),float(z),float(y),cell!=nullptr?cell->getObjectID():0);
++ }
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
+-  if(verb=="update"){move(c,request);if(request.value("ready",false) && !s.ready){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;}if(verb=="snapshot")return result;
++  if(verb=="update"){
++   if(!s.transport.empty()){
++    auto ack=request.value("transport_ack",std::string());if(ack.empty()){result["movement_accepted"]=false;return result;}if(ack!=s.transport["id"].get<std::string>())throw std::runtime_error("transport_ack_mismatch");
++    const auto& dest=s.transport["destination"];if(distance(vector(request.at("position")),dest["position"])>3 || request.value("building_id",std::string("0"))!=dest["building_id"].get<std::string>() || request.value("cell_index",0)!=dest["cell_index"].get<int>())throw std::runtime_error("transport_destination_mismatch");
++    c->getPlayerObject()->notifySceneReady();s.ready=true;s.transport=Json::object();result["transport_acknowledged"]=true;result["movement_accepted"]=false;return result;
++   }
++   if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12){move(c,request);result["movement_accepted"]=true;}else result["movement_accepted"]=false;
++   if(request.value("ready",false) && !s.ready){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;
++  }
++  if(verb=="snapshot")return result;
++  if(verb=="life"){
++   auto action=request.at("life_action").get<std::string>();result["life_action"]=action;
++   if(action=="recover"){
++    if(!c->isIncapacitated() || c->isDead())throw std::runtime_error("native_player_not_incapacitated");if(!SwgxrLiveRecovery::request(c->getObjectID()))throw std::runtime_error("recovery_session_unavailable");
++    if(c->getPendingTask("incapacitationRecovery")==nullptr){auto task=new PlayerIncapacitationRecoverTask(c,false);c->addPendingTask("incapacitationRecovery",task,250);}return result;
++   }
++   if(action!="medical_transport")throw std::runtime_error("unsupported_life_action");if(!c->isIncapacitated() && !c->isDead())throw std::runtime_error("native_player_not_down");if(c->getPlayerObject()->isCloning() || !s.transport.empty())throw std::runtime_error("native_clone_pending");
++   uint64 facility=cloneFacility(c);auto manager=c->getZoneServer()->getPlayerManager();if(!c->isDead())manager->killPlayer(c,c);if(!c->isDead())throw std::runtime_error("native_suicide_failed");manager->sendPlayerToCloner(c,facility);if(!c->getPlayerObject()->isCloning())throw std::runtime_error("native_clone_failed");
++   c->getPlayerObject()->setOnLoadScreen(true);s.shots.clear();s.transport={{"id",s.token+"_"+std::to_string(s.sequence)},{"facility_id",std::to_string(facility)},{"destination",location(c)}};result["transport_id"]=s.transport["id"];return result;
++  }
+   if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
++  if(!s.transport.empty())throw std::runtime_error("native_transport_pending");
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
+@@ -78,15 +128,15 @@
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+   static std::mutex mutex;static std::map<uint64,Session> sessions;std::lock_guard<std::mutex> guard(mutex);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
+-  for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60)it=sessions.erase(it);else ++it;
++  for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60){SwgxrLiveRecovery::detach(it->first);it=sessions.erase(it);}else ++it;
+   if(verb=="start"){
+-   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=4)throw std::runtime_error("session_capacity");move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
++   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=4)throw std::runtime_error("session_capacity");if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12 && c->getParent().get()==nullptr)move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
+    if(request.value("spawn_test_lair",false)){if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
+-   sessions.emplace(c->getObjectID(),fresh);
++   sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+-  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
++  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+   if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};}
+-  out["snapshot"]=snapshot(c,session);if(verb=="stop"){c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);sessions.erase(found);}return out;
++  out["snapshot"]=snapshot(c,session);if(verb=="stop"){c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
+  }
+ };
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h
++++ b/MMOCoreORB/src/server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h
+@@ -8,6 +8,7 @@
+ #ifndef PLAYERINCAPACITATIONRECOVERTASK_H_
+ #define PLAYERINCAPACITATIONRECOVERTASK_H_
+ 
++#include "SwgxrLiveRecovery.h"
+ #include "templates/params/creature/CreatureAttribute.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ 
+@@ -42,6 +43,11 @@
+ 			PlayerObject* ghost = player->getPlayerObject();
+ 
+ 			if (ghost == nullptr) {
++				return;
++			}
++
++			if (!deadRecovery && player->isIncapacitated() && SwgxrLiveRecovery::blocked(player->getObjectID())) {
++				reschedule(250);
+ 				return;
+ 			}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/player/events/SwgxrLiveRecovery.h
++++ b/MMOCoreORB/src/server/zone/objects/player/events/SwgxrLiveRecovery.h
+@@ -0,0 +1,24 @@
++#ifndef SWGXR_LIVE_RECOVERY_H
++#define SWGXR_LIVE_RECOVERY_H
++#include <chrono>
++#include <cstdint>
++#include <algorithm>
++#include <map>
++#include <mutex>
++// Only registered live VR sessions change original automatic incapacitation recovery.
++// A 60-second lease fails open after disconnect; ordinary players never enter this map.
++class SwgxrLiveRecovery {
++ struct Entry {double touched=0,duration=1,deadline=0;bool requested=false;};
++ static std::map<std::uint64_t,Entry>& entries(){static std::map<std::uint64_t,Entry> value;return value;}
++ static std::mutex& mutex(){static std::mutex value;return value;}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++public:
++ static void attach(std::uint64_t id,double remaining){std::lock_guard<std::mutex> lock(mutex());entries()[id]={now(),std::max(1.0,std::min(60.0,remaining)),0,false};}
++ static void detach(std::uint64_t id){std::lock_guard<std::mutex> lock(mutex());entries().erase(id);}
++ static void touch(std::uint64_t id,bool incapacitated){std::lock_guard<std::mutex> lock(mutex());auto it=entries().find(id);if(it==entries().end())return;it->second.touched=now();if(!incapacitated){it->second.requested=false;it->second.deadline=0;}}
++ static void duration(std::uint64_t id,double seconds){std::lock_guard<std::mutex> lock(mutex());auto it=entries().find(id);if(it==entries().end())return;it->second.duration=std::max(1.0,std::min(60.0,seconds));it->second.requested=false;it->second.deadline=0;}
++ static bool request(std::uint64_t id){std::lock_guard<std::mutex> lock(mutex());auto it=entries().find(id);if(it==entries().end())return false;auto& e=it->second;if(!e.requested){e.requested=true;e.deadline=now()+e.duration;}return true;}
++ static double remaining(std::uint64_t id){std::lock_guard<std::mutex> lock(mutex());auto it=entries().find(id);if(it==entries().end() || !it->second.requested)return -1;return std::max(0.0,it->second.deadline-now());}
++ static bool blocked(std::uint64_t id){std::lock_guard<std::mutex> lock(mutex());auto it=entries().find(id);if(it==entries().end())return false;if(now()-it->second.touched>60){entries().erase(it);return false;}return !it->second.requested || now()<it->second.deadline;}
++};
++#endif

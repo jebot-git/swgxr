@@ -1,0 +1,336 @@
+{
+  "schema": 1,
+  "note": "Provisional VR balance, not canonical RPM or Core3 item-instance statistics.",
+  "classes": {
+    "holdout": {
+      "hands": 1,
+      "rpm": 240,
+      "capacity": 12,
+      "reload_seconds": 1.6,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 140
+    },
+    "pistol": {
+      "hands": 1,
+      "rpm": 300,
+      "capacity": 24,
+      "reload_seconds": 1.8,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 160
+    },
+    "heavy_pistol": {
+      "hands": 1,
+      "rpm": 180,
+      "capacity": 16,
+      "reload_seconds": 2.2,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 160
+    },
+    "carbine": {
+      "hands": 2,
+      "rpm": 450,
+      "capacity": 40,
+      "reload_seconds": 2.4,
+      "fire_modes": [
+        "semi",
+        "auto"
+      ],
+      "projectile_speed": 180
+    },
+    "burst_carbine": {
+      "hands": 2,
+      "rpm": 600,
+      "capacity": 36,
+      "reload_seconds": 2.4,
+      "fire_modes": [
+        "burst",
+        "semi"
+      ],
+      "burst_count": 3,
+      "burst_recovery": 0.3,
+      "projectile_speed": 180
+    },
+    "rifle": {
+      "hands": 2,
+      "rpm": 360,
+      "capacity": 40,
+      "reload_seconds": 2.8,
+      "fire_modes": [
+        "auto",
+        "semi",
+        "burst"
+      ],
+      "burst_count": 3,
+      "burst_recovery": 0.3,
+      "projectile_speed": 200
+    },
+    "marksman": {
+      "hands": 2,
+      "rpm": 90,
+      "capacity": 12,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 240
+    },
+    "repeater": {
+      "hands": 2,
+      "rpm": 240,
+      "capacity": 30,
+      "reload_seconds": 4.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 180
+    },
+    "bowcaster": {
+      "hands": 2,
+      "rpm": 75,
+      "capacity": 6,
+      "reload_seconds": 3.2,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 150
+    },
+    "slugthrower": {
+      "hands": 2,
+      "rpm": 60,
+      "capacity": 8,
+      "reload_seconds": 3.5,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 300
+    },
+    "melee_knife": {
+      "kind": "melee",
+      "hands": 1,
+      "stance_recovery": 125,
+      "power": 115,
+      "swing_speed_reference": 1.4,
+      "swing_travel_reference": 0.35,
+      "crouch_range_scale": 0.75,
+      "prone_range_scale": 0.5,
+      "two_hand_power_bonus": 1.2,
+      "one_hand_power_penalty": 0.5,
+      "support_offset": [
+        0,
+        -0.3,
+        0
+      ]
+    },
+    "melee_sword": {
+      "kind": "melee",
+      "hands": 1,
+      "stance_recovery": 100,
+      "power": 100,
+      "swing_speed_reference": 1.4,
+      "swing_travel_reference": 0.35,
+      "crouch_range_scale": 0.75,
+      "prone_range_scale": 0.5,
+      "two_hand_power_bonus": 1.2,
+      "one_hand_power_penalty": 0.5,
+      "support_offset": [
+        0,
+        -0.3,
+        0
+      ]
+    },
+    "melee_baton": {
+      "kind": "melee",
+      "hands": 1,
+      "stance_recovery": 110,
+      "power": 105,
+      "swing_speed_reference": 1.4,
+      "swing_travel_reference": 0.35,
+      "crouch_range_scale": 0.75,
+      "prone_range_scale": 0.5,
+      "two_hand_power_bonus": 1.2,
+      "one_hand_power_penalty": 0.5,
+      "support_offset": [
+        0,
+        -0.3,
+        0
+      ]
+    },
+    "melee_heavy": {
+      "kind": "melee",
+      "hands": 2,
+      "stance_recovery": 75,
+      "power": 80,
+      "swing_speed_reference": 1.4,
+      "swing_travel_reference": 0.35,
+      "crouch_range_scale": 0.75,
+      "prone_range_scale": 0.5,
+      "two_hand_power_bonus": 1.2,
+      "one_hand_power_penalty": 0.5,
+      "support_offset": [
+        0,
+        -0.18,
+        0
+      ]
+    },
+    "melee_polearm": {
+      "kind": "melee",
+      "hands": 2,
+      "stance_recovery": 90,
+      "power": 90,
+      "swing_speed_reference": 1.4,
+      "swing_travel_reference": 0.35,
+      "crouch_range_scale": 0.75,
+      "prone_range_scale": 0.5,
+      "two_hand_power_bonus": 1.2,
+      "one_hand_power_penalty": 0.5,
+      "support_offset": [
+        0,
+        -0.3,
+        0
+      ]
+    }
+  },
+  "weapons": {
+    "pistol_cdef": {
+      "class": "holdout",
+      "label": "CDEF pistol"
+    },
+    "pistol_d18": {
+      "class": "pistol",
+      "label": "D18 pistol"
+    },
+    "pistol_dh17": {
+      "class": "pistol",
+      "label": "DH-17 pistol"
+    },
+    "pistol_dl44": {
+      "class": "heavy_pistol",
+      "label": "DL-44 heavy pistol"
+    },
+    "pistol_dl44_metal": {
+      "class": "heavy_pistol",
+      "label": "DL-44 metal heavy pistol"
+    },
+    "pistol_power5": {
+      "class": "heavy_pistol",
+      "label": "Power 5 heavy pistol"
+    },
+    "pistol_fwg5": {
+      "class": "heavy_pistol",
+      "label": "FWG5 pistol"
+    },
+    "carbine_cdef": {
+      "class": "carbine",
+      "label": "CDEF carbine",
+      "fire_modes": [
+        "semi"
+      ]
+    },
+    "carbine_dh17": {
+      "class": "carbine",
+      "label": "DH-17 carbine"
+    },
+    "carbine_e11": {
+      "class": "carbine",
+      "label": "E-11 carbine"
+    },
+    "carbine_ee3": {
+      "class": "burst_carbine",
+      "label": "EE-3 carbine"
+    },
+    "rifle_cdef": {
+      "class": "rifle",
+      "label": "CDEF rifle",
+      "fire_modes": [
+        "semi"
+      ]
+    },
+    "rifle_e11": {
+      "class": "rifle",
+      "label": "E-11 rifle"
+    },
+    "rifle_dlt20a": {
+      "class": "marksman",
+      "label": "DLT-20A rifle"
+    },
+    "rifle_t21": {
+      "class": "repeater",
+      "label": "T-21 repeater"
+    },
+    "rifle_bowcaster": {
+      "class": "bowcaster",
+      "label": "Bowcaster"
+    },
+    "rifle_tusken": {
+      "class": "slugthrower",
+      "label": "Tusken rifle"
+    },
+    "knife_survival": {
+      "class": "melee_knife",
+      "label": "Survival knife",
+      "template": "object/weapon/melee/knife/knife_survival.iff"
+    },
+    "knife_stone": {
+      "class": "melee_knife",
+      "label": "Stone knife",
+      "template": "object/weapon/melee/knife/knife_stone.iff"
+    },
+    "knife_stone_noob": {
+      "class": "melee_knife",
+      "label": "Starter stone knife",
+      "template": "object/weapon/melee/knife/knife_stone_noob.iff"
+    },
+    "knife_vibroblade": {
+      "class": "melee_knife",
+      "label": "Vibroblade",
+      "template": "object/weapon/melee/knife/knife_vibroblade.iff"
+    },
+    "sword_01": {
+      "class": "melee_sword",
+      "label": "Sword",
+      "template": "object/weapon/melee/sword/sword_01.iff"
+    },
+    "baton_stun": {
+      "class": "melee_baton",
+      "label": "Stun baton",
+      "template": "object/weapon/melee/baton/baton_stun.iff"
+    },
+    "baton_gaderiffi": {
+      "class": "melee_baton",
+      "label": "Gaderiffi baton",
+      "template": "object/weapon/melee/baton/baton_gaderiffi.iff"
+    },
+    "axe_vibroaxe": {
+      "class": "melee_heavy",
+      "label": "Vibroaxe",
+      "template": "object/weapon/melee/axe/axe_vibroaxe.iff"
+    },
+    "2h_sword_maul": {
+      "class": "melee_heavy",
+      "label": "Two-handed maul",
+      "template": "object/weapon/melee/2h_sword/2h_sword_maul.iff"
+    },
+    "2h_sword_cleaver": {
+      "class": "melee_heavy",
+      "label": "Two-handed cleaver",
+      "template": "object/weapon/melee/2h_sword/2h_sword_cleaver.iff"
+    },
+    "lance_staff_wood_s1": {
+      "class": "melee_polearm",
+      "label": "Wooden staff",
+      "template": "object/weapon/melee/polearm/lance_staff_wood_s1.iff"
+    },
+    "lance_vibrolance": {
+      "class": "melee_polearm",
+      "label": "Vibrolance",
+      "template": "object/weapon/melee/polearm/lance_vibrolance.iff"
+    }
+  }
+}

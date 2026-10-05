@@ -1,0 +1,107 @@
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -21,6 +21,7 @@
+ 	std::string datapadCommand;
+ 	std::string datapadArguments;
+ 	uint64 datapadTarget = 0;
++	std::vector<uint64> attributeTargets;
+ 
+ public:
+ 	ZoneInCharacterAction() :
+@@ -55,6 +56,7 @@
+ 			action->datapadArguments = command.value("arguments", std::string());
+ 			action->datapadTarget = command.value("target", uint64(0));
+ 		}
++		if (config.contains("attributeTargets")) action->attributeTargets = config["attributeTargets"].get<std::vector<uint64>>();
+ 		return action;
+ 	}
+ 
+@@ -118,6 +120,12 @@
+ 			weaponKeys.push_back(it.key());
+ 			weaponIds << it.key().substr(1).c_str() << " ";
+ 		}
++		if (attributeTargets.size() > 128) { result.setError("Attribute request limit exceeded", 7); return; }
++		for (auto target : attributeTargets) {
++			const auto key = "o" + std::to_string(target);
++			if (std::find(weaponKeys.begin(), weaponKeys.end(), key) != weaponKeys.end()) continue;
++			weaponKeys.push_back(key); weaponIds << target << " ";
++		}
+ 		if (!weaponKeys.empty()) {
+ 			auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
+ 			request->insertInt(3);
+@@ -140,7 +148,7 @@
+ 		// Datapad writes use the same owned-player command protocol as the
+ 		// original client. Persistence and permission checks remain in Core3.
+ 		if (!datapadCommand.empty()) {
+-			if (datapadCommand != "requestwaypointatposition" && datapadCommand != "setwaypointactivestatus") {
++			if (datapadCommand != "requestwaypointatposition" && datapadCommand != "setwaypointactivestatus" && datapadCommand != "serverdestroyobject") {
+ 				result.setError("Unsupported datapad command", 4);
+ 				return;
+ 			}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ServerDestroyObjectCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ServerDestroyObjectCommand.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/scene/SceneObject.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/waypoint/WaypointObject.h"
+ #include "server/zone/objects/tangible/tool/antidecay/AntiDecayKit.h"
+ #include "server/zone/managers/auction/AuctionsMap.h"
+ #include "server/zone/objects/transaction/TransactionLog.h"
+@@ -39,6 +40,23 @@
+ 		}
+ 
+ 		Locker crossLocker(object, creature);
++
++		// The SWGXR datapad route never deletes inventory, static content or
++		// server-managed entries, even if a stale UI submits their object ID.
++		if (arguments.toString() == "swgxr_datapad") {
++			if (object->isClientObject() || object->isMissionObject()) return GENERALERROR;
++			if (object->isWaypointObject()) {
++				auto waypoint = cast<WaypointObject*>(object.get());
++				auto ghost = creature->getPlayerObject();
++				bool owned = false;
++				if (ghost != nullptr)
++					for (int i = 0; i < ghost->getWaypointListSize(); ++i)
++						if (ghost->getWaypoint(i)->getObjectID() == target) owned = true;
++				if (!owned || waypoint->getSpecialTypeID() != 0) return GENERALERROR;
++			} else if (object->getParent().get() != creature->getSlottedObject("datapad")) {
++				return GENERALERROR;
++			}
++		}
+ 
+ 		if (object->canBeDestroyed(creature) != 0) {
+ 			return GENERALERROR;
+--- a/MMOCoreORB/src/server/zone/objects/intangible/IntangibleObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/intangible/IntangibleObjectImplementation.cpp
+@@ -3,6 +3,7 @@
+ 		See file COPYING for copying conditions.*/
+ 
+ #include "server/zone/objects/intangible/IntangibleObject.h"
++#include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/intangible/TheaterObject.h"
+ 
+ #include "server/zone/packets/intangible/IntangibleObjectMessage3.h"
+@@ -37,6 +38,12 @@
+ }
+ 
+ void IntangibleObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* player) {
++	if (player != nullptr && !isWaypointObject()) {
++		auto parent = getParent().get();
++		auto datapad = player->getSlottedObject("datapad");
++		const bool removable = parent != nullptr && parent == datapad && !isClientObject() && !isMissionObject();
++		alm->insertAttribute("swgxr.deletable", removable ? 1 : 0);
++	}
+ 	if (datapadSize > 0) {
+ 		alm->insertAttribute("droid_command_program_size", datapadSize);
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/waypoint/WaypointObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/waypoint/WaypointObjectImplementation.cpp
+@@ -45,6 +45,7 @@
+ 
+ void WaypointObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
+ 	IntangibleObjectImplementation::fillAttributeList(alm, object);
++	alm->insertAttribute("swgxr.deletable", specialTypeID == 0 && questDetails.isEmpty() && !isClientObject() ? 1 : 0);
+ 
+ 	if (questDetails.length() > 0)
+ 		alm->insertAttribute("quest_details", questDetails);

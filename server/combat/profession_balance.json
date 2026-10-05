@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "note": "Provisional frontend translation; source skill totals and command SAC/damage remain Core3-derived.",
+  "melee_accuracy_radius_per_point": 0.0025,
+  "melee_accuracy_radius_cap": 0.35,
+  "melee_speed_recovery_per_point": 0.01,
+  "ranged_accuracy_modifier_per_point": 0.25,
+  "ranged_speed_rpm_per_point": 0.01,
+  "ranged_speed_recovery_per_point": 0.01,
+  "ability_base_cooldown_seconds": 30.0,
+  "ability_master_cooldown_reduction": 0.5,
+  "ability_knockdown_chance": 0.25
+}

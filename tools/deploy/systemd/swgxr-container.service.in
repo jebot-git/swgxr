@@ -1,0 +1,20 @@
+[Unit]
+Description=SWGXR private network-none runtime container
+PartOf=swgxr.target
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=exec
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py container-start
+ExecStartPost=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py ready-container
+ExecStop=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py container-stop
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=650
+TimeoutStopSec=60
+KillMode=process
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000

@@ -1,0 +1,30 @@
+{
+  "author": "GGBotNet",
+  "family": "Jupiteroid",
+  "license": "CC0-1.0",
+  "upstream": "https://github.com/ggbotnet/fonts-cc0",
+  "commit": "670059749032c2310422b2287c24307b23656080",
+  "obtained": "2026-10-05",
+  "files": {
+    "Jupiteroid-Regular.ttf": {
+      "source": "Jupiteroid/TrueType (.ttf)/Jupiteroid-Regular.ttf",
+      "sha256": "665724b63831600e1231b583feca8400e036259d17b194e37a5dae0cd3548ba4"
+    },
+    "Jupiteroid-Bold.ttf": {
+      "source": "Jupiteroid/TrueType (.ttf)/Jupiteroid-Bold.ttf",
+      "sha256": "e49b8d43e46d6141d1ec776e3d57814d72493e4205b2eff77a2078c1db6e8466"
+    },
+    "Jupiteroid-Italic.ttf": {
+      "source": "Jupiteroid/TrueType (.ttf)/Jupiteroid-Italic.ttf",
+      "sha256": "00df1d8dc2ec6ffbf42cccc188194c5d5be3d2e8c4c9fea1309516b65be2d0a2"
+    },
+    "Jupiteroid-BoldItalic.ttf": {
+      "source": "Jupiteroid/TrueType (.ttf)/Jupiteroid-BoldItalic.ttf",
+      "sha256": "4aa5a1d631cd001d861321e3ff8f6c8e40147c39e74faa0d6e3fd3701bafe589"
+    },
+    "LICENSE-Jupiteroid.txt": {
+      "source": "LICENSE",
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    }
+  }
+}

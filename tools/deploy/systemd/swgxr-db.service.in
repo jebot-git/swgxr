@@ -1,0 +1,20 @@
+[Unit]
+Description=SWGXR private fresh MariaDB
+Requires=swgxr-container.service
+After=swgxr-container.service
+PartOf=swgxr.target swgxr-container.service
+
+[Service]
+Type=exec
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py run-db
+ExecStartPost=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py ready-db
+ExecStop=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py stop-db
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=650
+TimeoutStopSec=180
+KillMode=process
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000

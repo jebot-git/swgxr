@@ -1,0 +1,219 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -6,6 +6,7 @@
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include <set>
+ #include "SwgxrEquipment.h"
++#include "server/zone/objects/tangible/tool/SurveyTool.h"
+ 
+ class SwgxrInventory {
+  using Json = JSONSerializationType;
+@@ -46,6 +47,9 @@
+    {"split_slot_cost",cost},{"split_available",stack && count>1 && space},
+    {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
+   SwgxrEquipment::enrich(result,o,c);
++  auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
++  result["tool_kind"]=survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  result["tool_type"]=survey!=nullptr?survey->getToolType():0;
+   return result;
+  }
+  static void walk(SceneObject* o, CreatureObject* c, Json& out, std::set<uint64>& seen, int depth, bool equipped) {
+@@ -106,6 +110,7 @@
+   return result;
+  }
+ public:
++ static Json describe(SceneObject* o,CreatureObject* c){return item(o,c,o->getParent().get()==c);}
+  static void send(CreatureObject* c, const String& args) {
+   Json out={{"source_kind","core3_inventory"},{"character_id",id(c)}, {"items",Json::array()}, {"containers",Json::array()}, {"equipped_backpack",nullptr}};
+   ManagedReference<SceneObject*> root=c->getSlottedObject("inventory");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -9,6 +9,7 @@
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include "server/zone/Zone.h"
+ #include "SwgxrInventory.h"
++#include "SwgxrGathering.h"
+ 
+ class GetAttributesBatchCommand : public QueueCommand {
+ public:
+@@ -40,6 +41,10 @@
+ 		if (zone == nullptr)
+ 			return GENERALERROR;
+ 
++		if (arguments.toString().beginsWith("swgxr_gathering_v1 ")) {
++			SwgxrGathering::send(creature, arguments.toString());
++			return SUCCESS;
++		}
+ 		if (arguments.toString().beginsWith("swgxr_inventory_v1")) {
+ 			SwgxrInventory::send(creature, arguments.toString());
+ 			return SUCCESS;
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -155,11 +155,13 @@
+ 			request->insertUnicode(UnicodeString(String(inventoryRequest.c_str())));
+ 			core.zone->getZoneClient()->sendMessage(request);
+ 			const String key=String("weaponAttributes/o")+String::valueOf(oid);
++			const bool gathering=inventoryRequest.find("swgxr_gathering_v1 ")==0;
++			const std::string field=gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
+ 			bool complete=false;
+ 			for(int attempt=0;attempt<100;++attempt) {
+ 				auto attributes=core.getVar<JSONSerializationType>(key,JSONSerializationType::object());
+-				if (attributes.contains("swgxr.inventory.snapshot")) {
+-					core.setVar("inventory",JSONSerializationType::parse(attributes["swgxr.inventory.snapshot"].get<std::string>()));
++				if (attributes.contains(field)) {
++					core.setVar(gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
+ 					complete=true; break;
+ 				}
+ 				core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -0,0 +1,149 @@
++/* Native persistent SWGXR ground-tool gathering. The source sampling formula is
++ * evaluated lazily at its 25-second cadence; tool movement is a custom policy. */
++#ifndef SWGXR_GATHERING_H
++#define SWGXR_GATHERING_H
++#include "SwgxrInventory.h"
++#include "server/zone/objects/tangible/tool/SurveyTool.h"
++#include "server/zone/objects/resource/ResourceSpawn.h"
++#include "server/zone/managers/resource/ResourceManager.h"
++#include "server/zone/objects/waypoint/WaypointObject.h"
++#include "templates/manager/TemplateManager.h"
++#include <ctime>
++#include <cmath>
++class SwgxrGathering {
++ friend class SwgxrCorpses;
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static Json initial(){return {{"version",1},{"escrow_id",""},{"hip_tool_id",""},{"generation",0},{"deployments",Json::array()},{"receipts",Json::array()}};}
++ static Json load(CreatureObject* c){auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_gathering","state");return raw.isEmpty()?initial():Json::parse(raw.toCharArray());}
++ static void save(CreatureObject* c,const Json& s){c->getPlayerObject()->setScreenPlayData("swgxr_gathering","state",String(s.dump(-1,' ',true).c_str()));}
++ static ManagedReference<SceneObject*> object(CreatureObject* c,const std::string& key){return key.empty()?nullptr:c->getZoneServer()->getObject(std::stoull(key));}
++ static ManagedReference<SceneObject*> escrow(CreatureObject* c,Json& s,bool create=false){
++  auto store=object(c,s.value("escrow_id",std::string()));
++  if(store==nullptr && create){store=c->getZoneServer()->createObject(STRING_HASHCODE("object/tangible/inventory/character_inventory.iff"),1);if(store==nullptr)throw std::runtime_error("Cannot create native tool escrow");store->setContainerVolumeLimit(256);store->setContainerOwnerID(c->getObjectID());store->setContainerInheritPermissionsFromParent(false);s["escrow_id"]=id(store);save(c,s);}
++  if(store!=nullptr && store->getContainerPermissions()->getOwnerID()!=c->getObjectID())throw std::runtime_error("Escrow ownership mismatch");return store;
++ }
++ static ManagedReference<SceneObject*> ownedTool(CreatureObject* c,Json& s,const std::string& key){
++  auto tool=object(c,key);auto store=escrow(c,s);
++  if(tool==nullptr || dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr)throw std::runtime_error("Item is not a source tool");
++  bool hip=s.value("hip_tool_id",std::string())==key && store!=nullptr && tool->getParent().get()==store;
++  if(!SwgxrEquipment::inInventory(tool,c) && !hip)throw std::runtime_error("Tool is not in owned inventory or hip escrow");return tool;
++ }
++ static Json describe(CreatureObject* c,SceneObject* tool){auto value=SwgxrInventory::describe(tool,c);tool->sendAttributeListTo(c);return value;}
++ static Json resource(ResourceSpawn* spawn){
++  Json out={{"id",id(spawn)},{"name",std::string(spawn->getName().toCharArray())},{"type",std::string(spawn->getType().toCharArray())},{"family",std::string(spawn->getFamilyName().toCharArray())},{"expires_at_unix",spawn->getDespawned()},{"container_template",std::string(TemplateManager::instance()->getTemplateFile(spawn->getContainerCRC()).toCharArray())},{"attributes",Json::array()}};
++  for(int i=0;i<32;++i){String key;int value=spawn->getAttributeAndValue(key,i);if(key.isEmpty())break;out["attributes"].push_back({{"name",std::string(key.toCharArray())},{"value",value}});}return out;
++ }
++ static Json position(const Json& request){
++  if(request.value("planet",std::string("tatooine"))!="tatooine")throw std::runtime_error("Only Tatooine gathering is supported");
++  auto p=request.at("position");if(!p.is_array() || p.size()!=3)throw std::runtime_error("position must be SWG world [x,y,z] with y up");
++  for(int i=0;i<3;++i){if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(i==1?2048:8192))throw std::runtime_error("Position outside finite Tatooine bounds");}return p;
++ }
++ static ManagedReference<ResourceSpawn*> selected(CreatureObject* c,SurveyTool* tool,const std::string& key){
++  Vector<ManagedReference<ResourceSpawn*>> list;c->getZoneServer()->getResourceManager()->getResourceListByType(list,tool->getToolType(),"tatooine");
++  for(int i=0;i<list.size();++i)if(id(list.get(i))==key && list.get(i)->inShift())return list.get(i);
++  throw std::runtime_error("Resource is expired, unavailable on Tatooine, or incompatible with tool");
++ }
++ static void checkpointSkills(CreatureObject* c,Json& dep){dep["surveying_skill"]=c->getSkillMod("surveying");dep["sample_rate_modifier"]=c->getSkillMod("private_spec_samplerate");dep["sample_size_modifier"]=c->getSkillMod("private_spec_samplesize");}
++ static void settle(CreatureObject* c,Json& s){
++  const int64 now=std::time(nullptr);int budget=1024;
++  for(auto& dep:s["deployments"]){
++   if(dep.value("state",std::string())=="collected")continue;
++   auto spawn=object(c,dep["resource_id"].get<std::string>()).castTo<ResourceSpawn*>();
++   if(spawn==nullptr)throw std::runtime_error("Persistent resource anchor lost; collection is blocked safely");
++   const int64 end=std::min<int64>(now,spawn->getDespawned());int64 next=dep["next_sample_at_unix"].get<int64>();
++   const float density=dep["density"].get<float>();const int skill=dep["surveying_skill"].get<int>();int unitsTotal=0,xpTotal=0;
++   while(next<=end && budget>0){--budget;next+=25;dep["cycles"]=dep.value("cycles",int64(0))+1;
++    // ResourceSpawner::sendSampleResults baseline. Source samplingMultiplier=1.
++    if(density<.10f || density*100<(32-(skill/20)*6))continue;
++    float rate=skill*density+System::random(100)+dep["sample_rate_modifier"].get<int>();if(rate<40)continue;
++    int maximum=int(density*(25+System::random(3)));float city=1.f+dep["sample_size_modifier"].get<int>()/100.f;
++    int units=maximum*(float(skill)/100.f)*city;if(units<2)continue;
++    unitsTotal+=units;xpTotal+=int(float(units)/float(maximum)*40);dep["successful_cycles"]=dep.value("successful_cycles",int64(0))+1;
++   }
++   dep["next_sample_at_unix"]=next;
++   if(unitsTotal>0){Locker spawnLock(spawn,c);spawn->extractResource("tatooine",unitsTotal);dep["quantity"]=dep.value("quantity",int64(0))+unitsTotal;c->getZoneServer()->getPlayerManager()->awardExperience(c,"resource_harvesting_inorganic",xpTotal,true);dep["awarded_xp"]=dep.value("awarded_xp",int64(0))+xpTotal;}
++   bool pending=next<=end;dep["settlement_pending"]=pending;dep["state"]=pending?"settling":now>=int64(spawn->getDespawned())?"expired":"sampling";
++   if(!pending)checkpointSkills(c,dep);
++  }
++  save(c,s);
++ }
++ static Json context(CreatureObject* c,Json& s,const std::string& key){
++  Json out={{"backend","core3"},{"source_kind","core3_gathering"},{"character_id",id(c)},{"planet","tatooine"},{"tool_id",key},{"tool",nullptr},{"max_range_m",0},{"range_m",0},{"points_per_axis",0},{"surveying_skill",c->getSkillMod("surveying")},{"resources",Json::array()},{"deployments",Json::array()},{"hip_tool_id",s["hip_tool_id"]},{"hip_tool",nullptr},{"settlement_policy","native_persistent_lazy_25s_cycles"},{"limits",{{"max_deployments",16},{"max_cycles_per_request",1024},{"resource_stack_max",ResourceContainer::MAXSIZE}}}};
++  if(!key.empty()){
++   auto tool=ownedTool(c,s,key);out["tool"]=describe(c,tool);auto survey=dynamic_cast<SurveyTool*>(tool.get());
++   if(survey!=nullptr){Locker lock(survey,c);survey->setRange(384);int range=survey->getRange(c);out["max_range_m"]=range;out["range_m"]=range;out["points_per_axis"]=survey->getPoints();
++    Vector<ManagedReference<ResourceSpawn*>> list;c->getZoneServer()->getResourceManager()->getResourceListByType(list,survey->getToolType(),"tatooine");
++    if(list.size()>256)throw std::runtime_error("Resource listing exceeds bounded protocol");
++    for(int i=0;i<list.size();++i)if(list.get(i)->inShift())out["resources"].push_back(resource(list.get(i)));
++   }
++  }
++  auto hip=object(c,s["hip_tool_id"].get<std::string>());if(hip!=nullptr)out["hip_tool"]=describe(c,hip);
++  for(auto dep:s["deployments"]){auto tool=object(c,dep["tool_id"].get<std::string>());if(tool==nullptr)throw std::runtime_error("Persistent deployed tool missing");dep["tool"]=describe(c,tool);dep["template"]=dep["tool"]["template"];auto buf=dep["resource"];buf["resource_id"]=dep["resource_id"];buf["quantity"]=dep["quantity"];dep["buffer"]=Json::array({buf});out["deployments"].push_back(dep);}
++  return out;
++ }
++ static void transfer(CreatureObject* c,SceneObject* item,SceneObject* destination){if(!(item->getParent().get()==nullptr?destination->transferObject(item,-1,true):c->getZoneServer()->getObjectController()->transferObject(item,destination,-1,true)))throw std::runtime_error("Native tool transfer failed");}
++ static Json execute(CreatureObject* c,Json& s,const Json& request){
++  const auto action=request.at("action").get<std::string>();Json mutation={{"success",true},{"operation",action}};
++  if(action=="survey" || action=="deploy"){
++   auto tool=ownedTool(c,s,request.at("tool_id").get<std::string>());auto survey=dynamic_cast<SurveyTool*>(tool.get());if(survey==nullptr)throw std::runtime_error("Tool does not support surveying");
++   if(c->getSkillMod("surveying")<20)throw std::runtime_error("Surveying skill is insufficient");
++   auto spawn=selected(c,survey,request.at("resource_id").get<std::string>());auto pos=position(request);double x=pos[0].get<double>(),z=pos[2].get<double>();
++   if(action=="survey"){
++    survey->setRange(384);int range=survey->getRange(c),points=survey->getPoints();float step=float(range)/float(points-1);Json spots=Json::array(),highest={{"density",-1}};
++    for(int row=0;row<points;++row)for(int col=0;col<points;++col){float px=x-range/2.f+col*step,pz=z+range/2.f-row*step;float density=spawn->getDensityAt("tatooine",px,pz);Json spot={{"position",Json::array({px,0,pz})},{"density",density}};spots.push_back(spot);if(density>highest["density"].get<float>())highest=spot;}
++    Json waypoint=nullptr;if(highest["density"].get<float>()>0){auto ghost=c->getPlayerObject();ManagedReference<WaypointObject*> point=ghost->getSurveyWaypoint();if(point==nullptr)point=c->getZoneServer()->createObject(0xc456e788,1).castTo<WaypointObject*>();if(point==nullptr)throw std::runtime_error("Cannot create persistent survey waypoint");Locker lock(point,c);point->setCustomObjectName(UnicodeString("Resource Survey"),false);point->setPlanetCRC(STRING_HASHCODE("tatooine"));point->setPosition(highest["position"][0].get<float>(),0,highest["position"][2].get<float>());point->setColor(WaypointObject::COLOR_BLUE);point->setSpecialTypeID(WaypointObject::SPECIALTYPE_RESOURCE);point->setActive(true);ghost->addWaypoint(point,false,true);waypoint={{"id",id(point)},{"position",highest["position"]},{"name","Resource Survey"},{"planet","tatooine"}};}
++    mutation["survey"]={{"planet","tatooine"},{"position",pos},{"resource_id",id(spawn)},{"range_m",range},{"points_per_axis",points},{"spots",spots},{"highest",highest},{"waypoint",waypoint}};return mutation;
++   }
++   if(s["deployments"].size()>=16)throw std::runtime_error("Maximum concurrent deployed tools reached");
++   auto store=escrow(c,s,true);Locker storeLock(store,c);Locker spawnLock(spawn,c);auto anchor=spawn->createResource(0);if(anchor==nullptr)throw std::runtime_error("Cannot anchor source resource");
++   try{transfer(c,anchor,store);}catch(...){anchor->destroyObjectFromDatabase(true);throw;}
++   try{transfer(c,tool,store);}catch(...){anchor->destroyObjectFromWorld(true);anchor->destroyObjectFromDatabase(true);throw;}
++   int64 generation=s["generation"].get<int64>()+1;s["generation"]=generation;int64 now=std::time(nullptr);
++   Json dep={{"id",id(tool)+":"+std::to_string(generation)},{"tool_id",id(tool)},{"resource_id",id(spawn)},{"resource_name",std::string(spawn->getName().toCharArray())},{"resource",resource(spawn)},{"anchor_id",id(anchor)},{"position",pos},{"planet","tatooine"},{"density",spawn->getDensityAt("tatooine",x,z)},{"state","sampling"},{"started_at_unix",now},{"next_sample_at_unix",now+3},{"quantity",int64(0)},{"cycles",0},{"successful_cycles",0},{"awarded_xp",0},{"settlement_pending",false}};checkpointSkills(c,dep);s["deployments"].push_back(dep);if(s["hip_tool_id"]==id(tool))s["hip_tool_id"]="";mutation["deployment_id"]=dep["id"];return mutation;
++  }
++  auto root=c->getSlottedObject("inventory");if(root==nullptr)throw std::runtime_error("Missing player inventory");
++  if(action=="holster" || action=="return_tool"){
++   const auto key=request.at("tool_id").get<std::string>();auto tool=ownedTool(c,s,key);auto store=escrow(c,s,true);const auto hipID=s["hip_tool_id"].get<std::string>();
++   if(action=="holster"){
++    if(hipID==key)return mutation;auto old=object(c,hipID);int required=old==nullptr?0:1+old->getCountableObjectsRecursive();
++    if(root->getContainerVolumeLimit()-root->getCountableObjectsRecursive()<required)throw std::runtime_error("Inventory space required for displaced hip tool");
++    auto previous=tool->getParent().get();transfer(c,tool,store);if(old!=nullptr){try{transfer(c,old,root);}catch(...){transfer(c,tool,previous);throw;}}s["hip_tool_id"]=key;
++   }else{
++    if(hipID!=key)throw std::runtime_error("Tool is not hip-reserved");if(root->getContainerVolumeLimit()-root->getCountableObjectsRecursive()<1+tool->getCountableObjectsRecursive())throw std::runtime_error("Inventory space required for tool");transfer(c,tool,root);s["hip_tool_id"]="";
++   }
++   mutation["tool_id"]=key;return mutation;
++  }
++  if(action=="collect"){
++   const auto deployment=request.at("deployment_id").get<std::string>();int index=-1;for(int i=0;i<s["deployments"].size();++i)if(s["deployments"][i]["id"]==deployment)index=i;if(index<0)throw std::runtime_error("Deployment is not owned or already collected");
++   auto dep=s["deployments"][index];auto pickup=position(request);double distanceSquared=0;for(int axis=0;axis<3;++axis){double offset=pickup[axis].get<double>()-dep["position"][axis].get<double>();distanceSquared+=offset*offset;}if(distanceSquared>6.25)throw std::runtime_error("Deployed tool is beyond 2.5m pickup reach");if(dep.value("settlement_pending",false))throw std::runtime_error("Sampling settlement pending; refresh status before pickup");
++   auto tool=object(c,dep["tool_id"].get<std::string>()),store=escrow(c,s);auto spawn=object(c,dep["resource_id"].get<std::string>()).castTo<ResourceSpawn*>();if(tool==nullptr || store==nullptr || tool->getParent().get()!=store || spawn==nullptr)throw std::runtime_error("Deployment escrow invalid");
++   Locker invLock(root,c);int64 remaining=dep["quantity"].get<int64>();std::vector<std::pair<ManagedReference<ResourceContainer*>,int>> merges;
++   for(int i=0;i<root->getContainerObjectsSize() && remaining>0;++i){auto part=root->getContainerObject(i).castTo<ResourceContainer*>();if(part==nullptr || part->getSpawnObject()!=spawn)continue;int amount=std::min<int64>(remaining,ResourceContainer::MAXSIZE-part->getQuantity());if(amount>0){merges.emplace_back(part,amount);remaining-=amount;}}
++   int64 stacks=(remaining+ResourceContainer::MAXSIZE-1)/ResourceContainer::MAXSIZE;int64 required=1+tool->getCountableObjectsRecursive()+stacks;
++   if(required>root->getContainerVolumeLimit()-root->getCountableObjectsRecursive())throw std::runtime_error("Insufficient inventory capacity for tool and all collected resources");
++   std::vector<ManagedReference<ResourceContainer*>> created;try{
++    while(remaining>0){int amount=std::min<int64>(remaining,ResourceContainer::MAXSIZE);auto part=spawn->createResource(amount);if(part==nullptr)throw std::runtime_error("Resource materialization failed");created.push_back(part);transfer(c,part,store);remaining-=amount;}
++    for(auto& part:created)transfer(c,part,root);transfer(c,tool,root);
++   }catch(...){for(auto& part:created){part->destroyObjectFromWorld(true);part->destroyObjectFromDatabase(true);}throw;}
++   for(auto& merge:merges)merge.first->setQuantity(merge.first->getQuantity()+merge.second,true);
++   auto anchor=object(c,dep["anchor_id"].get<std::string>());if(anchor!=nullptr){anchor->destroyObjectFromWorld(true);anchor->destroyObjectFromDatabase(true);}s["deployments"].erase(s["deployments"].begin()+index);mutation["deployment_id"]=deployment;mutation["tool_id"]=id(tool);mutation["quantity"]=dep["quantity"];mutation["resource_id"]=dep["resource_id"];mutation["created_stacks"]=created.size();mutation["merged_stacks"]=merges.size();return mutation;
++  }
++  throw std::runtime_error("Unsupported gathering action");
++ }
++public:
++ static void send(CreatureObject* c,const String& arguments){
++  Json out;try{
++   std::string raw=arguments.toCharArray();auto request=Json::parse(raw.substr(raw.find(' ')+1));Json state=load(c);settle(c,state);const auto action=request.value("action",std::string("status"));Json mutation=nullptr;
++   if(action!="status"){
++    const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid idempotency key");std::string fingerprint=request.dump();bool replay=false;
++    for(auto& receipt:state["receipts"])if(receipt["request_id"]==key){if(receipt["fingerprint"]!=fingerprint)throw std::runtime_error("Idempotency key reused with different request");mutation=receipt["mutation"];mutation["replayed"]=true;replay=true;break;}
++    if(!replay){mutation=execute(c,state,request);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());save(c,state);}
++   }
++   std::string key=request.value("tool_id",std::string());if(action=="deploy" || action=="collect")key="";if(!key.empty() && !mutation.is_null() && mutation.value("replayed",false)){try{ownedTool(c,state,key);}catch(const std::exception&){key="";}}
++   out={{"source_kind",action=="status"?"core3_gathering":"core3_gathering_"+action},{"character_id",id(c)},{"state",context(c,state,key)}};if(!mutation.is_null()){out["mutation"]=mutation;if(mutation.contains("survey"))out["survey"]=mutation["survey"];}
++  }catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",id(c)}};}
++  auto msg=new AttributeListMessage(c->getObjectID());msg->insertAttribute("swgxr.gathering.snapshot",String(out.dump(-1,' ',true).c_str()));c->sendMessage(msg);
++ }
++};
++#endif

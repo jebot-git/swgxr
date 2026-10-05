@@ -1,0 +1,7 @@
+#!/usr/bin/env python3
+# Paths passed to godot-cpp options are absolute in tools/client/build_native.sh.
+env = SConscript('../../vendor/godot-cpp/SConstruct', {'api_version': '4.7'})
+env.Append(CPPPATH=['src'])
+env.Append(CXXFLAGS=['-std=c++17'])
+library = env.SharedLibrary('bin/build/libswg_native', source=Glob('src/*.cpp'))
+Default(library)

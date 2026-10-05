@@ -1,0 +1,55 @@
+diff --git a/MMOCoreORB/src/server/zone/managers/resource/resourcespawner/resourcetree/ResourceTree.cpp b/MMOCoreORB/src/server/zone/managers/resource/resourcespawner/resourcetree/ResourceTree.cpp
+index eea3dbe1..7bf1a6af 100644
+--- a/MMOCoreORB/src/server/zone/managers/resource/resourcespawner/resourcetree/ResourceTree.cpp
++++ b/MMOCoreORB/src/server/zone/managers/resource/resourcespawner/resourcetree/ResourceTree.cpp
+@@ -41,6 +41,17 @@ bool ResourceTree::buildTreeFromClient() {
+ 
+ 	delete iffStream;
+ 
++	// Retail/JTL and later tables have different numeric column positions.
++	// Resolve the stable column headers instead of silently shifting attributes.
++	const int attributeStart = dtiff.getColumnIndexByName("Attribute 1");
++	const int attributeMinStart = dtiff.getColumnIndexByName("Att 1 min");
++	const int containerColumn = dtiff.getColumnIndexByName("Resource Container Type");
++	const int nameColumn = dtiff.getColumnIndexByName("Random Name Class");
++	if (attributeStart < 0 || attributeMinStart < 0 || containerColumn < 0 || nameColumn < 0) {
++		error("Unsupported resource tree column layout.");
++		return false;
++	}
++
+ 	Vector<String> currentClasses;
+ 	Vector<String> currentStfClasses;
+ 
+@@ -94,26 +105,26 @@ bool ResourceTree::buildTreeFromClient() {
+ 		row->getValue(14, boolValue);
+ 		entry->setRecycled(boolValue);
+ 
+-		for (int j = 16; j <= 26; ++j) {
+-			row->getValue(j, stringvalue);
++		for (int j = 0; j < 11; ++j) {
++			row->getValue(attributeStart + j, stringvalue);
+ 			if (stringvalue == "")
+ 				break;
+ 
+ 			int min;
+-			row->getCell(j + 11 + (j - 16))->getValue(min);
++			row->getCell(attributeMinStart + 2 * j)->getValue(min);
+ 
+ 			int max;
+-			row->getCell(j + 12 + (j - 16))->getValue(max);
++			row->getCell(attributeMinStart + 2 * j + 1)->getValue(max);
+ 
+ 			entry->addAttribute(new ResourceAttribute(stringvalue, min, max));
+ 		}
+ 
+-		row->getCell(49)->getValue(stringvalue);
++		row->getCell(containerColumn)->getValue(stringvalue);
+ 		if(stringvalue != "")
+ 			resourcecontainer = stringvalue;
+ 		entry->setResourceContainerType(resourcecontainer);
+ 
+-		row->getCell(50)->getValue(stringvalue);
++		row->getCell(nameColumn)->getValue(stringvalue);
+ 		if(stringvalue != "")
+ 				randomname = stringvalue;
+ 		entry->setRandomNameClass(randomname);

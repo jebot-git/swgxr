@@ -1,0 +1,39 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -18,6 +18,27 @@
+  static Json ham(CreatureObject* c,bool maximum=false){return Json::array({maximum?c->getMaxHAM(0):c->getHAM(0),maximum?c->getMaxHAM(3):c->getHAM(3),maximum?c->getMaxHAM(6):c->getHAM(6)});}
+  static bool key(const std::string& s){if(s.size()<8 || s.size()>80)return false;for(char c:s)if(!std::isalnum(c) && c!='_' && c!='-')return false;return true;}
+  static const AttackCommand* attack(CreatureObject* c){auto command=dynamic_cast<const AttackCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(command==nullptr)throw std::runtime_error("native_attack_unavailable");return command;}
++ static Json impactBounds(SceneObject* target){
++  auto appearance=target->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
++  double scale=target->isCreatureObject()?target->asCreatureObject()->getHeight(false):1.0;
++  if(volume!=nullptr && std::isfinite(scale) && scale>=.05 && scale<=16){
++   const auto& sphere=volume->getBoundingSphere();const auto& center=sphere.getCenter();double radius=sphere.getRadius();
++   if(std::isfinite(radius) && radius>0 && radius<=256 && std::isfinite(center.getX()) && std::isfinite(center.getY()) && std::isfinite(center.getZ()) && center.length()<=256)
++    return {{"source","original_appearance_sphere"},{"center",Json::array({center.getX(),center.getY(),center.getZ()})},{"radius",radius},{"scale",scale},{"margin",2.0}};
++  }
++  return {{"source","bounded_origin_fallback"},{"center",Json::array({0,0,0})},{"radius",3.0},{"scale",1.0},{"margin",0.0}};
++ }
++ static bool withinImpactBounds(SceneObject* target,const Json& hit){
++  auto bounds=impactBounds(target);auto world=target->getWorldPosition();
++  // Source wire/appearance coordinates are X,Y-up,Z. Native world Vector3 is X,Z-planar,Y-up.
++  // Reuse the exact inverse orientation/axis conversion used by Core3 collision ray tests.
++  Vector3 delta(hit[0].get<float>()-world.getX(),hit[2].get<float>()-world.getY(),hit[1].get<float>()-world.getZ());
++  Matrix4 rotation;rotation.setRotationMatrix(target->getDirection()->toMatrix3());
++  Vector3 local=CollisionManager::getAxisAlignedVector(delta,rotation);
++  const auto& center=bounds["center"];double scale=bounds["scale"].get<double>();
++  double x=local.getX()-center[0].get<double>()*scale,y=local.getY()-center[1].get<double>()*scale,z=local.getZ()-center[2].get<double>()*scale;
++  double radius=bounds["radius"].get<double>()*scale+bounds["margin"].get<double>();return x*x+y*y+z*z<=radius*radius;
++ }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+   if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+@@ -46,7 +67,7 @@
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+   if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3 || travel>160*(stamp-shot.time+.10)+3)throw std::runtime_error("projectile_range_or_time");
+   double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
+-  auto targetID=request.at("target_id").get<std::string>();auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");if(distance(hit,position(target))>std::max(3.f,target->getTemplateRadius()+2.f))throw std::runtime_error("impact_outside_target");
++  auto targetID=request.at("target_id").get<std::string>();auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["impact_bounds"]=impactBounds(target);if(!withinImpactBounds(target,hit))throw std::runtime_error("impact_outside_target");
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage)throw std::runtime_error("launch_weapon_changed");
+   AttackCommand prepaid(*command);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+   Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,tangible,s);

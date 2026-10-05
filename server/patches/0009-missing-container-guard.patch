@@ -1,0 +1,15 @@
+diff --git a/MMOCoreORB/src/server/zone/objects/scene/SceneObjectImplementation.cpp b/MMOCoreORB/src/server/zone/objects/scene/SceneObjectImplementation.cpp
+index 1787053c..c6c0f536 100644
+--- a/MMOCoreORB/src/server/zone/objects/scene/SceneObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/scene/SceneObjectImplementation.cpp
+@@ -1217,6 +1217,10 @@ int SceneObjectImplementation::canAddObject(SceneObject* object, int containment
+ }
+ 
+ bool SceneObjectImplementation::transferObject(SceneObject* object, int containmentType, bool notifyClient, bool allowOverflow, bool notifyRoot) {
++	if (containerComponent == nullptr) {
++		error() << "Cannot transfer into object " << getObjectID() << ": missing container component, template CRC " << serverObjectCRC;
++		return false;
++	}
+ 	return containerComponent->transferObject(asSceneObject(), object, containmentType, notifyClient, allowOverflow, notifyRoot);
+ }
+ 

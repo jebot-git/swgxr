@@ -1,0 +1,21 @@
+[Unit]
+Description=SWGXR Tatooine Core3
+Requires=swgxr-db.service
+After=swgxr-db.service
+PartOf=swgxr.target swgxr-db.service
+
+[Service]
+Type=exec
+WorkingDirectory=@ROOT@
+ExecStartPre=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py prepare-core
+ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py run-core
+ExecStartPost=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py ready-core
+ExecStop=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py stop-core
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=650
+TimeoutStopSec=240
+KillMode=process
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000

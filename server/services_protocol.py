@@ -1,0 +1,142 @@
+"""Native terminal services validation and source text resolution."""
+from copy import deepcopy
+import math,re,json
+from pathlib import Path
+from functools import lru_cache
+try:
+ from .datapad_protocol import display,template_label
+ from .character_protocol import decode_customization,template_names
+ from .inventory_protocol import inventory_snapshot
+except ImportError:
+ from datapad_protocol import display,template_label
+ from character_protocol import decode_customization,template_names
+ from inventory_protocol import inventory_snapshot
+ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train')
+MUTATIONS=set(ACTIONS)-{'status','open','delivery_open'}
+def command(action,data):
+ if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
+ out={'action':action}
+ for field,maximum in [('category_id',2147483647),('page',100000)]:
+  if field in data:
+   value=data[field]
+   if type(value) is not int or not 0<=value<=maximum:raise ValueError('Invalid bazaar '+field)
+   out[field]=value
+ if action in MUTATIONS:
+  key=data.get('request_id','')
+  if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique service request_id required.')
+  out['request_id']=key
+ if 'position' in data:
+  p=data['position']
+  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite source Tatooine position required.')
+  out['position']=p
+ if 'building_id' in data:
+  v=data['building_id'];ci=data.get('cell_index')
+  if not isinstance(v,str) or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
+  out.update(building_id=v,cell_index=ci)
+ required={
+  'delivery_open':('npc_id','mission_id'),'delivery_pickup':('npc_id','mission_id'),'delivery_complete':('npc_id','mission_id','parcel_id'),
+  'trainer_train':('terminal_id',),'open':('terminal_id',),'mission_refresh':('terminal_id',),'mission_accept':('terminal_id','mission_id'),
+  'mission_abort':('mission_id',),'bazaar_buy':('terminal_id','listing_id'),'bazaar_retrieve':('terminal_id','listing_id'),
+  'bazaar_sell':('terminal_id','item_id'),'bazaar_cancel':('terminal_id','listing_id'),'bank_transfer':('terminal_id',),'pay':('target_id',),'crafting_station':('terminal_id','tool_id'),
+  'travel_purchase':('terminal_id',),'travel_board':('ticket_id',)}.get(action,())
+ for k in set(required)|({'terminal_id'} if data.get('terminal_id') else set()):
+  v=data.get(k)
+  if not isinstance(v,str) or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+k)
+  out[k]=v
+ if action in ('bank_transfer','pay'):
+  n=data.get('amount')
+  if type(n) is not int or not 0<n<=2000000000:raise ValueError('Positive integer amount required.')
+  out['amount']=n
+ if action=='trainer_train':
+  skill=data.get('skill_id')
+  if not isinstance(skill,str) or not re.fullmatch(r'[a-z][a-z0-9_]{1,95}',skill):raise ValueError('Native trainer skill_id required.')
+  out['skill_id']=skill
+ if action=='bank_transfer':
+  if data.get('direction') not in ('deposit','withdraw'):raise ValueError('Choose deposit or withdraw.')
+  out['direction']=data['direction']
+ if action in ('bazaar_buy','bazaar_sell'):
+  n=data.get('price')
+  if type(n) is not int or not 0<n<=20000:raise ValueError('Invalid original bazaar price.')
+  out['price']=n
+  if 'max_price' in data:
+   maximum=data['max_price']
+   if type(maximum) is not int or not n<=maximum<=20000:raise ValueError('Invalid maximum bid.')
+   out['max_price']=maximum
+ if action=='bazaar_sell':
+  description=data.get('description','')
+  if not isinstance(description,str) or len(description)>512:raise ValueError('Bazaar description too long.')
+  out['description']=description
+  if type(data.get('auction',False)) is not bool:raise ValueError('auction must be boolean.')
+  out['auction']=data.get('auction',False)
+ if action=='travel_board' or action.startswith('delivery_'):out.pop('terminal_id',None)
+ if action=='travel_purchase':
+  destination=data.get('destination_id')
+  if not isinstance(destination,str) or not re.fullmatch(r"[A-Za-z0-9 '\-]{1,100}",destination):raise ValueError('Native destination name required.')
+  if type(data.get('round_trip',False)) is not bool:raise ValueError('round_trip must be boolean.')
+  out.update(destination_id=destination,round_trip=data.get('round_trip',False))
+ return out
+
+def label(value):
+ if isinstance(value,str) and re.fullmatch(r'@?[A-Za-z0-9_/]+:[A-Za-z0-9_]+',value):
+  table,key=value.lstrip('@').split(':',1)
+  return display(table,key,value)
+ return value
+
+@lru_cache(maxsize=1)
+def categories():
+ path=Path(__file__).resolve().parents[1]/'runtime/assets/services/bazaar_categories.json'
+ if not path.exists():return [],['Original bazaar category dataset has not been prepared.']
+ catalog=json.loads(path.read_text());nodes={row['id']:row for row in catalog['nodes']}
+ def expand(oid):
+  row=nodes[oid]
+  return {'id':oid,'name':row['label'],'children':[expand(child) for child in row.get('children',[])]}
+ return [{'id':0,'name':nodes[0]['label'],'children':[]}]+[expand(child) for child in nodes[0]['children']],catalog.get('limitations',[])
+
+def snapshot(raw,oid,attributes=None):
+ state=deepcopy(raw)
+ if state.get('error'):raise ValueError(state['error'])
+ if state.get('character_id')!=str(oid) or state.get('source_kind')!='core3_services':raise ValueError('Owned native service snapshot required.')
+ if len(state.get('terminals',[]))>128 or len(state.get('tickets',[]))>256:raise ValueError('Native services snapshot exceeds bounds.')
+ if len(state.get('delivery_contacts',[]))>32 or len(state.get('parcels',[]))>16:raise ValueError('Native delivery snapshot exceeds bounds.')
+ mutation=state.pop('mutation',{'success':True})
+ if state.get('terminal',{}).get('kind')=='bazaar':
+  tree,limitations=categories();state['terminal']['categories']=deepcopy(tree);state['terminal']['category_limitations']=limitations
+ appearance=state.get('player',{}).get('appearance',{})
+ if appearance:
+  appearance['customization']=decode_customization(bytes.fromhex(appearance.pop('customization_hex','')))
+  appearance['shared_template']=template_names().get(appearance.get('client_crc'),'')
+ for terminal in state.get('terminals',[])+state.get('delivery_contacts',[])+([state['terminal']] if state.get('terminal') else []):
+  terminal['name']=label(terminal.get('name',''))
+  if terminal.get('kind')=='mission' and terminal.get('terminal_type') in ('artisan','scout','bounty','entertainer','imperial','rebel'):
+   terminal['name']=label('@terminal_name:terminal_mission_'+terminal['terminal_type'])
+  if terminal.get('kind')=='delivery':
+   terminal['mission_name']=label(terminal.get('mission_name',''))
+   if 'dialogue' in terminal:terminal['dialogue']=label(terminal['dialogue'])
+  if terminal.get('kind')=='trainer':terminal['trainer_text']=label(terminal.get('trainer_text',''))
+  for kind in ('missions','listings','tools','skills'):
+   for row in terminal.get(kind,[]):
+    row['name']=label(row.get('name',''));row['description']=label(row.get('description',''))
+    if kind=='missions':row['target']=label(row.get('target',''))
+    if kind=='skills':row['xp_name']=label(row.get('xp_name',''))
+ for row in state.get('missions',[]):
+  row['target']=label(row.get('target',''))
+  row['name']=label(row.get('name',''));row['description']=label(row.get('description',''))
+ for parcel in state.get('parcels',[]):
+  if not isinstance(parcel.get('id'),str) or not parcel['id'].isdigit() or not isinstance(parcel.get('mission_id'),str) or not parcel['mission_id'].isdigit():raise ValueError('Native owned mission parcel identity required.')
+  parcel['shared_template']=template_names().get(parcel.get('client_crc'),'')
+  parcel['customization']=decode_customization(bytes.fromhex(parcel.get('customization_hex','')))
+  fallback=template_label(parcel['shared_template'] or parcel.get('template',''))[0]
+  parcel['name']=parcel.pop('custom_name','') or display(parcel.pop('name_table',''),parcel.pop('name_key',''),fallback)
+  parcel['description']=label(parcel.get('description',''))
+  parcel['attributes']={'mission_id':parcel['mission_id'],'receiver_id':parcel.get('receiver_id',''),'stage':parcel.get('stage','deliver'),'native_inventory_object':True}
+  parcel.update(category='data',type='mission_parcel',deletable=False,source='core3_delivery_objective')
+ if 'dialogue' in mutation:mutation['dialogue']=label(mutation['dialogue'])
+ if state.get('terminal',{}).get('kind')=='mission':state['terminal'].setdefault('missions',[]).extend(deepcopy(state.get('missions',[])))
+ if state.get('inventory'):state['inventory']=inventory_snapshot({'variables':{'inventory':state['inventory'],'weaponAttributes':attributes or {}}},oid)
+ shuttle=state.get('shuttle',{})
+ state['shuttles']=[shuttle] if shuttle else []
+ if mutation.get('transport_destination'):
+  state['transport']=state.get('transport',{'id':'services_'+str(oid)+'_'+str(mutation.get('request_id','travel')),'kind':'shuttle','destination':mutation['transport_destination']})
+ out={'ok':mutation.get('success') is True,'backend':'core3','source_kind':'core3_services','character_id':str(oid),'state':state,'mutation':mutation}
+ if state.get('transport'):out['transport']=state['transport']
+ return out

@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/GodotVR/godot-xr-tools.git",
+  "tag": "4.6.0-dev1",
+  "commit": "ccd795c0d57944f15f4c39d44d284347c74b11fc",
+  "license": "MIT",
+  "action_map_owner": "project",
+  "upstream_action_map_sha256": "6b3482a2a651c565765b1c02b9d517b44a3c0379f09de50b90c40a62633305d6",
+  "action_map_sha256": "11c49cb17ee2df7b2ed0d837dc307eaedeb68d0dd934be05fb2c33619d28e7a8",
+  "reason": "Godot 4.7 compatibility fixes; upstream development release, plugin.cfg still reports 4.5.1."
+}

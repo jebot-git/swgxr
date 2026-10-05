@@ -1,0 +1,204 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/scene/SceneObject.h"
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include "server/zone/Zone.h"
++#include "SwgxrInventory.h"
+ 
+ class GetAttributesBatchCommand : public QueueCommand {
+ public:
+@@ -38,6 +39,11 @@
+ 
+ 		if (zone == nullptr)
+ 			return GENERALERROR;
++
++		if (arguments.toString().beginsWith("swgxr_inventory_v1")) {
++			SwgxrInventory::send(creature, arguments.toString());
++			return SUCCESS;
++		}
+ 
+ 		int incr = 0;
+ 
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -0,0 +1,134 @@
++/* Local SWGXR inventory protocol; authoritative creature-owned inventory only. */
++#ifndef SWGXR_INVENTORY_H
++#define SWGXR_INVENTORY_H
++#include "server/zone/objects/resource/ResourceContainer.h"
++#include "server/zone/objects/factorycrate/FactoryCrate.h"
++#include "server/zone/packets/scene/AttributeListMessage.h"
++#include <set>
++
++class SwgxrInventory {
++ using Json = JSONSerializationType;
++ static std::string id(SceneObject* o) { return o ? std::to_string(o->getObjectID()) : ""; }
++ static int quantity(SceneObject* o) {
++  if (o->isResourceContainer()) return cast<ResourceContainer*>(o)->getQuantity();
++  if (o->isFactoryCrate()) return cast<FactoryCrate*>(o)->getUseCount();
++  return 1;
++ }
++ static bool navigable(SceneObject* o) {
++  return o->getContainerVolumeLimit() > 0 && o->getContainerType() == ContainerType::VOLUME && !o->isCraftingTool() && !o->isFactoryCrate();
++ }
++ static int slotCost(SceneObject* o) { return o->isFactoryCrate() ? 1 + o->getCountableObjectsRecursive() : 1; }
++ static bool hasSpace(SceneObject* o, CreatureObject* c, int cost) {
++  ManagedReference<SceneObject*> parent = o->getParent().get();
++  for (int depth=0; parent != nullptr && depth<10; ++depth) {
++   if (parent == c) return true;
++   if (parent->getContainerVolumeLimit()>0 && parent->getCountableObjectsRecursive()+cost>parent->getContainerVolumeLimit()) return false;
++   parent=parent->getParent().get();
++  }
++  return false;
++ }
++ static Json item(SceneObject* o, CreatureObject* c, bool equipped) {
++  const bool stack = o->isResourceContainer() || o->isFactoryCrate();
++  int count=quantity(o), cost=slotCost(o);
++  bool space=hasSpace(o,c,cost);
++  Json result={{"id",id(o)},{"container_id",id(o->getParent().get())},
++   {"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},
++   {"client_crc",o->getClientObjectCRC()},
++   {"name_table",std::string(o->getObjectNameStringIdFile().toCharArray())},
++   {"name_key",std::string(o->getObjectNameStringIdName().toCharArray())},
++   {"custom_name",std::string(o->getCustomObjectName().toString().toCharArray())},
++   {"description",std::string(o->getDetailedDescription().toCharArray())},
++   {"quantity",count},{"use_count",o->isTangibleObject()?o->asTangibleObject()->getUseCount():0},
++   {"equipped",equipped},{"is_container",navigable(o)},
++   {"stack_kind",o->isResourceContainer()?"resource":o->isFactoryCrate()?"factory_crate":"none"},
++   {"split_supported",stack},{"split_max_quantity",stack?std::max(0,count-1):0},
++   {"split_slot_cost",cost},{"split_available",stack && count>1 && space},
++   {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
++  return result;
++ }
++ static void walk(SceneObject* o, CreatureObject* c, Json& out, std::set<uint64>& seen, int depth, bool equipped) {
++  if (depth>8 || seen.size()>=256 || !seen.insert(o->getObjectID()).second) { out["error"]="Inventory bounds exceeded"; return; }
++  Json container={{"id",id(o)},{"parent_id",id(o->getParent().get())},{"capacity",o->getContainerVolumeLimit()},
++   {"occupied",o->getCountableObjectsRecursive()},{"direct_count",o->getContainerObjectsSize()},
++   {"depth",depth},{"equipped",equipped},{"item_ids",Json::array()}};
++  for (int i=0;i<o->getContainerObjectsSize();++i) {
++   ManagedReference<SceneObject*> child=o->getContainerObject(i);
++   if (child==nullptr || !child->isASubChildOf(c)) { out["error"]="Invalid inventory ownership"; continue; }
++   if (out["items"].size()>=256) { out["error"]="Inventory bounds exceeded"; break; }
++   container["item_ids"].push_back(id(child));
++   out["items"].push_back(item(child,c,false));
++   if (navigable(child)) walk(child,c,out,seen,depth+1,false);
++  }
++  out["containers"].push_back(container);
++ }
++ static Json split(CreatureObject* c, SceneObject* root, const String& args) {
++  Json result={{"success",false}};
++  StringTokenizer tokens(args); String marker; tokens.getStringToken(marker);
++  if (!tokens.hasMoreTokens()) return result;
++  String verb; tokens.getStringToken(verb);
++  if (verb!="split" || !tokens.hasMoreTokens()) { result["error"]="Invalid inventory operation"; return result; }
++  uint64 target=tokens.getLongToken();
++  if (!tokens.hasMoreTokens()) { result["error"]="Missing quantity"; return result; }
++  int count=tokens.getIntToken();
++  ManagedReference<SceneObject*> object=c->getZoneServer()->getObject(target);
++  if (object==nullptr || !object->isASubChildOf(c) || (!object->isResourceContainer() && !object->isFactoryCrate())) { result["error"]="Item is not an owned splittable stack"; return result; }
++  Locker itemLock(object,c);
++  auto parent=object->getParent().get();
++  if (parent==nullptr) { result["error"]="Item has no inventory parent"; return result; }
++  Locker parentLock(parent,object);
++  // Revalidate after locking; the item may have moved while locks were acquired.
++  // Only inventory or equipped wearable container descendants, never bank/datapad.
++  ManagedReference<SceneObject*> ancestor=object->getParent().get(); bool allowed=false;
++  for (int d=0; ancestor!=nullptr && ancestor!=c && d<10; ++d) {
++   if (ancestor==root || (ancestor->isWearableContainerObject() && ancestor->getParent().get()==c)) allowed=true;
++   ancestor=ancestor->getParent().get();
++  }
++  if (!allowed) { result["error"]="Item outside inventory"; return result; }
++  if (object->getParent().get()!=parent || !object->isASubChildOf(c)) { result["error"]="Inventory changed during split"; return result; }
++  int before=quantity(object);
++  if (count<1 || count>=before) { result["error"]="Split quantity out of range"; return result; }
++  if (!hasSpace(object,c,slotCost(object))) { result["error"]="Insufficient ancestor container capacity"; return result; }
++  std::set<uint64> ids;
++  for (int i=0;i<parent->getContainerObjectsSize();++i) ids.insert(parent->getContainerObject(i)->getObjectID());
++  if (object->isResourceContainer()) cast<ResourceContainer*>(object.get())->split(count);
++  else cast<FactoryCrate*>(object.get())->split(count);
++  std::string created;
++  for (int i=0;i<parent->getContainerObjectsSize();++i) {
++   auto child=parent->getContainerObject(i);
++   if (!ids.count(child->getObjectID()) && quantity(child)==count) created=id(child);
++  }
++  result["success"]=quantity(object)==before-count && !created.empty();
++  result["item_id"]=id(object); result["new_item_id"]=created; result["quantity"]=count;
++  result["previous_quantity"]=before; result["remaining_quantity"]=quantity(object);
++  if (!result["success"].get<bool>()) result["error"]="Core3 split did not complete";
++  return result;
++ }
++public:
++ static void send(CreatureObject* c, const String& args) {
++  Json out={{"source_kind","core3_inventory"},{"character_id",id(c)}, {"items",Json::array()}, {"containers",Json::array()}, {"equipped_backpack",nullptr}};
++  ManagedReference<SceneObject*> root=c->getSlottedObject("inventory");
++  if (root==nullptr) out["error"]="Missing inventory container";
++  else {
++   if (args!="swgxr_inventory_v1") out["mutation"]=split(c,root,args);
++   out["inventory"]={{"id",id(root)},{"capacity",root->getContainerVolumeLimit()},{"occupied",root->getCountableObjectsRecursive()},{"direct_count",root->getContainerObjectsSize()}};
++   std::set<uint64> seen; walk(root,c,out,seen,0,false);
++   for (int i=0;i<c->getSlottedObjectsSize();++i) {
++    ManagedReference<SceneObject*> worn=c->getSlottedObject(i);
++    if (worn==nullptr || !worn->isWearableContainerObject() || seen.count(worn->getObjectID())) continue;
++    auto record=item(worn,c,true); out["items"].push_back(record);
++    if (record["template"].get<std::string>().find("/backpack/")!=std::string::npos) out["equipped_backpack"]=record;
++    walk(worn,c,out,seen,0,true);
++   }
++   // Attribute replies come first; the snapshot marker is the completion fence.
++   for (auto& record:out["items"]) {
++    auto object=c->getZoneServer()->getObject(std::stoull(record["id"].get<std::string>()));
++    if (object!=nullptr) object->sendAttributeListTo(c);
++   }
++  }
++  std::string encoded=out.dump(-1,' ',true);
++  if (encoded.size()>262144) encoded="{\"error\":\"Inventory response size exceeded\"}";
++  auto msg=new AttributeListMessage(c->getObjectID());
++  msg->insertAttribute("swgxr.inventory.snapshot",String(encoded.c_str())); c->sendMessage(msg);
++ }
++};
++#endif
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -18,6 +18,7 @@
+ 	// Result
+ 	ActionResult result;
+ 	bool skipped;
++	std::string inventoryRequest;
+ 	std::string datapadCommand;
+ 	std::string datapadArguments;
+ 	uint64 datapadTarget = 0;
+@@ -57,6 +58,7 @@
+ 			action->datapadTarget = command.value("target", uint64(0));
+ 		}
+ 		if (config.contains("attributeTargets")) action->attributeTargets = config["attributeTargets"].get<std::vector<uint64>>();
++		action->inventoryRequest = config.value("inventoryRequest", std::string());
+ 		return action;
+ 	}
+ 
+@@ -145,6 +147,26 @@
+ 		}
+ 		core.setVar("weapons/complete", true);
+ 
++		if (!inventoryRequest.empty()) {
++			auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
++			request->insertInt(5);
++			request->insertInt(STRING_HASHCODE("getattributesbatch"));
++			request->insertLong(0);
++			request->insertUnicode(UnicodeString(String(inventoryRequest.c_str())));
++			core.zone->getZoneClient()->sendMessage(request);
++			const String key=String("weaponAttributes/o")+String::valueOf(oid);
++			bool complete=false;
++			for(int attempt=0;attempt<100;++attempt) {
++				auto attributes=core.getVar<JSONSerializationType>(key,JSONSerializationType::object());
++				if (attributes.contains("swgxr.inventory.snapshot")) {
++					core.setVar("inventory",JSONSerializationType::parse(attributes["swgxr.inventory.snapshot"].get<std::string>()));
++					complete=true; break;
++				}
++				core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);
++			}
++			if (!complete) { result.setError("Inventory snapshot timed out",8); return; }
++		}
++
+ 		// Datapad writes use the same owned-player command protocol as the
+ 		// original client. Persistence and permission checks remain in Core3.
+ 		if (!datapadCommand.empty()) {

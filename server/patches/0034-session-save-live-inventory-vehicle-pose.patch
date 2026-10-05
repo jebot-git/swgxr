@@ -1,0 +1,143 @@
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -157,6 +157,7 @@
+ 		core.setVar("weapons/complete", true);
+ 		}
+ 
++        if(inventoryRequest.empty() && liveDirectory.empty())inventoryRequest="swgxr_session_v1 {\"action\":\"status\"}";
+ 		if (!inventoryRequest.empty()) {
+ 			auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
+ 			request->insertInt(5);
+@@ -166,17 +167,18 @@
+ 			core.zone->getZoneClient()->sendMessage(request);
+ 			const String key=String("weaponAttributes/o")+String::valueOf(oid);
+ 			const bool gathering=(inventoryRequest.find("swgxr_gathering_v1 ")==0 || inventoryRequest.find("swgxr_corpse_v1 ")==0);
++			const bool sessionRequest=inventoryRequest.find("swgxr_session_v1 ")==0;
+ 			const bool vehicles=inventoryRequest.find("swgxr_vehicles_v1 ")==0;
+ 			const bool crafting=inventoryRequest.find("swgxr_crafting_v1 ")==0;
+ 			const bool medic=inventoryRequest.find("swgxr_medic_v1 ")==0;
+ 			const bool scout=inventoryRequest.find("swgxr_scout_v1 ")==0;
+             const bool services=inventoryRequest.find("swgxr_services_v1 ")==0;
+-			const std::string field=vehicles?"swgxr.vehicles.snapshot":medic?"swgxr.medic.snapshot":services?"swgxr.services.snapshot":scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
++			const std::string field=sessionRequest?"swgxr.session.snapshot":vehicles?"swgxr.vehicles.snapshot":medic?"swgxr.medic.snapshot":services?"swgxr.services.snapshot":scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
+ 			bool complete=false;
+ 			for(int attempt=0;attempt<100;++attempt) {
+ 				auto attributes=core.getVar<JSONSerializationType>(key,JSONSerializationType::object());
+ 				if (attributes.contains(field)) {
+-					core.setVar(vehicles?"vehicles":medic?"medic":services?"services":scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
++					core.setVar(sessionRequest?"session":vehicles?"vehicles":medic?"medic":services?"services":scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
+ 					complete=true; break;
+ 				}
+ 				core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);
+@@ -216,12 +218,15 @@
+ 				bool complete=false;for(int attempt=0;attempt<100;++attempt){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(values["swgxr.live.snapshot"].get<std::string>());if(reply.value("request_id",std::string())==input.value("request_id",std::string())){if(input.value("action",std::string())=="scout" && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("state",JSONSerializationType::object()).value("inventory",JSONSerializationType::object());reply["scout_attributes"]=JSONSerializationType::object();
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+-                     }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering") && reply.contains("mutation")){
++                     }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering" || input.value("action",std::string())=="inventory") && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("inventory",JSONSerializationType::object());reply["service_attributes"]=JSONSerializationType::object();
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }if(input.value("action",std::string())=="gathering" && reply.contains("mutation")){
+                        auto state=reply["mutation"].value("state",JSONSerializationType::object());JSONSerializationType items=JSONSerializationType::array();for(auto key:{"tool","hip_tool"})if(state.contains(key) && state[key].is_object())items.push_back(state[key]);for(auto& dep:state.value("deployments",JSONSerializationType::array()))items.push_back(dep["tool"]);
+                        for(auto& item:items){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
++                     }if(input.value("action",std::string())=="replication" && reply.contains("mutation") && reply["mutation"].contains("object_ids")){
++                       auto objects=core.getVar<JSONSerializationType>("replication/objects",JSONSerializationType::object());JSONSerializationType owned=JSONSerializationType::object(),attrs=JSONSerializationType::object();for(auto& identifier:reply["mutation"]["object_ids"]){auto key="o"+identifier.get<std::string>();if(objects.contains(key))owned[key]=objects[key];if(identifier.get<std::string>()!=std::to_string(oid))attrs[key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
++                       reply["native_variables"]={{"scene",core.getVar<JSONSerializationType>("scene",JSONSerializationType::object())},{"appearance",core.getVar<JSONSerializationType>("appearance",JSONSerializationType::object())},{"replication",{{"objects",owned}}},{"weaponAttributes",attrs},{"weapons",{{"complete",true}}},{"session",{{"source_kind","core3_session_status"},{"character_id",std::to_string(oid)},{"location",reply["mutation"]["location"]}}}};
+                      }publish(reply);complete=true;break;}}core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);}
+ 				if(!complete){publish({{"session_live",false},{"error_code","native_response_timeout"},{"request_id",input.value("request_id",std::string())}});break;}
+ 				if(input.value("action",std::string())=="stop")break;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -28,6 +28,10 @@
+ 			JSONSerializationType out,request;try{std::string raw=arguments.toString().toCharArray();request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));out=SwgxrLiveCombat::run(creature,request);}catch(const std::exception& e){out={{"error_code",std::string(e.what())},{"session_live",false},{"character_id",std::to_string(creature->getObjectID())}};}
+ 			out["request_id"]=request.is_object()?request.value("request_id",std::string()):std::string();auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.live.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
+ 		}
++        if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_session_v1 ")) {
++            JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();out=SwgxrServices::sessionState(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1)));}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
++            auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.session.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++        }
+         if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_vehicles_v1 ")) {
+             JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();auto request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));SwgxrServices::move(creature,request);out=SwgxrVehicles::run(creature,request);}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
+             auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.vehicles.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -9,6 +9,7 @@
+ #include "SwgxrScout.h"
+ #include "SwgxrMedic.h"
+ #include "SwgxrVehicles.h"
++#include "SwgxrCorpses.h"
+ #include "SwgxrVitalFeedback.h"
+ #include "SwgxrServices.h"
+ #include "SwgxrCrafting.h"
+@@ -58,7 +59,7 @@
+  }
+  static Json location(CreatureObject* c){
+   auto parent=c->getParent().get();auto root=c->getRootParent();int index=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;
+-  return {{"position",position(c)},{"local_position",Json::array({c->getPositionX(),c->getPositionZ(),c->getPositionY()})},{"cell_id",parent?id(parent):"0"},{"building_id",index && root!=nullptr?id(root):"0"},{"cell_index",index},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"heading_radians",c->getDirection()->getRadians()}};
++  return {{"position",position(c)},{"local_position",Json::array({c->getPositionX(),c->getPositionZ(),c->getPositionY()})},{"cell_id",parent?id(parent):"0"},{"building_id",index && root!=nullptr?id(root):"0"},{"cell_index",index},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"heading_radians",std::fmod(c->getDirection()->getRadians()+(index && root!=nullptr?root->getDirection()->getRadians():0.f),6.283185307179586)}};
+  }
+  static uint64 cloneFacility(CreatureObject* c){
+   auto manager=c->getZoneServer()->getPlayerManager();auto ghost=c->getPlayerObject();manager->sendActivateCloneRequest(c);
+@@ -89,7 +90,20 @@
+   }
+   double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();
+   if(cell!=nullptr){if(!cell->isCellObject() || building==nullptr || !building->isBuildingObject())throw std::runtime_error("unsupported_parent");double angle=building->getDirection()->getRadians(),dx=x-building->getPositionX(),dy=y-building->getPositionY();x=dx*std::cos(angle)-dy*std::sin(angle);y=dx*std::sin(angle)+dy*std::cos(angle);z-=building->getPositionZ();heading-=angle;}
+-  c->setDirection(float(heading));c->teleport(float(x),float(z),float(y),cell!=nullptr?cell->getObjectID():0);
++  c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));c->teleport(float(x),float(z),float(y),cell!=nullptr?cell->getObjectID():0);
++ }
++ static void ownedReplication(CreatureObject* c,SceneObject* node,Json& ids,std::set<uint64>& seen){
++  if(node==nullptr || seen.count(node->getObjectID()))return;if(seen.size()>=1024)throw std::runtime_error("owned_replication_limit");seen.insert(node->getObjectID());ids.push_back(id(node));if(node!=c)node->sendAttributeListTo(c);
++  for(int i=0;i<node->getContainerObjectsSize();++i)ownedReplication(c,node->getContainerObject(i),ids,seen);
++  for(int i=0;i<node->getSlottedObjectsSize();++i)ownedReplication(c,node->getSlottedObject(i),ids,seen);
++ }
++ static Json replication(CreatureObject* c,const Json& request){
++  if(request.contains("command")){
++   auto q=request.at("command");auto name=q.at("name").get<std::string>();if(name!="requestwaypointatposition" && name!="setwaypointactivestatus" && name!="serverdestroyobject")throw std::runtime_error("unsupported_datapad_command");
++   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name.c_str());if(cmd==nullptr)throw std::runtime_error("native_command_unavailable");int code=cmd->doQueueCommand(c,q.value("target",uint64(0)),UnicodeString(String(q.value("arguments",std::string()).c_str())));if(code!=QueueCommand::SUCCESS)throw std::runtime_error("native_datapad_command_rejected");
++  }
++  c->sendTo(c,true,true);Json ids=Json::array();std::set<uint64> seen;ownedReplication(c,c,ids,seen);auto ghost=c->getPlayerObject();for(int i=0;i<ghost->getWaypointListSize();++i){auto point=ghost->getWaypoint(i);if(point!=nullptr){point->sendAttributeListTo(c);ids.push_back(id(point));}}
++  return {{"object_ids",ids},{"location",SwgxrServices::sessionState(c,Json::object())["location"]}};
+  }
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
+@@ -104,6 +118,10 @@
+    if(request.value("ready",false) && !s.ready){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;
+   }
+   if(verb=="snapshot")return result;
++  if(verb=="inventory")return {{"inventory",SwgxrInventory::snapshot(c,String(request.value("inventory_command",std::string("swgxr_inventory_v1")).c_str()))}};
++  if(verb=="replication")return replication(c,request);
++  if(verb=="corpse")return SwgxrCorpses::run(c,request.at("corpse"));
++  if(verb=="session"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("session");if(SwgxrVehicles::seated(c) && q.value("action",std::string())=="logout"){auto original=q;SwgxrVehicles::detach(c);auto where=SwgxrServices::sessionState(c,Json::object())["location"];for(auto key:{"position","building_id","cell_index","heading_radians"})q[key]=where[key];q["receipt_request"]=original;}return SwgxrServices::sessionState(c,q);}
+   if(verb=="life"){
+    auto action=request.at("life_action").get<std::string>();result["life_action"]=action;
+    if(action=="recover"){
+@@ -114,7 +132,7 @@
+    uint64 facility=cloneFacility(c);auto manager=c->getZoneServer()->getPlayerManager();if(!c->isDead())manager->killPlayer(c,c);if(!c->isDead())throw std::runtime_error("native_suicide_failed");manager->sendPlayerToCloner(c,facility);if(!c->getPlayerObject()->isCloning())throw std::runtime_error("native_clone_failed");
+    c->getPlayerObject()->setOnLoadScreen(true);s.shots.clear();s.transport={{"id",s.token+"_"+std::to_string(s.sequence)},{"facility_id",std::to_string(facility)},{"destination",location(c)}};result["transport_id"]=s.transport["id"];return result;
+   }
+-  if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrVehicles::run(c,request.at("vehicles"));}
++  if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");if(!SwgxrVehicles::seated(c))SwgxrServices::move(c,request.at("vehicles"));return SwgxrVehicles::run(c,request.at("vehicles"));}
+   if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+   if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
+   if(verb=="gathering"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrGathering::run(c,request.at("gathering"));}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -43,6 +43,18 @@
+   ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> root=c->getRootParent();if(r.contains("building_id")){auto bid=oid(r,"building_id");int ci=r.value("cell_index",0);if(!bid && !ci){cell=nullptr;root=nullptr;}else{root=c->getZoneServer()->getObject(bid);if(root==nullptr || !root->isBuildingObject() || root->getZone()!=c->getZone() || ci<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(root.get())->getCell(ci);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");}}
+   double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();if(cell!=nullptr){if(!cell->isCellObject() || root==nullptr)throw std::runtime_error("invalid_source_cell");double dx=x-root->getPositionX(),dy=y-root->getPositionY(),a=root->getDirection()->getRadians();if(dx*dx+dy*dy>256*256)throw std::runtime_error("cell_position_outside_building");x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();}c->teleport(x,z,y,cell?cell->getObjectID():0);
+  }
++ static Json sessionState(CreatureObject* c,const Json& r){
++  auto action=r.value("action",std::string("status"));if(action!="status" && action!="logout")throw std::runtime_error("invalid_session_action");Json receipts=Json::array(),original=r.value("receipt_request",r);auto ghost=c->getPlayerObject();
++  if(action=="logout"){
++   auto saved=ghost->getScreenPlayData("swgxr_session","logout_receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());auto key=original.value("request_id",std::string());if(key.size()<8 || key.size()>64)throw std::runtime_error("stable_logout_request_id_required");
++   for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=original)throw std::runtime_error("logout_request_id_reused");auto response=receipt["response"];response["replayed"]=true;return response;}
++   if(!c->isDead() && !c->isIncapacitated()){move(c,r);if(r.contains("heading_radians")){double heading=r["heading_radians"].get<double>();if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");auto parent=c->getParent().get();auto root=c->getRootParent();if(parent!=nullptr && parent->isCellObject() && root!=nullptr)heading-=root->getDirection()->getRadians();c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));}}
++  }
++  auto where=location(c);auto parent=c->getParent().get();auto root=c->getRootParent();if(parent!=nullptr && parent->isCellObject() && root!=nullptr)where["heading_radians"]=std::fmod(c->getDirection()->getRadians()+root->getDirection()->getRadians(),6.283185307179586);
++  Json response={{"backend","core3"},{"source_kind",action=="logout"?"core3_session_logout":"core3_session_status"},{"character_id",id(c)},{"saved",action=="logout"},{"location",where}};
++  if(action=="logout"){receipts.push_back({{"id",original["request_id"]},{"request",original},{"response",response}});while(receipts.size()>16)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_session","logout_receipts",String(receipts.dump().c_str()));c->updateToDatabase();ghost->updateToDatabase();}
++  return response;
++ }
+  static Json snapshot(CreatureObject* c,const Json& r){
+   String customization;c->getCustomizationString(customization);std::string hex;static const char* digits="0123456789abcdef";for(int i=0;i<customization.length();++i){unsigned char b=customization[i];hex+=digits[b>>4];hex+=digits[b&15];}
+   Json out={{"backend","core3"},{"source_kind","core3_services"},{"character_id",id(c)},{"wallet",{{"cash",c->getCashCredits()},{"bank",c->getBankCredits()}}},{"player",location(c)},{"terminals",Json::array()},{"terminal",Json::object()},{"missions",missions(c,true)}};

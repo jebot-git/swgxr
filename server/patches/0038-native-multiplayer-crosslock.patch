@@ -1,0 +1,31 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -18,7 +18,7 @@
+ #include <algorithm>
+ #include <chrono>
+ #include <map>
+-#include <mutex>
++#include "system/thread/Mutex.h"
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+  struct Shot {std::string item;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
+@@ -217,14 +217,17 @@
+  }
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+-  static std::mutex mutex;static std::map<uint64,Session> sessions;std::lock_guard<std::mutex> guard(mutex);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
++  // Queue commands enter with the player locked. Waiting on an ordinary
++  // std::mutex here pins that player while the active snapshot needs its lock.
++  // Engine cross-locking releases/reacquires the waiting player safely.
++  static Mutex mutex;static std::map<uint64,Session> sessions;Locker guard(&mutex,c);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
+   for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60){SwgxrLiveRecovery::detach(it->first);it=sessions.erase(it);}else ++it;
+   if(verb=="start"){
+    if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=16)throw std::runtime_error("session_capacity_16");if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12 && c->getParent().get()==nullptr)move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
+    if(request.value("spawn_test_lair",false)){if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+-  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
++  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+   if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};}
+   out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
+  }

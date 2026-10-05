@@ -1,0 +1,62 @@
+{
+  "repository": "https://github.com/goatchurchprime/two-voip-godot-4",
+  "tag": "v6.5",
+  "commit": "7ca36d91fec846bdce80a02f3451b4f06de58139",
+  "artifact_url": "https://github.com/goatchurchprime/two-voip-godot-4/releases/download/v6.5/TwoVoIP.zip",
+  "artifact_sha256": "811ac96d4b75314f90855e3136f9939f7a4bc4a01e51850640cff967afc20fc7",
+  "platforms": [
+    "Linux x86_64",
+    "Windows x86_64"
+  ],
+  "notices": {
+    "TwoVoIP-LICENSE.txt": {
+      "url": "https://raw.githubusercontent.com/goatchurchprime/two-voip-godot-4/7ca36d91fec846bdce80a02f3451b4f06de58139/LICENSE",
+      "sha256": "2958bc2a212f1d54b857557465da48161cf982f818bcb7c72911916c50f10167"
+    },
+    "Opus-COPYING.txt": {
+      "url": "https://raw.githubusercontent.com/xiph/opus/ddbe48383984d56acd9e1ab6a090c54ca6b735a6/COPYING",
+      "sha256": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551"
+    },
+    "RNNoise-COPYING.txt": {
+      "url": "https://raw.githubusercontent.com/xiph/rnnoise/372f7b4b76cde4ca1ec4605353dd17898a99de38/COPYING",
+      "sha256": "45d37ca1cdb278c088e1aa85e0e65ca3a534ed86a28dcc96ca16810248a61d35"
+    },
+    "SpeexDSP-COPYING.txt": {
+      "url": "https://raw.githubusercontent.com/xiph/speexdsp/1b28a0f61bc31162979e1f26f3981fc3637095c8/COPYING",
+      "sha256": "2654a4264b2bfe298dedc508748d140111840c315cc8eb646a3a68c13fa75b01"
+    },
+    "GodotCPP-LICENSE.txt": {
+      "url": "https://raw.githubusercontent.com/godotengine/godot-cpp/58d1de720b8ffe9f8ffcdfe3a85148582cfd2e74/LICENSE.md",
+      "sha256": "26a5b210d90760156ce886267ce9df235787dcc6cebfd7ecd95ef5b6fdcc95bf"
+    }
+  },
+  "files": {
+    "libs/libtwovoip.linux.template_debug.x86_64.so": "c0412232581a25a76bdb8c978418172505a477b07ec410adb8e5e8441b2dfdfd",
+    "libs/libtwovoip.linux.template_release.x86_64.so": "3868dada664abd896853b0d795f172e64394c5b5790a111c0e048a52d7c4b9be",
+    "libs/libtwovoip.windows.template_debug.x86_64.dll": "293bc8414aeb113a96e4e801dccb8dec7c5a28c551753c88f04d569e5cb51ce9",
+    "libs/libtwovoip.windows.template_release.x86_64.dll": "1c26f419b212840573fc104aaffea0b90f7091a1d5912db719654762654d08f6",
+    "notices/GodotCPP-LICENSE.txt": "26a5b210d90760156ce886267ce9df235787dcc6cebfd7ecd95ef5b6fdcc95bf",
+    "notices/Opus-COPYING.txt": "01e1167d54a096d123cf6dfbbeb19587278845c6481d2d66d545669846079551",
+    "notices/RNNoise-COPYING.txt": "45d37ca1cdb278c088e1aa85e0e65ca3a534ed86a28dcc96ca16810248a61d35",
+    "notices/SpeexDSP-COPYING.txt": "2654a4264b2bfe298dedc508748d140111840c315cc8eb646a3a68c13fa75b01",
+    "notices/TwoVoIP-LICENSE.txt": "2958bc2a212f1d54b857557465da48161cf982f818bcb7c72911916c50f10167",
+    "simpleexample/input_player.gd": "e1bd21f0da2694096a54e6baae56e6b472035c77df9411c85dc9608246790cd1",
+    "simpleexample/input_player.gd.uid": "0f5754de5b299581b63f3a22bd26d7005b23192831dffc6521aaa7810dd60ae2",
+    "simpleexample/minimal_demo.gd": "e4482ff24b6f92e54eda74c36c05de97188ed70fef7324a246607307a5e9f65f",
+    "simpleexample/minimal_demo.gd.uid": "858a889ec42906fc6836257fa50e380ad60b62f86e9f9f902c6d0538097f2491",
+    "simpleexample/minimal_demo.tscn": "f06007a853377df098c5f8e62afba410c75b8d110685d6b3fd4c42d3a778a83b",
+    "simpleexample/output_player.gd": "75916648a4c87de4d7e77d4e90b260136edf33343b501ed71f9cc8c5491e1508",
+    "simpleexample/output_player.gd.uid": "118fd931e19c299f571eec5865ea55f374e938f9a0d66fd78855de99937a03a8",
+    "simpleexample/output_player.tscn": "133e535e86025d03fdb75da491b9e5a904b8946d3d7cfa721c7c7c41fbcb642c",
+    "twovoip.gdextension": "b7670f33f2b0f7e646a0a95cd9c5cd48a9ff826cb4d8cb87026b6179c8f0968b",
+    "twovoip.gdextension.uid": "05b31b1d7f15ac23e9efb835c6c59e625dc936e6b2e13fb38d8c406e255b96eb",
+    "voiphelper/two_voip_mic.gd": "05dadd3958d1da70b1072418ea37a90a904930576c53bbba4a589ae59655e220",
+    "voiphelper/two_voip_mic.gd.uid": "8b81a378125afea515b8b3d31a6763e1e53fd9ec26359339bdf211bc03d16853",
+    "voiphelper/two_voip_mic.tscn": "19ead2843b75ca49f4a7e24c0a725189fb04731da6863a17a95c41d0fbca98c3",
+    "voiphelper/two_voip_speaker.gd": "85638d9d309ec9411e88edc1ef75db1c593690b6f93c7216e9c2b9a58d03f916",
+    "voiphelper/two_voip_speaker.gd.uid": "374ed41fe0a11fe84e8b42067994366526dbc8a8de6949a13cbe784f4ea6c9f4",
+    "voiphelper/two_voip_speaker.tscn": "9e06e3b65a9257b5ad0f1c31fa33dd03a89ba2052f6df266d5b19d1ce3d2412b",
+    "voiphelper/voxshader.gdshader": "a14aaa1fb3e2134da787c72cf33bb9675fdd4fe68d7ce3e0b2135925578c04e8",
+    "voiphelper/voxshader.gdshader.uid": "5106250bccb7f8f57181c549c317d90ab4569f041f60b663c1a1956ed80ff0b0"
+  }
+}

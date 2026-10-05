@@ -1,0 +1,139 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -10,6 +10,7 @@
+ #include "server/zone/Zone.h"
+ #include "SwgxrInventory.h"
+ #include "SwgxrGathering.h"
++#include "SwgxrCorpses.h"
+ 
+ class GetAttributesBatchCommand : public QueueCommand {
+ public:
+@@ -41,6 +42,12 @@
+ 		if (zone == nullptr)
+ 			return GENERALERROR;
+ 
++		if (arguments.toString().beginsWith("swgxr_corpse_v1 ")) {
++			JSONSerializationType out;
++			try { std::string raw=arguments.toString().toCharArray();out=SwgxrCorpses::run(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1))); }
++			catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
++			auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.gathering.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++		}
+ 		if (arguments.toString().beginsWith("swgxr_gathering_v1 ")) {
+ 			SwgxrGathering::send(creature, arguments.toString());
+ 			return SUCCESS;
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -155,7 +155,7 @@
+ 			request->insertUnicode(UnicodeString(String(inventoryRequest.c_str())));
+ 			core.zone->getZoneClient()->sendMessage(request);
+ 			const String key=String("weaponAttributes/o")+String::valueOf(oid);
+-			const bool gathering=inventoryRequest.find("swgxr_gathering_v1 ")==0;
++			const bool gathering=(inventoryRequest.find("swgxr_gathering_v1 ")==0 || inventoryRequest.find("swgxr_corpse_v1 ")==0);
+ 			const std::string field=gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
+ 			bool complete=false;
+ 			for(int attempt=0;attempt<100;++attempt) {
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCorpses.h
+@@ -0,0 +1,102 @@
++/* Native corpse inspection, source harvesting and capacity-preflight personal loot.
++ * Local movement is projected only while the already-locked player's request runs. */
++#ifndef SWGXR_CORPSES_H
++#define SWGXR_CORPSES_H
++#include "SwgxrGathering.h"
++#include "server/zone/objects/creature/ai/Creature.h"
++#include "server/zone/managers/creature/CreatureManager.h"
++#include "server/zone/objects/group/GroupObject.h"
++#include "TransferItemMiscCommand.h"
++class SwgxrCorpses {
++ using Json=JSONSerializationType;
++ struct Projection {
++  CreatureObject* player;float x,y,z;
++  Projection(CreatureObject* c,const Json& p):player(c),x(c->getPositionX()),y(c->getPositionY()),z(c->getPositionZ()) {
++   if(c->getParent().get()!=nullptr || c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("Corpse projection requires outdoor Tatooine player context");
++   c->initializePosition(p[0].get<float>(),p[1].get<float>(),p[2].get<float>());
++  }
++  ~Projection(){player->initializePosition(x,z,y);}
++ };
++ static std::string id(SceneObject* o){return SwgxrGathering::id(o);}
++ static std::string commandReason(CreatureObject* c,const char* name){auto command=c->getZoneServer()->getObjectController()->getQueueCommand(name);return command==nullptr || !command->checkStateMask(c) || !command->checkInvalidLocomotions(c)?"source_command_state_restriction":"";}
++ static int64 total(CreatureObject* c,ResourceSpawn* spawn){int64 amount=0;auto root=c->getSlottedObject("inventory");for(int i=0;i<root->getContainerObjectsSize();++i){auto part=root->getContainerObject(i).castTo<ResourceContainer*>();if(part!=nullptr && part->getSpawnObject()==spawn)amount+=part->getQuantity();}return amount;}
++ static bool resourceFits(CreatureObject* c,ResourceSpawn* spawn,int amount){auto root=c->getSlottedObject("inventory");for(int i=0;i<root->getContainerObjectsSize() && amount>0;++i){auto part=root->getContainerObject(i).castTo<ResourceContainer*>();if(part!=nullptr && part->getSpawnObject()==spawn)amount-=std::max(0,ResourceContainer::MAXSIZE-part->getQuantity());}return amount<=0 || (amount<=ResourceContainer::MAXSIZE && root->getCountableObjectsRecursive()<root->getContainerVolumeLimit());}
++ static std::string harvestReason(CreatureObject* c,Creature* animal){
++  if(animal==nullptr)return "no_organic_resources";
++  if(!animal->isDead())return "not_dead";
++  if(animal->getDnaState()==CreatureManager::DNADEATH)return "dna_harvested";
++  if(!c->isInRange(animal,7))return "beyond_native_7m_harvest_range";
++  auto reason=commandReason(c,"harvestcorpse");if(!reason.empty())return reason;
++  if(!animal->canHarvestMe(c))return "native_harvest_rights_skill_or_already_harvested";
++  return "";
++ }
++ static Json choices(CreatureObject* c,Creature* animal){
++  Json result=Json::array();if(animal==nullptr)return result;
++  auto reason=harvestReason(c,animal);
++  for(int i=0;i<3;++i){String type=i==0?animal->getMeatType():i==1?animal->getHideType():animal->getBoneType();int maximum=i==0?animal->getMeatMax():i==1?animal->getHideMax():animal->getBoneMax();if(type.isEmpty() || maximum<=0)continue;
++   auto spawn=c->getZoneServer()->getResourceManager()->getCurrentSpawn(type,"tatooine");std::string blocked=reason;int units=0;Json choice={{"kind",i==0?"meat":i==1?"hide":"bone"},{"name",std::string(type.toCharArray())},{"resource_id",""},{"container_template",""}};
++   if(spawn==nullptr)blocked="no_current_resource_spawn";else{
++    units=std::max(int(maximum*(c->getSkillMod("creature_harvesting")/100.f)),3);float density=spawn->getDensityAt("tatooine",c->getPositionX(),c->getPositionY());units=int(units*(density>.75f?1.25f:density>.50f?1.f:density>.25f?.75f:.5f));if(c->isGrouped())units=int(units*c->getGroup()->getGroupHarvestModifier(c));
++    auto res=SwgxrGathering::resource(spawn);choice["resource"]=res;choice["name"]=res["name"];choice["resource_id"]=id(spawn);choice["container_template"]=res["container_template"];
++    if(blocked.empty() && (units<=0 || units>ResourceContainer::MAXSIZE))blocked="unsupported_source_yield";
++    if(blocked.empty() && !resourceFits(c,spawn,units))blocked="insufficient_inventory_capacity";
++   }
++   choice["quantity"]=units;choice["available"]=blocked.empty();choice["block_reason"]=blocked;result.push_back(choice);
++  }return result;
++ }
++ static std::string lootReason(CreatureObject* c,AiAgent* agent){
++  auto reason=commandReason(c,"loot");if(!reason.empty())return reason;
++  if(!agent->isDead() || c->isDead())return "not_dead_or_player_unavailable";
++  if(!c->isInRange(agent,16))return "beyond_native_16m_loot_range";
++  auto source=agent->getSlottedObject("inventory"),root=c->getSlottedObject("inventory");if(source==nullptr || root==nullptr)return "missing_inventory";
++  if(source->getContainerPermissions()->getOwnerID()!=c->getObjectID())return "personal_loot_owner_required_group_loot_unsupported";
++  if(source->getContainerObjectsSize()==0 && agent->getCashCredits()==0)return "corpse_empty";
++  int required=0;
++  for(int i=0;i<source->getContainerObjectsSize();++i){auto item=source->getContainerObject(i);required+=1+item->getCountableObjectsRecursive();String error;
++   if(!item->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) || !source->checkContainerPermission(c,ContainerPermissions::MOVEOUT))return "native_transfer_permission";
++   if(root->canAddObject(item,-1,error)!=0)return "native_inventory_restriction";
++  }
++  return required>root->getContainerVolumeLimit()-root->getCountableObjectsRecursive()?"insufficient_inventory_capacity":"";
++ }
++ static Json describe(CreatureObject* c,AiAgent* agent){
++  auto value=SwgxrInventory::describe(agent,c);value["position"]=Json::array({agent->getPositionX(),agent->getPositionZ(),agent->getPositionY()});value["heading_radians"]=agent->getDirectionAngle();value["height"]=agent->getHeight(false);value["dead"]=agent->isDead();value["planet"]="tatooine";
++  auto animal=dynamic_cast<Creature*>(agent);value["resources"]=choices(c,animal);value["harvest_available"]=false;for(auto& choice:value["resources"])if(choice["available"].get<bool>())value["harvest_available"]=true;value["harvest_block_reason"]=harvestReason(c,animal);
++  auto blocked=lootReason(c,agent);value["loot_available"]=blocked.empty();value["loot_block_reason"]=blocked;Json items=Json::array();auto container=agent->getSlottedObject("inventory");if(container!=nullptr)for(int i=0;i<container->getContainerObjectsSize() && i<256;++i)items.push_back(SwgxrInventory::describe(container->getContainerObject(i),c));value["loot"]={{"credits",agent->getCashCredits()},{"item_count",container==nullptr?0:container->getContainerObjectsSize()},{"items",items}};return value;
++ }
++ static ManagedReference<AiAgent*> corpse(CreatureObject* c,const std::string& key){auto object=SwgxrGathering::object(c,key);auto agent=object.castTo<AiAgent*>();if(agent==nullptr)throw std::runtime_error("Native corpse no longer exists");if(!agent->isDead())throw std::runtime_error("Native creature is not dead");if(agent->getZone()!=c->getZone())throw std::runtime_error("Native corpse is no longer in player planet");if(agent->getParent().get()!=nullptr)throw std::runtime_error("Interior corpse unsupported");if(!c->isInRange(agent,64))throw std::runtime_error("Corpse outside 64m query radius");return agent;}
++ static Json mutate(CreatureObject* c,AiAgent* agent,const Json& request){
++  const auto action=request.at("action").get<std::string>();Json mutation={{"success",true},{"operation",action},{"corpse_id",id(agent)}};
++  auto root=c->getSlottedObject("inventory");Locker invLock(root,c);
++  if(action=="corpse_harvest"){
++   auto animal=dynamic_cast<Creature*>(agent);auto options=choices(c,animal);auto kind=request.at("kind").get<std::string>();Json choice=nullptr;for(auto& option:options)if(option["kind"]==kind)choice=option;
++   if(choice.is_null() || !choice["available"].get<bool>())throw std::runtime_error(choice.is_null()?"Resource kind unavailable":choice["block_reason"].get<std::string>());
++   auto spawn=SwgxrGathering::object(c,choice["resource_id"].get<std::string>()).castTo<ResourceSpawn*>();auto before=total(c,spawn);int quantity=choice["quantity"].get<int>();
++   c->getZone()->getCreatureManager()->harvest(animal,c,kind=="meat"?234:kind=="hide"?235:236);
++   if(total(c,spawn)-before!=quantity)throw std::runtime_error("Native harvest result differs; refresh inventory before further action");
++   mutation["kind"]=kind;mutation["quantity"]=quantity;mutation["resource_id"]=id(spawn);mutation["source_xp"]=animal->getLevel()*5+19;return mutation;
++  }
++  if(action=="corpse_loot"){
++   auto reason=lootReason(c,agent);if(!reason.empty())throw std::runtime_error(reason);
++   auto source=agent->getSlottedObject("inventory");Locker sourceLock(source,c);std::vector<ManagedReference<SceneObject*>> moved;
++   try{while(source->getContainerObjectsSize()>0){auto item=source->getContainerObject(source->getContainerObjectsSize()-1);TransactionLog trx(agent,c,item,TrxCode::NPCLOOTCLAIM);int result=TransferItemMiscCommand::doTransferItemMisc(c,item,root,-1,trx);if(result!=QueueCommand::SUCCESS || item->getParent().get()!=root)throw std::runtime_error("Source loot transfer failed; rolled back before credits");moved.push_back(item);}}
++   catch(...){for(auto it=moved.rbegin();it!=moved.rend();++it)if(!c->getZoneServer()->getObjectController()->transferObject(*it,source,-1,true))throw std::runtime_error("Loot rollback failed; refresh inventory; no credits committed");throw;}
++   int64 before=c->getCashCredits();c->getZoneServer()->getPlayerManager()->lootAll(c,agent);mutation["credits"]=int64(c->getCashCredits())-before;mutation["item_ids"]=Json::array();for(auto& item:moved)mutation["item_ids"].push_back(id(item));return mutation;
++  }
++  throw std::runtime_error("Unsupported corpse action");
++ }
++public:
++ static Json run(CreatureObject* c,const Json& request){
++  auto position=SwgxrGathering::position(request);Projection projection(c,position);const auto action=request.at("action").get<std::string>();Json out={{"backend","core3"},{"character_id",id(c)},{"source_kind",action=="corpses"?"core3_corpses":"core3_"+action},{"position_authority","local_client_projection_native_proximity"}};
++  if(action=="corpses"){
++   SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),64,&objects,true);Json values=Json::array();bool truncated=false;
++   for(int i=0;i<objects.size();++i){auto scene=static_cast<SceneObject*>(objects.get(i));auto agent=dynamic_cast<AiAgent*>(scene);if(agent==nullptr || !agent->isDead() || agent->getParent().get()!=nullptr)continue;if(values.size()>=64){truncated=true;break;}Locker lock(agent,c);values.push_back(describe(c,agent));}
++   out["corpses"]=values;out["radius_m"]=64;out["truncated"]=truncated;return out;
++  }
++  auto state=SwgxrGathering::load(c);const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid idempotency key");auto fingerprint=request.dump();
++  if(action!="corpse_inspect")for(auto& receipt:state["receipts"])if(receipt["request_id"]==key){if(receipt["fingerprint"]!=fingerprint)throw std::runtime_error("Idempotency key reused with different request");out["mutation"]=receipt["mutation"];out["mutation"]["replayed"]=true;out["corpse"]=receipt.value("corpse",Json(nullptr));return out;}
++  auto agent=corpse(c,request.at("corpse_id").get<std::string>());Locker lock(agent,c);
++  if(action=="corpse_inspect"){out["corpse"]=describe(c,agent);return out;}
++  auto mutation=mutate(c,agent,request);auto value=describe(c,agent);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation},{"corpse",value}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());SwgxrGathering::save(c,state);out["corpse"]=value;out["mutation"]=mutation;return out;
++ }
++};
++#endif

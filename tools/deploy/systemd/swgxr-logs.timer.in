@@ -1,0 +1,8 @@
+[Unit]
+Description=SWGXR native log retention timer
+PartOf=swgxr.target
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+Unit=swgxr-logs.service

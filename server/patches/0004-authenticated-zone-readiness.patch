@@ -1,0 +1,20 @@
+diff --git a/MMOCoreORB/src/client/actions/ConnectToZoneAction.cpp b/MMOCoreORB/src/client/actions/ConnectToZoneAction.cpp
+index 5fb176fb..e7099060 100644
+--- a/MMOCoreORB/src/client/actions/ConnectToZoneAction.cpp
++++ b/MMOCoreORB/src/client/actions/ConnectToZoneAction.cpp
+@@ -112,6 +112,15 @@ public:
+ 			return;
+ 		}
+ 
++		// A UDP socket alone does not establish authenticated zone readiness.
++		if (!core.zone->getCanLogin()) {
++			core.zone->waitFor(STRING_HASHCODE("ClientPermissionsMessage"), 5000);
++		}
++		if (!core.zone->getCanLogin()) {
++			result.setError("Zone did not grant login permission", 5);
++			return;
++		}
++
+ 		// Success - zone connection established
+ 		result.setSuccess();
+ 		result.setZoneInfo(galaxy.getAddress(), galaxy.getPort(), 0);

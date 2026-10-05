@@ -1,0 +1,19 @@
+--- a/MMOCoreORB/src/server/zone/objects/scene/variables/CustomizationVariables.cpp
++++ b/MMOCoreORB/src/server/zone/objects/scene/variables/CustomizationVariables.cpp
+@@ -107,7 +107,15 @@
+ 		} else {
+ 			buf.append((char)(key | 0x80));
+ 
+-			buf.append((char)val);
++			// Escape the low byte just as for unsigned values. Signed morphs
++			// such as -1 otherwise produce an invalid customization stream.
++			uint8 low = val & 0xFF;
++			if (low == 0x00 || low == 0xFF) {
++				buf.append((char)0xFF);
++				buf.append((char)(low == 0x00 ? 0x01 : 0x02));
++			} else {
++				buf.append((char)low);
++			}
+ 			buf.append((char)0xFF);
+ 			buf.append((char)0x02);
+ 		}

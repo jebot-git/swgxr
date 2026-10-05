@@ -1,0 +1,19 @@
+diff --git a/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp b/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp
+index 0e1705d3..b410a808 100644
+--- a/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp
+@@ -221,8 +221,12 @@ void ZoneServerImplementation::initialize() {
+ 	petManager = new PetManager(_this.getReferenceUnsafeStaticCast());
+ 	petManager->initialize();
+ 
+-	// Load ship data
+-	ShipManager::instance()->initialize();
++	// The bounded retail-media prototype does not contain Jump to Lightspeed data.
++	if (!ConfigManager::instance()->getBool("Core3.SWGXR.RetailGroundOnly", false)) {
++		ShipManager::instance()->initialize();
++	} else {
++		info(true) << "SWGXR retail ground-only profile: ship systems disabled.";
++	}
+ 
+ 	startGroundZones();
+ 	startSpaceZones();

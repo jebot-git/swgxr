@@ -1,0 +1,13 @@
+diff --git a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -263,7 +263,8 @@
+ 	uint32 size = pack->parseInt();
+ 
+ 	uint16 opcount = pack->parseShort();
+-	if (type == 3 || ((type == 1 || type == 4) && oid == core->selectedCharacterOid) ||
++	if (type == 3 || (type == 6 && (nametype == 0x4352454F || nametype == 0x54414E4F)) ||
++		((type == 1 || type == 4) && oid == core->selectedCharacterOid) ||
+ 		(nametype == 0x504C4159 && (type == 8 || type == 9))) {
+ 		const int offset = pack->getOffset();
+ 		std::string bytes;

@@ -1,0 +1,463 @@
+--- a/MMOCoreORB/src/server/zone/managers/creature/CreatureManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/creature/CreatureManagerImplementation.cpp
+@@ -5,6 +5,7 @@
+  *      Author: victor
+  */
+ 
++#include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/creature/ai/CreatureTemplate.h"
+ #include "CreatureTemplateManager.h"
+@@ -628,15 +629,16 @@
+ 
+ 		ManagedReference<CreatureObject*> player = copyThreatMap.getHighestDamageGroupLeader();
+ 
+-		uint64 ownerID = 0;
++		// Quest/faction credit remains original; corpse rights follow only the final blow.
++		ManagedReference<CreatureObject*> lootPlayer = nullptr;
++		if (destructor->isPlayerCreature()) lootPlayer = destructor->asCreatureObject();
++		else if (destructor->isPet() && destructor->isCreatureObject()) {
++			auto owner = destructor->asCreatureObject()->getLinkedCreature().get();
++			if (owner != nullptr && owner->isPlayerCreature()) lootPlayer = owner;
++		}
++		uint64 ownerID = SwgxrPveRewardPolicy::lootOwner(lootPlayer != nullptr ? lootPlayer->getObjectID() : 0, 0, destructedObject->getObjectID());
+ 
+ 		if (player != nullptr) {
+-
+-			if (player->isGrouped()) {
+-				ownerID = player->getGroupID();
+-			} else {
+-				ownerID = player->getObjectID();
+-			}
+ 
+ 			if (player->isPlayerCreature()) {
+ 				if (!destructedObject->isEventMob()) {
+@@ -677,11 +679,12 @@
+ 			playerManager->disseminateExperience(destructedObject, &copyThreatMap);
+ 
+ 		SceneObject* creatureInventory = destructedObject->getSlottedObject("inventory");
++		if (creatureInventory != nullptr) { Locker inventoryLock(creatureInventory, destructedObject); creatureInventory->setContainerOwnerID(ownerID); }
+ 
+ 		// Remove any buffs or debuffs from the agent
+ 		destructedObject->clearBuffs(false, true);
+ 
+-		if (creatureInventory != nullptr && player != nullptr && player->isPlayerCreature()) {
++		if (creatureInventory != nullptr && lootPlayer != nullptr) {
+ 			LootManager* lootManager = zoneServer->getLootManager();
+ 
+ 			if (destructedObject->isNonPlayerCreatureObject() && !destructedObject->isEventMob()) {
+@@ -706,7 +709,7 @@
+ 
+ 		// Check to see if we can expedite the despawn of this corpse
+ 		// We can expedite the despawn when corpse has no loot, no credits, player cannot harvest, and no group members in range can harvest
+-		shouldRescheduleCorpseDestruction = playerManager->shouldRescheduleCorpseDestruction(player, destructedObject);
++		shouldRescheduleCorpseDestruction = playerManager->shouldRescheduleCorpseDestruction(lootPlayer, destructedObject);
+ 	} catch (...) {
+ 		destructedObject->scheduleDespawn(10, true);
+ 
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -5,6 +5,7 @@
+  *      Author: TheAnswer
+  */
+ 
++#include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+ #include <utility>
+ #include <mutex>
+@@ -1935,16 +1936,12 @@
+ }
+ 
+ void PlayerManagerImplementation::disseminateExperience(TangibleObject* destructedObject, ThreatMap* threatMap, SynchronizedVector<ManagedReference<CreatureObject*> >* spawnedCreatures,Zone* lairZone) {
+-	uint32 totalDamage = threatMap->getTotalDamage();
++	uint64 totalDamage = threatMap->getActualPveDamage();
+ 
+ 	if (totalDamage == 0) {
+-		threatMap->removeAll();
+-		return;
+-	}
+-
+-	VectorMap<ManagedReference<CreatureObject*>, int> slExperience;
+-	slExperience.setAllowOverwriteInsertPlan();
+-	slExperience.setNullValue(0);
++		threatMap->removeAll(true);
++		return;
++	}
+ 
+ 	float gcwBonus = 1.0f;
+ 	uint32 winningFaction = -1;
+@@ -2031,7 +2028,7 @@
+ 		ThreatMapEntry* entry = &threatMap->elementAt(i).getValue();
+ 		TangibleObject* attacker = threatMap->elementAt(i).getKey();
+ 
+-		if (entry == nullptr || attacker == nullptr) {
++		if (entry == nullptr || attacker == nullptr || entry->getTotalDamage() == 0) {
+ 			continue;
+ 		}
+ 
+@@ -2112,6 +2109,7 @@
+ 
+ 			trx.addState("combatTotalPets", totalPets);
+ 
++			xpAmount *= SwgxrPveRewardPolicy::fraction(entry->getTotalDamage() - entry->get("swgxr_no_xp"), totalDamage);
+ 			awardExperience(owner, "creaturehandler", xpAmount);
+ 		} else if (attacker->isPlayerCreature()) {
+ 			if (!(attacker->getZone() == zone && destructedObject->isInRangeZoneless(attacker, 80))) {
+@@ -2149,14 +2147,14 @@
+ 			for (int j = 0; j < entry->size(); ++j) {
+ 				uint32 damage = entry->elementAt(j).getValue();
+ 				String xpType = entry->elementAt(j).getKey();
++				if (damage == 0 || xpType == "swgxr_no_xp" || xpType.isEmpty()) continue;
+ 
+ 				float xpAmount = baseXp;
+ 				int playerLevel = calculatePlayerLevel(attackerCreo, xpType);
+ 
+-				xpAmount *= (float) damage / totalDamage;
+-
+-				//Cap xp based on level
+-				xpAmount = Math::min(xpAmount, playerLevel * 300.f);
++				// Cap the full-kill basis before splitting, so equal-modifier players
++				// retain their exact damage ratio even against high-base-XP targets.
++				xpAmount = SwgxrPveRewardPolicy::cappedShare(xpAmount, playerLevel * 300.f, damage, totalDamage);
+ 
+ 				//Apply group bonus if in group
+ 				if (group != nullptr)
+@@ -2181,51 +2179,11 @@
+ 
+ 			awardExperience(attackerCreo, "combat_general", combatXp, true, 0.1f);
+ 
+-
+-			//Check if the group leader is a squad leader
+-			if (group == nullptr)
+-				continue;
+-
+-			//Calculate squad leader group size experience @ 10% person + combat experience which is 10% of the variable
+-			float squadXp = (combatXp * 0.1f) + (combatXp * 0.1f * group->getGroupSize());
+-
+-			Vector3 pos(attacker->getWorldPosition());
+-
+-			crossLocker.release();
+-
+-			ManagedReference<CreatureObject*> groupLeader = group->getLeader();
+-
+-			if (groupLeader == nullptr || !groupLeader->isPlayerCreature())
+-				continue;
+-
+-			Locker squadLock(groupLeader, destructedObject);
+-
+-			trx.addState("squadLeader", groupLeader->getObjectID());
+-			trx.addState("squadLeaderDistance", groupLeader->getDistanceTo(attackerCreo));
+-
+-			//If he is a squad leader, and is in range of this player, then add the combat exp for him to use.
+-			//Removed distance check to keep current functionality. Attacker was previously comparing its location to itself
+-			if (groupLeader->hasSkill("outdoors_squadleader_novice")) {
+-				int v = slExperience.get(groupLeader) + squadXp;
+-				slExperience.put(groupLeader, v);
+-			}
+-		}
+-	}
+-
+-	// Send out squad leader experience.
+-	for (int i = 0; i < slExperience.size(); ++i) {
+-		VectorMapEntry<ManagedReference<CreatureObject*>, int>* entry = &slExperience.elementAt(i);
+-		CreatureObject* leader = entry->getKey();
+-
+-		if (leader == nullptr)
+-			continue;
+-
+-		Locker clock(leader, destructedObject);
+-
+-		awardExperience(leader, "squadleader", entry->getValue() * 2.f);
+-	}
+-
+-	threatMap->removeAll();
++			// Group membership never redistributes damage or awards passive kill XP.
++		}
++	}
++
++	threatMap->removeAll(true);
+ }
+ 
+ void PlayerManagerImplementation::disseminateSpaceExperience(ShipAiAgent* destructedObject, ThreatMap* threatMap) {
+@@ -4228,6 +4186,8 @@
+ 
+ 	if (creatureInventory == nullptr)
+ 		return;
++	if (ai->isAiAgent() && creatureInventory->getContainerPermissions()->getOwnerID() != player->getObjectID())
++		return;
+ 
+ 	auto trxGroup = TransactionLog::getNewTrxGroup();
+ 
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/managers/player/SwgxrPveRewardPolicy.h
+@@ -0,0 +1,38 @@
++#ifndef SWGXR_PVE_REWARD_POLICY_H
++#define SWGXR_PVE_REWARD_POLICY_H
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <limits>
++// Pure arithmetic shared by all native ground-PvE damage/death paths.
++// Threat/aggro alone, forecast DOT damage and overkill are not contributions.
++namespace SwgxrPveRewardPolicy {
++inline std::uint32_t hamDamage(int current, double requested, bool available, bool destroy, bool avoidIncapacitation, bool secondary) {
++ if (!available || current<=0 || !std::isfinite(requested) || requested<=0) return 0;
++ auto debit=std::int64_t(std::min(std::floor(requested),double(std::numeric_limits<int>::max())));
++ auto after=std::int64_t(current)-debit;
++ if ((!destroy || avoidIncapacitation) && after<=0) after=1;
++ if (secondary && after<0) after=0;
++ return std::uint32_t(std::max<std::int64_t>(0,std::int64_t(current)-std::max<std::int64_t>(0,after)));
++}
++inline std::uint32_t conditionDamage(int condition,int maximum,double requested,bool destroy) {
++ if (maximum<=0 || condition>=maximum || !std::isfinite(requested) || requested<=0) return 0;
++ double ceiling=destroy?maximum:maximum-1;
++ double after=std::min(ceiling,double(condition)+requested);
++ return std::uint32_t(std::max(0.0,std::floor(after)-condition));
++}
++inline std::uint64_t accumulate(std::uint64_t previous,std::uint64_t damage) {
++ return damage>std::numeric_limits<std::uint64_t>::max()-previous?std::numeric_limits<std::uint64_t>::max():previous+damage;
++}
++inline double fraction(std::uint64_t credited,std::uint64_t allActualDamage) {
++ return allActualDamage?std::min(1.0,double(credited)/double(allActualDamage)):0.0;
++}
++inline double cappedShare(double fullReward,double fullKillCap,std::uint64_t credited,std::uint64_t allActualDamage) {
++ return std::max(0.0,std::min(fullReward,fullKillCap))*fraction(credited,allActualDamage);
++}
++inline std::uint64_t lootOwner(std::uint64_t playerKiller,std::uint64_t petOwner,std::uint64_t victim) {
++ // A NPC/environment kill is owned by its corpse, never owner0/public/group0.
++ return playerKiller?playerKiller:petOwner?petOwner:victim;
++}
++}
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -5,6 +5,7 @@
+  *      Author: victor
+  */
+ 
++#include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include <engine/core/ManagedReference.h>
+ #include <server/zone/CloseObjectsVector.h>
+ #include <engine/util/u3d/Vector3.h>
+@@ -4025,13 +4026,11 @@
+ 
+ 	activateRecovery();
+ 
+-	if (damage > 0) {
+-		// This damage is DOT or other types of non direct combat damage, it should not count towards loot and thus not be added to the threat map damage.
+-		// Adding aggro should still be done.
+-		getThreatMap()->addAggro(attacker, 1);
+-	}
+-
+ 	notifyObservers(ObserverEventType::DAMAGERECEIVED, attacker);
++	const bool validPool = damageType >= 0 && damageType < 9;
++	const bool available = validPool && !isDead() && !(isIncapacitated() && !isFeigningDeath()) && !isInvulnerable();
++	auto actual = SwgxrPveRewardPolicy::hamDamage(validPool ? getHAM(damageType) : 0, damage, available, destroy, getSkillMod("avoid_incapacitation") > 0, damageType % 3 != 0);
++	getThreatMap()->addDamage(attacker, actual, "swgxr_no_xp");
+ 	return CreatureObjectImplementation::inflictDamage(attacker, damageType, damage, destroy, notifyClient, isCombatAction);
+ }
+ 
+@@ -4040,11 +4039,11 @@
+ 
+ 	activateRecovery();
+ 
+-	if (damage > 0) {
+-		getThreatMap()->addDamage(attacker, damage, xp);
+-	}
+-
+ 	notifyObservers(ObserverEventType::DAMAGERECEIVED, attacker);
++	const bool validPool = damageType >= 0 && damageType < 9;
++	const bool available = validPool && !isDead() && !(isIncapacitated() && !isFeigningDeath()) && !isInvulnerable();
++	auto actual = SwgxrPveRewardPolicy::hamDamage(validPool ? getHAM(damageType) : 0, damage, available, destroy, getSkillMod("avoid_incapacitation") > 0, damageType % 3 != 0);
++	getThreatMap()->addDamage(attacker, actual, xp);
+ 
+ 	return CreatureObjectImplementation::inflictDamage(attacker, damageType, damage, destroy, notifyClient, isCombatAction);
+ }
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/CreatureImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/CreatureImplementation.cpp
+@@ -251,7 +251,7 @@
+ 
+ 	uint64 lootOwnerID = creatureInventory->getContainerPermissions()->getOwnerID();
+ 
+-	if (player->getObjectID() == lootOwnerID || (player->isGrouped() && player->getGroupID() == lootOwnerID))
++	if (player->getObjectID() == lootOwnerID)
+ 		return true;
+ 
+ 	return false;
+@@ -284,7 +284,7 @@
+ 
+ 	uint64 lootOwnerID = creatureInventory->getContainerPermissions()->getOwnerID();
+ 
+-	if (player->getObjectID() == lootOwnerID || (player->isGrouped() && player->getGroupID() == lootOwnerID))
++	if (player->getObjectID() == lootOwnerID)
+ 		return true;
+ 	return false;
+ }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
+@@ -242,7 +242,8 @@
+ 		if (dotDMG) {
+ 			awardXp(creature, "medical", dotDMG); // No experience for healing yourself.
+ 
+-			targetCreature->getThreatMap()->addDamage(creature, dotDMG, "dotDMG");
++			// PvE kill contribution is recorded only by actual DamageOverTime ticks.
++			if (!targetCreature->isAiAgent()) targetCreature->getThreatMap()->addDamage(creature, dotDMG, "dotDMG");
+ 			creature->addDefender(targetCreature);
+ 		} else {
+ 			StringIdChatParameter stringId("dot_message", "dot_resisted");
+@@ -418,7 +419,8 @@
+ 
+ 		if (dotDMG) {
+ 			awardXp(creature, "medical", dotDMG);
+-			targetCreature->getThreatMap()->addDamage(creature, dotDMG, "dotDMG");
++			// PvE kill contribution is recorded only by actual DamageOverTime ticks.
++			if (!targetCreature->isAiAgent()) targetCreature->getThreatMap()->addDamage(creature, dotDMG, "dotDMG");
+ 		} else {
+ 			StringIdChatParameter stringId("dot_message", "dot_resisted");
+ 			stringId.setTT(targetCreature->getObjectID());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/LootCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/LootCommand.h
+@@ -78,6 +78,10 @@
+ 
+ 		// Determine the loot rights.
+ 		uint64 ownerID = permissions->getOwnerID();
++		if (ownerID != creature->getObjectID()) {
++			creature->sendSystemMessage("@error_message:no_corpse_permission");
++			return GENERALERROR;
++		}
+ 
+ 		bool looterIsOwner = (ownerID == creature->getObjectID());
+ 		bool groupIsOwner = (ownerID == creature->getGroupID());
+--- a/MMOCoreORB/src/server/zone/objects/tangible/TangibleObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/TangibleObjectImplementation.cpp
+@@ -2,6 +2,7 @@
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+ 
++#include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include "engine/engine.h"
+ 
+ #include "server/zone/objects/tangible/TangibleObject.h"
+@@ -991,9 +992,10 @@
+ }
+ 
+ int TangibleObjectImplementation::inflictDamage(TangibleObject* attacker, int damageType, float damage, bool destroy, bool notifyClient, bool isCombatAction) {
+-	if (hasAntiDecayKit())
++	if (hasAntiDecayKit() || (isLairObject() && conditionDamage >= maxCondition))
+ 		return 0;
+ 
++	auto actualDamage = SwgxrPveRewardPolicy::conditionDamage(conditionDamage, maxCondition, damage, destroy);
+ 	float newConditionDamage = conditionDamage + damage;
+ 
+ 	if (!destroy && newConditionDamage >= maxCondition)
+@@ -1003,12 +1005,9 @@
+ 
+ 	setConditionDamage(newConditionDamage, notifyClient);
+ 
+-	if (attacker->isCreatureObject()) {
+-		CreatureObject* creature = attacker->asCreatureObject();
+-
+-		if (damage > 0 && attacker != asTangibleObject())
+-			getThreatMap()->addDamage(creature, (uint32)damage);
+-	}
++	// Record before destruction observers copy the contribution map.
++	if (isLairObject() || (attacker != nullptr && attacker->isCreatureObject()))
++		getThreatMap()->addDamage(attacker, isLairObject() ? actualDamage : uint32(std::max(0.f, damage)));
+ 
+ 	if (newConditionDamage >= maxCondition) {
+ 		notifyObjectDestructionObservers(attacker, newConditionDamage, isCombatAction);
+@@ -1020,9 +1019,10 @@
+ }
+ 
+ int TangibleObjectImplementation::inflictDamage(TangibleObject* attacker, int damageType, float damage, bool destroy, const String& xp, bool notifyClient, bool isCombatAction) {
+-	if (hasAntiDecayKit())
++	if (hasAntiDecayKit() || (isLairObject() && conditionDamage >= maxCondition))
+ 		return 0;
+ 
++	auto actualDamage = SwgxrPveRewardPolicy::conditionDamage(conditionDamage, maxCondition, damage, destroy);
+ 	float newConditionDamage = conditionDamage + damage;
+ 
+ 	if (!destroy && newConditionDamage >= maxCondition)
+@@ -1030,12 +1030,8 @@
+ 
+ 	setConditionDamage(newConditionDamage, notifyClient);
+ 
+-	if (attacker->isCreatureObject()) {
+-		CreatureObject* creature = attacker->asCreatureObject();
+-
+-		if (damage > 0 && attacker != asTangibleObject())
+-			getThreatMap()->addDamage(creature, (uint32)damage, xp);
+-	}
++	if (isLairObject() || (attacker != nullptr && attacker->isCreatureObject()))
++		getThreatMap()->addDamage(attacker, isLairObject() ? actualDamage : uint32(std::max(0.f, damage)), xp);
+ 
+ 	if (newConditionDamage >= maxCondition) {
+ 		notifyObservers(ObserverEventType::OBJECTDISABLED, attacker);
+--- a/MMOCoreORB/src/server/zone/objects/tangible/threat/ThreatMap.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/threat/ThreatMap.cpp
+@@ -70,7 +70,14 @@
+ 	Locker locker(&lockMutex);
+ 
+ 	ManagedReference<TangibleObject*> strongSelf = self.get();
+-	if (strongSelf == nullptr || strongSelf.get() == target)
++	if (strongSelf == nullptr || damage == 0)
++		return;
++
++	// Retain the denominator even when a dead/offline attacker drops from the
++	// threat entries. NPC, environmental and no-XP damage cannot become player XP.
++	if (strongSelf->isAiAgent() || strongSelf->isLairObject())
++		actualPveDamage = SwgxrPveRewardPolicy::accumulate(actualPveDamage, damage);
++	if (target == nullptr || strongSelf.get() == target)
+ 		return;
+ 
+ 	int idx = find(target);
+@@ -106,6 +113,7 @@
+ 
+ void ThreatMap::removeAll(bool forceRemoveAll) {
+ 	Locker locker(&lockMutex);
++	if (forceRemoveAll) actualPveDamage = 0;
+ 
+ 	removeObservers();
+ 
+--- a/MMOCoreORB/src/server/zone/objects/tangible/threat/ThreatMap.h
++++ b/MMOCoreORB/src/server/zone/objects/tangible/threat/ThreatMap.h
+@@ -8,6 +8,7 @@
+ #ifndef THREATMAP_H_
+ #define THREATMAP_H_
+ 
++#include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include "engine/engine.h"
+ #include "ThreatMatrix.h"
+ #include "server/zone/objects/tangible/threat/ThreatMapObserver.h"
+@@ -172,6 +173,7 @@
+ 	ThreatMatrix threatMatrix;
+ 	ManagedReference<ThreatMapObserver*> threatMapObserver;
+ 	Mutex lockMutex;
++	uint64 actualPveDamage = 0;
+ 
+ public:
+ 	ThreatMap(TangibleObject* me) : VectorMap<ManagedReference<TangibleObject*>, ThreatMapEntry>(1, 0), Logger() {
+@@ -187,6 +189,7 @@
+ 		threatMapObserver = map.threatMapObserver;
+ 		threatMatrix = map.threatMatrix;
+ 		cooldownTimerMap = map.cooldownTimerMap;
++		actualPveDamage = map.actualPveDamage;
+ 	}
+ 
+ 	ThreatMap& operator=(const ThreatMap& map) {
+@@ -199,6 +202,7 @@
+ 		threatMapObserver = map.threatMapObserver;
+ 		threatMatrix = map.threatMatrix;
+ 		cooldownTimerMap = map.cooldownTimerMap;
++		actualPveDamage = map.actualPveDamage;
+ 
+ 		VectorMap<ManagedReference<TangibleObject*>, ThreatMapEntry>::operator=(map);
+ 
+@@ -229,6 +233,7 @@
+ 
+ 	TangibleObject* getHighestThreatAttacker();
+ 	uint32 getTotalDamage();
++	uint64 getActualPveDamage() { Locker guard(&lockMutex); return actualPveDamage; }
+ 
+ 	void addAggro(TangibleObject* target, int value, uint64 duration = 0);
+ 	void removeAggro(TangibleObject* target, int value);

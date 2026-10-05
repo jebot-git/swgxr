@@ -1,0 +1,188 @@
+{
+  "version": 2,
+  "reference_source": "Core3 403893d9b9f8e6fa712fbb3cb1fcd8f0fe45bb79 template defaults; fixed until explicitly retuned",
+  "rpm_limits": [
+    0.5,
+    1.5
+  ],
+  "capacity_limits": [
+    0.5,
+    2.0
+  ],
+  "references": {
+    "pistol_cdef": {
+      "attackSpeed": 3.5,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 15.0,
+      "mindAttackCost": 10.0
+    },
+    "pistol_d18": {
+      "attackSpeed": 3.0,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 24.0,
+      "mindAttackCost": 10.0
+    },
+    "pistol_dh17": {
+      "attackSpeed": 3.2,
+      "healthAttackCost": 18.0,
+      "actionAttackCost": 31.0,
+      "mindAttackCost": 10.0
+    },
+    "pistol_dl44": {
+      "attackSpeed": 3.4,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 27.0,
+      "mindAttackCost": 10.0
+    },
+    "pistol_dl44_metal": {
+      "attackSpeed": 3.4,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 29.0,
+      "mindAttackCost": 10.0
+    },
+    "pistol_power5": {
+      "attackSpeed": 3.6,
+      "healthAttackCost": 14.0,
+      "actionAttackCost": 33.0,
+      "mindAttackCost": 13.0
+    },
+    "carbine_cdef": {
+      "attackSpeed": 3.5,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 15.0,
+      "mindAttackCost": 10.0
+    },
+    "carbine_dh17": {
+      "attackSpeed": 3.5,
+      "healthAttackCost": 19.0,
+      "actionAttackCost": 27.0,
+      "mindAttackCost": 12.0
+    },
+    "carbine_e11": {
+      "attackSpeed": 3.3,
+      "healthAttackCost": 25.0,
+      "actionAttackCost": 32.0,
+      "mindAttackCost": 15.0
+    },
+    "carbine_ee3": {
+      "attackSpeed": 3.6,
+      "healthAttackCost": 34.0,
+      "actionAttackCost": 28.0,
+      "mindAttackCost": 15.0
+    },
+    "rifle_cdef": {
+      "attackSpeed": 3.5,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 15.0,
+      "mindAttackCost": 10.0
+    },
+    "rifle_e11": {
+      "attackSpeed": 5.25,
+      "healthAttackCost": 12.0,
+      "actionAttackCost": 20.0,
+      "mindAttackCost": 33.0
+    },
+    "rifle_dlt20a": {
+      "attackSpeed": 6.0,
+      "healthAttackCost": 12.0,
+      "actionAttackCost": 25.0,
+      "mindAttackCost": 22.0
+    },
+    "rifle_t21": {
+      "attackSpeed": 7.0,
+      "healthAttackCost": 49.0,
+      "actionAttackCost": 43.0,
+      "mindAttackCost": 78.0
+    },
+    "rifle_bowcaster": {
+      "attackSpeed": 6.3,
+      "healthAttackCost": 26.0,
+      "actionAttackCost": 26.0,
+      "mindAttackCost": 37.0
+    },
+    "rifle_tusken": {
+      "attackSpeed": 7.0,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 18.0,
+      "mindAttackCost": 42.0
+    },
+    "knife_survival": {
+      "attackSpeed": 3.25,
+      "healthAttackCost": 7.0,
+      "actionAttackCost": 22.0,
+      "mindAttackCost": 5.0
+    },
+    "knife_stone": {
+      "attackSpeed": 3.0,
+      "healthAttackCost": 5.0,
+      "actionAttackCost": 12.0,
+      "mindAttackCost": 5.0
+    },
+    "knife_stone_noob": {
+      "attackSpeed": 3.0,
+      "healthAttackCost": 11.0,
+      "actionAttackCost": 17.0,
+      "mindAttackCost": 11.0
+    },
+    "knife_vibroblade": {
+      "attackSpeed": 3.25,
+      "healthAttackCost": 10.0,
+      "actionAttackCost": 36.0,
+      "mindAttackCost": 10.0
+    },
+    "sword_01": {
+      "attackSpeed": 3.5,
+      "healthAttackCost": 22.0,
+      "actionAttackCost": 22.0,
+      "mindAttackCost": 22.0
+    },
+    "baton_stun": {
+      "attackSpeed": 2.8,
+      "healthAttackCost": 12.0,
+      "actionAttackCost": 40.0,
+      "mindAttackCost": 35.0
+    },
+    "baton_gaderiffi": {
+      "attackSpeed": 4.0,
+      "healthAttackCost": 50.0,
+      "actionAttackCost": 29.0,
+      "mindAttackCost": 12.0
+    },
+    "axe_vibroaxe": {
+      "attackSpeed": 5.0,
+      "healthAttackCost": 65.0,
+      "actionAttackCost": 40.0,
+      "mindAttackCost": 15.0
+    },
+    "2h_sword_maul": {
+      "attackSpeed": 5.6,
+      "healthAttackCost": 99.0,
+      "actionAttackCost": 28.0,
+      "mindAttackCost": 17.0
+    },
+    "2h_sword_cleaver": {
+      "attackSpeed": 4.1,
+      "healthAttackCost": 38.0,
+      "actionAttackCost": 35.0,
+      "mindAttackCost": 20.0
+    },
+    "lance_staff_wood_s1": {
+      "attackSpeed": 4.75,
+      "healthAttackCost": 15.0,
+      "actionAttackCost": 38.0,
+      "mindAttackCost": 15.0
+    },
+    "lance_vibrolance": {
+      "attackSpeed": 4.0,
+      "healthAttackCost": 52.0,
+      "actionAttackCost": 67.0,
+      "mindAttackCost": 28.0
+    },
+    "pistol_fwg5": {
+      "attackSpeed": 3.0,
+      "healthAttackCost": 18.0,
+      "actionAttackCost": 40.0,
+      "mindAttackCost": 24.0
+    }
+  }
+}

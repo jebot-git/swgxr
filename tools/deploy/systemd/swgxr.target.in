@@ -1,0 +1,8 @@
+[Unit]
+Description=SWGXR isolated remote test stack
+Wants=swgxr-container.service swgxr-db.service swgxr-core3.service swgxr-adapter.service swgxr-gateway.service swgxr-voice.service
+After=swgxr-gateway.service
+Wants=swgxr-logs.timer swgxr-daily-restart.timer
+
+[Install]
+WantedBy=multi-user.target

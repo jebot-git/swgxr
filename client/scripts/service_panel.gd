@@ -1,0 +1,397 @@
+extends Control
+## Compact local-only service UI. All values and entries come from Core3.
+signal action_requested(action: String, payload: Dictionary)
+signal close_requested
+const AmountSlider=preload("res://scripts/service_amount_slider.gd")
+const FONT=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
+const ROWS_RECT=Rect2(20,128,548,352)
+const ROW_HEIGHT=44.0
+const CATEGORY_RECT=Rect2(20,128,218,352)
+const BAZAAR_ROWS_RECT=Rect2(248,128,320,352)
+const BAZAAR_REFRESH=Rect2(228,488,148,52)
+const PAGE_PREVIOUS=Rect2(386,488,86,52)
+const PAGE_NEXT=Rect2(482,488,86,52)
+const CONFIRM_RECT=Rect2(590,488,250,52)
+const REFRESH_RECT=Rect2(20,488,190,52)
+const CLOSE_RECT=Rect2(808,12,40,40)
+var terminal: Dictionary={}
+var wallet: Dictionary={"cash":0,"bank":0}
+var rows: Array=[]
+var tickets: Array=[]
+var selected := -1
+var offset := 0.0
+var pending := false
+var message := ""
+var direction := "deposit"
+var bid_mode := false
+var categories: Array=[]
+var category_rows: Array=[]
+var category_path: Array=[]
+var category_id:=0
+var category_name:="All"
+var category_offset:=0
+var category_selected:=-1
+var drag_category:=false
+var page:=0
+var has_more:=false
+var target_id := ""
+var slider: Control
+var pointer_down := false
+var drag_scrolling := false
+var down_pixel := Vector2.ZERO
+var last_pixel := Vector2.ZERO
+var down_row := -1
+var dragged := false
+var scroll_residual := 0.0
+var delivery_dialogue:RichTextLabel
+
+func _ready() -> void:
+	size=Vector2(860,580)
+	mouse_filter=Control.MOUSE_FILTER_STOP
+	slider=AmountSlider.new()
+	add_child(slider)
+	slider.position=Vector2(148,290)
+	slider.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	slider.amount_changed.connect(func(_amount): queue_redraw())
+	slider.visible=false
+	delivery_dialogue=RichTextLabel.new();add_child(delivery_dialogue);delivery_dialogue.position=Vector2(40,125);delivery_dialogue.size=Vector2(770,270);delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_IGNORE;delivery_dialogue.add_theme_font_override("normal_font",FONT);delivery_dialogue.add_theme_font_size_override("normal_font_size",24);delivery_dialogue.add_theme_color_override("default_color",Color("ddfbff"));delivery_dialogue.hide()
+
+func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[]) -> void:
+	var previous_id:=str(terminal.get("id",""))
+	terminal=record.duplicate(true)
+	if is_instance_valid(delivery_dialogue):
+		delivery_dialogue.visible=terminal.get("kind","")=="delivery"
+		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
+	if terminal.get("kind","")=="bazaar":
+		var source_categories: Array=terminal.get("categories",[])
+		if previous_id!=str(terminal.get("id","")) or source_categories!=categories:
+			categories=source_categories.duplicate(true)
+			category_rows=categories.duplicate(true);category_path=[];category_offset=0;category_selected=-1;category_id=0;category_name="All"
+		page=int(terminal.get("page",0));has_more=bool(terminal.get("has_more",false))
+	wallet=balances.duplicate(true)
+	tickets=held_tickets.duplicate(true)
+	rows=[]
+	match str(terminal.get("kind","")):
+		"bazaar": rows=terminal.get("listings",[]).duplicate(true)
+		"mission": rows=terminal.get("missions",[]).duplicate(true)
+		"travel": rows=terminal.get("destinations",[]).duplicate(true)
+		"boarding": rows=tickets.duplicate(true)
+		"crafting": rows=terminal.get("tools",[]).duplicate(true)
+		"trainer": rows=terminal.get("skills",[]).duplicate(true)
+	if selected>=rows.size(): selected=-1
+	offset=clampf(offset,0,maxf(0,rows.size()-8))
+	pending=false
+	bid_mode=false
+	cancel_pointer()
+	slider.visible=str(terminal.get("kind","")) in ["bank","payment"]
+	update_limit()
+	queue_redraw()
+
+func update_limit() -> void:
+	if not is_instance_valid(slider): return
+	if bid_mode and selected>=0 and selected<rows.size():
+		var minimum:=int(rows[selected].get("min_bid",int(rows[selected].get("price",0))+1))
+		slider.configure_range(minimum,maxi(minimum,int(wallet.get("cash",0))+int(wallet.get("bank",0))),maxi(minimum,slider.amount))
+		return
+	var maximum:=int(wallet.get("cash",0)) if direction=="deposit" or terminal.get("kind","")=="payment" else int(wallet.get("bank",0))
+	slider.configure(maximum,slider.amount)
+
+func set_pending(value: bool) -> void:
+	pending=value
+	slider.enabled=not value
+	if value: cancel_pointer()
+	queue_redraw()
+
+func row_at(pixel: Vector2) -> int:
+	var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else ROWS_RECT
+	if not region.has_point(pixel): return -1
+	var index:=int((pixel.y-ROWS_RECT.position.y)/ROW_HEIGHT)+int(offset)
+	return index if index>=0 and index<rows.size() else -1
+
+func pointer_begin(pixel: Vector2) -> void:
+	if pending: return
+	pointer_down=true
+	down_pixel=pixel
+	last_pixel=pixel
+	down_row=row_at(pixel)
+	dragged=false
+	scroll_residual=0
+	if slider.visible and slider.begin_drag(pixel-slider.position):
+		dragged=true
+		drag_scrolling=false
+	else:
+		drag_category=terminal.get("kind","")=="bazaar" and CATEGORY_RECT.has_point(pixel)
+		drag_scrolling=ROWS_RECT.has_point(pixel) and not slider.visible
+
+func pointer_move(pixel: Vector2) -> void:
+	if not pointer_down or pending: return
+	if pixel.distance_to(down_pixel)>12: dragged=true
+	if slider.dragging: slider.drag_to(pixel-slider.position)
+	elif drag_scrolling and dragged:
+		scroll_residual+=last_pixel.y-pixel.y
+		if absf(scroll_residual)>=ROW_HEIGHT:
+			var steps:=int(scroll_residual/ROW_HEIGHT)
+			if drag_category: category_offset=clampi(category_offset+steps,0,maxi(0,category_rows.size()-8))
+			else: offset=clampf(offset+steps,0,maxf(0,rows.size()-8))
+			scroll_residual-=steps*ROW_HEIGHT
+			queue_redraw()
+	last_pixel=pixel
+
+func pointer_end(pixel: Vector2) -> void:
+	if not pointer_down: return
+	var click:=not dragged and pixel.distance_to(down_pixel)<16 and not pending
+	cancel_pointer()
+	if click: click_at(pixel)
+
+func cancel_pointer() -> void:
+	pointer_down=false
+	drag_scrolling=false
+	if is_instance_valid(slider): slider.cancel_drag()
+
+func scroll_at(pixel: Vector2, steps: int) -> void:
+	if pending or slider.visible or not ROWS_RECT.has_point(pixel):return
+	if terminal.get("kind","")=="bazaar" and CATEGORY_RECT.has_point(pixel):
+		category_offset=clampi(category_offset+steps,0,maxi(0,category_rows.size()-8))
+	else:offset=clampf(offset+steps,0,maxf(0,rows.size()-8))
+	# A stick/wheel scroll while pressing must not select its final hovered row.
+	if pointer_down:dragged=true
+	queue_redraw()
+
+func browse_payload() -> Dictionary:
+	return {"terminal_id":str(terminal.get("id","")),"category_id":category_id,"page":page}
+
+func request_browse() -> void:
+	rows=[] # A rejected filter request must never relabel results from its parent.
+	set_pending(true)
+	action_requested.emit("open",browse_payload())
+
+func select_category(index: int) -> void:
+	if pending or index<0 or index>=category_rows.size(): return
+	var row: Dictionary=category_rows[index]
+	var identifier:=int(row.get("id",0))
+	if identifier!=category_id:
+		category_path.append({"id":category_id,"name":category_name,"rows":category_rows.duplicate(true),"offset":category_offset,"selected":index,"page":page,"item_offset":offset,"item_selected":selected})
+		category_id=identifier;category_name=str(row.get("label",row.get("name",identifier)))
+		category_rows=row.get("children",[]).duplicate(true);category_offset=0;category_selected=-1
+	else: category_selected=index
+	page=0;offset=0;selected=-1;bid_mode=false;slider.visible=false
+	request_browse()
+
+func category_back() -> void:
+	if pending or category_path.is_empty(): return
+	var previous: Dictionary=category_path.pop_back()
+	category_id=int(previous.id);category_name=str(previous.name)
+	category_rows=previous.rows;category_offset=int(previous.offset);category_selected=int(previous.selected)
+	page=int(previous.page);offset=float(previous.item_offset);selected=int(previous.item_selected)
+	request_browse()
+
+func click_at(pixel: Vector2) -> void:
+	if pending: return
+	if CLOSE_RECT.has_point(pixel): close_requested.emit(); return
+	if REFRESH_RECT.has_point(pixel) and bid_mode:
+		bid_mode=false;slider.visible=false;queue_redraw();return
+	if terminal.get("kind","")=="bazaar" and not bid_mode:
+		if CATEGORY_RECT.has_point(pixel):
+			select_category(category_offset+int((pixel.y-CATEGORY_RECT.position.y)/ROW_HEIGHT));return
+		if REFRESH_RECT.has_point(pixel):
+			if not category_path.is_empty(): category_back()
+			return
+		if BAZAAR_REFRESH.has_point(pixel): request_browse();return
+		if PAGE_PREVIOUS.has_point(pixel) and page>0: page-=1;offset=0;selected=-1;request_browse();return
+		if PAGE_NEXT.has_point(pixel) and has_more: page+=1;offset=0;selected=-1;request_browse();return
+	if REFRESH_RECT.has_point(pixel) and terminal.get("kind","") in ["bazaar","mission","travel","trainer"]:
+		set_pending(true)
+		action_requested.emit("mission_refresh" if terminal.get("kind","")=="mission" else "open",browse_payload() if terminal.get("kind","")=="bazaar" else {"terminal_id":str(terminal.get("id",""))})
+		return
+	if slider.visible:
+		if terminal.get("kind","")=="bank" and Rect2(170,192,520,60).has_point(pixel):
+			direction="deposit" if pixel.x<430 else "withdraw"
+			update_limit();queue_redraw();return
+	elif ROWS_RECT.has_point(pixel):
+		selected=row_at(pixel)
+		if terminal.get("kind","")=="bazaar" and selected>=0 and bool(rows[selected].get("auction",false)) and bool(rows[selected].get("buy_eligible",true)):
+			bid_mode=true;slider.visible=true;slider.amount=0;update_limit()
+		queue_redraw();return
+	if CONFIRM_RECT.has_point(pixel): confirm()
+
+func mission_blocked_reason(row: Dictionary) -> String:
+	if bool(row.get("supported",true)): return ""
+	var reason:=str(row.get("blocked_reason","")).strip_edges()
+	return reason if not reason.is_empty() else "The required mission interaction is not available in this prototype."
+
+func trainer_blocked_reason(row: Dictionary) -> String:
+	if bool(row.get("learned",false)): return "Already learned."
+	if bool(row.get("eligible",false)): return ""
+	var reason:=str(row.get("blocked_reason","")).strip_edges()
+	return reason if not reason.is_empty() else "Core3 has not confirmed eligibility for this skill."
+
+func trainer_skill_name(identifier: String) -> String:
+	for skill: Dictionary in rows:
+		if str(skill.get("id",""))==identifier: return label_for(skill)
+	return identifier
+
+func confirm() -> void:
+	if pending: return
+	var kind:=str(terminal.get("kind",""))
+	var payload: Dictionary={"terminal_id":str(terminal.get("id",""))}
+	var action:=""
+	if kind=="bazaar": payload.merge(browse_payload(),true)
+	if kind in ["bank","payment"]:
+		if slider.amount<=0: return
+		payload.amount=slider.amount
+		if kind=="bank": action="bank_transfer";payload.direction=direction
+		else:
+			if target_id.is_empty(): return
+			action="pay";payload.target_id=target_id;payload.erase("terminal_id")
+	elif kind=="delivery":
+		if str(terminal.get("confirm_action",""))!="delivery_pickup":
+			message="Grip and pull the parcel from Data, present it to the recipient, and press trigger.";queue_redraw();return
+		action="delivery_pickup";payload={"npc_id":str(terminal.get("id","")),"mission_id":str(terminal.get("mission_id",""))}
+	elif kind=="trainer":
+		if selected<0 or selected>=rows.size(): return
+		var skill: Dictionary=rows[selected]
+		var blocked:=trainer_blocked_reason(skill)
+		if not blocked.is_empty(): message=blocked;queue_redraw();return
+		var skill_id:=str(skill.get("id",""))
+		if skill_id.is_empty(): return
+		action="trainer_train";payload.skill_id=skill_id
+	elif kind=="crafting":
+		if selected<0 or selected>=rows.size(): return
+		action="crafting_station";payload.tool_id=str(rows[selected].get("id",""))
+	else:
+		if selected<0 or selected>=rows.size(): return
+		var row: Dictionary=rows[selected]
+		match kind:
+			"bazaar":
+				action="bazaar_retrieve" if bool(row.get("retrieve_eligible",false)) else "bazaar_buy"
+				if action=="bazaar_buy" and not bool(row.get("buy_eligible",true)): return
+				payload.listing_id=str(row.get("id",row.get("listing_id","")))
+				payload.price=slider.amount if bid_mode else int(row.get("price",0))
+			"mission":
+				if not bool(row.get("active",false)) and not mission_blocked_reason(row).is_empty():
+					message=mission_blocked_reason(row);queue_redraw();return
+				action="mission_abort" if bool(row.get("active",false)) else "mission_accept"
+				payload.mission_id=str(row.get("id",row.get("mission_id","")))
+			"travel":
+				if not bool(row.get("available",true)): return
+				action="travel_purchase";payload.destination_id=str(row.get("id",row.get("destination_id","")))
+			"boarding": action="travel_board";payload.ticket_id=str(row.get("id",row.get("ticket_id","")))
+	if action.is_empty(): return
+	set_pending(true)
+	action_requested.emit(action,payload)
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP,MOUSE_BUTTON_WHEEL_DOWN]:
+		scroll_at(event.position,-1 if event.button_index==MOUSE_BUTTON_WHEEL_UP else 1);accept_event();return
+	if event is InputEventMouseButton and event.button_index==MOUSE_BUTTON_LEFT:
+		if event.pressed: pointer_begin(event.position)
+		else: pointer_end(event.position)
+	elif event is InputEventMouseMotion: pointer_move(event.position)
+
+func label_for(row: Dictionary) -> String:
+	return str(row.get("name",row.get("label",row.get("destination_name",row.get("arrival",row.get("title",row.get("id","")))))))
+
+func detail_for(row: Dictionary) -> String:
+	var detail:=label_for(row)+"\n\n"
+	if terminal.get("kind","")=="mission":
+		detail+="Type: "+str(row.get("type","mission")).capitalize()+"\n"
+		if not str(row.get("target","")).is_empty(): detail+="Target: "+str(row.target)+"\n"
+		if row.get("type","")=="survey": detail+="Survey at least %d%% density, over 1024m from the terminal.\n"%int(row.get("difficulty",0))
+		var target_position: Variant=row.get("position")
+		if target_position is Array and target_position.size()==3:
+			detail+="X %.0f · Z %.0f\n"%[float(target_position[0]),float(target_position[2])]
+		for key in ["difficulty","reward","planet"]:
+			if row.has(key): detail+=key.capitalize()+": "+str(row[key])+"\n"
+		if not mission_blocked_reason(row).is_empty(): detail+="\n"+mission_blocked_reason(row)+"\n"
+		detail+="\n"+str(row.get("description",""))
+	elif terminal.get("kind","")=="trainer":
+		detail+="%d credits\n%d skill points\n"%[int(row.get("credit_cost",0)),int(row.get("skill_point_cost",0))]
+		if not str(row.get("xp_type","")).is_empty():
+			detail+="%s XP\n%d / %d\n"%[str(row.get("xp_name",row.get("xp_type",""))),int(row.get("xp_available",0)),int(row.get("xp_cost",0))]
+		var reason:=trainer_blocked_reason(row)
+		if not reason.is_empty(): detail+="\n"+reason+"\n"
+		var prerequisites: Array=row.get("prerequisites",[])
+		if not prerequisites.is_empty():
+			var labels:=PackedStringArray()
+			for requirement in prerequisites: labels.append(trainer_skill_name(str(requirement)))
+			detail+="\nRequires: "+", ".join(labels)+"\n"
+		detail+="\n"+str(row.get("description",""))
+	else:
+		detail+=str(row.get("description",""))
+		for key in ["price","reward","planet","location","type"]:
+			if row.has(key): detail+="\n"+key.capitalize()+": "+str(row[key])
+	return detail
+
+func _draw() -> void:
+	draw_style_box(preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,14),Rect2(Vector2.ZERO,size))
+	var kind:=str(terminal.get("kind","service"))
+	draw_string(FONT,Vector2(22,42),str(terminal.get("name",kind.to_upper())),HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("ccffff"))
+	draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("baffff"))
+	draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("95d7e0"))
+	if kind=="delivery":
+		var hint:=("Confirm to receive the mission recipe and components." if terminal.get("mission_kind","")=="crafting" else "Confirm to receive the mission parcel in Data.") if terminal.get("confirm_action","")=="delivery_pickup" else "Grip and pull the parcel from Data.\nPresent it to the recipient and press trigger.\nRelease grip to return it to the datapad."
+		draw_multiline_string(FONT,Vector2(40,408),hint,HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("95d7e0"))
+	elif kind in ["bank","payment"] or bid_mode:
+		if bid_mode:
+			draw_string(FONT,Vector2(170,228),"Bid: "+label_for(rows[selected]),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2ffff"))
+		elif kind=="bank":
+			for index in range(2):
+				var active:=(index==0)==(direction=="deposit")
+				draw_rect(Rect2(170+index*260,192,250,60),Color("225b6b") if active else Color("10303e"))
+				draw_string(FONT,Vector2(180+index*260,229),"Deposit to bank" if index==0 else "Withdraw to wallet",HORIZONTAL_ALIGNMENT_LEFT,240,21,Color("d2ffff"))
+		else: draw_string(FONT,Vector2(170,228),"Pay "+str(terminal.get("recipient_name",target_id)),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2ffff"))
+		draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("95d7e0"))
+	else:
+		var item_region:=BAZAAR_ROWS_RECT if kind=="bazaar" else ROWS_RECT
+		if kind=="bazaar":
+			var breadcrumb:="Bazaar"
+			for entry: Dictionary in category_path:
+				if int(entry.id)!=0: breadcrumb+=" / "+str(entry.name)
+			breadcrumb+=" / "+category_name
+			draw_string(FONT,Vector2(22,115),breadcrumb,HORIZONTAL_ALIGNMENT_LEFT,810,16,Color("95d7e0"))
+			for index in range(category_offset,mini(category_rows.size(),category_offset+8)):
+				var category: Dictionary=category_rows[index]
+				var y:=128+(index-category_offset)*ROW_HEIGHT
+				draw_rect(Rect2(20,y,218,ROW_HEIGHT-2),Color("225b6b") if category_selected==index else Color("0b2533"))
+				draw_multiline_string(FONT,Vector2(28,y+18),str(category.get("label",category.get("name",""))),HORIZONTAL_ALIGNMENT_LEFT,195,16,2,Color("ddfbff"))
+			if category_rows.is_empty(): draw_multiline_string(FONT,Vector2(28,157),"No subcategories" if not categories.is_empty() else "Loading original categories…",HORIZONTAL_ALIGNMENT_LEFT,190,18,3,Color("95d7e0"))
+		for index in range(int(offset),mini(rows.size(),int(offset)+8)):
+			var y:=128+(index-int(offset))*ROW_HEIGHT
+			draw_rect(Rect2(item_region.position.x,y,item_region.size.x,ROW_HEIGHT-2),Color("225b6b") if selected==index else Color("10303e"))
+			var row_width:=item_region.size.x-16
+			if kind=="trainer":
+				row_width-=100
+				var state:="Learned" if bool(rows[index].get("learned",false)) else ("Train" if bool(rows[index].get("eligible",false)) else "Locked")
+				draw_string(FONT,Vector2(item_region.end.x-98,y+27),state,HORIZONTAL_ALIGNMENT_RIGHT,88,17,Color("8bddd2") if state=="Train" else Color("85a9b2"))
+			draw_string(FONT,Vector2(item_region.position.x+8,y+29),label_for(rows[index]),HORIZONTAL_ALIGNMENT_LEFT,row_width,21,Color("ddfbff"))
+		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("95d7e0"))
+		if kind=="trainer" and selected<0:
+			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("ddfbff"))
+		if selected>=0 and selected<rows.size():
+			var row: Dictionary=rows[selected]
+			var detail:=detail_for(row)
+			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("ddfbff"))
+		if rows.size()>8 and kind!="bazaar": draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("95d7e0"))
+	if kind in ["bazaar","mission","travel","trainer"]:
+		draw_rect(REFRESH_RECT,Color("16323d") if pending else Color("184454"))
+		draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back to listings" if bid_mode else ("Back" if kind=="bazaar" else ("Refresh offers" if kind=="mission" else "Refresh")),HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("c0f4f7"))
+	if kind=="bazaar" and not bid_mode:
+		for item in [{"rect":BAZAAR_REFRESH,"label":"Refresh"},{"rect":PAGE_PREVIOUS,"label":"‹"},{"rect":PAGE_NEXT,"label":"›"}]:
+			draw_rect(item.rect,Color("184454"))
+			draw_string(FONT,item.rect.position+Vector2(5,33),item.label,HORIZONTAL_ALIGNMENT_CENTER,item.rect.size.x-10,20,Color("c0f4f7"))
+		draw_string(FONT,Vector2(590,115),"Page %d · %d listings"%[page+1,rows.size()],HORIZONTAL_ALIGNMENT_LEFT,240,14,Color("95d7e0"))
+	var button: String={"bazaar":"Purchase","mission":"Accept mission","travel":"Buy ticket","boarding":"Board shuttle","bank":"Transfer","payment":"Send credits","crafting":"Use station","trainer":"Train skill"}.get(kind,"Confirm")
+	if kind=="delivery":button=("Receive recipe" if terminal.get("mission_kind","")=="crafting" else "Receive parcel") if terminal.get("confirm_action","")=="delivery_pickup" else "Present parcel by hand"
+	var confirmation_disabled:bool=(kind=="delivery" and terminal.get("confirm_action","")!="delivery_pickup") or pending or (kind=="trainer" and (selected<0 or selected>=rows.size()))
+	if selected>=0 and selected<rows.size():
+		if kind=="trainer" and not trainer_blocked_reason(rows[selected]).is_empty():
+			confirmation_disabled=true;button="Already learned" if bool(rows[selected].get("learned",false)) else "Unavailable"
+		if kind=="mission" and not bool(rows[selected].get("active",false)) and not mission_blocked_reason(rows[selected]).is_empty():
+			confirmation_disabled=true;button="Not available"
+		if kind=="mission" and bool(rows[selected].get("active",false)): button="Abandon mission"
+		if kind=="bazaar":
+			if bool(rows[selected].get("retrieve_eligible",false)): button="Retrieve item"
+			elif bool(rows[selected].get("auction",false)): button="Place bid"
+	draw_rect(CONFIRM_RECT,Color("16323d") if confirmation_disabled else Color("225b6b"))
+	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for Core3…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2ffff"))
+	draw_string(FONT,Vector2(22,563),message,HORIZONTAL_ALIGNMENT_LEFT,814,18,Color("b0dde5"))

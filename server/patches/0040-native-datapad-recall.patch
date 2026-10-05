@@ -1,0 +1,87 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -1,6 +1,7 @@
+ #ifndef SWGXR_VEHICLES_H
+ #define SWGXR_VEHICLES_H
+ #include "server/zone/objects/intangible/VehicleControlDevice.h"
++#include "server/zone/objects/intangible/PetControlDevice.h"
+ #include "server/zone/objects/creature/VehicleObject.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
+ #include "templates/creature/SharedCreatureObjectTemplate.h"
+@@ -54,6 +55,35 @@
+  }
+  static Json seat(const Json& d,const std::string& key){for(auto& s:d["seats"])if(s["id"]==key)return s;throw std::runtime_error("Seat unavailable");}
+  static VehicleControlDevice* owned(CreatureObject* c,const std::string& key){auto o=c->getZoneServer()->getObject(std::stoull(key));if(!o || !o->isVehicleControlDevice() || !o->isASubChildOf(c) || o->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("Owned datapad vehicle required");return static_cast<VehicleControlDevice*>(o.get());}
++ static PetControlDevice* ownedDroid(CreatureObject* c,const std::string& key){
++  auto object=c->getZoneServer()->getObject(std::stoull(key));
++  if(!object || !object->isPetControlDevice() || !object->isASubChildOf(c) || object->getParent().get()!=c->getSlottedObject("datapad"))throw std::runtime_error("Owned datapad droid required");
++  auto device=static_cast<PetControlDevice*>(object.get());auto pet=device->getControlledObject();
++  if(!pet || !pet->isCreatureObject() || !pet->asCreatureObject()->isDroidObject())throw std::runtime_error("Owned follower droid required");return device;
++ }
++ static Json describeDroid(PetControlDevice* device,CreatureObject* pet){
++  return {{"id",id(pet)},{"device_id",id(device)},{"name",std::string(pet->getDisplayedName().toCharArray())},{"template",std::string(pet->getObjectTemplate()->getFullTemplateString().toCharArray())},{"spawned",pet->getZone()!=nullptr},{"position",wire(pet->getWorldPosition())},{"heading_radians",pet->getDirection()->getRadians()},{"height",clamp(pet->getHeight(),.25,3.0)},{"radius",clamp(pet->getTemplateRadius(),.15,1.25)},{"owned",true},{"in_combat",pet->isInCombat()}};
++ }
++ static void droidAction(CreatureObject* c,const Json& q,Json& mutation){
++  auto device=ownedDroid(c,q.at("device_id").get<std::string>());Locker dl(device,c);auto object=device->getControlledObject();auto pet=object->asCreatureObject();
++  auto action=q.at("action").get<std::string>();
++  if(c->isDead() || c->isIncapacitated() || c->isInCombat() || seated(c))throw std::runtime_error("Use droid controls while alive, unseated and at peace");
++  if(action=="pet_call"){
++   if(pet->getZone()!=nullptr){if(pet->getZone()!=c->getZone())throw std::runtime_error("Droid is already called elsewhere");return;}
++   device->callObject(c);mutation["pending"]=pet->getZone()==nullptr && c->getPendingTask("call_pet")!=nullptr;
++   if(pet->getZone()==nullptr && !mutation["pending"].get<bool>())throw std::runtime_error("Core3 refused droid call: check cooldown, location and active pet limits");
++  }else{
++   if(pet->getZone()==nullptr)return; // Idempotent recall after a confirmed store.
++   if(pet->getZone()!=c->getZone() || !c->isInRange(pet,7) || !CollisionManager::checkLineOfSight(c,pet) || pet->isInCombat())throw std::runtime_error("Owned droid within 7m and at peace required");
++   if(action=="pet_store"){
++    auto d=describeDroid(device,pet);for(auto key:{"left","right"}){auto hand=point(q.at(key));auto offset=hand-pet->getWorldPosition();
++     if(hand.distanceTo(c->getWorldPosition())>3.5 || std::hypot(offset.getX(),offset.getY())>d["radius"].get<double>()+.15 || offset.getZ()<-.15 || offset.getZ()>d["height"].get<double>()+.15)throw std::runtime_error("Both hands must touch the owned droid");}
++   }
++   if(!c->checkCooldownRecovery("petCallOrStoreCooldown"))throw std::runtime_error("Wait for the original droid call/store cooldown");
++   device->storeObject(c,false);mutation["pending"]=pet->getZone()!=nullptr; // Original StorePetTask executes asynchronously.
++  }
++  device->updateToDatabase();mutation["device_id"]=id(device);mutation["pet_id"]=id(pet);
++ }
+  static CreatureObject* vehicle(CreatureObject* c,uint64 key){auto o=c->getZoneServer()->getObject(key);if(!o || !o->isVehicleObject() || o->getZone()!=c->getZone())throw std::runtime_error("Vehicle unavailable");return o->asCreatureObject();}
+  static double turn(CreatureObject* v){auto t=dynamic_cast<SharedCreatureObjectTemplate*>(v->getObjectTemplate());auto values=t->getTurnRate();return values.size()?values.get(0)*M_PI/180.0:1.0;}
+  static bool floor(CreatureObject* c,CreatureObject* v,const Vector3& before,Vector3& after){
+@@ -144,12 +174,17 @@
+   tick(c,v);place(c,v,it->second);return true;
+  }
+  static Json snapshot(CreatureObject* c){
+-  std::lock_guard<std::recursive_mutex> lock(mutex());auto ownSeen=riders().find(c->getObjectID());if(ownSeen!=riders().end())ownSeen->second.seen=now();cleanup(c);Json out={{"character_id",id(c)},{"source_kind","core3_vehicles"},{"vehicles",Json::array()},{"datapad",Json::array()},{"seat",Json::object()},{"position",wire(c->getWorldPosition())}};
++  std::lock_guard<std::recursive_mutex> lock(mutex());auto ownSeen=riders().find(c->getObjectID());if(ownSeen!=riders().end())ownSeen->second.seen=now();cleanup(c);Json out={{"character_id",id(c)},{"source_kind","core3_vehicles"},{"vehicles",Json::array()},{"datapad",Json::array()},{"pets",Json::array()},{"pet_datapad",Json::array()},{"seat",Json::object()},{"position",wire(c->getWorldPosition())}};
+   auto ejection=ejections().find(c->getObjectID());if(ejection!=ejections().end())out["forced_exit"]=ejection->second;
+   auto own=riders().find(c->getObjectID());if(own!=riders().end())out["seat"]={{"vehicle_id",std::to_string(own->second.vehicle)},{"id",own->second.seat}};
+   auto pad=c->getSlottedObject("datapad");if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isVehicleControlDevice())continue;auto cd=static_cast<VehicleControlDevice*>(item.get());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject())continue;auto v=controlled->asCreatureObject();
+    try{descriptor(v);}catch(...){continue;}
+    out["datapad"].push_back({{"id",id(cd)},{"vehicle_id",id(v)},{"name",std::string(v->getDisplayedName().toCharArray())},{"template",std::string(v->getObjectTemplate()->getFullTemplateString().toCharArray())},{"spawned",v->getZone()!=nullptr}});
++  }
++  if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["pet_datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isPetControlDevice())continue;
++   auto device=static_cast<PetControlDevice*>(item.get());auto object=device->getControlledObject();if(!object || !object->isCreatureObject() || !object->asCreatureObject()->isDroidObject())continue;
++   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describeDroid(device,pet);auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
++   if(pet->getZone()==c->getZone() && c->isInRange(pet,128))out["pets"].push_back(row);
+   }
+   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);
+   for(int i=0;i<objects.size() && out["vehicles"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isVehicleObject())continue;auto v=o->asCreatureObject();Locker vl(v,c);try{descriptor(v);tick(c,v);out["vehicles"].push_back(describe(c,v));}catch(const std::exception&){} }
+@@ -169,6 +204,7 @@
+    Locker itemLock(item,c);int code=item->handleObjectMenuSelect(c,20);ManagedReference<VehicleControlDevice*> created=nullptr;for(int i=0;i<datapad->getContainerObjectsSize();++i){auto device=datapad->getContainerObject(i);if(device->isVehicleControlDevice() && !before.count(device->getObjectID()))created=device.castTo<VehicleControlDevice*>();}
+    if(code!=0 || created==nullptr || item->isASubChildOf(c))throw std::runtime_error("Core3 rejected vehicle deed activation: check native vehicle capacity and location");
+    mutation["item_id"]=q.at("item_id");mutation["device_id"]=id(created);mutation["vehicle_id"]=id(created->getControlledObject());receipts.push_back({{"id",key},{"request",q},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_vehicles","activation_receipts",String(receipts.dump().c_str()));
++  }else if(action=="pet_call" || action=="pet_store" || action=="pet_recall"){droidAction(c,q,mutation);
+   }else if(action=="call"){
+    if(c->isDead() || c->isIncapacitated() || c->getParent().get()!=nullptr || c->isInCombat())throw std::runtime_error("Call a vehicle while alive, outside and at peace");
+    if(seated(c))throw std::runtime_error("Dismount first");auto cd=owned(c,q.at("device_id").get<std::string>());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject())throw std::runtime_error("Invalid native vehicle");descriptor(controlled->asCreatureObject());cd->generateObject(c);if(controlled->getZone()==nullptr && c->getPendingTask("call_mount")==nullptr)throw std::runtime_error("Core3 could not call this vehicle");mutation["pending"]=controlled->getZone()==nullptr;
+@@ -187,11 +223,11 @@
+     for(double side:{-1.0,1.0}){double width=std::max(std::abs(d["bounds_min"][0].get<double>()),std::abs(d["bounds_max"][0].get<double>()))+.65;exit=local(v,Json::array({side*width,0,0}));if(floor(c,v,start,exit)){found=true;break;}}
+     if(!found)throw std::runtime_error("No clear dismount position");detach(c,false);c->teleport(exit.getX(),exit.getZ(),exit.getY(),0);mutation["position"]=wire(exit);
+    }
+-  }else if(action=="store"){
++  }else if(action=="store" || action=="recall"){
+    auto cd=owned(c,q.at("device_id").get<std::string>());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject() || controlled->getZone()!=c->getZone())throw std::runtime_error("Parked owned vehicle required");auto v=controlled->asCreatureObject();Locker vl(v,c);auto& m=motions()[v->getObjectID()];
+    for(auto& r:riders())if(r.second.vehicle==v->getObjectID())throw std::runtime_error("Occupied vehicle cannot be stored");
+    if(std::abs(m.speed)>.1 || c->isInCombat() || !c->isInRange(v,7) || !CollisionManager::checkLineOfSight(c,v))throw std::runtime_error("Parked vehicle within reach required");auto d=descriptor(v);
+-   for(auto key:{"left","right"}){auto h=point(q.at(key));if(h.distanceTo(c->getWorldPosition())>3.5)throw std::runtime_error("Both hands must touch vehicle");auto rel=h-v->getWorldPosition();double a=v->getDirection()->getRadians(),x=rel.getX()*std::cos(a)-rel.getY()*std::sin(a),z=-(rel.getX()*std::sin(a)+rel.getY()*std::cos(a));double vals[]={x,rel.getZ(),z};for(int i=0;i<3;++i)if(vals[i]<d["bounds_min"][i].get<double>()-.15 || vals[i]>d["bounds_max"][i].get<double>()+.15)throw std::runtime_error("Both hands must touch vehicle");}
++   if(action=="store")for(auto key:{"left","right"}){auto h=point(q.at(key));if(h.distanceTo(c->getWorldPosition())>3.5)throw std::runtime_error("Both hands must touch vehicle");auto rel=h-v->getWorldPosition();double a=v->getDirection()->getRadians(),x=rel.getX()*std::cos(a)-rel.getY()*std::sin(a),z=-(rel.getX()*std::sin(a)+rel.getY()*std::cos(a));double vals[]={x,rel.getZ(),z};for(int i=0;i<3;++i)if(vals[i]<d["bounds_min"][i].get<double>()-.15 || vals[i]>d["bounds_max"][i].get<double>()+.15)throw std::runtime_error("Both hands must touch vehicle");}
+    vl.release();cd->storeObject(c);if(v->getZone()!=nullptr)throw std::runtime_error("Core3 refused vehicle storage");motions().erase(v->getObjectID());
+   }else if(action!="status")throw std::runtime_error("Unsupported vehicle action");
+   return {{"backend","core3"},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation},{"inventory",action=="activate"?SwgxrInventory::snapshot(c):Json::object()}};

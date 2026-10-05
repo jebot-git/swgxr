@@ -1,0 +1,11 @@
+--- a/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/ZoneServerImplementation.cpp
+@@ -756,6 +756,8 @@
+ 		//lock(); ObjectManager has its own mutex
+ 
+ 		obj = objectManager->createObject(templateCRC, 1, "clientobjects", oid, false);
++		if (obj == nullptr)
++			return nullptr;
+ 		obj->setClientObject(true);
+ 		obj->initializeTransientMembers();
+ 

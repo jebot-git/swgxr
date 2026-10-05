@@ -1,0 +1,13 @@
+[Unit]
+Description=SWGXR daily game restart at 05:00 UTC
+PartOf=swgxr.target
+
+[Timer]
+OnCalendar=*-*-* 05:00:00 UTC
+AccuracySec=1s
+RandomizedDelaySec=0
+Persistent=false
+Unit=swgxr-daily-restart.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,15 @@
+diff --git a/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp b/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
+index f54ed23f..7fda00fa 100644
+--- a/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
+@@ -577,6 +577,10 @@ Reference<SceneObject*> PlanetManagerImplementation::loadSnapshotObject(WorldSna
+ 	Vector3 position = node->getPosition();
+ 
+ 	object = zoneServer->createClientObject(serverTemplate.hashCode(), objectID);
++	if (object == nullptr) {
++		error() << "Skipping unavailable snapshot object " << objectID << " template " << serverTemplate;
++		return nullptr;
++	}
+ 
+ 	Locker locker(object);
+ 

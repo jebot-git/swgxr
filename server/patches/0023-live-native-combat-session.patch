@@ -1,0 +1,179 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -11,6 +11,7 @@
+ #include "SwgxrInventory.h"
+ #include "SwgxrGathering.h"
+ #include "SwgxrCorpses.h"
++#include "SwgxrLiveCombat.h"
+ 
+ class GetAttributesBatchCommand : public QueueCommand {
+ public:
+@@ -21,6 +22,10 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_livecombat_v1 ")) {
++			JSONSerializationType out,request;try{std::string raw=arguments.toString().toCharArray();request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));out=SwgxrLiveCombat::run(creature,request);}catch(const std::exception& e){out={{"error_code",std::string(e.what())},{"session_live",false},{"character_id",std::to_string(creature->getObjectID())}};}
++			out["request_id"]=request.is_object()?request.value("request_id",std::string()):std::string();auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.live.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++		}
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+ 
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -6,6 +6,9 @@
+  * Requires active zone connection
+  */
+ 
++#include <fstream>
++#include <cstdio>
++#include <chrono>
+ #include "client/ActionBase.h"
+ #include "client/ActionResult.h"
+ #include "client/ActionManager.h"
+@@ -19,6 +22,7 @@
+ 	ActionResult result;
+ 	bool skipped;
+ 	std::string inventoryRequest;
++	std::string liveDirectory;
+ 	std::string datapadCommand;
+ 	std::string datapadArguments;
+ 	uint64 datapadTarget = 0;
+@@ -51,6 +55,7 @@
+ 	static ActionBase* fromJSON(const JSONSerializationType& config) {
+ 		// ZoneInCharacter has no configuration - uses core.targetCharacterOid
+ 		auto action = new ZoneInCharacterAction();
++		action->liveDirectory=config.value("liveDirectory",std::string());
+ 		if (config.contains("datapadCommand")) {
+ 			const auto& command = config["datapadCommand"];
+ 			action->datapadCommand = command.value("name", std::string());
+@@ -81,6 +86,8 @@
+ 		// Use target from selectContext
+ 		uint64 oid = core.targetCharacterOid;
+ 		core.selectedCharacterOid = oid;  // Track which character we're playing as
++
++		core.setVar("swgxr/deferSceneReady", !liveDirectory.empty());
+ 
+ 		// Send SelectCharacter packet
+ 		info() << "Zoning in as character OID: " << oid;
+@@ -188,6 +195,21 @@
+ 			core.setVar("datapad/commandSent", datapadCommand);
+ 		}
+ 
++		if (!liveDirectory.empty()) {
++			if(liveDirectory.find("/workspace/runtime/server/livecombat/")!=0 || liveDirectory.find("..")!=std::string::npos){result.setError("Invalid live IPC directory",10);return;}
++			auto publish=[&](const JSONSerializationType& value){std::ofstream file(liveDirectory+"/response.tmp");file<<value.dump();file.close();std::rename((liveDirectory+"/response.tmp").c_str(),(liveDirectory+"/response.json").c_str());};
++			{std::ofstream ready(liveDirectory+"/ready.json");ready<<"{\"zone_ready\":true}";}
++			auto last=std::chrono::steady_clock::now();int counter=100;
++			while(std::chrono::duration<double>(std::chrono::steady_clock::now()-last).count()<60){
++				if(!std::ifstream(liveDirectory+"/request.json").good()){Thread::sleep(10);continue;}
++				JSONSerializationType input;
++				try{std::ifstream file(liveDirectory+"/request.json");file>>input;file.close();std::remove((liveDirectory+"/request.json").c_str());}catch(const std::exception& e){publish({{"session_live",false},{"error_code","invalid_ipc_json"}});break;}
++				last=std::chrono::steady_clock::now();auto message=new ObjectControllerMessage(oid,0x0B,0x116);message->insertInt(counter++);message->insertInt(STRING_HASHCODE("getattributesbatch"));message->insertLong(0);message->insertUnicode(UnicodeString(String(("swgxr_livecombat_v1 "+input.dump()).c_str())));core.zone->getZoneClient()->sendMessage(message);
++				bool complete=false;for(int attempt=0;attempt<100;++attempt){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(values["swgxr.live.snapshot"].get<std::string>());if(reply.value("request_id",std::string())==input.value("request_id",std::string())){publish(reply);complete=true;break;}}core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);}
++				if(!complete){publish({{"session_live",false},{"error_code","native_response_timeout"},{"request_id",input.value("request_id",std::string())}});break;}
++				if(input.value("action",std::string())=="stop")break;
++			}
++		}
+ 		// Success
+ 		result.setSuccess();
+ 		info() << "Zone-in complete - scene ready";
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
+@@ -197,6 +197,7 @@
+ 	 */
+ 	bool hasActiveDuelChallenge(CreatureObject* challenger, CreatureObject* targetPlayer) const;
+ 
++	bool applyProjectileLaunchCost(CreatureObject* attacker, WeaponObject* weapon, const CreatureAttackData& data) const { return applySpecialAttackCost(attacker, weapon, data); }
+ 	float calculateWeaponAttackSpeed(CreatureObject* attacker, WeaponObject* weapon, float skillSpeedRatio) const;
+ 
+ 	void broadcastCombatAction(CreatureObject * attacker, WeaponObject* weapon, SortedVector<DefenderHitList*> targetDefenders, const CreatureAttackData & data) const;
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -218,8 +218,12 @@
+ 
+ 	info(true) << "Scene Starting for character OID: " << selfPlayerObjectID;
+ 
+-	BaseMessage* msg = new CmdSceneReady();
+-	client->sendPacket(msg);
++	if (core->getVar<bool>("swgxr/deferSceneReady", false)) {
++		zone->setSceneReady(); // Local IPC readiness; original server readiness remains protected.
++	} else {
++		BaseMessage* msg = new CmdSceneReady();
++		client->sendPacket(msg);
++	}
+ 
+ 	zone->setSceneStarted();
+ }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -0,0 +1,69 @@
++#ifndef SWGXR_LIVE_COMBAT_H
++#define SWGXR_LIVE_COMBAT_H
++#include "AttackCommand.h"
++#include "server/zone/managers/creature/CreatureManager.h"
++#include "server/zone/objects/tangible/LairObject.h"
++#include <chrono>
++#include <map>
++#include <mutex>
++class SwgxrLiveCombat {
++ using Json=JSONSerializationType;
++ struct Shot {std::string item;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
++ struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;};
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static Json vector(const Json& p,bool direction=false){if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_vector");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(direction?2:i==1?2048:8192))throw std::runtime_error("invalid_vector");return p;}
++ static Json position(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static double distance(const Json& a,const Json& b){double sum=0;for(int i=0;i<3;++i){double d=a[i].get<double>()-b[i].get<double>();sum+=d*d;}return std::sqrt(sum);}
++ static Json ham(CreatureObject* c,bool maximum=false){return Json::array({maximum?c->getMaxHAM(0):c->getHAM(0),maximum?c->getMaxHAM(3):c->getHAM(3),maximum?c->getMaxHAM(6):c->getHAM(6)});}
++ static bool key(const std::string& s){if(s.size()<8 || s.size()>80)return false;for(char c:s)if(!std::isalnum(c) && c!='_' && c!='-')return false;return true;}
++ static const AttackCommand* attack(CreatureObject* c){auto command=dynamic_cast<const AttackCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(command==nullptr)throw std::runtime_error("native_attack_unavailable");return command;}
++ static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
++  Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
++ }
++ static Json snapshot(CreatureObject* c,Session& session){
++  Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),128,&objects,true);bool truncated=false;
++  for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
++  auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
++  return {{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",{{"combat_rangedspecialize_pistol",c->getPlayerObject()->getExperience("combat_rangedspecialize_pistol")},{"combat_general",c->getPlayerObject()->getExperience("combat_general")}}}}},{"weapon",profile}};
++ }
++ static void move(CreatureObject* c,const Json& request){auto p=vector(request.at("position"));double heading=request.value("heading_radians",0.0);if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");if(c->isDead() || c->isIncapacitated() || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");c->setDirection(float(heading));if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_session_required");if(c->getParent().get()!=nullptr)throw std::runtime_error("outdoor_session_required");c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);}
++ static Json action(CreatureObject* c,Session& s,const Json& request){
++  const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
++  if(verb=="update"){move(c,request);if(request.value("ready",false) && !s.ready){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;}if(verb=="snapshot")return result;
++  if(!s.ready)throw std::runtime_error("session_not_ready");
++  const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
++  auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
++  if(verb=="fire"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");
++   auto weapon=c->getWeapon();if(weapon==nullptr || !weapon->isRangedWeapon() || id(weapon)!=request.at("item_id").get<std::string>() || !weapon->isASubChildOf(c))throw std::runtime_error("weapon_identity_mismatch");if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");if(stamp<s.nextFire)throw std::runtime_error("cadence");
++   auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);double length=distance(direction,Json::array({0,0,0}));if(length<.9 || length>1.1 || distance(origin,position(c))>3.5)throw std::runtime_error("invalid_launch_pose");for(int axis=0;axis<3;++axis)direction[axis]=direction[axis].get<double>()/length;
++   CreatureAttackData costs("",command,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
++  }
++  if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
++  if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3 || travel>160*(stamp-shot.time+.10)+3)throw std::runtime_error("projectile_range_or_time");
++  double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
++  auto targetID=request.at("target_id").get<std::string>();auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");if(distance(hit,position(target))>std::max(3.f,target->getTemplateRadius()+2.f))throw std::runtime_error("impact_outside_target");
++  auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage)throw std::runtime_error("launch_weapon_changed");
++  AttackCommand prepaid(*command);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
++  Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,tangible,s);
++  result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;
++ }
++public:
++ static Json run(CreatureObject* c,const Json& request){
++  static std::mutex mutex;static std::map<uint64,Session> sessions;std::lock_guard<std::mutex> guard(mutex);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
++  for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60)it=sessions.erase(it);else ++it;
++  if(verb=="start"){
++   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=4)throw std::runtime_error("session_capacity");move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
++   if(request.value("spawn_test_lair",false)){if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
++   sessions.emplace(c->getObjectID(),fresh);
++  }
++  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
++  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};}
++  out["snapshot"]=snapshot(c,session);if(verb=="stop"){c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);sessions.erase(found);}return out;
++ }
++};
++#endif

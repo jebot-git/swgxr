@@ -1,0 +1,56 @@
+diff --git a/MMOCoreORB/src/templates/manager/TemplateManager.cpp b/MMOCoreORB/src/templates/manager/TemplateManager.cpp
+index fcdad470..bf3675aa 100644
+--- a/MMOCoreORB/src/templates/manager/TemplateManager.cpp
++++ b/MMOCoreORB/src/templates/manager/TemplateManager.cpp
+@@ -209,19 +209,26 @@ void TemplateManager::loadSlotDefinitions() {
+ 	//TODO: Should we fool with encapsulating this within a SlotDefinitionsMap?
+ 	//Note: There is no parent form type, just the version: 0006...
+ 
+-	iffStream->openForm('0006');
++	const uint32 version = iffStream->getNextFormType();
++	if (version != '0005' && version != '0006') {
++		error("Unsupported slot definitions version.");
++		ERROR_CODE = SLOT_DEFINITION_FILE_NOT_FOUND;
++		delete iffStream;
++		return;
++	}
++	iffStream->openForm(version);
+ 
+ 	Chunk* data = iffStream->openChunk('DATA');
+ 
+ 	while (data->hasData()) {
+ 		Reference<SlotId*> slotId = new SlotId();
+-		slotId->readObject(data);
++		slotId->readObject(data, version == '0006');
+ 
+ 		slotDefinitions.put(slotId->getSlotName(), slotId);
+ 	}
+ 
+ 	iffStream->closeChunk('DATA');
+-	iffStream->closeForm('0006');
++	iffStream->closeForm(version);
+ 
+ 	delete iffStream;
+ 
+diff --git a/MMOCoreORB/src/templates/slots/SlotId.h b/MMOCoreORB/src/templates/slots/SlotId.h
+index ffae13dd..0fc5f19d 100644
+--- a/MMOCoreORB/src/templates/slots/SlotId.h
++++ b/MMOCoreORB/src/templates/slots/SlotId.h
+@@ -54,7 +54,7 @@ public:
+ 		return slotName.compareTo(sid.slotName);
+ 	}
+ 
+-	void readObject(Chunk* chunk) {
++	void readObject(Chunk* chunk, bool hasUnk6 = true) {
+ 		chunk->readString(slotName);
+ 		unk1 = chunk->readByte();
+ 		unk2 = chunk->readByte();
+@@ -62,7 +62,7 @@ public:
+ 		chunk->readString(alternateName);
+ 		unk4 = chunk->readShort();
+ 		unk5 = chunk->readByte();
+-		unk6 = chunk->readByte();
++		unk6 = hasUnk6 ? chunk->readByte() : 0;
+ 	}
+ 
+ 	void writeHtmlTableRow(StringBuffer& str) const {

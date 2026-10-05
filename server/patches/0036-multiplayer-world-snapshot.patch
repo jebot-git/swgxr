@@ -1,0 +1,75 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -15,6 +15,7 @@
+ #include "SwgxrCrafting.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/tangible/LairObject.h"
++#include <algorithm>
+ #include <chrono>
+ #include <map>
+ #include <mutex>
+@@ -57,6 +58,56 @@
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+   String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
+  }
++ static std::string customization(TangibleObject* o){
++  String data;o->getCustomizationString(data);static const char* digits="0123456789abcdef";std::string encoded;
++  for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=digits[value>>4];encoded+=digits[value&15];}return encoded;
++ }
++ static Json publicAppearance(CreatureObject* c){
++  Json out={{"template",std::string(c->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",c->getClientObjectCRC()},{"customization_hex",customization(c)},{"height",c->getHeight(false)},{"hair_template",""},{"hair_customization_hex",""},{"equipment",Json::array()},{"equipment_complete",true}};
++  std::set<uint64> seen;
++  for(int i=0;i<c->getSlottedObjectsSize();++i){auto item=c->getSlottedObject(i);if(item==nullptr || !item->isTangibleObject() || item->getParent().get()!=c || !seen.insert(item->getObjectID()).second)continue;
++   std::string name=item->getObjectTemplate()->getFullTemplateString().toCharArray();auto tangible=item->asTangibleObject();
++   if(name.find("object/tangible/hair/")==0){out["hair_template"]=name;out["hair_client_crc"]=item->getClientObjectCRC();out["hair_customization_hex"]=customization(tangible);continue;}
++   if(name.find("object/tangible/wearables/")!=0 && name.find("object/weapon/")!=0)continue;
++   if(out["equipment"].size()>=32){out["equipment_complete"]=false;break;}
++   Json row={{"id",id(item)},{"template",name},{"client_crc",item->getClientObjectCRC()},{"customization_hex",customization(tangible)},{"equipped_slots",Json::array()}};
++   int index=item->getContainmentType()-4;if(index>=0 && index<item->getArrangementDescriptorSize()){auto slots=item->getArrangementDescriptor(index);for(int n=0;n<slots->size();++n)row["equipped_slots"].push_back(std::string(slots->get(n).toCharArray()));}
++   out["equipment"].push_back(row);
++  }return out;
++ }
++ static void publicDeployments(CreatureObject* observer,CreatureObject* owner,Json& out){
++  // Tools remain in native escrow. Read only the durable public anchor metadata;
++  // never settle samples or enumerate the owner's private inventory here.
++  auto raw=owner->getPlayerObject()->getScreenPlayData("swgxr_gathering","state");if(raw.isEmpty())return;
++  auto state=Json::parse(raw.toCharArray());for(auto& dep:state.value("deployments",Json::array())){
++   if(dep.value("planet",std::string())!="tatooine" || distance(position(observer),dep.at("position"))>128)continue;
++   if(out["deployments"].size()>=64){out["deployments_truncated"]=true;break;}
++   auto tool=owner->getZoneServer()->getObject(std::stoull(dep.at("tool_id").get<std::string>()));if(tool==nullptr || !tool->isTangibleObject())continue;
++   out["deployments"].push_back({{"id",dep.at("id")},{"owner_id",id(owner)},{"tool_id",id(tool)},{"position",dep.at("position")},{"building_id","0"},{"cell_index",0},{"template",std::string(tool->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",tool->getClientObjectCRC()},{"customization_hex",customization(tool->asTangibleObject())},{"state",dep.value("state",std::string())},{"resource_name",dep.value("resource_name",std::string())}});
++  }
++ }
++ static Json world(CreatureObject* c,Session& session){
++  Json out={{"source_kind","core3_world"},{"sequence",session.sequence},{"full",true},{"radius_m",128},{"players",Json::array()},{"actors",Json::array()},{"truncated",false},{"deployments",Json::array()},{"deployments_truncated",false},{"deployment_visibility","nearby_online_owners"}};
++  SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);
++  auto parent=c->getParent().get();uint64 cell=parent!=nullptr && parent->isCellObject()?parent->getObjectID():0;
++  if(!cell)publicDeployments(c,c,out);
++  std::vector<std::pair<double,SceneObject*>> nearby;
++  for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || o->getZone()!=c->getZone() || (!o->isPlayerCreature() && !o->isAiAgent() && !o->isLairObject()))continue;auto op=o->getParent().get();uint64 ocell=op!=nullptr && op->isCellObject()?op->getObjectID():0;
++   // Vehicle riders are public creatures; container-held actors are not world entities.
++   if(ocell!=cell || (op!=nullptr && !op->isCellObject() && !op->isCreatureObject()))continue;
++   double range=distance(position(c),position(o));if(range<=128)nearby.push_back({range,o});
++  }
++  std::sort(nearby.begin(),nearby.end(),[](const auto& a,const auto& b){return a.first==b.first?a.second->getObjectID()<b.second->getObjectID():a.first<b.first;});
++  for(auto& entry:nearby){auto o=entry.second;Locker lock(o,c);bool player=o->isPlayerCreature();auto& rows=out[player?"players":"actors"];
++   if(player){auto pc=o->asCreatureObject();if(pc->getPlayerObject()==nullptr || pc->getPlayerObject()->isOffline() || pc->getPlayerObject()->isOnLoadScreen())continue;}
++   if(rows.size()>=(player?16:96)){out["truncated"]=true;continue;}
++   Json row=actor(c,o->asTangibleObject(),session);auto op=o->getParent().get();auto root=o->getRootParent();row["cell_id"]=cell?std::to_string(cell):"0";
++   row["heading_radians"]=std::fmod(o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0.f),6.283185307179586);
++   if(o->isCreatureObject()){auto pc=o->asCreatureObject();row["posture"]=int(pc->getPosture());row["dead"]=pc->isDead();row["incapacitated"]=pc->isIncapacitated();row["in_combat"]=pc->isInCombat();row["target_id"]=std::to_string(pc->getTargetID());row["scale"]=pc->getHeight(false);row["ham"]=ham(pc);row["max_ham"]=ham(pc,true);}
++   if(player){if(!cell)publicDeployments(c,o->asCreatureObject(),out);row["kind"]="player";row["appearance"]=publicAppearance(o->asCreatureObject());row["equipment_complete"]=row["appearance"]["equipment_complete"];}
++   rows.push_back(row);
++  }return out;
++ }
+  static Json location(CreatureObject* c){
+   auto parent=c->getParent().get();auto root=c->getRootParent();int index=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;
+   return {{"position",position(c)},{"local_position",Json::array({c->getPositionX(),c->getPositionZ(),c->getPositionY()})},{"cell_id",parent?id(parent):"0"},{"building_id",index && root!=nullptr?id(root):"0"},{"cell_index",index},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"heading_radians",std::fmod(c->getDirection()->getRadians()+(index && root!=nullptr?root->getDirection()->getRadians():0.f),6.283185307179586)}};
+@@ -74,6 +125,7 @@
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
++  out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+   out["player"]["vehicles"]=SwgxrVehicles::snapshot(c);

@@ -1,0 +1,25 @@
+[Unit]
+Description=SWGXR authenticated TLS gateway
+Requires=swgxr-adapter.service
+After=swgxr-adapter.service
+PartOf=swgxr.target swgxr-adapter.service
+
+[Service]
+Type=exec
+User=blux
+Group=blux
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 @ROOT@/server/remote_gateway.py --config @ROOT@/runtime/remote/gateway.json --bind 0.0.0.0 --port 18443
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@ROOT@/runtime/auth
+PrivateTmp=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

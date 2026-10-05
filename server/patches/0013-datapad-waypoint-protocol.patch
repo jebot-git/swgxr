@@ -1,0 +1,66 @@
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -249,7 +249,8 @@
+ 	uint32 size = pack->parseInt();
+ 
+ 	uint16 opcount = pack->parseShort();
+-	if (type == 3 || (type == 1 && oid == core->selectedCharacterOid)) {
++	if (type == 3 || (type == 1 && oid == core->selectedCharacterOid) ||
++		(nametype == 0x504C4159 && (type == 8 || type == 9))) {
+ 		const int offset = pack->getOffset();
+ 		std::string bytes;
+ 		const char* digits = "0123456789abcdef";
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -18,6 +18,9 @@
+ 	// Result
+ 	ActionResult result;
+ 	bool skipped;
++	std::string datapadCommand;
++	std::string datapadArguments;
++	uint64 datapadTarget = 0;
+ 
+ public:
+ 	ZoneInCharacterAction() :
+@@ -45,7 +48,14 @@
+ 
+ 	static ActionBase* fromJSON(const JSONSerializationType& config) {
+ 		// ZoneInCharacter has no configuration - uses core.targetCharacterOid
+-		return new ZoneInCharacterAction();
++		auto action = new ZoneInCharacterAction();
++		if (config.contains("datapadCommand")) {
++			const auto& command = config["datapadCommand"];
++			action->datapadCommand = command.value("name", std::string());
++			action->datapadArguments = command.value("arguments", std::string());
++			action->datapadTarget = command.value("target", uint64(0));
++		}
++		return action;
+ 	}
+ 
+ 	bool needsTarget() const override {
+@@ -89,6 +99,25 @@
+ 		core.zone->getZoneClient()->sendMessage(request);
+ 		for (int attempt = 0; attempt < 12 && !core.hasVar("appearance/biography"); ++attempt)
+ 			core.zone->waitFor(STRING_HASHCODE("ObjControllerMessage"), 250);
++
++		// Datapad writes use the same owned-player command protocol as the
++		// original client. Persistence and permission checks remain in Core3.
++		if (!datapadCommand.empty()) {
++			if (datapadCommand != "requestwaypointatposition" && datapadCommand != "setwaypointactivestatus") {
++				result.setError("Unsupported datapad command", 4);
++				return;
++			}
++			auto command = new ObjectControllerMessage(oid, 0x0B, 0x116);
++			command->insertInt(2);
++			command->insertInt(String(datapadCommand.c_str()).hashCode());
++			command->insertLong(datapadTarget);
++			command->insertUnicode(UnicodeString(String(datapadArguments.c_str())));
++			core.zone->getZoneClient()->sendMessage(command);
++			core.zone->waitFor(STRING_HASHCODE("DeltasMessage"), 2000);
++			// A fresh authenticated session verifies the write in the adapter;
++			// the local action alone deliberately does not assert persistence.
++			core.setVar("datapad/commandSent", datapadCommand);
++		}
+ 
+ 		// Success
+ 		result.setSuccess();

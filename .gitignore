@@ -1,0 +1,45 @@
+# User-provided media and all derived proprietary game assets stay local.
+*.iso
+*.ISO
+*.bin
+*.cue
+*.BIN
+*.CUE
+*.tre
+*.TRE
+runtime/
+data/
+vendor/
+client/.godot/
+client/assets/generated/
+client/native/bin/
+client/native/build/
+client/native/.sconsign*
+*.os
+*.o
+*.log
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.pcap
+*.pcapng
+
+# Reproducible upstream MIT dependency installed by tools/client/install_xr_tools.py.
+client/addons/godot-xr-tools/
+
+# Pinned MIT/Apache audio dependency installed by tools/client/install_steam_audio.py.
+client/addons/godot-steam-audio/
+
+# Reproducible native voice dependency; provenance is in client/twovoip.lock.json.
+client/addons/twovoip/

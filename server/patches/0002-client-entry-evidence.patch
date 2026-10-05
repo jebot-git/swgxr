@@ -1,0 +1,19 @@
+diff --git a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+index a6401c81..83f33c36 100644
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -194,6 +194,14 @@ void ZonePacketHandler::handleCmdStartScene(Message* pack) {
+ 		return;
+ 	}
+ 
++	// Expose authoritative entry state to the local prototype adapter.
++	core->setVar("scene/terrain", terrain);
++	core->setVar("scene/characterOid", selfPlayerObjectID);
++	core->setVar("scene/x", x);
++	core->setVar("scene/y", y);
++	core->setVar("scene/z", z);
++	core->setVar("scene/race", race);
++
+ 	info(true) << "Scene Starting for character OID: " << selfPlayerObjectID;
+ 
+ 	BaseMessage* msg = new CmdSceneReady();

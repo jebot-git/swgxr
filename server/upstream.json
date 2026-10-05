@@ -1,0 +1,14 @@
+{
+  "core3": {
+    "repository": "https://github.com/swgemu/Core3.git",
+    "revision": "403893d9b9f8e6fa712fbb3cb1fcd8f0fe45bb79",
+    "license": "AGPL-3.0-or-later"
+  },
+  "engine3": {
+    "repository": "https://github.com/swgemu/engine3.git",
+    "revision": "4cbf39336e0e727dfef861fbe65bd303ce70fd37"
+  },
+  "container": "docker.io/library/debian:trixie",
+  "compiler": "clang-19",
+  "profile": "bounded Tatooine, local prototype"
+}

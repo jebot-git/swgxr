@@ -1,0 +1,110 @@
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -220,6 +220,8 @@
+ 	float y = pack->parseFloat();
+ 
+ 	uint32 crc = pack->parseInt();
++	String objectPath = "replication/objects/o" + String::valueOf(objectID);
++	core->setVar(objectPath + "/templateCrc", crc);
+ 
+ 	ObjectManager* objectManager = zone->getObjectManager();
+ 	if (objectManager == nullptr) {
+@@ -247,6 +249,20 @@
+ 	uint32 size = pack->parseInt();
+ 
+ 	uint16 opcount = pack->parseShort();
++	if (type == 3 || (type == 1 && oid == core->selectedCharacterOid)) {
++		const int offset = pack->getOffset();
++		std::string bytes;
++		const char* digits = "0123456789abcdef";
++		for (uint32 i = 2; i < size && pack->getOffset() < pack->size(); ++i) {
++			uint8 value = pack->parseByte();
++			bytes.push_back(digits[value >> 4]);
++			bytes.push_back(digits[value & 15]);
++		}
++		pack->setOffset(offset);
++		String objectPath = "replication/objects/o" + String::valueOf(oid);
++		core->setVar(objectPath + "/type", nametype);
++		core->setVar(objectPath + "/baseline" + String::valueOf(type), bytes);
++	}
+ 
+ 	SceneObject* object = zone->getObject(oid);
+ 
+@@ -327,6 +343,9 @@
+ 	uint64 par = pack->parseLong();
+ 
+ 	int type = pack->parseInt();
++	String objectPath = "replication/objects/o" + String::valueOf(obj);
++	core->setVar(objectPath + "/parentId", String::valueOf(par));
++	core->setVar(objectPath + "/containmentType", type);
+ 
+ 	SceneObject* object = zone->getObject(obj);
+ 	SceneObject* parent = zone->getObject(par);
+--- a/MMOCoreORB/src/client/login/LoginPacketHandler.cpp
++++ b/MMOCoreORB/src/client/login/LoginPacketHandler.cpp
+@@ -200,6 +200,7 @@
+ 		CharacterListEntry entry;
+ 		entry.setObjectID(oid);
+ 		entry.setGalaxyID(galaxy);
++		entry.setRace(crc);
+ 
+ 		// Split full name into firstname and surname
+ 		String fullName = name.toString();
+--- a/MMOCoreORB/src/client/ClientCore.cpp
++++ b/MMOCoreORB/src/client/ClientCore.cpp
+@@ -516,7 +516,8 @@
+ 			for (int i = 0; i < loginSession->getCharacterListSize(); ++i) {
+ 				const auto& character = loginSession->getCharacterByIndex(i);
+ 				JSONSerializationType charObj;
+-				charObj["name"] = character.getFirstName().toCharArray();
++				charObj["name"] = (character.getFirstName() + (character.getSurName().isEmpty() ? String("") : String(" ") + character.getSurName())).toCharArray();
++				charObj["templateCrc"] = character.getRace();
+ 				charObj["oid"] = character.getObjectID();
+ 				charObj["galaxyId"] = character.getGalaxyID();
+ 				charObj["source"] = "existing";
+--- a/MMOCoreORB/src/client/actions/CreateCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/CreateCharacterAction.cpp
+@@ -118,6 +118,14 @@
+ 		return result;
+ 	}
+ 
++	static String decodeHex(const std::string& hex) {
++		StringBuffer result;
++		for (size_t i = 0; i + 1 < hex.size(); i += 2) {
++			result.append((char)std::stoul(hex.substr(i, 2), nullptr, 16));
++		}
++		return result.toString();
++	}
++
+ 	static ActionBase* fromJSON(const JSONSerializationType& config) {
+ 		CreateCharacterAction* me = new CreateCharacterAction();
+ 
+@@ -149,6 +157,12 @@
+ 			me->skipTutorial = config["skipTutorial"];
+ 		}
+ 
++		if (config.contains("customizationHex")) {
++			me->customization = decodeHex(config["customizationHex"].get<std::string>());
++		}
++		if (config.contains("hairCustomizationHex")) {
++			me->hairCustomization = decodeHex(config["hairCustomizationHex"].get<std::string>());
++		}
+ 		return me;
+ 	}
+ 
+@@ -328,13 +342,13 @@
+ 			json["height"] = height;
+ 		}
+ 		if (!customization.isEmpty()) {
+-			json["customization"] = customization.toCharArray();
++			json["customizationBytes"] = customization.length();
+ 		}
+ 		if (!hairTemplate.isEmpty()) {
+ 			json["hairTemplate"] = hairTemplate.toCharArray();
+ 		}
+ 		if (!hairCustomization.isEmpty()) {
+-			json["hairCustomization"] = hairCustomization.toCharArray();
++			json["hairCustomizationBytes"] = hairCustomization.length();
+ 		}
+ 		if (!biography.isEmpty()) {
+ 			json["biography"] = biography.toCharArray();

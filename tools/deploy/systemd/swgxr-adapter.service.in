@@ -1,0 +1,19 @@
+[Unit]
+Description=SWGXR loopback account adapter
+Requires=swgxr-core3.service
+After=swgxr-core3.service
+PartOf=swgxr.target swgxr-core3.service
+
+[Service]
+Type=exec
+WorkingDirectory=@ROOT@
+Environment=SWGXR_CONTAINER=swgxr-core3-build
+Environment=SWGXR_VOICE_STATE=@ROOT@/runtime/voice/state.json
+Environment=SWGXR_VOICE_SECRET=@ROOT@/runtime/remote/voice.secret
+ExecStart=/usr/bin/python3 @ROOT@/server/adapter.py --port 18080
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000

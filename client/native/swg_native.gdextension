@@ -1,0 +1,8 @@
+[configuration]
+entry_symbol = "swg_native_library_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+linux.debug.x86_64 = "res://native/bin/libswg_native.so"
+linux.release.x86_64 = "res://native/bin/libswg_native.so"

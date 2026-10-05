@@ -1,0 +1,27 @@
+{
+  "repository": "https://github.com/jebot-git/FPSloppa",
+  "commit": "8fbf5c829d356226065868189c615b72c3bc1646",
+  "upstream": "https://github.com/stechyo/godot-steam-audio/releases/tag/0.3.1",
+  "sdk": "4.8.0",
+  "platform": "linux.x86_64",
+  "files": {
+    "LICENSE": "954444125dc3b817c6d14ea28ed17da5203ea5f8fe8e537565540074b411cc97",
+    "SOURCES.md": "4d2f1d2346833bd8f4a73ae49a5d0924564e3958f9daf2ad05f6e16dcec604f9",
+    "STEAM-AUDIO-LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "THIRDPARTY.md": "a95e143e7d2466e82a28d6680c7287d9fc7d772136c323ab538a6d24472e70f0",
+    "bin/libgodot-steam-audio.linux.template_debug.x86_64.so": "a5d71b3bb0f2f7f2552394e59cca819f1451cb1cc7d136a6c12eceb52bafc262",
+    "bin/libgodot-steam-audio.linux.template_release.x86_64.so": "a5d71b3bb0f2f7f2552394e59cca819f1451cb1cc7d136a6c12eceb52bafc262",
+    "bin/libphonon.so": "faf7c4d69e0f104366f6553cda38d3f946f761f7db223baf12663f6fbf2387da",
+    "icons/steam_audio_config.svg": "6af5f0d68421150ce7d9ed3744838d0803b8d76ba30fea975e69dfd58706bd0e",
+    "icons/steam_audio_dynamic_geometry.svg": "f276784fc2899c8d5a064b099658102a1be9d836ef3c9c9b81370ca108cb18e3",
+    "icons/steam_audio_geometry.svg": "c0ab28fe7d053e17a4c63f3379ded6d81d3ff80e38b406aa05bda7833928083b",
+    "icons/steam_audio_listener.svg": "3dabe124dfd3b5f6648745b260841a57214b6a7d5aa79fc91e115a9d9b7cdd05",
+    "icons/steam_audio_player.svg": "428c92511179214db00f3b87497e8b8ecae8b1e4191d106dd8a84cdd30c5ef55",
+    "icons/steam_audio_stream.svg": "a5725ddf54a4a8e11f447d4469b742b7b022fd07deb84afcc608a47a865ef0e8",
+    "patches/entryway-build-profile.json": "008fb21e5d6786a70cbf716cc8df70bd282b6ec328db64e774102c3cece8f745",
+    "patches/entryway-lifetime.patch": "c628c2f4a75811c7392c0f7426f3c3aec5a580df63b550060af729e314b83a38",
+    "patches/entryway-point-source.patch": "737e5e18ac93a19775b0c0837572a4d1c390d2b7415d1c04754d8920a4abaee6",
+    "patches/entryway-reference-distance.patch": "89e21381681b5e4b7e407f0d6a82fba2a2c050b6692ba2c4cdf3a72a00f08a51",
+    "patches/entryway-shutdown.patch": "60eefd2a176e3ea2d81a653d8d27c8f655fb9b53236d9d0f6097ee77ead88c22"
+  }
+}

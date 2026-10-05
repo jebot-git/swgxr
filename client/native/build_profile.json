@@ -1,0 +1,32 @@
+{
+  "enabled_classes": [
+    "PhysicsRayQueryParameters3D",
+    "PhysicsDirectSpaceState3D",
+    "World3D",
+    "CharacterBody3D",
+    "Camera3D",
+    "CapsuleShape3D",
+    "CollisionShape3D",
+    "Input",
+    "InputEvent",
+    "InputEventMouseMotion",
+    "ArrayMesh",
+    "ConcavePolygonShape3D",
+    "OS",
+    "Engine",
+    "KinematicCollision3D",
+    "Skeleton3D",
+    "Animation",
+    "Skin",
+    "Image",
+    "BoxShape3D",
+    "SphereShape3D",
+    "CylinderShape3D",
+    "MultiMesh",
+    "MultiMeshInstance3D",
+    "QuadMesh",
+    "Shader",
+    "ShaderMaterial",
+    "Texture2D"
+  ]
+}

@@ -1,0 +1,10 @@
+[Unit]
+Description=SWGXR bounded native log retention
+PartOf=swgxr.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py rotate-logs
+UMask=0077
+LogRateLimitIntervalSec=30s
+LogRateLimitBurst=1000

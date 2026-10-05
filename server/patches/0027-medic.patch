@@ -1,0 +1,392 @@
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -164,13 +164,14 @@
+ 			const String key=String("weaponAttributes/o")+String::valueOf(oid);
+ 			const bool gathering=(inventoryRequest.find("swgxr_gathering_v1 ")==0 || inventoryRequest.find("swgxr_corpse_v1 ")==0);
+ 			const bool crafting=inventoryRequest.find("swgxr_crafting_v1 ")==0;
++			const bool medic=inventoryRequest.find("swgxr_medic_v1 ")==0;
+ 			const bool scout=inventoryRequest.find("swgxr_scout_v1 ")==0;
+-			const std::string field=scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
++			const std::string field=medic?"swgxr.medic.snapshot":scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
+ 			bool complete=false;
+ 			for(int attempt=0;attempt<100;++attempt) {
+ 				auto attributes=core.getVar<JSONSerializationType>(key,JSONSerializationType::object());
+ 				if (attributes.contains(field)) {
+-					core.setVar(scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
++					core.setVar(medic?"medic":scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
+ 					complete=true; break;
+ 				}
+ 				core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrVitalFeedback.h"
+ /*
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -1250,6 +1251,9 @@
+ 	}
+ 
+ 	setHAM(damageType, newValue, notifyClient);
++	// Exclude self-paid HAM costs; include real hits and environmental damage.
++	if (isPlayerCreature() && newValue < currentValue && (attacker == nullptr || attacker->getObjectID() != getObjectID() || destroy))
++		SwgxrVitalFeedback::record(getObjectID(), false);
+ 
+ 	if (attacker == nullptr)
+ 		attacker = asCreatureObject();
+@@ -1317,6 +1321,8 @@
+ 		newValue = 0;
+ 
+ 	setHAM(damageType, newValue, notifyClient);
++	if (isPlayerCreature() && newValue > currentValue && SwgxrVitalFeedback::medical())
++		SwgxrVitalFeedback::record(getObjectID(), true);
+ 
+ 	if(healer != nullptr && notifyObservers) {
+ 		asCreatureObject()->notifyObservers(ObserverEventType::HEALINGRECEIVED, healer, returnValue);
+@@ -1344,6 +1350,8 @@
+ 	int returnValue = currentValue - newValue; //How many wounds we had minus how many we now have = how much was healed.
+ 
+ 	setWounds(damageType, newValue, notifyClient);
++	if (isPlayerCreature() && returnValue > 0 && SwgxrVitalFeedback::medical())
++		SwgxrVitalFeedback::record(getObjectID(), true);
+ 
+ 	if (healer != nullptr && notifyObservers) {
+ 		asCreatureObject()->notifyObservers(ObserverEventType::WOUNDHEALINGRECEIVED, healer, returnValue);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/FirstAidCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/FirstAidCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -82,6 +83,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+@@ -136,6 +138,7 @@
+ 		uint32 skillMod = creature->getSkillMod("healing_injury_treatment");
+ 
+ 		creatureTarget->healDot(CreatureState::BLEEDING, skillMod*3);
++		if (creatureTarget->isPlayerCreature() && skillMod > 0) SwgxrVitalFeedback::record(creatureTarget->getObjectID(), true);
+ 
+ 		creature->inflictDamage(creature, CreatureAttribute::MIND, mindCost, false);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -36,6 +36,9 @@
+ 		if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_scout_v1 ")) {
+ 			JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();out=SwgxrScout::run(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1)));}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
+ 			auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.scout.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++		}		if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_medic_v1 ")) {
++			JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();out=SwgxrMedic::run(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1)));}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
++			auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.medic.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
+ 		}
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -372,6 +373,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -222,6 +223,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/QuickHealCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/QuickHealCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -80,6 +81,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -14,6 +14,7 @@
+  friend class SwgxrCorpses;
+  friend class SwgxrCrafting;
+  friend class SwgxrScout;
++ friend class SwgxrMedic;
+  using Json=JSONSerializationType;
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+  static Json initial(){return {{"version",1},{"escrow_id",""},{"hip_tool_id",""},{"generation",0},{"deployments",Json::array()},{"receipts",Json::array()}};}
+@@ -27,7 +28,7 @@
+  }
+  static ManagedReference<SceneObject*> ownedTool(CreatureObject* c,Json& s,const std::string& key){
+   auto tool=object(c,key);auto store=escrow(c,s);
+-  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !tool->isTrapObject()))throw std::runtime_error("Item is not a source tool");
++  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !tool->isTrapObject() && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_basic.iff" && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_advanced.iff"))throw std::runtime_error("Item is not a source tool");
+   bool hip=s.value("hip_tool_id",std::string())==key && store!=nullptr && tool->getParent().get()==store;
+   if(!SwgxrEquipment::inInventory(tool,c) && !hip)throw std::runtime_error("Tool is not in owned inventory or hip escrow");return tool;
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -48,7 +48,7 @@
+    {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
+   SwgxrEquipment::enrich(result,o,c);
+   auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
+-  result["tool_kind"]=o->isTrapObject()?"trap":o->isCampKit()?"camp":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  result["tool_kind"]=(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isTrapObject()?"trap":o->isCampKit()?"camp":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
+   result["tool_type"]=survey!=nullptr?survey->getToolType():0;
+   return result;
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -7,6 +7,8 @@
+ #include "server/zone/objects/player/sui/listbox/SuiListBox.h"
+ #include "templates/building/CloningBuildingObjectTemplate.h"
+ #include "SwgxrScout.h"
++#include "SwgxrMedic.h"
++#include "SwgxrVitalFeedback.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/tangible/LairObject.h"
+ #include <chrono>
+@@ -67,6 +69,7 @@
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",{{"combat_rangedspecialize_pistol",c->getPlayerObject()->getExperience("combat_rangedspecialize_pistol")},{"combat_general",c->getPlayerObject()->getExperience("combat_general")}}}}},{"weapon",profile}};
++  out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+   auto loc=location(c);for(auto it=loc.begin();it!=loc.end();++it)out["player"][it.key()]=it.value();double remaining=SwgxrLiveRecovery::remaining(c->getObjectID());out["player"]["recovery_requested"]=c->isIncapacitated() && remaining>=0;out["player"]["recovery_remaining_seconds"]=c->isIncapacitated()?std::max(0.0,remaining):0.0;out["player"]["cloning"]=c->getPlayerObject()->isCloning();return out;
+  }
+  static void move(CreatureObject* c,const Json& request){
+@@ -85,6 +88,7 @@
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
+   if(verb=="update"){
++   if(request.contains("medic_pose"))SwgxrMedicDrag::observe(c,request.at("medic_pose"));
+    if(!s.transport.empty()){
+     auto ack=request.value("transport_ack",std::string());if(ack.empty()){result["movement_accepted"]=false;return result;}if(ack!=s.transport["id"].get<std::string>())throw std::runtime_error("transport_ack_mismatch");
+     const auto& dest=s.transport["destination"];if(distance(vector(request.at("position")),dest["position"])>3 || request.value("building_id",std::string("0"))!=dest["building_id"].get<std::string>() || request.value("cell_index",0)!=dest["cell_index"].get<int>())throw std::runtime_error("transport_destination_mismatch");
+@@ -104,6 +108,7 @@
+    uint64 facility=cloneFacility(c);auto manager=c->getZoneServer()->getPlayerManager();if(!c->isDead())manager->killPlayer(c,c);if(!c->isDead())throw std::runtime_error("native_suicide_failed");manager->sendPlayerToCloner(c,facility);if(!c->getPlayerObject()->isCloning())throw std::runtime_error("native_clone_failed");
+    c->getPlayerObject()->setOnLoadScreen(true);s.shots.clear();s.transport={{"id",s.token+"_"+std::to_string(s.sequence)},{"facility_id",std::to_string(facility)},{"destination",location(c)}};result["transport_id"]=s.transport["id"];return result;
+   }
++  if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+   if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
+   if(!s.transport.empty())throw std::runtime_error("native_transport_pending");
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
+@@ -0,0 +1,87 @@
++#ifndef SWGXR_MEDIC_H
++#define SWGXR_MEDIC_H
++#include "SwgxrGathering.h"
++#include "HealDamageCommand.h"
++#include "SwgxrVitalFeedback.h"
++#include "SwgxrMedicDrag.h"
++class SwgxrMedic {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static Json position(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static bool medicalTool(SceneObject* o){if(!o)return false;auto t=o->getObjectTemplate()->getFullTemplateString();return t=="object/tangible/medicine/medikit_tool_basic.iff" || t=="object/tangible/medicine/medikit_tool_advanced.iff";}
++ static bool learned(CreatureObject* c,const std::string& name){
++  static const std::set<std::string> allowed{"healdamage","healwound","tenddamage","tendwound","firstaid","quickheal"};
++  if(!allowed.count(name) || !c->hasSkill("science_medic_novice"))return false;
++  auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str()));
++  return cmd && (cmd->getCharacterAbility().isEmpty() || c->getPlayerObject()->hasAbility(cmd->getCharacterAbility()));
++ }
++ static double pending(CreatureObject* c,const char* name){auto t=c->getPendingTask(name);if(!t)return 0;AtomicTime next;if(!Core::getTaskManager()->getNextExecutionTime(t,next))return 0;return std::max(0.0,-next.miliDifference()/1000.0);}
++ static double cooldown(CreatureObject* c,const std::string& name){auto t=c->getCooldownTime(String(("swgxr_medic_"+name).c_str()));double own=t?std::max(0.0,-t->miliDifference()/1000.0):0;return std::max(own,pending(c,name=="healdamage"?"injuryTreatment":name=="healwound"?"woundTreatment":"swgxr_no_task"));}
++ static Json abilities(CreatureObject* c){
++  Json out=Json::array();const char* names[]={"healdamage","healwound","tenddamage","tendwound","firstaid","quickheal"};const char* labels[]={"Heal Damage","Heal Wound","Tend Damage","Tend Wound","First Aid","Quick Heal"};
++  for(int i=0;i<6;++i){if(!learned(c,names[i]))continue;double range=6,area=0;std::string medicine;
++   if(i==0){range=7;auto cmd=dynamic_cast<const HealDamageCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("healdamage"));auto pack=cmd?cmd->findStimPack(c):nullptr;
++    if(pack){medicine=id(pack);area=pack->isArea()?pack->getArea():0;if(pack->isRangedStimPack())range=static_cast<RangedStimPack*>(pack)->getRange()+c->getSkillMod("healing_range")*.14;}
++   }
++   out.push_back({{"id",names[i]},{"source_command",names[i]},{"label",labels[i]},{"range_m",range},{"area_radius_m",area},{"medicine_id",medicine},{"cooldown_seconds",cooldown(c,names[i])}});
++  }return out;
++ }
++ static Json needs(CreatureObject* c){
++  bool injury=false,wound=false;for(int i=0;i<6;++i){if(i%3==0 && c->getHAM(i)<c->getMaxHAM(i)-c->getWounds(i))injury=true;if(c->getWounds(i)>0)wound=true;}
++  return {{"healdamage",injury},{"healwound",wound},{"tenddamage",injury},{"tendwound",wound},{"quickheal",injury},{"firstaid",c->isBleeding()}};
++ }
++ static Json snapshot(CreatureObject* c){
++  auto g=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,g.value("hip_tool_id",std::string()));
++  Json out={{"character_id",id(c)},{"source_kind","core3_medic"},{"abilities",abilities(c)},{"selected",std::string(c->getPlayerObject()->getScreenPlayData("swgxr_medic","selected").toCharArray())},{"inventory",SwgxrInventory::snapshot(c)},{"hip_tool",hip?SwgxrInventory::describe(hip,c):Json(nullptr)},{"players",Json::array()},{"position",position(c)},{"vital_feedback",SwgxrVitalFeedback::snapshot(c->getObjectID())}};
++  out["drag"]=SwgxrMedicDrag::snapshot(c);out["drag_available"]=c->hasSkill("science_medic_injury_speed_02");
++  out["self"]={{"id",id(c)},{"name",std::string(c->getDisplayedName().toCharArray())},{"position",position(c)},{"healable",!c->isDead()},{"needs",needs(c)}};
++  out["focus_issued"]=!c->getPlayerObject()->getScreenPlayData("swgxr_medic","focus_id").isEmpty();
++  SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),80,&objects,true);
++  for(int i=0;i<objects.size() && out["players"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isPlayerCreature() || o==c)continue;auto p=o->asCreatureObject();Locker lock(p,c);if(p->getPlayerObject()->isOffline())continue;
++   String custom;p->getCustomizationString(custom);std::string hex;const char* digits="0123456789abcdef";for(int n=0;n<custom.length();++n){unsigned char v=custom[n];hex+=digits[v>>4];hex+=digits[v&15];}
++   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
++  }return out;
++ }
++public:
++ static Json run(CreatureObject* c,const Json& request){
++  if(!c || !c->getPlayerObject() || !c->getZone())throw std::runtime_error("Native player required");
++  auto verb=request.value("action",std::string("status"));Json mutation={{"success",true},{"action",verb}};
++  // Movement is a separate live update. Medical commands never capture locomotion,
++  // change posture, teleport to a stale request position or wait for an animation.
++  if(request.contains("pose"))SwgxrMedicDrag::observe(c,request.at("pose"));
++  if(verb=="drag")return {{"backend","core3"},{"source_kind","core3_medic"},{"character_id",id(c)},{"mutation",SwgxrMedicDrag::run(c,request)},{"state",snapshot(c)}};
++  if(verb!="status"){
++   if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
++   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_medic","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());const auto key=request.at("request_id").get<std::string>();bool replay=false;
++   if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");
++   for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=request)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
++   if(!replay){
++    if(verb=="provision"){
++     if(!c->hasSkill("science_medic_novice"))throw std::runtime_error("Medic skill required");
++     auto saved=c->getPlayerObject()->getScreenPlayData("swgxr_medic","focus_id");if(!saved.isEmpty())throw std::runtime_error("Medical focus already issued");
++     auto root=c->getSlottedObject("inventory");if(!root || root->getCountableObjectsRecursive()>=root->getContainerVolumeLimit())throw std::runtime_error("Inventory full");
++     auto tool=c->getZoneServer()->createObject(STRING_HASHCODE("object/tangible/medicine/medikit_tool_basic.iff"),1);if(!tool || !root->transferObject(tool,-1,true))throw std::runtime_error("Cannot create medical focus");c->getPlayerObject()->setScreenPlayData("swgxr_medic","focus_id",String(id(tool).c_str()));tool->sendTo(c,true);
++    }else{
++     auto g=SwgxrGathering::load(c);auto tool=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!medicalTool(tool))throw std::runtime_error("Owned medical tool required");
++     if(verb=="holster" || verb=="return_tool"){auto q=request;q["tool_id"]=id(tool);SwgxrGathering::execute(c,g,q);SwgxrGathering::save(c,g);}
++     else {
++      const auto name=request.at("ability").get<std::string>();if(!learned(c,name))throw std::runtime_error("Healing ability not learned");
++      if(verb=="select")c->getPlayerObject()->setScreenPlayData("swgxr_medic","selected",String(name.c_str()));
++      else if(verb=="heal"){
++       if(std::string(c->getPlayerObject()->getScreenPlayData("swgxr_medic","selected").toCharArray())!=name)throw std::runtime_error("Select the medical ability first");
++       if(cooldown(c,name)>0)throw std::runtime_error("Healing ability recovering");
++       auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>())).castTo<CreatureObject*>();
++       if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->isDead() || target->isAttackableBy(c) || !target->isHealableBy(c))throw std::runtime_error("Invalid healing target");
++       auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str()));
++       int result=cmd->doQueueCommand(c,target->getObjectID(),UnicodeString(""));if(result!=QueueCommand::SUCCESS)throw std::runtime_error("Core3 rejected healing: supply, range, state, environment or HAM requirement");
++       c->addCooldown(String(("swgxr_medic_"+name).c_str()),int(std::max(0.f,cmd->getCommandDuration(c,UnicodeString("")))*1000));mutation["target_id"]=id(target);
++      }else throw std::runtime_error("Unsupported medical action");
++     }
++    }
++    receipts.push_back({{"key",key},{"request",request},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_medic","receipts",String(receipts.dump().c_str()));
++   }
++  }
++  return {{"backend","core3"},{"source_kind","core3_medic"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedicDrag.h
+@@ -0,0 +1,52 @@
++#ifndef SWGXR_MEDIC_DRAG_H
++#define SWGXR_MEDIC_DRAG_H
++#include "SwgxrVitalFeedback.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++class SwgxrMedicDrag {
++ using Json=JSONSerializationType;
++ static Json load(CreatureObject* c){auto s=c->getPlayerObject()->getScreenPlayData("swgxr_medic","drag");return s.isEmpty()?Json::object():Json::parse(s.toCharArray());}
++ static void save(CreatureObject* c,const Json& s){c->getPlayerObject()->setScreenPlayData("swgxr_medic","drag",String(s.dump().c_str()));}
++ static Vector3 point(const Json& p){if(!p.is_array() || p.size()!=3)throw std::runtime_error("Invalid hand pose");for(auto& v:p)if(!v.is_number() || !std::isfinite(v.get<double>()) || std::abs(v.get<double>())>10000)throw std::runtime_error("Invalid hand pose");return Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>());}
++ static Json wire(const Vector3& p){return Json::array({p.getX(),p.getZ(),p.getY()});}
++public:
++ static void observe(CreatureObject* c,const Json& q){
++  auto s=load(c);auto stamp=SwgxrVitalFeedback::now();bool tracked=q.value("tracked",false);auto l=point(q.at("left")),r=point(q.at("right"));
++  if(l.distanceTo(c->getWorldPosition())>3.5 || r.distanceTo(c->getWorldPosition())>3.5)tracked=false;
++  s["seen"]=stamp;s["blocked"]=!tracked || q.value("crossed",true);s["grips"]=tracked && q.value("grips",false);s["left"]=wire(l);s["right"]=wire(r);
++  if(s["blocked"].get<bool>()){s["owner"]="";s["lease"]=0;}
++  save(c,s);
++ }
++ static Json snapshot(CreatureObject* c){auto s=load(c);auto stamp=SwgxrVitalFeedback::now();return {{"blocked",s.value("blocked",true) || stamp-s.value("seen",0.0)>2.0},{"owner",stamp<s.value("lease",0.0)?s.value("owner",std::string()):""},{"revision",s.value("revision",uint64(0))},{"position",wire(c->getWorldPosition())}};}
++ static Json run(CreatureObject* c,const Json& q){
++  if(!c->hasSkill("science_medic_injury_speed_02") || c->isIncapacitated() || c->isDead())throw std::runtime_error("Native drag skill and conscious doctor required");
++  auto id=q.at("target_id").get<std::string>();auto t=c->getZoneServer()->getObject(std::stoull(id)).castTo<CreatureObject*>();
++  if(!t || t==c || !t->isPlayerCreature() || t->getZone()!=c->getZone())throw std::runtime_error("Invalid drag target");
++  Locker lock(t,c);auto own=load(c),patient=load(t);auto stamp=SwgxrVitalFeedback::now();auto owner=std::to_string(c->getObjectID());
++  if(q.value("release",false)){if(patient.value("owner",std::string())==owner){patient["owner"]="";patient["lease"]=0;save(t,patient);}return {{"success",true}};}
++  if(!t->isIncapacitated() || t->isDead() || t->getPlayerObject()->isOffline() || !t->isHealableBy(c) || t->isAttackableBy(c))throw std::runtime_error("Only eligible incapacitated players can be dragged");
++  if(patient.value("blocked",true) || stamp-patient.value("seen",0.0)>2 || !own.value("grips",false) || stamp-own.value("seen",0.0)>2)throw std::runtime_error("Drag stopped by crossed arms, released hands or stale tracking");
++  if(c->getParent().get()!=t->getParent().get() || !c->isInRange(t,3) || !CollisionManager::checkLineOfSight(c,t))throw std::runtime_error("Drag target obstructed or out of reach");
++  if(patient.value("lease",0.0)>stamp && patient.value("owner",std::string())!=owner)throw std::runtime_error("Patient already being dragged");
++  auto l=point(own.at("left")),r=point(own.at("right"));auto mid=(l+r)*.5f;
++  bool start=patient.value("owner",std::string())!=owner || stamp>patient.value("lease",0.0);
++  if(start){
++   // Client contacts use original avatar bounds; native bounds also reject remote grabs.
++   if(l.distanceTo(t->getWorldPosition())>2.2 || r.distanceTo(t->getWorldPosition())>2.2)throw std::runtime_error("Both hands must touch the patient");
++  }else{
++   auto delta=mid-point(patient.at("midpoint"));auto elapsed=stamp-patient.value("moved",stamp);
++   if(delta.length()>std::min(1.5,elapsed*3+.10))throw std::runtime_error("Drag movement exceeds physical reach");
++   Vector3 before=t->getWorldPosition(),after=before+delta;
++   if(t->getParent().get()!=nullptr)throw std::runtime_error("Native indoor drag floors unavailable");
++   IntersectionResults intersections;CollisionManager::getWorldFloorCollisions(after.getX(),after.getY(),t->getZone(),&intersections,(CloseObjectsVector*)t->getCloseObjects());
++   float z=t->getZone()->getPlanetManager()->findClosestWorldFloor(after.getX(),after.getY(),before.getZ(),0,&intersections,(CloseObjectsVector*)t->getCloseObjects());
++   if(!std::isfinite(z) || std::abs(z-before.getZ())>.4)throw std::runtime_error("Drag floor is not traversable");after.setZ(z);
++   // Native movement query samples a quarter of its supplied horizontal segment.
++   Vector3 probe=before+(after-before)*4;probe.setZ(z);
++   if(!CollisionManager::checkMovementCollision(t,(CloseObjectsVector*)t->getCloseObjects(),t->getZone(),before,probe))throw std::runtime_error("Drag movement blocked");
++   if(after.distanceTo(before)>.001){t->teleport(after.getX(),after.getZ(),after.getY(),0);patient["revision"]=patient.value("revision",uint64(0))+1;}
++  }
++  patient["owner"]=owner;patient["lease"]=stamp+1.5;patient["midpoint"]=wire(mid);patient["moved"]=stamp;save(t,patient);
++  return {{"success",true},{"target_id",id},{"started",start},{"position",wire(t->getWorldPosition())}};
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVitalFeedback.h
+@@ -0,0 +1,30 @@
++#ifndef SWGXR_VITAL_FEEDBACK_H
++#define SWGXR_VITAL_FEEDBACK_H
++#include "engine/util/JSONSerializationType.h"
++#include <chrono>
++#include <map>
++#include <mutex>
++#include <cstdint>
++// Transient presentation events, never HAM authority. No pointers or foreign data.
++class SwgxrVitalFeedback {
++ struct Entry {uint64_t damage=0,heal=0;double touched=0;};
++ static auto& entries(){static std::map<uint64_t,Entry> value;return value;}
++ static auto& mutex(){static std::mutex value;return value;}
++ static int& healingDepth(){static thread_local int value=0;return value;}
++public:
++ struct MedicalAction {MedicalAction(){++healingDepth();}~MedicalAction(){--healingDepth();}};
++ static bool medical(){return healingDepth()>0;}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static void record(uint64_t id,bool heal){
++  std::lock_guard<std::mutex> lock(mutex());auto stamp=now();auto& list=entries();
++  for(auto it=list.begin();it!=list.end();)if(stamp-it->second.touched>120)it=list.erase(it);else ++it;
++  if(!list.count(id) && list.size()>=128)return;
++  static uint64_t sequence=0;auto& item=list[id];(heal?item.heal:item.damage)=++sequence;item.touched=stamp;
++ }
++ static JSONSerializationType snapshot(uint64_t id){
++  std::lock_guard<std::mutex> lock(mutex());auto found=entries().find(id);
++  if(found==entries().end())return {{"damage",0},{"heal",0},{"age_seconds",0}};
++  return {{"damage",found->second.damage},{"heal",found->second.heal},{"age_seconds",now()-found->second.touched}};
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVitalFeedback.h"
+ /*
+  * TendCommand.h
+  *
+@@ -151,6 +152,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 

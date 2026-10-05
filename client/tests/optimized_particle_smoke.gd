@@ -1,0 +1,80 @@
+extends SceneTree
+const Assets = preload("res://combat/original_assets.gd")
+const Effects = preload("res://combat/effect_player.gd")
+const Projectiles = preload("res://combat/projectiles.gd")
+var checks := 0
+var errors: Array[String] = []
+func check(ok: bool, message: String) -> void:
+	checks += 1
+	if not ok: errors.append(message); push_error(message)
+func _initialize() -> void: call_deferred("run")
+func run() -> void:
+	var assets := Assets.new()
+	check(assets.load_catalog(),"Original source catalog loads")
+	var world := Node3D.new()
+	root.add_child(world)
+	var eye := Camera3D.new()
+	world.add_child(eye)
+	var a := Effects.new()
+	var b := Effects.new()
+	world.add_child(a)
+	world.add_child(b)
+	a.configure(assets,eye)
+	b.configure(assets,eye)
+	check(a.manager==b.manager,"Actors share one bounded native manager in a rendering world")
+	var shared_viewport := SubViewport.new()
+	shared_viewport.world_3d = world.get_world_3d()
+	root.add_child(shared_viewport)
+	var mirror_effects := Effects.new()
+	shared_viewport.add_child(mirror_effects)
+	mirror_effects.configure(assets,eye)
+	check(mirror_effects.manager==a.manager,"Headset and mirror viewports sharing World3D cannot multiply effect budgets")
+	var manager: Node3D = a.manager
+	manager.set_process(false)
+	manager.set_view(Transform3D.IDENTITY,100,1.4)
+	check(manager.styles.size()==assets.catalog.particles.size(),"All original source paths precompiled before first shot")
+	check(manager.compiled_style_count<=26,"Original effect graphs reduced to at most two source layers")
+	var initial_programs: int = manager.styles.size()
+	var texture_count: int = assets.textures.size()
+	for i in range(200): manager.burst("missing/%d" % i,Transform3D.IDENTITY)
+	for i in range(200): manager.compile_source("appearance/pt_bolt_red.prt","invalid_%d" % i)
+	check(manager.styles.size()==initial_programs and assets.textures.size()==texture_count,"Invalid paths/kinds never grow source cache or load textures")
+	var source: Array = manager.compile_source("appearance/pt_bolt_red.prt","tracer")
+	check(source.size()==1 and source[0].source_emitter=="bolt","Tracer retains the original main elongated bolt emitter")
+	check(source[0].definition.get("core_color",Color.BLACK).g>0.8 and is_equal_approx(float(source[0].definition.get("core_ratio",0)),0.5),"Original narrow pale tracer core retained in the same quad")
+	check(source[0].definition.texture!=null and source[0].definition.blend=="additive","Tracer retains original texture and additive blend")
+	var pose := Transform3D(Basis.IDENTITY,Vector3(0,0,-3))
+	var handle: int = a.create_tracer("appearance/pt_bolt_red.prt",pose)
+	check(handle>=0,"Native tracer handle created without a per-shot scene node")
+	var count := manager.get_child_count()
+	for i in range(12):
+		a.emit_particle("appearance/pt_bls_1_red_muz_flash_01.prt",pose,"muzzle")
+		a.emit_particle("appearance/pt_bls_1_red_hit_other_01.prt",pose,"impact")
+	manager.advance(0.01)
+	check(manager.get_child_count()==count,"Particle events allocate no scene nodes")
+	a.release_tracer(handle)
+	var fx_path := "clienteffect/combat_bls_0_wep_fire_blaster_pistol.cef"
+	for i in range(50): a.play(fx_path,pose)
+	check(manager.statistics().dynamic_lights==0 and manager.disabled_lights==50,"Flash appearance creates no dynamic lights")
+	var projectiles := Projectiles.new()
+	world.add_child(projectiles)
+	projectiles.configure_effects(assets,eye)
+	projectiles.set_physics_process(false)
+	projectiles.max_visuals = 0
+	await physics_frame
+	for i in range(16):
+		projectiles.spawn({"weapon_id":"pistol_dl44","range":1,"speed":10},pose,pose.origin)
+	check(projectiles.bolts.size()==16 and projectiles.visual_drops==16,"Visual exhaustion leaves every projectile simulation intact")
+	projectiles._physics_process(0.2)
+	check(projectiles.bolts.is_empty(),"Invisible simulated projectiles retain range expiry")
+	var stats: Dictionary = manager.statistics()
+	manager.clear()
+	shared_viewport.queue_free()
+	world.queue_free()
+	manager.queue_free()
+	await process_frame
+	await process_frame
+	var report := {"test":"optimized_particles_integration","checks":checks,"errors":errors,"passed":errors.is_empty(),"gpu_validated":false,"statistics":stats}
+	FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/optimized-particles-smoke.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
+	print(JSON.stringify(report))
+	quit(0 if errors.is_empty() else 1)

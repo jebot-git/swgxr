@@ -1,0 +1,14 @@
+[Unit]
+Description=SWGXR daily graceful persistent game restart
+After=network.target
+ConditionPathExists=@ROOT@/runtime/remote/bootstrap.json
+
+[Service]
+Type=oneshot
+WorkingDirectory=@ROOT@
+ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/scheduled_restart.py
+TimeoutStartSec=1200
+KillMode=process
+UMask=0077
+StandardOutput=journal
+StandardError=journal

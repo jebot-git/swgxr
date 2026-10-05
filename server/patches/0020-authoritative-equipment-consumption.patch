@@ -1,0 +1,216 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -5,6 +5,7 @@
+ #include "server/zone/objects/factorycrate/FactoryCrate.h"
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include <set>
++#include "SwgxrEquipment.h"
+ 
+ class SwgxrInventory {
+  using Json = JSONSerializationType;
+@@ -44,6 +45,7 @@
+    {"split_supported",stack},{"split_max_quantity",stack?std::max(0,count-1):0},
+    {"split_slot_cost",cost},{"split_available",stack && count>1 && space},
+    {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
++  SwgxrEquipment::enrich(result,o,c);
+   return result;
+  }
+  static void walk(SceneObject* o, CreatureObject* c, Json& out, std::set<uint64>& seen, int depth, bool equipped) {
+@@ -109,15 +111,18 @@
+   ManagedReference<SceneObject*> root=c->getSlottedObject("inventory");
+   if (root==nullptr) out["error"]="Missing inventory container";
+   else {
+-   if (args!="swgxr_inventory_v1") out["mutation"]=split(c,root,args);
++   if (args.contains(" equip ") || args.contains(" consume ")) out["mutation"]=SwgxrEquipment::mutate(c,args);
++   else if (args!="swgxr_inventory_v1") out["mutation"]=split(c,root,args);
+    out["inventory"]={{"id",id(root)},{"capacity",root->getContainerVolumeLimit()},{"occupied",root->getCountableObjectsRecursive()},{"direct_count",root->getContainerObjectsSize()}};
+    std::set<uint64> seen; walk(root,c,out,seen,0,false);
++   out["equipment"]=Json::array();
++   std::set<uint64> wornIds;
+    for (int i=0;i<c->getSlottedObjectsSize();++i) {
+     ManagedReference<SceneObject*> worn=c->getSlottedObject(i);
+-    if (worn==nullptr || !worn->isWearableContainerObject() || seen.count(worn->getObjectID())) continue;
+-    auto record=item(worn,c,true); out["items"].push_back(record);
++    if (worn==nullptr || !SwgxrEquipment::equippable(worn) || !wornIds.insert(worn->getObjectID()).second) continue;
++    auto record=item(worn,c,true); out["equipment"].push_back(record); out["items"].push_back(record);
+     if (record["template"].get<std::string>().find("/backpack/")!=std::string::npos) out["equipped_backpack"]=record;
+-    walk(worn,c,out,seen,0,true);
++    if(navigable(worn)) walk(worn,c,out,seen,0,true);
+    }
+    // Attribute replies come first; the snapshot marker is the completion fence.
+    for (auto& record:out["items"]) {
+@@ -125,6 +130,8 @@
+     if (object!=nullptr) object->sendAttributeListTo(c);
+    }
+   }
++  out["equipment_stats"]=SwgxrEquipment::stats(c);
++  out["species_template"]=std::string(c->getObjectTemplate()->getFullTemplateString().toCharArray());
+   std::string encoded=out.dump(-1,' ',true);
+   if (encoded.size()>262144) encoded="{\"error\":\"Inventory response size exceeded\"}";
+   auto msg=new AttributeListMessage(c->getObjectID());
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
+@@ -0,0 +1,163 @@
++/* Core3-backed equipment transactions and source consumable use. */
++#ifndef SWGXR_EQUIPMENT_H
++#define SWGXR_EQUIPMENT_H
++#include "server/zone/managers/objectcontroller/ObjectController.h"
++#include "server/zone/objects/tangible/consumable/Consumable.h"
++#include "server/zone/objects/tangible/wearables/WearableObject.h"
++#include "server/zone/objects/tangible/weapon/WeaponObject.h"
++#include "server/zone/objects/tangible/pharmaceutical/StimPack.h"
++#include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/objects/player/sessions/TradeSession.h"
++class SwgxrEquipment {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o) { return o?std::to_string(o->getObjectID()):""; }
++public:
++ static bool equippable(SceneObject* o) {
++  return (o->isWearableObject() || o->isWearableContainerObject() || o->isWeaponObject() || o->isInstrument() || o->isFishingPoleObject()) && o->getArrangementDescriptorSize()>0 && !o->getObjectTemplate()->getFullTemplateString().contains("unarmed_default");
++ }
++ static bool medicine(SceneObject* o) {
++  auto stim=dynamic_cast<StimPack*>(o);return stim!=nullptr && !stim->isRangedStimPack() && !stim->isArea() && !o->getObjectTemplate()->getFullTemplateString().contains("/pet/");
++ }
++ static std::string medicineReason(SceneObject* o,CreatureObject* c) {
++  auto root=c->getSlottedObject("inventory");auto stim=dynamic_cast<StimPack*>(o);
++  auto command=c->getZoneServer()->getObjectController()->getQueueCommand("healdamage");
++  if(stim==nullptr || !medicine(o)) return "unsupported_source_medicine";
++  if(o->getParent().get()!=root) return "medicine_requires_root_inventory";
++  if(c->isDead() || c->isIncapacitated())return "player_unavailable";
++  if(command==nullptr || (!command->getCharacterAbility().isEmpty() && !c->getPlayerObject()->hasAbility(command->getCharacterAbility()))) return "medicine_ability_required";
++  if(stim->getMedicineUseRequired()>c->getSkillMod("healing_ability"))return "medicine_skill_required";
++  if(!c->canTreatInjuries())return "medicine_cooldown";
++  auto atts=stim->getAttributes();bool damage=false;
++  for(int i=0;i<atts.size();++i)if(c->hasDamage(atts.get(i)))damage=true;
++  return damage?"":"no_damage_to_heal";
++ }
++ static bool inInventory(SceneObject* o, CreatureObject* c) {
++  auto root=c->getSlottedObject("inventory");
++  for(auto p=o->getParent().get();p!=nullptr && p!=c;p=p->getParent().get())
++   if(p==root || (p->isWearableContainerObject() && p->getParent().get()==c)) return true;
++  return false;
++ }
++ static Json arrangement(SceneObject* o,CreatureObject* c,int index) {
++  Json result={{"index",index},{"slots",Json::array()},{"displaced_item_ids",Json::array()},{"available",false},{"block_reason",""}};
++  if(!equippable(o) || index<0 || index>=o->getArrangementDescriptorSize()) { result["block_reason"]="unsupported_arrangement";return result; }
++  auto slots=o->getArrangementDescriptor(index);std::set<uint64> seen;int cost=0;
++  for(int i=0;i<slots->size();++i) {
++   result["slots"].push_back(std::string(slots->get(i).toCharArray()));
++   auto worn=c->getSlottedObject(slots->get(i));
++   if(worn!=nullptr && worn!=o && seen.insert(worn->getObjectID()).second) {
++    if(!equippable(worn)) {result["block_reason"]="protected_slot_occupant";return result;}
++    result["displaced_item_ids"].push_back(id(worn));cost+=1+worn->getCountableObjectsRecursive();
++   }
++  }
++  auto root=c->getSlottedObject("inventory");
++  auto nativeCommand=c->getZoneServer()->getObjectController()->getQueueCommand(o->isWearableObject() || o->isWearableContainerObject()?"transferitemarmor":"transferitemweapon");
++  if(nativeCommand==nullptr || !nativeCommand->checkStateMask(c) || !nativeCommand->checkInvalidLocomotions(c)) result["block_reason"]="source_command_state_restriction";
++  else if(o->getParent().get()==c) result["block_reason"]="already_equipped";
++  else if(!inInventory(o,c)) result["block_reason"]="outside_inventory";
++  else if(c->getActiveSession(SessionFacadeType::TRADE)!=nullptr) result["block_reason"]="active_trade";
++  else if(c->isDead() || c->isIncapacitated()) result["block_reason"]="player_unavailable";
++  else if(root==nullptr || root->getContainerVolumeLimit()-root->getCountableObjectsRecursive()<std::max(1,cost)) result["block_reason"]="inventory_space_required";
++  else if(!o->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) || !o->getParent().get()->checkContainerPermission(c,ContainerPermissions::MOVEOUT)) result["block_reason"]="container_permission";
++  else {
++   String error;
++   // Core3's race/faction/skill/encumbrance gates are attached specifically to type4.
++   int code=c->canAddObject(o,4,error);
++   if(code==0 || code==TransferErrorCode::SLOTOCCUPIED) code=c->canAddObject(o,4+index,error);
++   if(code!=0 && code!=TransferErrorCode::SLOTOCCUPIED) result["block_reason"]=std::string(error.toCharArray());
++   else result["available"]=true;
++  }
++  return result;
++ }
++ static void enrich(Json& record,SceneObject* o,CreatureObject* c) {
++  record["equippable"]=equippable(o); record["equip_slots"]=Json::array();record["equip_arrangements"]=Json::array();record["equipped_slots"]=Json::array();
++  record["equip_available"]=false;record["equip_block_reason"]="not_equippable";
++  if(equippable(o)) {
++   for(int i=0;i<o->getArrangementDescriptorSize();++i) {
++    auto plan=arrangement(o,c,i);record["equip_arrangements"].push_back(plan);
++    for(auto& slot:plan["slots"]) record["equip_slots"].push_back(slot);
++    if(plan["available"].get<bool>())record["equip_available"]=true;
++    if(i==0)record["equip_block_reason"]=plan["block_reason"];
++   }
++   if(record["equip_available"].get<bool>())record["equip_block_reason"]="";
++   if(o->getParent().get()==c && o->getContainmentType()>=4) {
++    int index=o->getContainmentType()-4;
++    if(index<o->getArrangementDescriptorSize())for(int j=0;j<o->getArrangementDescriptor(index)->size();++j)record["equipped_slots"].push_back(std::string(o->getArrangementDescriptor(index)->get(j).toCharArray()));
++    record["arrangement"]=index;
++   }
++  }
++  record["bonuses"]=Json::array();
++  if(o->isWearableObject()) {
++   auto mods=cast<WearableObject*>(o)->getWearableSkillMods();
++   for(int i=0;i<mods->size();++i) record["bonuses"].push_back({{"kind","skill_mod"},{"name",std::string(mods->elementAt(i).getKey().toCharArray())},{"value",mods->elementAt(i).getValue()}});
++  }
++  record["customization_hex"]="";
++  if(o->isTangibleObject()) {
++   String custom;o->asTangibleObject()->getCustomizationString(custom); std::string hex;const char* digits="0123456789abcdef";
++   for(int i=0;i<custom.length();++i) {unsigned char ch=custom.charAt(i);hex+=digits[ch>>4];hex+=digits[ch&15];}record["customization_hex"]=hex;
++  }
++  bool food=(o->isTangibleObject() && o->asTangibleObject()->isConsumable()) && !cast<Consumable*>(o)->isSpice();
++  record["consumable"]=food || medicine(o);record["consume_kind"]=food?(cast<Consumable*>(o)->isDrink()?"drink":"food"):medicine(o)?"medicine":"unsupported";
++  record["consume_available"]=food && inInventory(o,c) && !c->isDead() && !c->isIncapacitated();
++  record["consume_block_reason"]=food?"server_validates_species_stomach_and_existing_effects":"unsupported_source_use";
++  if(medicine(o)) {auto reason=medicineReason(o,c);record["consume_available"]=reason.empty();record["consume_block_reason"]=reason;}
++  record["consume_requires_server_validation"]=true;
++ }
++ static Json mutate(CreatureObject* c,const String& args) {
++  Json result={{"success",false}};StringTokenizer tokens(args);String marker,verb;tokens.getStringToken(marker);tokens.getStringToken(verb);
++  result["operation"]=std::string(verb.toCharArray());
++  if(!tokens.hasMoreTokens()) {result["error"]="Missing item";return result;}
++  uint64 target=tokens.getLongToken();auto o=c->getZoneServer()->getObject(target);result["item_id"]=std::to_string(target);
++  if(o==nullptr || !o->isASubChildOf(c) || !inInventory(o,c)) {result["error"]="Item outside owned inventory";return result;}
++  Locker itemLock(o,c);auto parent=o->getParent().get();auto root=c->getSlottedObject("inventory");
++  if(parent==nullptr || root==nullptr || !inInventory(o,c)) {result["error"]="Inventory changed";return result;}
++  if(c->getActiveSession(SessionFacadeType::TRADE)!=nullptr){result["error"]="active_trade";return result;}
++  result["before_stats"]=stats(c);
++  if(verb=="consume") {
++   bool isMedicine=medicine(o);
++   if(!isMedicine && (!(o->isTangibleObject() && o->asTangibleObject()->isConsumable()) || cast<Consumable*>(o.get())->isSpice())) {result["error"]="Unsupported source consumable";return result;}
++   int before=o->asTangibleObject()->getUseCount();
++   if(isMedicine) {
++    auto reason=medicineReason(o,c);if(!reason.empty()){result["error"]=reason;return result;}
++    auto command=c->getZoneServer()->getObjectController()->getQueueCommand("healdamage");
++    result["source_command_result"]=command->doQueueCommand(c,c->getObjectID(),UnicodeString(String::valueOf(o->getObjectID())));
++   } else o->handleObjectMenuSelect(c,20);
++   result["after_stats"]=stats(c);
++   bool removed=o->getParent().get()==nullptr;int after=removed?0:o->asTangibleObject()->getUseCount();
++   result["success"]=removed || after<before;result["removed"]=removed;result["previous_use_count"]=before;result["remaining_use_count"]=after;
++   if(!result["success"].get<bool>())result["error"]="Core3 declined consumption (species, fullness, existing effect or player state)";
++   return result;
++  }
++  if(verb!="equip") {result["error"]="Unsupported operation";return result;}
++  int index=tokens.hasMoreTokens()?tokens.getIntToken():0;auto plan=arrangement(o,c,index);
++  if(!plan["available"].get<bool>()) {result["error"]=plan["block_reason"];return result;}
++  auto controller=c->getZoneServer()->getObjectController();std::vector<std::pair<ManagedReference<SceneObject*>,int>> displaced;
++  for(auto& value:plan["displaced_item_ids"]) {
++   auto old=c->getZoneServer()->getObject(std::stoull(value.get<std::string>()));
++   if(old==nullptr || old->getParent().get()!=c) {result["error"]="Equipment changed";return result;}
++   displaced.emplace_back(old,old->getContainmentType());
++  }
++  int moved=0;bool success=true;
++  for(auto& old:displaced) {if(!controller->transferObject(old.first,root,-1,true)){success=false;break;}++moved;}
++  String error;
++  if(success && c->canAddObject(o,4+index,error)==0)success=controller->transferObject(o,c,4+index,true);
++  else success=false;
++  if(!success) {
++   bool rollback=true;
++   for(int i=moved-1;i>=0;--i)rollback=controller->transferObject(displaced[i].first,c,displaced[i].second,true,true)&&rollback;
++   result["error"]=rollback?"Core3 rejected equipment; original items restored":"Equipment rollback incomplete; refresh inventory";result["rollback_complete"]=rollback;return result;
++  }
++  if(o->isWeaponObject()) {
++   auto weapon=cast<WeaponObject*>(o.get());c->setWeapon(weapon,true);weapon->setCertified(weapon->isCertifiedFor(c));
++   if(c->hasBuff(STRING_HASHCODE("centerofbeing")))c->removeBuff(STRING_HASHCODE("centerofbeing"));
++   c->setLevel(c->getZoneServer()->getPlayerManager()->calculatePlayerLevel(c));
++  }
++  result["after_stats"]=stats(c);
++  result["success"]=true;result["arrangement"]=index;result["displaced_item_ids"]=plan["displaced_item_ids"];return result;
++ }
++ static Json stats(CreatureObject* c) {
++  Json out={{"source_kind","core3_player_stats"},{"ham",Json::array()},{"max_ham",Json::array()},{"encumbrance",Json::array()}};
++  for(int i=0;i<9;++i){out["ham"].push_back(c->getHAM(i));out["max_ham"].push_back(c->getMaxHAM(i));}
++  for(int i=0;i<3;++i)out["encumbrance"].push_back(c->getEncumbrance(i));return out;
++ }
++};
++#endif

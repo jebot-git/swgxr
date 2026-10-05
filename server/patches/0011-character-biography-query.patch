@@ -1,0 +1,44 @@
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -330,6 +330,14 @@
+ 	uint64 objectID = pack->parseLong();
+ 
+ 	pack->parseInt();
++	if (header2 == 0x1DB) {
++		uint64 subject = pack->parseLong();
++		UnicodeString biography;
++		pack->parseUnicode(biography);
++		if (subject == core->selectedCharacterOid)
++			core->setVar("appearance/biography", biography.toString());
++		return;
++	}
+ 
+ 	SceneObject* object = zone->getObject(objectID);
+ 
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -12,6 +12,7 @@
+ #include "client/ClientCore.h"
+ #include "client/zone/Zone.h"
+ #include "server/zone/packets/zone/SelectCharacter.h"
++#include "server/zone/packets/object/ObjectControllerMessage.h"
+ 
+ class ZoneInCharacterAction : public ActionBase {
+ 	// Result
+@@ -79,6 +80,16 @@
+ 			return;
+ 		}
+ 
++		// Read the real persisted biography through the normal player command.
++		auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
++		request->insertInt(1);
++		request->insertInt(STRING_HASHCODE("requestbiography"));
++		request->insertLong(oid);
++		request->insertInt(0);
++		core.zone->getZoneClient()->sendMessage(request);
++		for (int attempt = 0; attempt < 12 && !core.hasVar("appearance/biography"); ++attempt)
++			core.zone->waitFor(STRING_HASHCODE("ObjControllerMessage"), 250);
++
+ 		// Success
+ 		result.setSuccess();
+ 		info() << "Zone-in complete - scene ready";

@@ -1,0 +1,219 @@
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -87,7 +87,7 @@
+ 		uint64 oid = core.targetCharacterOid;
+ 		core.selectedCharacterOid = oid;  // Track which character we're playing as
+ 
+-		core.setVar("swgxr/deferSceneReady", !liveDirectory.empty());
++		core.setVar("swgxr/deferSceneReady", !liveDirectory.empty() || !inventoryRequest.empty());
+ 
+ 		// Send SelectCharacter packet
+ 		info() << "Zoning in as character OID: " << oid;
+@@ -101,6 +101,8 @@
+ 			return;
+ 		}
+ 
++		// Dedicated RPC snapshots include their own attributes; only full entry needs appearance/weapons.
++		if (inventoryRequest.empty()) {
+ 		// Read the real persisted biography through the normal player command.
+ 		auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
+ 		request->insertInt(1);
+@@ -153,6 +155,7 @@
+ 			if (!complete) { result.setError("Weapon attribute snapshot timed out", 6); return; }
+ 		}
+ 		core.setVar("weapons/complete", true);
++		}
+ 
+ 		if (!inventoryRequest.empty()) {
+ 			auto request = new ObjectControllerMessage(oid, 0x0B, 0x116);
+@@ -163,16 +166,17 @@
+ 			core.zone->getZoneClient()->sendMessage(request);
+ 			const String key=String("weaponAttributes/o")+String::valueOf(oid);
+ 			const bool gathering=(inventoryRequest.find("swgxr_gathering_v1 ")==0 || inventoryRequest.find("swgxr_corpse_v1 ")==0);
++			const bool vehicles=inventoryRequest.find("swgxr_vehicles_v1 ")==0;
+ 			const bool crafting=inventoryRequest.find("swgxr_crafting_v1 ")==0;
+ 			const bool medic=inventoryRequest.find("swgxr_medic_v1 ")==0;
+ 			const bool scout=inventoryRequest.find("swgxr_scout_v1 ")==0;
+             const bool services=inventoryRequest.find("swgxr_services_v1 ")==0;
+-			const std::string field=medic?"swgxr.medic.snapshot":services?"swgxr.services.snapshot":scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
++			const std::string field=vehicles?"swgxr.vehicles.snapshot":medic?"swgxr.medic.snapshot":services?"swgxr.services.snapshot":scout?"swgxr.scout.snapshot":crafting?"swgxr.crafting.snapshot":gathering?"swgxr.gathering.snapshot":"swgxr.inventory.snapshot";
+ 			bool complete=false;
+ 			for(int attempt=0;attempt<100;++attempt) {
+ 				auto attributes=core.getVar<JSONSerializationType>(key,JSONSerializationType::object());
+ 				if (attributes.contains(field)) {
+-					core.setVar(medic?"medic":services?"services":scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
++					core.setVar(vehicles?"vehicles":medic?"medic":services?"services":scout?"scout":crafting?"crafting":gathering?"gathering":"inventory",JSONSerializationType::parse(attributes[field].get<std::string>()));
+ 					complete=true; break;
+ 				}
+ 				core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);
+@@ -212,9 +216,12 @@
+ 				bool complete=false;for(int attempt=0;attempt<100;++attempt){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(values["swgxr.live.snapshot"].get<std::string>());if(reply.value("request_id",std::string())==input.value("request_id",std::string())){if(input.value("action",std::string())=="scout" && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("state",JSONSerializationType::object()).value("inventory",JSONSerializationType::object());reply["scout_attributes"]=JSONSerializationType::object();
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+-                     }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting") && reply.contains("mutation")){
++                     }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering") && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("inventory",JSONSerializationType::object());reply["service_attributes"]=JSONSerializationType::object();
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
++                     }if(input.value("action",std::string())=="gathering" && reply.contains("mutation")){
++                       auto state=reply["mutation"].value("state",JSONSerializationType::object());JSONSerializationType items=JSONSerializationType::array();for(auto key:{"tool","hip_tool"})if(state.contains(key) && state[key].is_object())items.push_back(state[key]);for(auto& dep:state.value("deployments",JSONSerializationType::array()))items.push_back(dep["tool"]);
++                       for(auto& item:items){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }publish(reply);complete=true;break;}}core.zone->waitFor(STRING_HASHCODE("AttributeListMessage"),100);}
+ 				if(!complete){publish({{"session_live",false},{"error_code","native_response_timeout"},{"request_id",input.value("request_id",std::string())}});break;}
+ 				if(input.value("action",std::string())=="stop")break;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -28,6 +28,10 @@
+ 			JSONSerializationType out,request;try{std::string raw=arguments.toString().toCharArray();request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));out=SwgxrLiveCombat::run(creature,request);}catch(const std::exception& e){out={{"error_code",std::string(e.what())},{"session_live",false},{"character_id",std::to_string(creature->getObjectID())}};}
+ 			out["request_id"]=request.is_object()?request.value("request_id",std::string()):std::string();auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.live.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
+ 		}
++        if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_vehicles_v1 ")) {
++            JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();auto request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));SwgxrServices::move(creature,request);out=SwgxrVehicles::run(creature,request);}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
++            auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.vehicles.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++        }
+ 		if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_services_v1 ")) {
+             JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();out=SwgxrServices::run(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1)));}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
+             auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.services.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -48,6 +48,11 @@
+   throw std::runtime_error("Resource is expired, unavailable on Tatooine, or incompatible with tool");
+  }
+  static void checkpointSkills(CreatureObject* c,Json& dep){dep["surveying_skill"]=c->getSkillMod("surveying");dep["sample_rate_modifier"]=c->getSkillMod("private_spec_samplerate");dep["sample_size_modifier"]=c->getSkillMod("private_spec_samplesize");}
++ static float productiveDensity(const Json& dep,bool reliable=false){
++  float scale=dep.value("surveying_skill",0)/100.f*(1.f+dep.value("sample_size_modifier",0)/100.f);if(scale<=0)return 1.01f;
++  float units=std::ceil(2.f/scale);float threshold=std::max(.1f,(32-(dep.value("surveying_skill",0)/20)*6)/100.f);
++  return std::max(threshold,units/(reliable?25.f:28.f));
++ }
+  static void settle(CreatureObject* c,Json& s){
+   const int64 now=std::time(nullptr);int budget=1024;
+   for(auto& dep:s["deployments"]){
+@@ -58,10 +63,12 @@
+    const float density=dep["density"].get<float>();const int skill=dep["surveying_skill"].get<int>();int unitsTotal=0,xpTotal=0;
+    while(next<=end && budget>0){--budget;next+=25;dep["cycles"]=dep.value("cycles",int64(0))+1;
+     // ResourceSpawner::sendSampleResults baseline. Source samplingMultiplier=1.
+-    if(density<.10f || density*100<(32-(skill/20)*6))continue;
+-    float rate=skill*density+System::random(100)+dep["sample_rate_modifier"].get<int>();if(rate<40)continue;
++    dep["last_sample_units"]=0;dep["last_sample_at_unix"]=next-25;
++    if(density<.10f || density*100<(32-(skill/20)*6)){dep["sample_status"]="density_below_threshold";continue;}
++    float rate=skill*density+System::random(100)+dep["sample_rate_modifier"].get<int>();if(rate<40){dep["sample_status"]="sample_failed";continue;}
+     int maximum=int(density*(25+System::random(3)));float city=1.f+dep["sample_size_modifier"].get<int>()/100.f;
+-    int units=maximum*(float(skill)/100.f)*city;if(units<2)continue;
++    int units=maximum*(float(skill)/100.f)*city;dep["last_sample_units"]=units;if(units<2){dep["sample_status"]="trace_amount";continue;}
++    dep["sample_status"]="sample_located";
+     unitsTotal+=units;xpTotal+=int(float(units)/float(maximum)*40);dep["successful_cycles"]=dep.value("successful_cycles",int64(0))+1;
+    }
+    dep["next_sample_at_unix"]=next;
+@@ -72,7 +79,7 @@
+   save(c,s);
+  }
+  static Json context(CreatureObject* c,Json& s,const std::string& key){
+-  Json out={{"backend","core3"},{"source_kind","core3_gathering"},{"character_id",id(c)},{"planet","tatooine"},{"tool_id",key},{"tool",nullptr},{"max_range_m",0},{"range_m",0},{"points_per_axis",0},{"surveying_skill",c->getSkillMod("surveying")},{"resources",Json::array()},{"deployments",Json::array()},{"hip_tool_id",s["hip_tool_id"]},{"hip_tool",nullptr},{"settlement_policy","native_persistent_lazy_25s_cycles"},{"limits",{{"max_deployments",16},{"max_cycles_per_request",1024},{"resource_stack_max",ResourceContainer::MAXSIZE}}}};
++  Json out={{"server_time",std::time(nullptr)},{"backend","core3"},{"source_kind","core3_gathering"},{"character_id",id(c)},{"planet","tatooine"},{"tool_id",key},{"tool",nullptr},{"max_range_m",0},{"range_m",0},{"points_per_axis",0},{"surveying_skill",c->getSkillMod("surveying")},{"resources",Json::array()},{"deployments",Json::array()},{"hip_tool_id",s["hip_tool_id"]},{"hip_tool",nullptr},{"settlement_policy","native_persistent_lazy_25s_cycles"},{"limits",{{"max_deployments",16},{"max_cycles_per_request",1024},{"resource_stack_max",ResourceContainer::MAXSIZE}}}};
+   if(!key.empty()){
+    auto tool=ownedTool(c,s,key);out["tool"]=describe(c,tool);auto survey=dynamic_cast<SurveyTool*>(tool.get());
+    if(survey!=nullptr){Locker lock(survey,c);survey->setRange(384);int range=survey->getRange(c);out["max_range_m"]=range;out["range_m"]=range;out["points_per_axis"]=survey->getPoints();
+@@ -82,7 +89,7 @@
+    }
+   }
+   auto hip=object(c,s["hip_tool_id"].get<std::string>());if(hip!=nullptr)out["hip_tool"]=describe(c,hip);
+-  for(auto dep:s["deployments"]){auto tool=object(c,dep["tool_id"].get<std::string>());if(tool==nullptr)throw std::runtime_error("Persistent deployed tool missing");dep["tool"]=describe(c,tool);dep["template"]=dep["tool"]["template"];auto buf=dep["resource"];buf["resource_id"]=dep["resource_id"];buf["quantity"]=dep["quantity"];dep["buffer"]=Json::array({buf});out["deployments"].push_back(dep);}
++  for(auto dep:s["deployments"]){dep["minimum_productive_density"]=productiveDensity(dep);dep["recommended_density"]=productiveDensity(dep,true);if(!dep.contains("sample_status"))dep["sample_status"]="waiting";if(dep.value("state",std::string())=="expired")dep["sample_status"]="expired";auto tool=object(c,dep["tool_id"].get<std::string>());if(tool==nullptr)throw std::runtime_error("Persistent deployed tool missing");dep["tool"]=describe(c,tool);dep["template"]=dep["tool"]["template"];auto buf=dep["resource"];buf["resource_id"]=dep["resource_id"];buf["quantity"]=dep["quantity"];dep["buffer"]=Json::array({buf});out["deployments"].push_back(dep);}
+   return out;
+  }
+  static void transfer(CreatureObject* c,SceneObject* item,SceneObject* destination){if(!(item->getParent().get()==nullptr?destination->transferObject(item,-1,true):c->getZoneServer()->getObjectController()->transferObject(item,destination,-1,true)))throw std::runtime_error("Native tool transfer failed");}
+@@ -96,7 +103,7 @@
+     survey->setRange(384);int range=survey->getRange(c),points=survey->getPoints();float step=float(range)/float(points-1);Json spots=Json::array(),highest={{"density",-1}};
+     for(int row=0;row<points;++row)for(int col=0;col<points;++col){float px=x-range/2.f+col*step,pz=z+range/2.f-row*step;float density=spawn->getDensityAt("tatooine",px,pz);Json spot={{"position",Json::array({px,0,pz})},{"density",density}};spots.push_back(spot);if(density>highest["density"].get<float>())highest=spot;}
+     Json waypoint=nullptr;if(highest["density"].get<float>()>0){auto ghost=c->getPlayerObject();ManagedReference<WaypointObject*> point=ghost->getSurveyWaypoint();if(point==nullptr)point=c->getZoneServer()->createObject(0xc456e788,1).castTo<WaypointObject*>();if(point==nullptr)throw std::runtime_error("Cannot create persistent survey waypoint");Locker lock(point,c);point->setCustomObjectName(UnicodeString("Resource Survey"),false);point->setPlanetCRC(STRING_HASHCODE("tatooine"));point->setPosition(highest["position"][0].get<float>(),0,highest["position"][2].get<float>());point->setColor(WaypointObject::COLOR_BLUE);point->setSpecialTypeID(WaypointObject::SPECIALTYPE_RESOURCE);point->setActive(true);ghost->addWaypoint(point,false,true);waypoint={{"id",id(point)},{"position",highest["position"]},{"name","Resource Survey"},{"planet","tatooine"}};}
+-    mutation["survey"]={{"planet","tatooine"},{"position",pos},{"resource_id",id(spawn)},{"range_m",range},{"points_per_axis",points},{"spots",spots},{"highest",highest},{"waypoint",waypoint}};return mutation;
++    mutation["survey"]={{"planet","tatooine"},{"position",pos},{"resource_id",id(spawn)},{"range_m",range},{"points_per_axis",points},{"spots",spots},{"highest",highest},{"waypoint",waypoint}};Json skill;checkpointSkills(c,skill);mutation["survey"]["minimum_productive_density"]=productiveDensity(skill);mutation["survey"]["recommended_density"]=productiveDensity(skill,true);return mutation;
+    }
+    if(s["deployments"].size()>=16)throw std::runtime_error("Maximum concurrent deployed tools reached");
+    auto store=escrow(c,s,true);Locker storeLock(store,c);Locker spawnLock(spawn,c);auto anchor=spawn->createResource(0);if(anchor==nullptr)throw std::runtime_error("Cannot anchor source resource");
+@@ -135,17 +142,21 @@
+   throw std::runtime_error("Unsupported gathering action");
+  }
+ public:
+- static void send(CreatureObject* c,const String& arguments){
++ static Json run(CreatureObject* c,const Json& request){
+   Json out;try{
+-   std::string raw=arguments.toCharArray();auto request=Json::parse(raw.substr(raw.find(' ')+1));Json state=load(c);settle(c,state);const auto action=request.value("action",std::string("status"));Json mutation=nullptr;
++   Json state=load(c);settle(c,state);const auto action=request.value("action",std::string("status"));Json mutation=nullptr;
+    if(action!="status"){
+     const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid idempotency key");std::string fingerprint=request.dump();bool replay=false;
+     for(auto& receipt:state["receipts"])if(receipt["request_id"]==key){if(receipt["fingerprint"]!=fingerprint)throw std::runtime_error("Idempotency key reused with different request");mutation=receipt["mutation"];mutation["replayed"]=true;replay=true;break;}
+     if(!replay){mutation=execute(c,state,request);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());save(c,state);}
+    }
+    std::string key=request.value("tool_id",std::string());if(action=="deploy" || action=="collect")key="";if(!key.empty() && !mutation.is_null() && mutation.value("replayed",false)){try{ownedTool(c,state,key);}catch(const std::exception&){key="";}}
+-   out={{"source_kind",action=="status"?"core3_gathering":"core3_gathering_"+action},{"character_id",id(c)},{"state",context(c,state,key)}};if(!mutation.is_null()){out["mutation"]=mutation;if(mutation.contains("survey"))out["survey"]=mutation["survey"];}
++   out={{"source_kind",action=="status"?"core3_gathering":"core3_gathering_"+action},{"character_id",id(c)},{"state",context(c,state,key)}};if(!mutation.is_null()){out["mutation"]=mutation;out["inventory"]=SwgxrInventory::snapshot(c);if(mutation.contains("survey"))out["survey"]=mutation["survey"];}
+   }catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",id(c)}};}
++  return out;
++ }
++ static void send(CreatureObject* c,const String& arguments){
++  std::string raw=arguments.toCharArray();auto out=run(c,Json::parse(raw.substr(raw.find(' ')+1)));
+   auto msg=new AttributeListMessage(c->getObjectID());msg->insertAttribute("swgxr.gathering.snapshot",String(out.dump(-1,' ',true).c_str()));c->sendMessage(msg);
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -117,6 +117,7 @@
+   if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrVehicles::run(c,request.at("vehicles"));}
+   if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+   if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
++  if(verb=="gathering"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrGathering::run(c,request.at("gathering"));}
+   if(verb=="crafting"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto out=SwgxrCrafting::run(c,request.at("crafting"));out["inventory"]=SwgxrInventory::snapshot(c);return out;}
+   if(verb=="services"){
+    if(SwgxrVehicles::seated(c) && request.at("service").value("action",std::string())=="travel_board")throw std::runtime_error("Dismount before boarding a shuttle");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -62,7 +62,7 @@
+   if(c->getZone()==nullptr || c->getZone()->getZoneName()!="tatooine")throw std::runtime_error("tatooine_services_required");auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=r)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && (c->isDead() || c->isIncapacitated() || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+-  if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){c->getZoneServer()->getMissionManager()->handleMissionListRequest(static_cast<MissionTerminal*>(t.get()),c,int(std::time(nullptr)%100000));ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
++  if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();int n=amount(r);if(target==nullptr || target==c || !target->isPlayerCreature() || !target->isOnline() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,3))throw std::runtime_error("payment_target_unavailable");if(int64(target->getCashCredits())+n>2147483647)throw std::runtime_error("recipient_balance_limit");command(c,"tip",target->getObjectID(),std::to_string(n));}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -4,6 +4,9 @@
+ #include "server/zone/objects/creature/VehicleObject.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
+ #include "templates/creature/SharedCreatureObjectTemplate.h"
++#include "server/zone/objects/tangible/deed/vehicle/VehicleDeed.h"
++#include "SwgxrInventory.h"
++#include <set>
+ #include <fstream>
+ #include <mutex>
+ #include <chrono>
+@@ -138,7 +141,18 @@
+  static Json run(CreatureObject* c,const Json& q){
+   std::lock_guard<std::recursive_mutex> lock(mutex());if(!c || !c->getZone() || !c->getPlayerObject())throw std::runtime_error("Native player required");cleanup(c);
+   auto action=q.value("action",std::string("status"));Json mutation={{"success",true},{"action",action}};
+-  if(action=="call"){
++  if(action=="activate"){
++   auto key=q.value("request_id",std::string());if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable activation request_id required");
++   auto ghost=c->getPlayerObject();auto saved=ghost->getScreenPlayData("swgxr_vehicles","activation_receipts");Json receipts=saved.isEmpty()?Json::array():Json::parse(saved.toCharArray());
++   for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=q)throw std::runtime_error("Activation request_id reused");auto prior=receipt["mutation"];prior["replayed"]=true;return {{"backend","core3"},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",prior},{"inventory",SwgxrInventory::snapshot(c)}};}
++   auto reject=[&](const char* reason)->Json{return {{"backend","core3"},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"error",reason},{"confirmed_rejection",true},{"mutation_started",false}};};
++   if(c->isDead() || c->isIncapacitated() || c->isInCombat() || c->getParent().get()!=nullptr)return reject("Unpack a vehicle while alive, outside and at peace");
++   auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>()));if(item==nullptr || !item->isVehicleDeedObject() || !SwgxrEquipment::inInventory(item,c))return reject("Owned vehicle deed required");
++   auto datapad=c->getSlottedObject("datapad");if(datapad==nullptr)return reject("Native datapad missing");std::set<uint64> before;for(int i=0;i<datapad->getContainerObjectsSize();++i)before.insert(datapad->getContainerObject(i)->getObjectID());
++   Locker itemLock(item,c);int code=item->handleObjectMenuSelect(c,20);ManagedReference<VehicleControlDevice*> created=nullptr;for(int i=0;i<datapad->getContainerObjectsSize();++i){auto device=datapad->getContainerObject(i);if(device->isVehicleControlDevice() && !before.count(device->getObjectID()))created=device.castTo<VehicleControlDevice*>();}
++   if(code!=0 || created==nullptr || item->isASubChildOf(c))throw std::runtime_error("Core3 rejected vehicle deed activation: check native vehicle capacity and location");
++   mutation["item_id"]=q.at("item_id");mutation["device_id"]=id(created);mutation["vehicle_id"]=id(created->getControlledObject());receipts.push_back({{"id",key},{"request",q},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_vehicles","activation_receipts",String(receipts.dump().c_str()));
++  }else if(action=="call"){
+    if(c->isDead() || c->isIncapacitated() || c->getParent().get()!=nullptr || c->isInCombat())throw std::runtime_error("Call a vehicle while alive, outside and at peace");
+    if(seated(c))throw std::runtime_error("Dismount first");auto cd=owned(c,q.at("device_id").get<std::string>());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject())throw std::runtime_error("Invalid native vehicle");descriptor(controlled->asCreatureObject());cd->generateObject(c);if(controlled->getZone()==nullptr && c->getPendingTask("call_mount")==nullptr)throw std::runtime_error("Core3 could not call this vehicle");mutation["pending"]=controlled->getZone()==nullptr;
+   }else if(action=="board"){
+@@ -163,7 +177,7 @@
+    for(auto key:{"left","right"}){auto h=point(q.at(key));if(h.distanceTo(c->getWorldPosition())>3.5)throw std::runtime_error("Both hands must touch vehicle");auto rel=h-v->getWorldPosition();double a=v->getDirection()->getRadians(),x=rel.getX()*std::cos(a)-rel.getY()*std::sin(a),z=-(rel.getX()*std::sin(a)+rel.getY()*std::cos(a));double vals[]={x,rel.getZ(),z};for(int i=0;i<3;++i)if(vals[i]<d["bounds_min"][i].get<double>()-.15 || vals[i]>d["bounds_max"][i].get<double>()+.15)throw std::runtime_error("Both hands must touch vehicle");}
+    vl.release();cd->storeObject(c);if(v->getZone()!=nullptr)throw std::runtime_error("Core3 refused vehicle storage");motions().erase(v->getObjectID());
+   }else if(action!="status")throw std::runtime_error("Unsupported vehicle action");
+-  return {{"backend","core3"},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
++  return {{"backend","core3"},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation},{"inventory",action=="activate"?SwgxrInventory::snapshot(c):Json::object()}};
+  }
+ };
+ #endif

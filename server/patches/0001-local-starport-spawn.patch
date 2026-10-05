@@ -1,0 +1,25 @@
+diff --git a/MMOCoreORB/src/server/zone/managers/player/creation/PlayerCreationManager.cpp b/MMOCoreORB/src/server/zone/managers/player/creation/PlayerCreationManager.cpp
+index 0f997183..9da42494 100644
+--- a/MMOCoreORB/src/server/zone/managers/player/creation/PlayerCreationManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/creation/PlayerCreationManager.cpp
+@@ -509,7 +509,19 @@ bool PlayerCreationManager::createCharacter(ClientCreateCharacterCallback* callb
+ 			playerManager->updatePermissionLevel(playerCreature, PermissionLevelList::instance()->getLevelNumber("admin"));
+ 		}
+ 
+-		if (doTutorial) {
++		// Optional local SWGXR prototype entry point. Standard creation is unchanged.
++		if (ConfigManager::instance()->getBool("Core3.SWGXR.StartAtStarport", false)) {
++			auto prototypeZone = zoneServer.get()->getZone("tatooine");
++			if (prototypeZone == nullptr) {
++				error("SWGXR character creation requires the Tatooine zone.");
++				playerCreature->destroyPlayerCreatureFromDatabase(true);
++				return false;
++			}
++			float spawnX = ConfigManager::instance()->getFloat("Core3.SWGXR.SpawnX", 3599.894f);
++			float spawnY = ConfigManager::instance()->getFloat("Core3.SWGXR.SpawnY", -4780.4487f);
++			float spawnZ = ConfigManager::instance()->getFloat("Core3.SWGXR.SpawnZ", 5.f);
++			playerCreature->switchZone("tatooine", spawnX, spawnZ, spawnY, 0);
++		} else if (doTutorial) {
+ 			playerManager->createTutorialBuilding(playerCreature);
+ 		} else {
+ 			playerManager->insertIntoSkippedTutorialBuilding(playerCreature);

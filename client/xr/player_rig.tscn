@@ -1,0 +1,79 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/xr_player.gd" id="1_body"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/functions/movement_direct.tscn" id="2_move"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/functions/movement_turn.tscn" id="3_turn"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/functions/function_pointer.tscn" id="4_pointer"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/highpoly/left_fullglove_hand.tscn" id="5_left"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/hands/scenes/highpoly/right_fullglove_hand.tscn" id="6_right"]
+[ext_resource type="PackedScene" path="res://addons/godot-xr-tools/effects/fade.tscn" id="7_fade"]
+
+[ext_resource type="Script" path="res://scout/movement.gd" id="8_scout"]
+
+[node name="XROrigin3D" type="XROrigin3D"]
+
+[node name="XRCamera3D" type="XRCamera3D" parent="."]
+position = Vector3(0, 1.65, 0)
+near = 0.05
+far = 20000.0
+current = true
+
+[node name="Fade" parent="XRCamera3D" instance=ExtResource("7_fade")]
+
+[node name="LeftHand" type="XRController3D" parent="."]
+position = Vector3(-0.25, 1.2, -0.35)
+tracker = &"left_hand"
+pose = &"grip"
+show_when_tracked = true
+
+[node name="Hand" parent="LeftHand" instance=ExtResource("5_left")]
+
+[node name="MovementDirect" parent="LeftHand" instance=ExtResource("2_move")]
+enabled = false
+max_speed = 9.36
+strafe = true
+
+[node name="FunctionPointer" parent="LeftHand" instance=ExtResource("4_pointer")]
+distance = 8.0
+show_laser = 2
+laser_length = 1
+show_target = true
+target_radius = 0.008
+
+[node name="RightHand" type="XRController3D" parent="."]
+position = Vector3(0.25, 1.2, -0.35)
+tracker = &"right_hand"
+pose = &"grip"
+show_when_tracked = true
+
+[node name="Hand" parent="RightHand" instance=ExtResource("6_right")]
+
+[node name="MovementTurn" parent="RightHand" instance=ExtResource("3_turn")]
+enabled = false
+turn_mode = 1
+step_turn_angle = 30.0
+step_turn_delay = 0.0
+
+[node name="FunctionPointer" parent="RightHand" instance=ExtResource("4_pointer")]
+distance = 8.0
+show_laser = 2
+laser_length = 1
+show_target = true
+target_radius = 0.008
+
+[node name="ScoutMovement" type="Node3D" parent="." groups=["movement_providers"]]
+script = ExtResource("8_scout")
+
+[node name="PlayerBody" type="CharacterBody3D" parent="." groups=["player_body"]]
+process_priority = -100
+process_physics_priority = -100
+collision_layer = 524288
+collision_mask = 3
+script = ExtResource("1_body")
+player_calibrate_height = false
+player_radius = 0.25
+player_height_min = 0.5
+player_height_max = 2.7
+body_forward_mix = 0.0
+head_behavior_mode = 1
+push_rigid_bodies = false

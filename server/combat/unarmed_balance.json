@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "power_base": 100.0,
+  "strength_to_power": 0.1,
+  "unarmed_damage_to_power": 0.25,
+  "recovery_base": 100.0,
+  "quickness_to_recovery": 0.1,
+  "unarmed_speed_to_recovery": 1.0,
+  "minimum_stat": 25.0,
+  "maximum_stat": 400.0,
+  "swing_speed_reference": 1.4,
+  "swing_travel_reference": 0.35,
+  "crouch_range_scale": 0.75,
+  "prone_range_scale": 0.5
+}

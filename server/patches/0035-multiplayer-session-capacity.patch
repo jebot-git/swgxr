@@ -1,0 +1,11 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -168,7 +168,7 @@
+   static std::mutex mutex;static std::map<uint64,Session> sessions;std::lock_guard<std::mutex> guard(mutex);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
+   for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60){SwgxrLiveRecovery::detach(it->first);it=sessions.erase(it);}else ++it;
+   if(verb=="start"){
+-   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=4)throw std::runtime_error("session_capacity");if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12 && c->getParent().get()==nullptr)move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
++   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=16)throw std::runtime_error("session_capacity_16");if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12 && c->getParent().get()==nullptr)move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
+    if(request.value("spawn_test_lair",false)){if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }

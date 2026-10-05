@@ -1,0 +1,17 @@
+[gd_resource type="Theme" load_steps=5 format=3]
+
+[ext_resource type="FontFile" path="res://resources/fonts/Jupiteroid-Regular.ttf" id="1_regular"]
+[ext_resource type="FontFile" path="res://resources/fonts/Jupiteroid-Bold.ttf" id="2_bold"]
+[ext_resource type="FontFile" path="res://resources/fonts/Jupiteroid-Italic.ttf" id="3_italic"]
+[ext_resource type="FontFile" path="res://resources/fonts/Jupiteroid-BoldItalic.ttf" id="4_bold_italic"]
+
+[resource]
+default_font = ExtResource("1_regular")
+default_font_size = 22
+RichTextLabel/fonts/normal_font = ExtResource("1_regular")
+RichTextLabel/fonts/bold_font = ExtResource("2_bold")
+RichTextLabel/fonts/italics_font = ExtResource("3_italic")
+RichTextLabel/fonts/bold_italics_font = ExtResource("4_bold_italic")
+RichTextLabel/fonts/mono_font = ExtResource("1_regular")
+HeaderLabel/base_type = &"Label"
+HeaderLabel/fonts/font = ExtResource("2_bold")

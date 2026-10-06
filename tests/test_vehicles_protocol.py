@@ -12,6 +12,16 @@ class VehiclesProtocol(unittest.TestCase):
   self.assertEqual(controls({'held':False,'throttle':1,'steer':1}),{'held':False,'throttle':0,'steer':0})
   for value in (float('nan'),float('inf'),2,True):
    with self.assertRaises(ValueError):controls({'held':True,'throttle':value,'steer':0})
+ def test_client_pose_preserves_resolved_motion_without_ride_property_authority(self):
+  q={'mode':'client_pose','vehicle_id':'123','position':[3520,5,-4800],'heading_radians':1.2,'speed':11.5,'held':False,'throttle':1,'steer':1,'max_speed':999,'owned':True}
+  actual=controls(q)
+  self.assertEqual(actual['position'],q['position']);self.assertEqual(actual['speed'],11.5)
+  self.assertEqual(actual['mode'],'client_pose');self.assertEqual(actual['throttle'],0)
+  self.assertNotIn('max_speed',actual);self.assertNotIn('owned',actual)
+ def test_client_pose_rejects_nonfinite_unbounded_or_unknown_motion(self):
+  q={'mode':'client_pose','vehicle_id':'123','position':[3520,5,-4800],'heading_radians':1.2,'speed':11.5,'held':True,'throttle':0,'steer':0}
+  for key,value in [('speed',float('nan')),('speed',True),('speed',101),('heading_radians',4),('heading_radians',float('inf')),('position',[0,float('nan'),0]),('vehicle_id','0'),('vehicle_id','-1'),('mode','teleport')]:
+   with self.subTest(key=key,value=value),self.assertRaises(ValueError):controls(dict(q,**{key:value}))
  def test_two_hands(self):
   with self.assertRaises(ValueError):command('store',{'device_id':'10','left':[1,2,3]})
   self.assertEqual(command('store',{'device_id':'10','left':[1,2,3],'right':[3,2,1]})['right'],[3,2,1])

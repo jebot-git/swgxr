@@ -14,6 +14,8 @@ bool finite_pose(const Transform3D &t) { return t.origin.is_finite() && t.basis.
 }
 void SwgParticleBatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("register_style","style"),&SwgParticleBatch::register_style);
+    ClassDB::bind_method(D_METHOD("can_replace_style","style_id"),&SwgParticleBatch::can_replace_style);
+    ClassDB::bind_method(D_METHOD("replace_style","style_id","style"),&SwgParticleBatch::replace_style);
     ClassDB::bind_method(D_METHOD("emit_burst","style_id","pose","count"),&SwgParticleBatch::emit_burst,DEFVAL(1));
     ClassDB::bind_method(D_METHOD("create_tracer","style_id","pose"),&SwgParticleBatch::create_tracer);
     ClassDB::bind_method(D_METHOD("update_tracer","handle","pose"),&SwgParticleBatch::update_tracer);
@@ -24,7 +26,20 @@ void SwgParticleBatch::_bind_methods() {
     ClassDB::bind_method(D_METHOD("clear"),&SwgParticleBatch::clear);
 }
 int SwgParticleBatch::register_style(const Dictionary &d) {
-    if (styles.size()>=MAX_STYLES) { ++drop_budget;return -1; }
+    return create_style(d,-1);
+}
+bool SwgParticleBatch::can_replace_style(int style) const {
+    if(style<0||style>=int(styles.size())) return false;
+    for(const Particle &p:particles) if(p.active&&p.style==style) return false;
+    for(const Tracer &t:tracers) if(t.active&&t.style==style) return false;
+    return true;
+}
+int SwgParticleBatch::replace_style(int style,const Dictionary &d) {
+    if(!can_replace_style(style)) return -1;
+    return create_style(d,style);
+}
+int SwgParticleBatch::create_style(const Dictionary &d,int replacement) {
+    if (replacement<0 && styles.size()>=MAX_STYLES) { ++drop_budget;return -1; }
     Style s;
     String kind=d.get("kind","impact"); s.kind=kind=="tracer"?0:(kind=="muzzle"?1:2);
     s.color=d.get("color",s.color); s.end_color=d.get("color_end",Color(s.color.r,s.color.g,s.color.b,0));
@@ -86,10 +101,11 @@ void fragment() {
     s.mesh.instantiate();s.mesh->set_transform_format(MultiMesh::TRANSFORM_3D);s.mesh->set_use_colors(true);s.mesh->set_use_custom_data(true);
     s.mesh->set_mesh(quad);s.mesh->set_instance_count(STYLE_CAP);s.mesh->set_visible_instance_count(0);
     s.buffer.resize(STYLE_CAP*20);s.buffer.fill(0);
-    s.node=memnew(MultiMeshInstance3D);s.node->set_name(String("ParticleBatch_")+String::num_int64(styles.size()));
+    s.node=replacement<0?memnew(MultiMeshInstance3D):styles[replacement].node;
+    s.node->set_name(String("ParticleBatch_")+String::num_int64(replacement<0?int(styles.size()):replacement));
     s.node->set_multimesh(s.mesh);s.node->set_cast_shadows_setting(GeometryInstance3D::SHADOW_CASTING_SETTING_OFF);
-    add_child(s.node);
-    styles.push_back(s);return int(styles.size()-1);
+    if(replacement>=0) {styles[replacement]=s;return replacement;}
+    add_child(s.node);styles.push_back(s);return int(styles.size()-1);
 }
 float SwgParticleBatch::random_unit() { random_state^=random_state<<13;random_state^=random_state>>17;random_state^=random_state<<5;return float(random_state&0xffffff)/float(0x1000000); }
 int SwgParticleBatch::visibility(const Style &s,const Vector3 &p,bool count) {

@@ -45,13 +45,13 @@ func run()->void:
 	var original_head:=camera.transform
 	var physical:Array=[]
 	for index in range(2):
-		var point:Vector3=pivot+Basis(Vector3.BACK,-.4)*(handles[index]-pivot)+Vector3(0,0,-.08)
+		var point:Vector3=pivot+Basis(Vector3.BACK,-.4)*(handles[index]-pivot)+Vector3(0,0,-.1125)
 		var pose:Transform3D=rig.global_transform.affine_inverse()*vehicle.view.global_transform*Transform3D(Basis.from_euler(Vector3(.7,.2,.6)),point)
 		physical.append(pose)
 		(lt if index==0 else rt).set_pose("grip",pose,Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH)
 	rt.set_input("primary",Vector2(0,.56));await process_frame
 	driver._physics_process(0);driver._process(0);app.tracked_avatar._process(1.0/90)
-	verify(is_equal_approx(float(driver.input.throttle),.5) and driver.input.steer>.5,"Production controller uses main stick independently of reach depth and wheel steering")
+	verify(is_equal_approx(float(driver.input.throttle),.5) and driver.input.steer>.5,"Production controller uses physical push independently of wheel steering")
 	verify(is_equal_approx(float(driver.input.wheel_angle),-.4) and not vehicle.yoke.transform.basis.is_equal_approx(Basis.IDENTITY),"Original steering component visibly rotates with grabbed wheel arc")
 	var errors:Array=[]
 	for index in range(2):
@@ -70,18 +70,18 @@ func run()->void:
 		root.size=Vector2i(1280,850)
 		var env:=WorldEnvironment.new();var config:=Environment.new();config.background_mode=Environment.BG_COLOR;config.background_color=Color("172332");config.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;config.ambient_light_color=Color.WHITE;config.ambient_light_energy=.8;env.environment=config;app.add_child(env)
 		var observer:=Camera3D.new();app.add_child(observer);observer.position=Vector3(-1.05,1.60,-.48);observer.look_at(Vector3(-.4,1.05,.08));observer.near=.01;observer.fov=58;observer.make_current()
-		var label:=Label.new();label.position=Vector2(20,20);label.text="Original X31 yoke and avatar hands · main-stick throttle\nDesktop Forward+ Vulkan · mocked OpenXR tracking";app.add_child(label)
+		var label:=Label.new();label.position=Vector2(20,20);label.text="Original X31 yoke and avatar hands · physical push/pull throttle\nDesktop Forward+ Vulkan · mocked OpenXR tracking";app.add_child(label)
 		for frame in range(8):await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://../runtime/evidence/vehicle-yoke-vulkan.png")
 	body.dominant_hand="left";lt.set_input("primary",Vector2(0,-.56));rt.set_input("primary",Vector2(0,1))
 	driver._physics_process(0)
-	verify(is_equal_approx(float(driver.drive_payload().throttle),-.5),"Handedness selects left main-stick brake and ignores other stick")
+	verify(is_equal_approx(float(driver.drive_payload().throttle),.5),"Joystick and handedness changes do not alter held physical throttle")
 	body.dominant_hand="right";lt.set_input("primary",Vector2.ZERO)
 	lt.set_input("grip",0.0);await process_frame;driver._physics_process(0);driver._process(0);app.tracked_avatar._process(1.0/90)
 	verify(driver.hand_target("left")==null and app.tracked_avatar.hand_target(rig.get_node("LeftHand"),"left")==rig.get_node("LeftHand").global_transform,"Released grip immediately restores visual hand tracking")
 	rt.invalidate_pose("grip");await process_frame;driver._physics_process(0);driver._process(0)
-	verify(driver.hand_target("right")==null and not driver.input.held and driver.drive_payload().throttle==0,"Tracking loss releases yoke and fails throttle closed")
+	verify(driver.hand_target("right") is Transform3D and driver.input.suspended and not driver.input.held and driver.drive_payload().throttle==0,"Tracking loss suspends output while retaining the yoke attachment")
 	driver.unseat();verify(driver.hand_target("left")==null and vehicle.yoke.transform.is_equal_approx(Transform3D.IDENTITY),"Dismount clears hand attachments and yoke pose")
 	var report:Dictionary={"passed":failures.is_empty(),"checks":count,"failures":failures,"hand_error_m":errors,"original_assets":true,"hardware_tested":false,"renderer":"headless dummy" if DisplayServer.get_name()=="headless" else RenderingServer.get_current_rendering_method()}
 	FileAccess.open("res://../runtime/evidence/vehicle-yoke.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report))

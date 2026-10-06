@@ -6,6 +6,7 @@ ROOT=Path(__file__).resolve().parents[2];SCRIPTS=ROOT/'vendor/Core3/MMOCoreORB/b
 sys.path.insert(0,str(ROOT/'tools/assets'))
 from swg_formats import TreSet,parse_iff,cstring
 from interior_layout import template_properties
+from source_metadata import build as source_metadata
 sources=TreSet(ROOT/'runtime/assets/active_tre');provenance={}
 def read(path):
  raw=sources.read(path);provenance[path]={'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),'archive':sources.entries[path][0].name};return raw
@@ -32,7 +33,9 @@ args=[sys.executable,str(ROOT/'tools/assets/prepare_inventory.py')]
 for template in sorted(templates):args+=['--template',template.replace('/shared_','/')]
 subprocess.run(args,check=True,cwd=ROOT)
 subprocess.run([sys.executable,str(ROOT/'tools/combat/prepare_abilities.py')],check=True,cwd=ROOT)
+metadata=source_metadata(read,json.loads((ROOT/'runtime/assets/inventory/catalog.json').read_text()),provenance)
+failures.extend(metadata.pop('failures'))
 out=ROOT/'runtime/assets/scout';out.mkdir(parents=True,exist_ok=True)
-(out/'catalog.json').write_text(json.dumps({'templates':sorted(templates),'camps':camps,'source_hashes':provenance,'failures':failures,'provenance_catalog':'../inventory/catalog.json'},indent=2))
+(out/'catalog.json').write_text(json.dumps({'schema':2,'templates':sorted(templates),'camps':camps,'source_hashes':provenance,'failures':failures,'provenance_catalog':'../inventory/catalog.json',**metadata},indent=2))
 print(json.dumps({'scout_templates':len(templates),'camp_layouts':len(camps),'failures':failures}))
 if failures:raise SystemExit(1)

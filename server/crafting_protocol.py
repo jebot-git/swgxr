@@ -1,4 +1,8 @@
 """Resolve the native crafting transaction; no local recipes or possessions."""
+try:
+ from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
+except ImportError:
+ from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 from copy import deepcopy
 from functools import lru_cache
 import math, re, struct
@@ -19,7 +23,7 @@ def palette(path):
 
 def command(action,data):
  if action not in ('status','open','select','assemble','finish','cancel'):raise ValueError('Unsupported crafting action')
- out={'action':action}
+ out={'action':action,**planet_context(data)}
  if action!='status':
   key=data.get('request_id','')
   if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique request_id required')
@@ -28,8 +32,8 @@ def command(action,data):
   tool=data.get('tool_id')
   if not isinstance(tool,str) or not tool.isdigit() or not 0<int(tool)<2**64:raise ValueError('Owned tool_id required')
   p=data.get('position')
-  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite source Tatooine position required')
-  out.update(tool_id=tool,position=p,planet='tatooine')
+  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite source position required')
+  out.update(tool_id=tool,position=p)
   if 'building_id' in data:
    v=data['building_id'];ci=data.get('cell_index')
    if not isinstance(v,str) or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
@@ -47,6 +51,13 @@ def command(action,data):
   if not isinstance(allocations,list) or len(allocations)>32 or any(not isinstance(s,list) or len(s)>64 or any(not isinstance(i,str) or not i.isdigit() or not 0<int(i)<2**64 for i in s) for s in allocations):raise ValueError('Invalid ingredient allocations')
   out['allocations']=allocations
  if action=='finish':
+  output=data.get('output','prototype')
+  if output not in ('prototype','blueprint'):raise ValueError('Invalid crafting output')
+  out['output']=output
+  if output=='blueprint':
+   limit=data.get('manufacture_limit',1000)
+   if type(limit) is not int or not 1<=limit<=1000:raise ValueError('Invalid manufacturing limit')
+   out['manufacture_limit']=limit
   for field,maximum,count in [('points',10,32),('colors',255,32)]:
    values=data.get(field,[])
    if not isinstance(values,list) or len(values)>count or any(type(v) is not int or not 0<=v<=maximum for v in values):raise ValueError('Invalid '+field)

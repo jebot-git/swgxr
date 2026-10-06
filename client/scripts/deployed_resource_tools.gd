@@ -40,9 +40,9 @@ func vector(value: Variant) -> Variant:
 	return null
 
 func world_position(state: Dictionary) -> Variant:
-	if str(state.get("planet","tatooine"))!="tatooine": return null
+	if is_instance_valid(stage) and str(state.get("planet",stage.get_meta("planet","tatooine")))!=str(stage.get_meta("planet","tatooine")):return null
 	if state.has("world_position"): return vector(state.world_position)
-	if str(state.get("planet","tatooine"))!="tatooine" or not is_instance_valid(stage): return null
+	if not is_instance_valid(stage):return null
 	var source: Variant=vector(state.get("position"))
 	var origin: Variant=vector(stage.get_meta("manifest",{}).get("origin"))
 	if source==null or origin==null: return null

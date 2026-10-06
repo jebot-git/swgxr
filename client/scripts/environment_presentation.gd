@@ -66,17 +66,22 @@ func configure(path: String) -> bool:
 		return false
 	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not data is Dictionary or not data.has("families"):
+		report["error"]="Environment asset manifest is invalid."
 		return false
 	manifest = data
 	directory = path.get_base_dir()
 	cycle_seconds = maxf(60,float(data.get("cycle_seconds",7200)))
 	phase = float(data.get("default_phase",0.25))
 	family = str(data.get("default_family","moseisley"))
+	sky_material.set_shader_parameter("second_sun",manifest.get("celestials",[]).any(func(row):return row.get("tag","")=="SSUN" and row.get("shader") is Dictionary))
+	sky_material.set_shader_parameter("sun_enabled",manifest.get("celestials",[]).any(func(row):return row.get("tag","")=="SUN " and row.get("shader") is Dictionary))
+	sky_material.set_shader_parameter("moon_enabled",manifest.get("celestials",[]).any(func(row):return row.get("tag","")=="MOON" and row.get("shader") is Dictionary))
 	for celestial in manifest.get("celestials",[]):
 		var tag: String = celestial.get("tag","")
 		if tag not in ["SUN ","MOON"]:
 			continue
-		var textures: Array = celestial.get("shader",{}).get("textures",[])
+		var source_shader:Variant=celestial.get("shader")
+		var textures:Array=source_shader.get("textures",[]) if source_shader is Dictionary else []
 		if not textures.is_empty():
 			var image := Image.load_from_file(directory.path_join(textures[0].path))
 			if image != null:
@@ -90,11 +95,10 @@ func configure(path: String) -> bool:
 func bind_world(source_terrain: Node3D, source_stage: Node3D) -> void:
 	terrain = source_terrain
 	stage = source_stage
-	var path := ProjectSettings.globalize_path("res://../runtime/assets/terrain/tatooine.json")
-	if FileAccess.file_exists(path):
-		var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
-		for entry in source.get("environment_families",[]):
-			family_names[int(entry.id)] = entry.name
+	family_names.clear()
+	var source:Variant=source_terrain.get("source_manifest") if is_instance_valid(source_terrain) else null
+	if source is Dictionary:
+		for entry in source.get("environment_families",[]):family_names[int(entry.id)]=entry.name
 
 func set_active(value: bool) -> void:
 	active = value

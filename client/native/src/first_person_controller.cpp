@@ -17,6 +17,7 @@
 namespace godot {
 
 void SwgFirstPersonController::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_grounded"), &SwgFirstPersonController::get_grounded);
     ClassDB::bind_method(D_METHOD("get_ground_provider"), &SwgFirstPersonController::get_ground_provider);
     ClassDB::bind_method(D_METHOD("set_ground_provider", "provider"), &SwgFirstPersonController::set_ground_provider);
     ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "ground_provider", PROPERTY_HINT_NODE_TYPE, "Node3D"), "set_ground_provider", "get_ground_provider");
@@ -60,6 +61,7 @@ void SwgFirstPersonController::set_ground_provider(Node3D *value) {
 }
 
 void SwgFirstPersonController::_ready() {
+    terrain_solver.instantiate();
     set_name("Player");
     set_floor_snap_length(0.35);
     set_safe_margin(0.02);
@@ -87,6 +89,7 @@ void SwgFirstPersonController::_ready() {
 }
 
 void SwgFirstPersonController::reset_spawn() {
+    terrain_grounded=false;
     presentation_height = 0.0;
     movement_locked = false;
     stepped_last_frame = false;
@@ -134,7 +137,7 @@ void SwgFirstPersonController::_physics_process(double delta) {
     Vector3 velocity = get_velocity();
     velocity.x = direction.x * actual_speed;
     velocity.z = direction.z * actual_speed;
-    const bool supported = is_on_floor() || stepped_last_frame;
+    const bool supported = is_on_floor() || stepped_last_frame || terrain_grounded;
     if (!supported) {
         velocity.y -= 20.0 * delta;
     } else {
@@ -142,6 +145,27 @@ void SwgFirstPersonController::_physics_process(double delta) {
     }
     if (!testing && input->is_action_just_pressed("jump")) emit_signal("cosmetic_jump_requested");
     Vector3 horizontal_motion(velocity.x * delta, 0.0, velocity.z * delta);
+    terrain_grounded=false;
+    if((get_collision_mask()&2) && velocity.y<=0 && terrain_solver.is_valid()) {
+        bool authored=false;
+        Node3D *provider=get_ground_provider();
+        if(provider && provider->has_method("collision_context")) {
+            const Dictionary context=provider->call("collision_context",get_global_position());
+            if(int64_t(context.get("building_object_id",0))!=0)authored=true;
+            Object *object=provider->get("ground_support");
+            auto *support=Object::cast_to<SwgGroundSupport>(object);
+            const Array allowed=context.get("allowed_cell_ids",Array());
+            if(support && !allowed.is_empty())authored=authored || bool(support->sample_support(get_global_position(),allowed,0.1,0.1).get("valid",false));
+        }
+        if(!authored) {
+            const Dictionary followed=terrain_solver->move_on_terrain(this,horizontal_motion,max_step_height);
+            if(bool(followed.get("handled",false))) {
+                const Dictionary support=followed.get("support",Dictionary());terrain_grounded=bool(support.get("valid",false));
+                const Vector3 movement=followed.get("motion",Vector3());
+                set_velocity(Vector3(movement.x/delta,0,movement.z/delta));update_camera();return;
+            }
+        }
+    }
     if (supported && velocity.y<=0.0 && delta>0.0) {
         Node3D *provider=get_ground_provider();
         if(provider && provider->has_method("collision_context")) {

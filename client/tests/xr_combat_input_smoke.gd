@@ -1,6 +1,9 @@
 extends SceneTree
 ## Actual XRController3D action/pose reads with mocked runtime-neutral trackers.
 const Rig = preload("res://combat/ranged_rig.gd")
+class ScoutBadge extends Node3D:
+	func mask_entry()->Dictionary:return {"id":"mask_scent","label":"Mask Scent","source_command":"maskscent"}
+	func dna_entry()->Dictionary:return {}
 var checks := 0
 var errors: Array[String] = []
 var trackers: Array[XRPositionalTracker] = []
@@ -164,6 +167,17 @@ func run() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/combat-source-stow-mounts.png"))
 		observer.queue_free()
+	rig.stow();rig.dominant="right"
+	var scout_badge:=ScoutBadge.new();root.add_child(scout_badge);rig.scout=scout_badge
+	rig.abilities.replace_selection(scout_badge.mask_entry(),"scout");rig.update_visuals()
+	check(rig.ability_ui.badge.visible and rig.ability_ui.badge.global_position.is_equal_approx(right_node.global_position+Vector3.UP*.23),"Mask Scent has a physical dominant-hand anchor")
+	right.invalidate_pose("grip");right.invalidate_pose("aim");await process_frame;rig.update_visuals()
+	check(not rig.ability_ui.badge.visible and not rig.ability_ui.status.visible,"Lost controller tracking hides Mask Scent rather than pinning it to the head")
+	pose(right,Transform3D(Basis.IDENTITY,Vector3(.25,1.1,-.4)));await process_frame;rig.update_visuals()
+	check(rig.ability_ui.badge.visible and rig.ability_ui.badge.global_position.is_equal_approx(right_node.global_position+Vector3.UP*.23),"Tracking restoration returns the ability badge to the hand")
+	rig.ability_ui.open_on_hand([{"id":"ch_train:1","label":"Train attack"}],right_node,camera)
+	check(rig.ability_ui.menu_open and rig.ability_ui.entries.size()==1 and rig.ability_ui.panel.get_child_count()==4,"Native text-only pet options produce a complete selectable radial page without missing-icon errors")
+	rig.close_ability_menu();rig.scout=null;scout_badge.free();rig.abilities.replace_selection({})
 	var inventory:=preload("res://scripts/xr_inventory.gd").new();root.add_child(inventory);inventory.configure(origin,body);inventory.set_process(false);inventory.set_allowed(true)
 	inventory.set_hip_tool({"id":"owned-tool","template":"object/tangible/survey_tool/survey_tool_mineral.iff","tool_kind":"survey"});rig.inventory=inventory
 	# Recover through actual controller action edges after looking away from locomotion.

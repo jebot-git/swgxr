@@ -43,6 +43,19 @@ class RemoteLauncherTest(unittest.TestCase):
         self.remote.request_json.return_value={'backend':'core3','core3':{'ready':True}}
     def tearDown(self):
         self.stack.close();self.temporary.cleanup()
+    def test_planet_readiness_requires_actual_manifests(self):
+        path=self.root/'runtime/assets/planets/catalog.json';path.parent.mkdir(parents=True)
+        component=self.root/'component.json';component.write_text('{}')
+        row={key:str(component) for key in ('terrain','terrain_context','world','environment','services','ambient_npcs','ambient_placements','entities')}
+        row.update(planet='naboo',ready=True)
+        path.write_text(json.dumps({'schema_version':1,'planets':{'naboo':row}}))
+        self.assertEqual(launcher.planet_assets(['--planet=naboo']),['naboo'])
+        component.unlink()
+        with self.assertRaisesRegex(ValueError,'manifests are missing'):launcher.planet_assets(['--planet=naboo'])
+        row['ready']=False
+        path.write_text(json.dumps({'schema_version':1,'planets':{'naboo':row}}))
+        with self.assertRaisesRegex(ValueError,'not prepared'):launcher.planet_assets(['--planet=naboo'])
+
     def test_remote_launch_starts_no_local_server_or_container(self):
         with patch.object(launcher,'connection_arguments',return_value=(['--desktop','--connection-profile=/private/profile.json'],self.remote)):
             self.assertEqual(launcher.run(),0)

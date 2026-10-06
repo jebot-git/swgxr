@@ -40,12 +40,20 @@ python3 tools/assets/prepare_mission_assets.py
 python3 tools/assets/validate_inventory.py
 python3 tools/assets/prepare_services.py
 python3 tools/assets/prepare_bazaar_categories.py
+python3 tools/assets/prepare_professions.py
+python3 tools/entertainment/prepare_assets.py
+python3 tools/entertainment/prepare_image_design.py
+python3 tools/crafting/prepare_assets.py
+python3 tools/assets/prepare_vendors.py
 python3 tools/assets/prepare_corpses.py --planet tatooine
 python3 tools/vehicles/prepare_assets.py
 python3 tools/assets/refresh_static_materials.py --ensure
 python3 tools/assets/validate_corpses.py
+# Reconstruct all original ground worlds, retaining per-source limitations.
+python3 tools/assets/prepare_planets.py
 python3 tools/combat/export_catalog.py
 python3 tools/combat/prepare_assets.py
+python3 tools/pets/prepare_bounds.py --ensure
 tools/client/build_native.sh
 python3 tools/client/install_xr_tools.py
 python3 tools/client/install_steam_audio.py

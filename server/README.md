@@ -332,9 +332,18 @@ No live headset validation is claimed.
 
 `0030-vr-vehicles.patch` adds a native vehicle facade to the existing authenticated
 live session. `POST /vehicles/{status,call,board,dismount,store}` requires that
-session and its owned character. Regular live updates carry only bounded
-`vehicle_controls: {held, throttle, steer}`; client transforms do not move a
-seated character. Snapshots contain nearby vehicles, persistent native control
+session and its owned character. Legacy live updates carry bounded
+`vehicle_controls: {held, throttle, steer}`. Prepared patch
+`0058-client-vehicle-motion.patch` advertises `driver_motion: "client_pose"`
+and accepts the owned driver's collision-resolved `vehicle_id`, `position`,
+`heading_radians`, and `speed`, while retaining native seat ownership, condition,
+and speed limits. The client switches only after this capability is advertised;
+older servers retain their legacy control integration. The new Core3 patch now
+compiles and passes 14 running local Core3 checks, including passenger replication,
+rejected foreign/speed/boundary inputs, stale stopping and legacy controls
+(`python3 tools/vehicles/client_motion_smoke.py`). The Tatooine-only VPS deployment
+and authenticated HTTPS capability/session checks passed on 2026-10-05; VR testing
+was skipped at the user's request. Snapshots contain nearby vehicles, persistent native control
 devices, seat occupants, source movement statistics, and forced-exit revisions.
 The adapter never owns a parallel vehicle inventory.
 
@@ -344,8 +353,10 @@ drive or store; nonhostile players can use an empty passenger seat. The VR seat
 reservation replaces legacy single-rider containment so passengers and tools
 work without imposing mount animation or command restrictions on tracked arms.
 Native condition/decay, run/walk speed, acceleration and turn rate persist.
-Reverse uses native walk speed. Input release/staleness brakes; source terrain,
-world boundaries and hull-corner collision sweeps constrain movement. Shuttle
+Reverse uses native walk speed. In legacy mode, input release/staleness brakes;
+native source terrain, world boundaries and hull-corner collision sweeps constrain
+movement. With the negotiated client-pose mode, local resident terrain and source
+solid hull sweeps resolve driver motion, without delayed server control echoes. Shuttle
 boarding requires dismounting first. Vehicle-shot origin validation allows a
 bounded speed-dependent presentation delay, without increasing weapon range.
 
@@ -367,6 +378,16 @@ critically damped vehicle-frame filter bounds correction acceleration. The
 rendered vehicle, seat, body and camera use the same render-frame pose; a fixed
 seat-local origin prevents cumulative transform drift. Riding does not falsely
 count the low seat-relative head height as crouching/prone combat bonuses.
+Driver grips bind the corresponding original left/right model contacts regardless
+of controller reach. Landspeeder push/pull along model Z controls throttle/brake;
+the original wheel-plane arc steers vehicle yaw without lateral strafing. Bikes
+retain wrist-twist throttle and their original handlebar geometry pivots around
+model UP, moving opposing grips fore/aft. All six source steering assemblies move.
+Controls retain their state while either grip is held, including hand transfers.
+Both released grips restore neutral. Tracking/focus loss suspends output and
+preserves the latched visual pose; reacquisition rebases without an input jump.
+A valid physical release still detaches while a menu blocks driving. Only avatar
+hand bones snap to the source contacts; HMD/controller tracking stays untouched.
 Driver controls reserve only the gripping hand, preserving the existing weapon,
 medical focus and inventory interactions in free hands. Jump dismount takes
 priority over the offhand medical wheel while seated.

@@ -164,8 +164,11 @@ class InventoryImporter:
                     meshes.append(part['mesh']['source'])
                     for value in part['mesh']['surfaces']:
                         surface = copy.deepcopy(value)
-                        for key in ('bones', 'weights', 'triangle_zones', 'blend_shapes'):
+                        for key in ('bones', 'weights', 'triangle_zones'):
                             surface.pop(key, None)
+                        if server.startswith('object/mobile/vendor/'):
+                            surface['bones']=[];surface['weights']=[]
+                        else:surface.pop('blend_shapes',None)
                         surfaces.append(surface)
                 descriptor.update(material_pipeline='original_character', pose_policy='original MGN bind-space vertices, frozen for item presentation; not an animated wearable')
             else:
@@ -188,6 +191,9 @@ class InventoryImporter:
             model = {'schema_version': 1, 'coordinate_system': 'Godot Y-up; original SWG Z mirrored; original object/bind origin retained',
                      'source_appearance': appearance, 'source_meshes': meshes, 'surfaces': surfaces,
                      'material_pipeline': descriptor['material_pipeline'], 'bounds_min': minimum, 'bounds_max': maximum}
+            if server.startswith('object/mobile/vendor/'):
+                model['blend_shapes']=sorted({name for surface in surfaces for name in surface.get('blend_shapes',{})})
+                descriptor['vendor_morphs']=True
             encoded = json.dumps(model, separators=(',', ':')).encode()
             digest = hashlib.sha256(encoded).hexdigest()
             relative = 'models/' + digest[:24] + '.json'

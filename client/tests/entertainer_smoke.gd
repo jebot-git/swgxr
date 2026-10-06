@@ -6,6 +6,15 @@ class ControlHost extends Node:
 	var datapad: Node
 	var combat_rig: Node
 
+class NativeStub extends Node:
+	var calls:Array=[]
+	var design_ui:Node
+	func image_eligible()->bool:return false
+	func group_available()->bool:return false
+	func request(action:String,detail:Dictionary={})->Dictionary:
+		calls.append({"action":action,"detail":detail});return {}
+	func reset()->void:calls.clear()
+
 class GroundedFeedback extends "res://combat/player_feedback.gd":
 	func physical() -> Dictionary:
 		return {"posture":0,"eye_height":1.7,"grounded":true,"tracked":true}
@@ -30,37 +39,38 @@ func check_performance_controls() -> void:
 	var performer := preload("res://entertainment/controller.gd").new()
 	host.add_child(performer)
 	performer.set_physics_process(false); performer.set_process(false)
+	performer.native.free();performer.native=NativeStub.new();performer.add_child(performer.native)
 	performer.host=host; performer.body=body; performer.head=camera
 	performer.token="test-session"; performer.context={"entertainer":true}
 	performer.active_performance={"id":"dance:basic:dance"}; performer.since_reply=0
 	body.feedback.performer=performer
 	performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.actions.size()==1 and performer.actions[0].action=="flourish","A starts a flourish while performing")
+	check(performer.native.calls.size()==1 and performer.native.calls[0].action=="flourish","A starts a flourish while performing")
 	for frame in range(90): performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.actions.size()==1,"Holding A does not repeat flourish requests")
+	check(performer.native.calls.size()==1,"Holding A does not repeat flourish requests")
 	performer.sample_menu(false,Vector2.ZERO,false,true)
 	performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.actions.size()==2,"A release and fresh press requests another flourish")
-	performer.actions.clear()
-	check(body.feedback.request_jump().action=="jump" and performer.actions.is_empty(),"Jump during performance remains cosmetic jump, not flourish")
+	check(performer.native.calls.size()==2,"A release and fresh press requests another flourish")
+	performer.native.calls.clear()
+	check(body.feedback.request_jump().action=="jump" and performer.native.calls.is_empty(),"Jump during performance remains cosmetic jump, not flourish")
 	body.feedback.motion.reset()
 	body.feedback.receive_knockdown()
 	body.feedback.motion.advance(0.5,0,1.7,true)
-	check(body.feedback.request_jump().action=="recover" and performer.actions.is_empty(),"Jump still recovers from knockdown without requesting flourish")
+	check(body.feedback.request_jump().action=="recover" and performer.native.calls.is_empty(),"Jump still recovers from knockdown without requesting flourish")
 	performer.sample_menu(false,Vector2.ZERO,false,true)
 	performer.ui.open([{"id":"stop","label":"Stop","source_command":"stopmusic"}],Transform3D.IDENTITY)
 	performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.actions.is_empty(),"A cannot flourish through an open radial menu")
+	check(performer.native.calls.is_empty(),"A cannot flourish through an open radial menu")
 	performer.ui.close()
 	performer.sample_menu(false,Vector2.ZERO,false,true)
 	performer.sample_menu(false,Vector2.ZERO,true,false)
 	performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.actions.is_empty(),"Tracking recovery does not replay a held A press")
+	check(performer.native.calls.is_empty(),"Tracking recovery does not replay a held A press")
 	performer.active_performance={}
 	performer.selected={"id":"dance:basic:dance"}
 	performer.sample_menu(false,Vector2.ZERO,false,true)
 	performer.sample_menu(false,Vector2.ZERO,true,true)
-	check(performer.primed and performer.actions.is_empty(),"Outside performance A still primes the selected ability")
+	check(performer.primed and performer.native.calls.is_empty(),"Outside performance A still primes the selected ability")
 	host.free()
 
 func run() -> void:
@@ -79,8 +89,8 @@ func run() -> void:
 				"percussion": off=main+Vector3(0,0.28+0.15*cos(t*TAU*2),0)
 				"strings": off=main+Vector3(-0.10,0.14*sin(t*TAU*2),0)
 				"keyboard": main.y+=0.08*sin(t*TAU*2); off.y-=0.08*sin(t*TAU*2)
-				"dance": main.x+=0.24*sin(t*TAU*1.5)
-			triggered = gesture.sample(1.0/90,kind,head,pose(main),pose(off),true) or triggered
+				"dance": main=Vector3(.5,1.25+.12*sin(t*TAU*1.5),-.4);off=Vector3(-.5,1.25-.12*sin(t*TAU*1.5),-.4)
+			triggered = gesture.sample(1.0/90,kind,head,pose(main),pose(off),true,{"main_open":true,"off_open":true,"main_down":true,"off_down":true}) or triggered
 		check(triggered,"Deliberate "+kind+" motion starts performance")
 	for kind in ["percussion","strings","keyboard","dance"]:
 		gesture.reset()
@@ -107,8 +117,7 @@ func run() -> void:
 	check(assets.load_catalog() and assets.catalog.performances.size()==154,"Original music and dance catalog loads")
 	check(assets.catalog.failures.is_empty(),"All original performance clips, samples and icons exported")
 	var context := {"complete":true,"commands":["startdance+basic","startdance+rhythmic","startmusic+starwars1","slitherhorn"]}
-	var ribbon := {"template":"object/static/item/item_ribbon.iff"}
-	check(assets.performances(context,ribbon).size()==2,"Ribbon exposes exactly the novice's learned dances")
+	check(assets.performances(context,{}).size()==2,"Empty hands expose exactly the novice's learned dances")
 	check(assets.performances(context,{"template":"object/tangible/instrument/nalargon.iff"}).is_empty(),"Unlearned instrument has no songs")
 	var menu := preload("res://combat/ability_hologram.gd").new()
 	root.add_child(menu)

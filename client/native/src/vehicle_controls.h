@@ -5,9 +5,11 @@
 namespace godot {
 class SwgVehicleControls : public RefCounted {
  GDCLASS(SwgVehicleControls,RefCounted)
- struct Grip {bool held=false,armed=true;Transform3D neutral;Vector3 pivot;int handle=-1;};
+ struct Grip {bool held=false;Transform3D reference;};
  Grip hands[2];
- double wheel_angle=0;
+ double wheel_angle=0, throttle_offset=0, twist_angle=0;
+ double reference_angle=0, reference_offset=0, reference_twist=0;
+ bool reference_ready=false;
  Transform3D view;Vector3 view_velocity;double view_yaw_velocity=0;bool view_ready=false;
 protected:static void _bind_methods();
 public:

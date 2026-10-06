@@ -29,11 +29,11 @@ def strings(text):
 
 DEFAULT_CATALOGS = [ROOT / 'runtime/assets' / p / 'catalog.json' for p in (
     'combat_population/mos_eisley_easy', 'combat_population/native_current',
-    'combat_population/tatooine', 'ambient_npcs')]
+    'combat_population/tatooine', 'combat_population/tatooine_entities', 'ambient_npcs')]
 
 
-def source_union():
-    manifest, _ = export()
+def source_union(planet="tatooine"):
+    manifest, _ = export(planet=planet)
     scripts = ROOT / 'vendor/Core3/MMOCoreORB/bin/scripts'
     sources = manifest['provenance']['files_sha256']
     paths = {}; texts = {}; failures = manifest['failures']; refs = {}; duplicate_registry = []
@@ -61,12 +61,12 @@ def source_union():
                 continue
             paths[name] = path; texts[name] = text
     selected = set(manifest['mobiles'])
-    selected.update(name for name, path in paths.items() if 'tatooine' in path.relative_to(scripts / 'mobile').parts)
+    selected.update(name for name, path in paths.items() if planet in path.relative_to(scripts / 'mobile').parts)
     screens = {}; dynamic = []
     for path in (scripts / 'screenplays').rglob('*.lua'):
         text = clean(path.read_text(errors='replace'))
         # Mixed-planet screenplays intentionally select a conservative superset.
-        if 'tatooine' not in str(path).lower() and 'tatooine' not in strings(text):
+        if planet not in str(path).lower() and planet not in strings(text):
             continue
         text = read(path); values = strings(text)
         names = sorted(set(values) & paths.keys()); selected.update(names)
@@ -105,7 +105,7 @@ def source_union():
         except (ValueError,OSError) as exc: failures.append(dict(mobile=name,error=str(exc)))
     templates = sorted({t for record in resolved.values() for t in record['appearance_templates']})
     manifest.update(mobiles=resolved, screenplay_sources=screens, dynamic_spawn_references=dynamic,duplicate_mobile_registrations=duplicate_registry,
-                    selection_policy='Conservative union: all Tatooine mobile definitions, all referenced region lairs, all exact registered-mobile strings in Tatooine-named or Tatooine-referencing screenplays; no runtime Lua or spawn authority',
+                    selection_policy='Conservative union: all selected-planet mobile definitions, all referenced region lairs, all exact registered-mobile strings in selected-planet-named or selected-planet-referencing screenplays; no runtime Lua or spawn authority',
                     appearance_templates=templates)
     return manifest
 
@@ -128,14 +128,14 @@ def coverage(manifest, paths):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--planet',choices=['tatooine'],default='tatooine')
+    parser.add_argument('--planet',choices=('corellia','dantooine','dathomir','endor','lok','naboo','rori','talus','tatooine','yavin4'),default='tatooine')
     parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/combat_population/tatooine_entities')
     parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
     parser.add_argument('--index-only',action='store_true')
     parser.add_argument('--retry-missing',action='store_true')
     args=parser.parse_args();args.out=args.out.resolve();args.out.mkdir(parents=True,exist_ok=True)
-    manifest=source_union();(args.out/'sources.json').write_text(json.dumps(manifest,indent=2)+'\n')
-    paths=DEFAULT_CATALOGS+[args.out/'catalog.json'];before=coverage(manifest,paths)
+    manifest=source_union(args.planet);(args.out/'sources.json').write_text(json.dumps(manifest,indent=2)+'\n')
+    paths=DEFAULT_CATALOGS+sorted((ROOT/'runtime/assets/planets').glob('*/entities/catalog.json'))+sorted((ROOT/'runtime/assets/planets').glob('*/ambient/catalog.json'))+[args.out/'catalog.json'];before=coverage(manifest,paths)
     selected=[key for key,value in before['templates'].items() if value['status']=='missing']
     previous=args.out/'attempted_templates.json'
     attempted=json.loads(previous.read_text()) if previous.exists() else []
@@ -150,6 +150,8 @@ def main():
         subprocess.run([sys.executable,str(ROOT/'tools/assets/prepare_npcs.py'),'--tre-dir',str(args.tre_dir),'--out',str(args.out),'--placements',str(request),'--merge'],check=True)
         previous.write_text(json.dumps(sorted(set(attempted+selected)),indent=2)+'\n')
         subprocess.run([sys.executable,str(ROOT/'tools/assets/refresh_npc_death_poses.py'),str(args.out)],check=True)
+    if not (args.out/'catalog.json').exists():
+        (args.out/'catalog.json').write_text(json.dumps(dict(schema_version=1,races={},provenance={},failures=[],policy='All selected appearances reused from explicit coverage catalogs; no local placeholders'))+'\n')
     report=coverage(manifest,paths);(args.out/'coverage.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report['counts']),flush=True)
 

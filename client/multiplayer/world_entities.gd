@@ -65,7 +65,9 @@ func _process(_delta:float)->void:
 	for id in desired:
 		if actors.has(id):continue
 		var actor:=Actor.new();add_child(actor)
-		if actor.configure(desired[id],session_id,assets,dead_assets,ProjectSettings.globalize_path("res://../runtime/assets/combat_population/native_current/catalog.json")):
+		var context:Variant=app.get("planet_assets")
+		if context is Dictionary:actor.catalog_candidates=context.get("entity_catalogs",[]).duplicate()
+		if actor.configure(desired[id],session_id,assets,dead_assets,preload("res://scripts/planet_catalog.gd").context_path(app,"entities","res://../runtime/assets/combat_population/native_current/catalog.json")):
 			actors[id]=actor;actor.add_to_group("swg_radar_contacts");apply_actor(actor,desired[id],true)
 		else:actor.free()
 		created+=1

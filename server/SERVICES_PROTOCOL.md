@@ -54,14 +54,17 @@ sequence and transport must be reconciled with other persistent session replies.
   opens the original crafting flow with that tool. See CRAFTING_PROTOCOL.md for
   the separate crafting `session_id` and persistent `live_session_id` fields.
 - `travel_purchase`: native `terminal_id`, `destination_id` (original travel
-  point name), optional `round_trip`. Original route, city ban/tax, fare and bag
+  point name), `destination_planet` (original ground zone; omitted legacy calls use
+  the current zone), optional `round_trip`. Original route, city ban/tax, fare and bag
   checks apply. If Core3 offers a new-player coupon dialog, this credit-purchase
   action selects the original pay-credits callback; it does not consume a coupon.
 - `travel_board`: exact owned top-level `ticket_id`. Its departure must match
   the current source travel point before the original boarding command runs.
-  Boarding requires the source shuttle state and 25 m range. Only rendered
-  Tatooine destinations are exposed and accepted; other planets are rejected
-  before consuming a ticket. Successful travel returns the original randomized
+  Boarding requires the source shuttle state and 25 m range. The ten original
+  ground zones are supported; available destinations are the loaded native zones
+  and original permitted travel routes. Client readiness additionally rejects
+  missing destination assets before sending purchase or boarding requests.
+  Successful travel returns the original randomized
   destination and consumes the selected ticket. Live travel creates a pending
   `{id,kind:shuttle,destination}` transport using the existing validated position
   acknowledgment; stale pre-travel movement cannot undo it.

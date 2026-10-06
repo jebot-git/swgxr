@@ -81,6 +81,11 @@ func run()->void:
 		check(vehicle.requests.size()==1,"No droid recall during "+reason)
 		vehicle.body.active=true;vehicle.body.tracked=true;vehicle.body.feedback.blocked=false;vehicle.age=0;pets.set_allowed(true);pets._process(.016)
 		check(vehicle.requests.size()==1,"Restored "+reason+" requires a new release/regrip")
+	vehicle.state.pet_datapad[0].pet_kind="creature";vehicle.state.pet_datapad[0].spawned=false
+	pets.merge_datapad();pad.ui.select_category("pets")
+	check(pad.ui.selected_entry.native_pet and not pad.ui.selected_entry.native_droid and pad.ui.vehicle_button.text=="Call pet","Bio-engineered creature control devices are callable from datapad")
+	pad.ui.vehicle_button.pressed.emit()
+	check(vehicle.requests.back().action=="pet_call" and vehicle.requests.back().detail.device_id=="88","Creature pets use the same authoritative call path")
 	for tracker in trackers:XRServer.remove_tracker(tracker)
 	var report:Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"renderer":"dummy","native_execution":false,"headset_tested":false}
 	FileAccess.open("res://../runtime/evidence/core2/datapad-recall-ui.json",FileAccess.WRITE).store_string(JSON.stringify(report,"\t"));print(JSON.stringify(report));host.free();quit(0 if errors.is_empty() else 1)

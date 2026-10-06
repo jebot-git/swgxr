@@ -1,0 +1,282 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -0,0 +1,105 @@
++#ifndef SWGXR_ENTERTAINER_H
++#define SWGXR_ENTERTAINER_H
++#include "SwgxrServices.h"
++#include "SwgxrImageDesign.h"
++#include "RegisterWithLocationCommand.h"
++#include "server/zone/objects/player/sessions/EntertainingSession.h"
++#include "server/zone/managers/skill/PerformanceManager.h"
++#include "server/zone/objects/player/variables/Ability.h"
++#include <chrono>
++// This bridge invokes the original command/session implementation. It never
++// grants skills, XP, buffs, money or a client-defined planetary map location.
++class SwgxrEntertainer {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static std::string str(const String& s){return s.toCharArray();}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static ManagedReference<EntertainingSession*> session(CreatureObject* c){return c->getActiveSession(SessionFacadeType::ENTERTAINING).castTo<EntertainingSession*>();}
++ static const QueueCommand* command(CreatureObject* c,const std::string& name){auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name.c_str());if(!cmd)throw std::runtime_error("native_entertainer_command_missing");return cmd;}
++ static void invoke(CreatureObject* c,const std::string& name,const std::string& args="",uint64 target=0){if(command(c,name)->doQueueCommand(c,target,UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS)throw std::runtime_error("native_entertainer_command_rejected:"+name);}
++ static Json registration(CreatureObject* c){
++  Json out={{"eligible",false},{"registered",false},{"building_id","0"},{"zone",SwgxrPlanets::name(c)},{"reason","supported_native_building_required"}};
++  auto root=c->getRootParent();auto b=cast<BuildingObject*>(root);if(b==nullptr)return out;
++  auto pos=b->getWorldPosition();auto category=b->getPlanetMapCategory();out["building_id"]=id(b);out["name"]=str(b->getDisplayedName());out["position"]=Json::array({pos.getX(),pos.getZ(),pos.getY()});out["category"]=category?str(category->getName()):"";out["registered"]=b->isPlayerRegisteredWithin(c->getObjectID());
++  auto cmd=dynamic_cast<const RegisterWithLocationCommand*>(command(c,"registerwithlocation"));if(!cmd)throw std::runtime_error("native_registration_command_missing");
++  bool skills=(cmd->isInEntertainingBuilding(c,b) && cmd->isNoviceEntertainer(c)) || (cmd->isInMedicalBuilding(c,b) && cmd->isNoviceDoctor(c));
++  if(!skills){out["reason"]="original_location_or_profession_requirements";return out;}
++  if(!c->getZone()->isObjectRegisteredWithPlanetaryMap(b)){out["reason"]="building_not_registered_on_native_planetary_map";return out;}
++  if((c->isNeutral() && !b->isNeutral()) || (c->isImperial() && b->isRebel()) || (c->isRebel() && b->isImperial())){out["reason"]="original_faction_registration_restriction";return out;}
++  out["eligible"]=true;out["reason"]="";return out;
++ }
++ static Json choices(CreatureObject* c){
++  Json out=Json::array();auto ghost=c->getPlayerObject();for(int n=1;n<=8;++n)if(ghost->hasAbility(String(("flourish+"+std::to_string(n)).c_str())))out.push_back({{"command","flourish"},{"index",n}});
++  auto s=session(c);if(s==nullptr || (!s->isDancing() && !s->isPlayingMusic()))return out;
++  auto pm=SkillManager::instance()->getPerformanceManager();const char* names[]={"","dazzle","distract","spotlight","colorlights","smokebomb","firejet","ventriloquism"};
++  const int ability=c->getSkillMod(s->isDancing()?"healing_dance_mind":"healing_music_mind");
++  for(int effect=1;effect<=7;++effect){if(!ghost->hasAbility(names[effect]))continue;for(int level=3;level>=1;--level){auto e=pm->getPerformEffect(effect,level);if(!e || ability<e->getRequiredSkillModValue() || (s->isDancing() && !e->isDanceEffect()) || (s->isPlayingMusic() && !e->isMusicEffect()))continue;
++   if(e->getTargetType()==PerformEffect::TARGET_OTHER){auto target=c->getZoneServer()->getObject(c->getTargetID());if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,32))continue;}
++   out.push_back({{"command",names[effect]},{"level",level},{"effect_id",effect},{"effect_file",str(e->getEffectFile())},{"duration",e->getEffectDuration()}});break;
++  }}return out;
++ }
++ static Json nearbyPlayers(CreatureObject* c,bool requireGroup=true){
++  Json rows=Json::array({{{"id",id(c)},{"name",str(c->getFirstName())},{"self",true},{"in_same_group",true}}});SortedVector<TreeEntry*> objects(64,64);auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),8,&objects,true);
++  for(int i=0;i<objects.size() && rows.size()<32;++i){auto object=static_cast<SceneObject*>(objects.get(i));if(object==c || !object->isPlayerCreature())continue;auto peer=object->asCreatureObject();if(peer->getZone()!=c->getZone() || peer->getParentID()!=c->getParentID() || !peer->isOnline() || peer->isDead() || peer->isInvisible() || !c->isInRange(peer,8))continue;
++   bool grouped=c->isGrouped() && c->getGroupID()==peer->getGroupID();if(grouped || !requireGroup)rows.push_back({{"id",id(peer)},{"name",str(peer->getFirstName())},{"self",false},{"in_same_group",grouped}});
++  }return rows;
++ }
++ static Json activeLocations(CreatureObject* c){
++  Json rows=Json::array();std::set<uint64> seen;
++  for(auto category:{"cantina","hotel","theater","guild_theater","tavern","medicalcenter","imperial","rebel"}){
++   auto entries=c->getZone()->getPlanetaryObjectList(category);
++   for(int i=0;i<entries.size();++i){auto b=entries.get(i).castTo<BuildingObject*>();if(b==nullptr || !b->hasRegisteredProfessionals() || !seen.insert(b->getObjectID()).second)continue;
++    if(rows.size()>=256)return rows;auto p=b->getWorldPosition();rows.push_back({{"id",id(b)},{"building_id",id(b)},{"name",str(b->getDisplayedName())},{"position",Json::array({p.getX(),p.getZ(),p.getY()})},{"zone",SwgxrPlanets::name(c)},{"category",category},{"registered",true},{"native_icon",2}});
++   }
++  }return rows;
++ }
++public:
++ static Json snapshot(CreatureObject* c){
++  auto s=session(c);auto commands=Json::array();auto a=c->getPlayerObject()->getAbilityList();for(int i=0;i<a->size();++i)commands.push_back(str(a->get(i)->getAbilityName()));
++  auto flourishes=Json::array();for(int i=1;i<=8;++i)if(c->getPlayerObject()->hasAbility(String(("flourish+"+std::to_string(i)).c_str())))flourishes.push_back(i);
++  auto instrument=c->getPlayableInstrument();bool dancing=s && s->isDancing(),music=s && s->isPlayingMusic();
++  auto inviter=c->getZoneServer()->getObject(c->getGroupInviterID()).castTo<CreatureObject*>();
++  return {{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
++ }
++ static Json run(CreatureObject* c,const Json& q){
++  SwgxrPlanets::require(c,q);auto action=q.value("action",std::string("status"));auto ghost=c->getPlayerObject();auto mutation=Json{{"success",true},{"operation",action}};
++  Json receipts=Json::array();auto text=ghost->getScreenPlayData("swgxr_entertainer","receipts");if(!text.isEmpty())receipts=Json::parse(text.toCharArray());
++  Json semantic=q;for(auto field:{"position","heading_radians","building_id","cell_index","zone","planet"})semantic.erase(field);
++  auto key=q.value("request_id",std::string());if(action!="status"){
++   if(key.size()<8 || key.size()>64)throw std::runtime_error("entertainer_request_id_required");
++   for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=semantic)throw std::runtime_error("entertainer_request_id_reused");mutation=receipt["mutation"];mutation["replayed"]=true;return {{"backend","core3"},{"source_kind","core3_entertainer"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};}
++   if(c->isDead() || c->isIncapacitated() || c->isInCombat())throw std::runtime_error("native_player_unavailable");
++  }
++  if(action.rfind("image_",0)==0){auto result=SwgxrImageDesign::run(c,q);mutation=result.at("mutation");}
++  else if(action=="group_invite"){
++   auto target=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>()));if(!target || !target->isPlayerCreature() || target==c || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,32))throw std::runtime_error("nearby_group_player_required");invoke(c,"invite","",target->getObjectID());
++  }else if(action=="group_join"){invoke(c,"join");}
++  else if(action=="group_leave"){invoke(c,"leavegroup");}
++  else if(action=="perform"){
++   auto kind=q.at("kind").get<std::string>(),name=q.at("name").get<std::string>();auto pm=SkillManager::instance()->getPerformanceManager();
++   auto current=session(c);bool active=current && (current->isDancing() || current->isPlayingMusic());if(active && current->isPerformingOutro())throw std::runtime_error("native_music_outro_pending");if(active && ((kind=="dance")!=current->isDancing()))throw std::runtime_error("stop_current_performance_before_changing_kind");
++   if(kind=="music"){
++    auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>())).castTo<Instrument*>();if(item==nullptr || !item->isASubChildOf(c))throw std::runtime_error("owned_instrument_required");
++    int index=pm->getPerformanceIndex(PerformanceType::MUSIC,String(name.c_str()),item->getInstrumentType());if(!index || !pm->canPlayInstrument(c,item->getInstrumentType()) || !pm->canPlaySong(c,index))throw std::runtime_error("unlearned_original_music");
++    if(c->getPlayableInstrument()!=item){bool equipped=false;for(int n=0;n<item->getArrangementDescriptorSize();++n){auto plan=SwgxrEquipment::arrangement(item,c,n);if(plan.value("available",false)){auto result=SwgxrEquipment::mutate(c,String(("swgxr_inventory_v1 equip "+id(item)+" "+std::to_string(n)).c_str()));if(!result.value("success",false))throw std::runtime_error("native_instrument_equip_failed");equipped=true;break;}}if(!equipped || c->getPlayableInstrument()!=item)throw std::runtime_error("native_instrument_requires_deployed_placement");}
++   }else if(kind!="dance")throw std::runtime_error("invalid_performance_kind");
++   invoke(c,active?(kind=="dance"?"changedance":"changemusic"):(kind=="dance"?"startdance":"startmusic"),name);auto started=session(c);if(started==nullptr || (kind=="dance"?!started->isDancing():!started->isPlayingMusic()))throw std::runtime_error("native_performance_not_started");mutation["performance_index"]=started->getPerformanceIndex();
++  }else if(action=="stop"){
++   auto s=session(c);if(s && (s->isDancing() || s->isPlayingMusic()))invoke(c,s->isDancing()?"stopdance":"stopmusic");
++  }else if(action=="register_location"){
++   auto before=registration(c);if(!before["eligible"].get<bool>())throw std::runtime_error(before["reason"].get<std::string>());invoke(c,"registerwithlocation");auto after=registration(c);if(!after["registered"].get<bool>())throw std::runtime_error("native_registration_not_confirmed");mutation["registration"]=after;
++  }else if(action=="flourish"){
++   auto s=session(c);if(!s || (!s->isDancing() && !s->isPlayingMusic()))throw std::runtime_error("native_performance_required");if(!c->checkCooldownRecovery("swgxr_entertainer_flourish"))throw std::runtime_error("native_flourish_cooldown");
++   auto available=choices(c),eligible=Json::array();auto pm=SkillManager::instance()->getPerformanceManager();
++   for(auto choice:available){auto cmd=choice["command"].get<std::string>();if(cmd=="flourish")eligible.push_back(choice);else{auto effect=pm->getPerformEffect(choice["effect_id"].get<int>(),choice["level"].get<int>());int cost=c->calculateCostAdjustment(CreatureAttribute::QUICKNESS,effect->getEffectActionCost());if(c->checkCooldownRecovery("performing_entertainer_effect") && c->getHAM(CreatureAttribute::ACTION)>cost)eligible.push_back(choice);}}
++   if(eligible.empty())throw std::runtime_error("no_available_learned_flourishes");auto choice=eligible[System::random(int(eligible.size())-1)];auto cmd=choice["command"].get<std::string>();std::string args=std::to_string(choice.value("index",choice.value("level",0)));double duration=0;
++   if(cmd=="flourish"){auto p=pm->getPerformanceFromIndex(s->getPerformanceIndex());if(!p)throw std::runtime_error("native_performance_missing");float base=std::max(0,p->getActionPointsPerLoop()-int(c->getHAM(CreatureAttribute::QUICKNESS)/35.f));int cost=int(round((base*.5f*10+.5f)/10.f));if(c->getHAM(CreatureAttribute::ACTION)<=cost)throw std::runtime_error("insufficient_flourish_action");duration=command(c,cmd)->getCommandDuration(c,UnicodeString(String(args.c_str())));}
++   else duration=choice["duration"].get<double>();
++   invoke(c,cmd,args);if(cmd!="flourish" && c->checkCooldownRecovery("performing_entertainer_effect"))throw std::runtime_error("native_effect_not_confirmed");c->addCooldown("swgxr_entertainer_flourish",uint64(std::max(.1,duration)*1000));mutation.update(choice);mutation["cooldown_seconds"]=duration;
++   SceneObject* effectAt=c;if(cmd!="flourish" && pm->getPerformEffect(choice["effect_id"].get<int>(),choice["level"].get<int>())->getTargetType()==PerformEffect::TARGET_OTHER)effectAt=c->getZoneServer()->getObject(c->getTargetID());auto ep=effectAt->getWorldPosition();mutation["effect_position"]=Json::array({ep.getX(),ep.getZ(),ep.getY()});mutation["target_id"]=id(effectAt);
++  }else if(action!="status")throw std::runtime_error("unsupported_entertainer_action");
++  if(action!="status"){mutation["request_id"]=key;receipts.push_back({{"id",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_entertainer","receipts",String(receipts.dump().c_str()));}
++  return {{"backend","core3"},{"source_kind","core3_entertainer"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrImageDesign.h
+@@ -0,0 +1,100 @@
++#ifndef SWGXR_IMAGE_DESIGN_H
++#define SWGXR_IMAGE_DESIGN_H
++#include "server/zone/objects/player/sessions/ImageDesignSession.h"
++#include "server/zone/objects/player/sessions/ImageDesignData.h"
++#include "server/zone/objects/creature/commands/ImagedesignCommand.h"
++#include <fstream>
++#include <cstdlib>
++#include <atomic>
++#include <chrono>
++// The bridge owns only a bounded, revisioned proposal. The original native
++// session owns consented payment, customization, hair transfer and XP.
++class SwgxrImageDesign {
++ using Json=JSONSerializationType;
++ class Data:public ImageDesignData {
++ public:
++  Data(const Json& draft,CreatureObject* designer,bool da,bool ta){
++   requiredPayment=draft.value("price",0);offeredPayment=requiredPayment;
++   designerAccepted=da;targetAccepted=ta;statMigrationRequested=0;
++   hairTemplate=String(draft.value("hair_template",std::string()).c_str());
++   holoEmote=String(draft.value("holoemote",std::string()).c_str());
++   bodySkillMod=designer->getSkillMod("body");faceSkillMod=designer->getSkillMod("face");hairSkillMod=designer->getSkillMod("hair");markingsSkillMod=designer->getSkillMod("markings");
++   for(auto it=draft.at("body").begin();it!=draft.at("body").end();++it)bodyAttributes.put(String(it.key().c_str()),it.value().get<float>());
++   for(auto it=draft.at("colors").begin();it!=draft.at("colors").end();++it)colorAttributes.put(String(it.key().c_str()),it.value().get<uint32>());
++  }
++ };
++ static std::string str(const String& s){return s.toCharArray();}
++ static std::string id(SceneObject* c){return c?std::to_string(c->getObjectID()):"0";}
++ static ManagedReference<ImageDesignSession*> active(CreatureObject* c){return c->getActiveSession(SessionFacadeType::IMAGEDESIGN).castTo<ImageDesignSession*>();}
++ static std::string sid(ImageDesignSession* s){return s?str(s->getSwgxrSessionToken()):"";}
++ static Json read(CreatureObject* c){auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_image_design","state");return raw.isEmpty()?Json::object():Json::parse(raw.toCharArray());}
++ static void save(CreatureObject* c,const Json& value){c->getPlayerObject()->setScreenPlayData("swgxr_image_design","state",String(value.dump().c_str()));}
++ static const Json& policy(){
++  static Json value=[](){std::vector<std::string> paths;auto overridePath=std::getenv("SWGXR_IMAGE_DESIGN_POLICY");if(overridePath)paths.push_back(overridePath);for(auto p:{"../../../../runtime/assets/image_design/policy.json","runtime/assets/image_design/policy.json","/workspace/runtime/assets/image_design/policy.json"})paths.push_back(p);
++   for(auto& path:paths){std::ifstream file(path);if(!file)continue;Json v;file>>v;if(v.value("schema_version",0)!=1 || !v.contains("races"))throw std::runtime_error("invalid_image_design_policy");return v;}throw std::runtime_error("original_image_design_policy_not_prepared");}();return value;
++ }
++ static std::string hair(CreatureObject* c){auto h=c->getSlottedObject("hair");return h?str(h->getObjectTemplate()->getFullTemplateString()):"";}
++ static std::string custom(TangibleObject* object){String data;object->getCustomizationString(data);std::string out;const char* chars="0123456789abcdef";for(int i=0;i<data.length();++i){unsigned char b=data[i];out+=chars[b>>4];out+=chars[b&15];}return out;}
++ static Json appearance(CreatureObject* c){
++  Json out={{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"height",c->getHeight(false)},{"customization_hex",custom(c)},{"hair_template",hair(c)},{"hair_customization_hex",""},{"equipment",Json::array()}};
++  auto h=c->getSlottedObject("hair").castTo<TangibleObject*>();if(h)out["hair_customization_hex"]=custom(h);
++  std::set<uint64> seen;for(int i=0;i<c->getSlottedObjectsSize() && out["equipment"].size()<32;++i){auto item=c->getSlottedObject(i).castTo<TangibleObject*>();if(!item || item==h || !seen.insert(item->getObjectID()).second)continue;auto name=str(item->getObjectTemplate()->getFullTemplateString());if(name.find("object/tangible/wearables/")!=0 && name.find("object/weapon/")!=0)continue;Json row={{"id",id(item)},{"template",name},{"customization_hex",custom(item)},{"equipped_slots",Json::array()}};int index=item->getContainmentType()-4;if(index>=0 && index<item->getArrangementDescriptorSize()){auto slots=item->getArrangementDescriptor(index);for(int n=0;n<slots->size();++n)row["equipped_slots"].push_back(str(slots->get(n)));}out["equipment"].push_back(row);}return out;
++ }
++ static Json designerContext(CreatureObject* c){Json skills=Json::array();auto s=c->getSkillList();for(int i=0;i<s->size();++i)skills.push_back(str(s->get(i)->getSkillName()));Json mods=Json::object();for(auto m:{"body","face","hair","markings"})mods[m]=c->getSkillMod(m);return {{"skills",skills},{"skill_mods",mods}};}
++ static bool near(CreatureObject* d,CreatureObject* t){return d->isOnline() && t->isOnline() && d->getZone()!=nullptr && d->getZone()==t->getZone() && d->getParentID()==t->getParentID() && d->isInRange(t,8) && !d->isDead() && !d->isIncapacitated() && !d->isInCombat() && !t->isDead() && !t->isIncapacitated() && !t->isInCombat();}
++ static Json validate(CreatureObject* d,CreatureObject* t,const Json& proposal){
++  auto& all=policy();auto name=str(t->getObjectTemplate()->getFullTemplateString());if(!all["races"].contains(name))throw std::runtime_error("unsupported_image_design_species");auto& rules=all["races"][name];
++  int price=proposal.value("price",0);if(price<0 || price>10000)throw std::runtime_error("invalid_image_design_price");
++  auto attrs=proposal.value("attributes",Json::object());if(!attrs.is_object() || attrs.size()>128)throw std::runtime_error("invalid_image_design_attributes");
++  Json body=Json::object(),colors=Json::object();
++  for(auto it=attrs.begin();it!=attrs.end();++it){bool allowed=false;for(auto& rule:rules["controls"]){if(rule["id"]!=it.key())continue;auto mod=rule["mod"].get<std::string>();if(d->getSkillMod(String(mod.c_str()))<rule["required"].get<int>())break;
++   int tier=0;auto branch=rule["branch"].get<std::string>();for(int n=1;n<=4;++n)if(d->hasSkill(String(("social_imagedesigner_"+branch+"_0"+std::to_string(n)).c_str())))tier=n;if(d->hasSkill("social_imagedesigner_master"))tier=5;
++   if(!it.value().is_number())break;double v=it.value().get<double>();bool color=rule["type"]=="color";if(!std::isfinite(v) || v<0 || v>rule["maxima"][tier].get<double>() || (color && std::floor(v)!=v))break;(color?colors:body)[it.key()]=it.value();allowed=true;break;
++  }if(!allowed)throw std::runtime_error("unlearned_image_design_control:"+it.key());}
++  auto selected=proposal.value("hair_template",hair(t));bool learned=selected==hair(t) || (selected.empty() && rules["allow_bald"].get<bool>());
++  for(auto& style:rules["hair"])if(style["template"]==selected && d->getSkillMod("hair")>=style["required"].get<int>())learned=true;if(!learned)throw std::runtime_error("unlearned_image_design_hair");
++  auto holo=proposal.value("holoemote",std::string());bool known=holo.empty();for(auto& effect:all["holoemotes"])if(effect["name"]==holo && d->getSkillMod("hair")>=effect["required"].get<int>())known=true;if(!known)throw std::runtime_error("unlearned_image_design_holoemote");
++  return {{"attributes",attrs},{"body",body},{"colors",colors},{"hair_template",selected},{"hair_changed",selected!=hair(t)},{"holoemote",holo},{"price",price}};
++ }
++ static Json view(CreatureObject* c,CreatureObject* d,CreatureObject* t,const Json& meta){
++  auto draft=meta["draft"];draft.erase("body");draft.erase("colors");draft.erase("hair_changed");bool isDesigner=c==d;
++  bool modified=!draft["attributes"].empty() || draft["hair_template"]!=hair(t) || !draft["holoemote"].get<std::string>().empty();
++  return {{"active",true},{"session_id",meta["session_id"]},{"revision",meta["revision"]},{"role",isDesigner?"designer":"recipient"},{"designer_id",id(d)},{"recipient_id",id(t)},{"designer_name",str(d->getFirstName())},{"recipient_name",str(t->getFirstName())},{"designer_context",designerContext(d)},{"appearance",appearance(t)},{"draft",draft},{"remaining_seconds",0},{"can_accept",modified && near(d,t)},{"designer_accepted",meta["designer_accepted"]},{"recipient_accepted",meta["recipient_accepted"]},{"accepted",meta[isDesigner?"designer_accepted":"recipient_accepted"]},{"status","proposal"}};
++ }
++public:
++ static Json ownAppearance(CreatureObject* c){return appearance(c);}
++ static Json snapshot(CreatureObject* c){
++  auto s=active(c);if(!s)return {{"active",false}};auto marker=read(c);if(marker.empty() || marker.value("session_id",std::string())!=sid(s))return {{"active",false},{"external_session",true}};
++  auto d=c->getZoneServer()->getObject(std::stoull(marker["designer_id"].get<std::string>())).castTo<CreatureObject*>();if(!d)return {{"active",false}};Locker lock(d,c);auto meta=read(d);
++  auto t=c->getZoneServer()->getObject(std::stoull(meta["recipient_id"].get<std::string>())).castTo<CreatureObject*>();if(!t || (c!=d && c!=t) || active(d)!=s || active(t)!=s)return {{"active",false}};Locker targetLock(t,c);
++  if(!near(d,t)){s->cancelSession();save(d,Json::object());if(t!=d)save(t,Json::object());return {{"active",false},{"status","out_of_range"}};}
++  return view(c,d,t,meta);
++ }
++ static Json run(CreatureObject* c,const Json& q){
++  auto action=q.at("action").get<std::string>();Json mutation={{"success",true},{"operation",action}};
++  if(action=="image_open"){
++   auto t=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>())).castTo<CreatureObject*>();if(!t || !t->isPlayerCreature())throw std::runtime_error("image_design_player_required");Locker lock(t,c);
++   if(!near(c,t))throw std::runtime_error("image_design_range_or_state");if(active(c) || active(t))throw std::runtime_error("image_design_session_already_active");
++   auto draft=validate(c,t,Json::object());auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("imagedesign");if(!cmd || cmd->doQueueCommand(c,t->getObjectID(),UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("native_image_design_rejected_group_or_skill");auto s=active(c);if(!s || active(t)!=s)throw std::runtime_error("native_image_design_not_started");
++   static std::atomic<uint64_t> serial{uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count())};String token(std::to_string(serial.fetch_add(1)).c_str());s->setSwgxrSessionToken(token);
++   Json meta={{"session_id",sid(s)},{"designer_id",id(c)},{"recipient_id",id(t)},{"revision",0},{"draft",draft},{"designer_accepted",false},{"recipient_accepted",false}};save(c,meta);if(t!=c)save(t,{{"session_id",sid(s)},{"designer_id",id(c)}});mutation["opened"]=true;return {{"state",view(c,c,t,meta)},{"mutation",mutation}};
++  }
++  auto current=snapshot(c);if(!current.value("active",false) || current["session_id"]!=q.at("session_id") || current["revision"]!=q.at("revision"))throw std::runtime_error("image_design_session_or_revision_changed");
++  auto d=c->getZoneServer()->getObject(std::stoull(current["designer_id"].get<std::string>())).castTo<CreatureObject*>();Locker lock(d,c);auto meta=read(d);if(meta["revision"]!=q.at("revision"))throw std::runtime_error("image_design_revision_changed");auto t=c->getZoneServer()->getObject(std::stoull(meta["recipient_id"].get<std::string>())).castTo<CreatureObject*>();Locker targetLock(t,c);auto s=active(c);if(!s || active(d)!=s || active(t)!=s)throw std::runtime_error("native_image_design_session_changed");
++  if(action=="image_cancel"){s->cancelSession();save(d,Json::object());if(t!=d)save(t,Json::object());mutation["cancelled"]=true;return {{"state",{{"active",false}}},{"mutation",mutation}};}
++  if(!near(d,t))throw std::runtime_error("image_design_range_or_state");
++  if(action=="image_propose"){
++   if(c!=d)throw std::runtime_error("only_designer_may_propose");meta["draft"]=validate(d,t,q.at("draft"));meta["revision"]=meta["revision"].get<int>()+1;meta["designer_accepted"]=false;meta["recipient_accepted"]=false;save(d,meta);mutation["proposed"]=true;
++  }else if(action=="image_accept"){
++   auto draft=validate(d,t,meta["draft"]);if(draft["attributes"].empty() && !draft["hair_changed"].get<bool>() && draft["holoemote"].get<std::string>().empty())throw std::runtime_error("image_design_has_no_changes");
++   meta[c==d?"designer_accepted":"recipient_accepted"]=true;if(d==t)meta["recipient_accepted"]=true;save(d,meta);
++   bool da=meta["designer_accepted"].get<bool>(),ta=meta["recipient_accepted"].get<bool>();
++   // Only the authenticated recipient can set its consent. No flags supplied
++   // by clients are forwarded into the original image-design data packet.
++   if(da && ta){int price=draft["price"].get<int>();if(int64(t->getCashCredits())+t->getBankCredits()<price)throw std::runtime_error("image_design_insufficient_credits");Data data(draft,d,true,true);s->updateImageDesign(c,d->getObjectID(),t->getObjectID(),0,draft["hair_changed"].get<bool>()?1:0,data);if(active(d)==s)throw std::runtime_error("native_image_design_commit_not_confirmed");save(d,Json::object());if(t!=d)save(t,Json::object());d->updateToDatabaseAllObjects(false);if(t!=d)t->updateToDatabaseAllObjects(false);mutation["committed"]=true;mutation["recipient_id"]=id(t);return {{"state",{{"active",false},{"status","committed"}}},{"mutation",mutation}};}
++   mutation["accepted"]=true;
++  }else throw std::runtime_error("unsupported_image_design_action");
++  return {{"state",view(c,d,t,meta)},{"mutation",mutation}};
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -14,6 +14,7 @@
+ #include "SwgxrVitalFeedback.h"
+ #include "SwgxrServices.h"
+ #include "SwgxrCrafting.h"
++#include "SwgxrEntertainer.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/tangible/LairObject.h"
+ #include <algorithm>
+@@ -190,6 +191,7 @@
+   if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+   if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
+   if(verb=="gathering"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrGathering::run(c,request.at("gathering"));}
++  if(verb=="entertainer"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("entertainer");SwgxrServices::move(c,q);return SwgxrEntertainer::run(c,q);}
+   if(verb=="crafting"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto out=SwgxrCrafting::run(c,request.at("crafting"));out["inventory"]=SwgxrInventory::snapshot(c);return out;}
+   if(verb=="services"){
+    if(SwgxrVehicles::seated(c) && request.at("service").value("action",std::string())=="travel_board")throw std::runtime_error("Dismount before boarding a shuttle");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
+@@ -21,6 +21,9 @@
+   {"trainer_droidengineer", {"crafting_droidengineer_novice", "crafting_droidengineer_master", "crafting_droidengineer_production_01", "crafting_droidengineer_production_02", "crafting_droidengineer_production_03", "crafting_droidengineer_production_04", "crafting_droidengineer_techniques_01", "crafting_droidengineer_techniques_02", "crafting_droidengineer_techniques_03", "crafting_droidengineer_techniques_04", "crafting_droidengineer_refinement_01", "crafting_droidengineer_refinement_02", "crafting_droidengineer_refinement_03", "crafting_droidengineer_refinement_04", "crafting_droidengineer_blueprints_01", "crafting_droidengineer_blueprints_02", "crafting_droidengineer_blueprints_03", "crafting_droidengineer_blueprints_04"}},
+   {"trainer_merchant", {"crafting_merchant_novice", "crafting_merchant_master", "crafting_merchant_advertising_01", "crafting_merchant_advertising_02", "crafting_merchant_advertising_03", "crafting_merchant_advertising_04", "crafting_merchant_sales_01", "crafting_merchant_sales_02", "crafting_merchant_sales_03", "crafting_merchant_sales_04", "crafting_merchant_hiring_01", "crafting_merchant_hiring_02", "crafting_merchant_hiring_03", "crafting_merchant_hiring_04", "crafting_merchant_management_01", "crafting_merchant_management_02", "crafting_merchant_management_03", "crafting_merchant_management_04"}},
+   {"trainer_shipwright", {"crafting_shipwright_novice", "crafting_shipwright_master", "crafting_shipwright_engineering_01", "crafting_shipwright_engineering_02", "crafting_shipwright_engineering_03", "crafting_shipwright_engineering_04", "crafting_shipwright_propulsion_01", "crafting_shipwright_propulsion_02", "crafting_shipwright_propulsion_03", "crafting_shipwright_propulsion_04", "crafting_shipwright_systems_01", "crafting_shipwright_systems_02", "crafting_shipwright_systems_03", "crafting_shipwright_systems_04", "crafting_shipwright_defense_01", "crafting_shipwright_defense_02", "crafting_shipwright_defense_03", "crafting_shipwright_defense_04"}},
++  {"trainer_dancer", {"social_dancer_novice", "social_dancer_master", "social_dancer_ability_01", "social_dancer_ability_02", "social_dancer_ability_03", "social_dancer_ability_04", "social_dancer_wound_01", "social_dancer_wound_02", "social_dancer_wound_03", "social_dancer_wound_04", "social_dancer_knowledge_01", "social_dancer_knowledge_02", "social_dancer_knowledge_03", "social_dancer_knowledge_04", "social_dancer_shock_01", "social_dancer_shock_02", "social_dancer_shock_03", "social_dancer_shock_04"}},
++  {"trainer_musician", {"social_musician_novice", "social_musician_master", "social_musician_ability_01", "social_musician_ability_02", "social_musician_ability_03", "social_musician_ability_04", "social_musician_wound_01", "social_musician_wound_02", "social_musician_wound_03", "social_musician_wound_04", "social_musician_knowledge_01", "social_musician_knowledge_02", "social_musician_knowledge_03", "social_musician_knowledge_04", "social_musician_shock_01", "social_musician_shock_02", "social_musician_shock_03", "social_musician_shock_04"}},
++  {"trainer_imagedesigner", {"social_imagedesigner_novice", "social_imagedesigner_master", "social_imagedesigner_hairstyle_01", "social_imagedesigner_hairstyle_02", "social_imagedesigner_hairstyle_03", "social_imagedesigner_hairstyle_04", "social_imagedesigner_exotic_01", "social_imagedesigner_exotic_02", "social_imagedesigner_exotic_03", "social_imagedesigner_exotic_04", "social_imagedesigner_bodyform_01", "social_imagedesigner_bodyform_02", "social_imagedesigner_bodyform_03", "social_imagedesigner_bodyform_04", "social_imagedesigner_markings_01", "social_imagedesigner_markings_02", "social_imagedesigner_markings_03", "social_imagedesigner_markings_04"}},
+  };return catalog;
+ }
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/building/BuildingObject.idl
++++ b/MMOCoreORB/src/server/zone/objects/building/BuildingObject.idl
+@@ -400,6 +400,11 @@
+ 	public native boolean canPlayerRegisterWithin();
+ 
+ 	@read
++	public boolean hasRegisteredProfessionals() {
++		return registeredPlayerIdList.size() > 0;
++	}
++
++	@read
+ 	public boolean isPlayerRegisteredWithin(unsigned long id) {
+ 		return registeredPlayerIdList.contains(id);
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/ImageDesignSession.idl
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/ImageDesignSession.idl
+@@ -16,6 +16,11 @@
+ import system.lang.Time;
+ 
+ class ImageDesignSession extends Facade {
++	// Opaque revisioned bridge identity; original session remains authority.
++	protected transient string swgxrSessionToken;
++	public string getSwgxrSessionToken() { return swgxrSessionToken; }
++	public void setSwgxrSessionToken(string value) { swgxrSessionToken = value; }
++
+ 	@dereferenced
+ 	protected transient Time sessionStartTime;
+ 
+--- a/MMOCoreORB/src/server/zone/managers/skill/PerformEffect.h
++++ b/MMOCoreORB/src/server/zone/managers/skill/PerformEffect.h
+@@ -8,8 +8,8 @@
+ 	String effectName;
+ 	int effectId;
+ 	int effectLevel;
+-	bool isDance;
+-	bool isMusic;
++	bool isDance = false;
++	bool isMusic = false;
+ 	int requiredSkillModValue;
+ 	bool requiredPerform;
+ 	int targetType;

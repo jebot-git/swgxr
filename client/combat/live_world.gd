@@ -58,7 +58,7 @@ func configure(host:Node,combat_rig:Node3D,source_stage:Node3D,observer:Characte
 		var requested:=str(app.args.get("live-combat-status",""))
 		if requested.is_absolute_path():status_path=requested
 	assets.configure();dead_assets.configure(ProjectSettings.globalize_path("res://../runtime/assets/corpses/catalog.json"))
-	actor_catalog=ProjectSettings.globalize_path("res://../runtime/assets/combat_population/mos_eisley_easy/catalog.json")
+	actor_catalog=preload("res://scripts/planet_catalog.gd").context_path(host,"entities","res://../runtime/assets/combat_population/mos_eisley_easy/catalog.json")
 	rig.authority_gate=is_ready;rig.shot_authority=register_shot
 	rig.rounds_sim.authoritative_contact.connect(contact)
 	for entry:Dictionary in rig.weapons:
@@ -182,7 +182,7 @@ func valid_player(value:Dictionary)->bool:
 	return posture>=0 and posture<=14 and float(value.posture)==posture and bool(value.dead)==(posture==14) and bool(value.incapacitated)==(posture==13) and is_finite(float(value.get("shock_wounds",NAN))) and float(value.shock_wounds)>=0
 
 func accept_response(response:Dictionary,initial:=false)->bool:
-	if not bool(response.get("ok",false)) or response.get("backend","")!="core3" or response.get("source_kind","")!="core3_live_combat" or str(response.get("character_id",""))!=owner_character or not bool(response.get("session_live",false)):
+	if not bool(response.get("ok",response.get("session_live",false))) or response.get("backend","")!="core3" or response.get("source_kind","")!="core3_live_combat" or str(response.get("character_id",""))!=owner_character or not bool(response.get("session_live",false)):
 		last_error=str(response.get("error","Core3 session was lost."));return false
 	var incoming:=str(response.get("session_id",""));var revision:=int(response.get("sequence",-1))
 	if revision<0 or incoming.is_empty() or (not initial and incoming!=session_id) or revision<sequence:last_error="Stale or mismatched live Core3 snapshot.";return false
@@ -212,6 +212,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 		if recreate:
 			if actors.has(id):actors[id].collision_layer=0;actors[id].visible=false;actors[id].queue_free();actors.erase(id)
 			var actor:=Actor.new();add_child(actor)
+			actor.catalog_candidates=app.planet_assets.get("entity_catalogs",[]) if app.get("planet_assets") is Dictionary else []
 			if not actor.configure(value,session_id,assets,dead_assets,actor_catalog):last_error=str(actor.report.get("error","Original actor model unavailable"));actor.free();return false
 			actors[id]=actor;actor.add_to_group("swg_radar_contacts")
 		var pose:=Transform3D(Basis(Vector3.UP,-float(value.heading_radians)),world(value.position))
@@ -308,7 +309,7 @@ func pump()->void:
 	# Services share this native session but use a separate HTTP request. A newer
 	# service observation may arrive first; keep the older command's receipt
 	# without rolling back its already-applied authoritative state.
-	var older_owned: bool = bool(response.get("ok",false)) and response.get("backend","")=="core3" and response.get("source_kind","")=="core3_live_combat" and str(response.get("character_id",""))==owner_character and str(response.get("session_id",""))==session_id and bool(response.get("session_live",false)) and int(response.get("sequence",-1))>=0 and int(response.get("sequence",-1))<sequence
+	var older_owned: bool = bool(response.get("ok",response.get("session_live",false))) and response.get("backend","")=="core3" and response.get("source_kind","")=="core3_live_combat" and str(response.get("character_id",""))==owner_character and str(response.get("session_id",""))==session_id and bool(response.get("session_live",false)) and int(response.get("sequence",-1))>=0 and int(response.get("sequence",-1))<sequence
 	if not older_owned and not accept_response(response):fail(last_error);return
 	if request.kind=="life":
 		var action := str(request.payload.action)
@@ -324,6 +325,10 @@ func pump()->void:
 
 func _process(delta:float)->void:
 	if not live:return
+	if not pending_transport.is_empty() and bool(app.get("loading_stage")):
+		elapsed_since_snapshot=0.0
+		if queue.any(func(request):return request.payload.has("transport_ack")):pump()
+		return
 	elapsed_since_snapshot+=delta;poll_clock+=delta
 	if elapsed_since_snapshot>SESSION_TIMEOUT:fail("Live Core3 updates timed out; combat disarmed.");return
 	for id:String in shots.keys():

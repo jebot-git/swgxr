@@ -35,10 +35,13 @@ class SwgParticleBatch : public Node3D {
     bool event_allowed(int style,const Vector3 &position,int &tier);
     void append(Style &,const Transform3D &,const Color &,float age);
     bool valid_handle(int handle,int &index) const;
+    int create_style(const Dictionary &style,int replacement);
 protected:
     static void _bind_methods();
 public:
     int register_style(const Dictionary &style);
+    bool can_replace_style(int style) const;
+    int replace_style(int style,const Dictionary &definition);
     bool emit_burst(int style,const Transform3D &pose,int count=1);
     int create_tracer(int style,const Transform3D &pose);
     void update_tracer(int handle,const Transform3D &pose);

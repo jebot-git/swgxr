@@ -24,6 +24,7 @@ var container_switch: OptionButton
 var first_row := 0
 var selected_id := ""
 var hovered := -1
+var navigation_anchor:=Vector2.INF
 var unavailable: Dictionary = {}
 var status := "Waiting for Core3 inventory…"
 var detail: Control
@@ -46,7 +47,7 @@ func _init() -> void:
 func configure_details() -> Control:
 	detail=Control.new(); detail.theme=theme; detail.custom_minimum_size=Vector2(420,640); detail.size=Vector2(420,640)
 	var panel:=Panel.new(); panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); detail.add_child(panel)
-	panel.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,10))
+	panel.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").frame(10,"tall"))
 	detail_title=Label.new(); detail.add_child(detail_title); detail_title.position=Vector2(20,18); detail_title.size=Vector2(380,80)
 	detail_title.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART; detail_title.add_theme_font_override("font",FONT); detail_title.add_theme_font_size_override("font_size",24)
 	detail_title.text="ITEM INFORMATION"
@@ -93,6 +94,26 @@ func scroll_rows(direction: int) -> void:
 	if next==first_row: return
 	first_row=next; hovered=-1; queue_redraw(); page_changed.emit()
 
+func navigate(direction: int, pixel: Vector2=Vector2.INF) -> void:
+	if pending or items.is_empty() or direction==0:return
+	var index:=-1
+	for i in range(items.size()):
+		if str(items[i].get("id",""))==selected_id:index=i;break
+	index=clampi(first_row*COLUMNS if index<0 else index+direction,0,items.size()-1)
+	var row:=index/COLUMNS
+	first_row=clampi(first_row,maxi(0,row-ROWS+1),row)
+	first_row=mini(first_row,max_first_row())
+	navigation_anchor=pixel
+	hovered=-1;select_item(items[index]);page_changed.emit()
+
+func navigation_target(pixel:Vector2)->Vector2:
+	if pixel.distance_to(navigation_anchor)>12:return pixel
+	for i in range(items.size()):
+		if str(items[i].get("id",""))==selected_id:
+			var visible_index:=i-first_row*COLUMNS
+			return GRID_ORIGIN+Vector2(visible_index%COLUMNS+.5,visible_index/COLUMNS+.5)*CELL
+	return pixel
+
 func visible_items() -> Array:
 	return items.slice(first_row*COLUMNS,mini(items.size(),first_row*COLUMNS+SLOTS))
 
@@ -128,17 +149,19 @@ func on_input(event: InputEvent) -> void:
 		if not item.is_empty(): select_item(item)
 
 func _draw() -> void:
-	draw_style_box(preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,12),Rect2(Vector2.ZERO,Vector2(PIXELS)))
-	draw_string(FONT,Vector2(24,37),"INVENTORY",HORIZONTAL_ALIGNMENT_LEFT,-1,26,Color("c9fbff"))
+	draw_style_box(preload("res://scripts/datapad_theme.gd").frame(12,"wide"),Rect2(Vector2.ZERO,Vector2(PIXELS)))
+	draw_string(FONT,Vector2(24,37),"INVENTORY",HORIZONTAL_ALIGNMENT_LEFT,-1,26,Color("d2f6ff"))
 	var count_text: String="%s / %s  ·  Rows %d–%d"%[str(int(snapshot.count)) if snapshot.has("count") else "?",str(int(snapshot.capacity)) if snapshot.has("capacity") else "?",first_row+1,first_row+ROWS]
-	draw_string(FONT,Vector2(310,36),count_text,HORIZONTAL_ALIGNMENT_LEFT,-1,21,Color("86cbd7"))
-	draw_string(FONT,Vector2(24,75),status if not status.is_empty() else "Point + trigger: select   ·   Grip: hold item   ·   Stick: scroll",HORIZONTAL_ALIGNMENT_LEFT,980,18,Color("9ed6dd"))
+	draw_string(FONT,Vector2(310,36),count_text,HORIZONTAL_ALIGNMENT_LEFT,-1,21,Color("9ac7da"))
+	draw_string(FONT,Vector2(24,75),status if not status.is_empty() else "Point + trigger: select   ·   Grip: hold item   ·   Stick: select",HORIZONTAL_ALIGNMENT_LEFT,980,18,Color("9ac7da"))
 	for i in range(SLOTS):
 		var index:=first_row*COLUMNS+i
 		var rect:=Rect2(GRID_ORIGIN+Vector2(i%COLUMNS,i/COLUMNS)*CELL,CELL-Vector2(6,6))
 		var item: Dictionary=items[index] if index<items.size() else {}
 		var selected:=not item.is_empty() and str(item.get("id",""))==selected_id
-		draw_rect(rect,Color("90ecff") if selected else Color("579dac") if index==hovered else Color("225260"),false,2)
+		var slot_style:=preload("res://scripts/datapad_theme.gd").cell(selected or index==hovered)
+		slot_style.draw_center=false # Keep the original model viewport visible.
+		draw_style_box(slot_style,rect)
 		if item.is_empty():
 			draw_string(FONT,rect.position+Vector2(28,65),"EMPTY",HORIZONTAL_ALIGNMENT_LEFT,-1,14,Color("326270"))
 		else:
@@ -146,9 +169,9 @@ func _draw() -> void:
 			if str(item.get("local_state","")) in ["held","dropped"]: draw_string(FONT,rect.position+Vector2(5,53),str(item.local_state).to_upper(),HORIZONTAL_ALIGNMENT_CENTER,108,13,Color("dbb27d"))
 			elif unavailable.has(id): draw_string(FONT,rect.position+Vector2(5,53),"NO MODEL",HORIZONTAL_ALIGNMENT_CENTER,108,13,Color("dbb27d"))
 			var label:=str(item.get("name","Item"))
-			if id in crafting_timers: draw_string(FONT,rect.position+Vector2(5,88),"%ds"%int(crafting_timers[id]),HORIZONTAL_ALIGNMENT_CENTER,108,18,Color("baffff"))
+			if id in crafting_timers: draw_string(FONT,rect.position+Vector2(5,88),"%ds"%int(crafting_timers[id]),HORIZONTAL_ALIGNMENT_CENTER,108,18,Color("d2f6ff"))
 			if label.length()>13: label=label.substr(0,12)+"…"
-			draw_string(FONT,rect.position+Vector2(5,111),label,HORIZONTAL_ALIGNMENT_CENTER,108,13,Color("c9fbff"))
+			draw_string(FONT,rect.position+Vector2(5,111),label,HORIZONTAL_ALIGNMENT_CENTER,108,13,Color("d2f6ff"))
 
 func current_container() -> Dictionary:
 	if container_id==str(snapshot.get("inventory",{}).get("id","")): return snapshot.get("inventory",{})

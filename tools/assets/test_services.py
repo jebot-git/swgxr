@@ -12,10 +12,11 @@ class ServicesTests(unittest.TestCase):
         if not path.exists(): self.skipTest('Original trainer audit unavailable')
         data=json.loads(path.read_text())
         self.assertFalse(data['failures'])
-        self.assertEqual(len(data['trainers']),6)
-        self.assertEqual(len(data['placements']),51)
+        from server.profession_scope import TRAINERS, BASIC_TRAINERS
+        self.assertEqual(set(data['trainers']),{'trainer_'+p for p in TRAINERS})
+        self.assertEqual(sum(row['mobile'] in {'trainer_'+p for p in BASIC_TRAINERS} for row in data['placements']),51)
         ids={row['id'] for row in data['placements']}
-        self.assertEqual(len(ids),51)
+        self.assertEqual(len(ids),len(data['placements']))
         for name,trainer in data['trainers'].items():
             self.assertEqual(len(trainer['templates']),3)
             self.assertEqual(len(trainer['skill_ids']),18)

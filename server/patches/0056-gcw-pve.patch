@@ -1,0 +1,311 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGcw.h
+@@ -0,0 +1,39 @@
++#ifndef SWGXR_GCW_H
++#define SWGXR_GCW_H
++#include "server/zone/managers/director/DirectorManager.h"
++#include "server/zone/managers/faction/FactionManager.h"
++#include "server/zone/managers/gcw/GCWManager.h"
++#include "server/zone/managers/gcw/sessions/ContrabandScanSession.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
++#include "server/zone/objects/creature/ai/CreatureTemplate.h"
++#include <fstream>
++#include <cstdlib>
++#include <chrono>
++// Native recruiter operations, original reward Lua and original running scans.
++// No UI request starts or advances a contraband scan.
++class SwgxrGcw {
++ using Json=JSONSerializationType;
++ static std::string str(const String& s){return s.toCharArray();}
++ static uint64 now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static const Json& catalog(){static const Json data=[](){for(const char* path:std::initializer_list<const char*>{std::getenv("SWGXR_GCW_CATALOG_PATH"),"../../../../runtime/assets/gcw/catalog.json","runtime/assets/gcw/catalog.json"}){if(!path)continue;std::ifstream file(path);if(!file)continue;try{Json row;file>>row;if(row.value("schema",0)==1 && row.contains("rewards") && row["rewards"].is_array() && row["rewards"].size()<=256)return row;}catch(...) {}}Logger::console.warning("SWGXR GCW reward catalog unavailable; prepare runtime/assets/gcw/catalog.json.");return Json{{"rewards",Json::array()}};}();return data;}
++ static int cost(CreatureObject* c,const std::string& f,const std::string& key){auto lua=DirectorManager::instance()->getLuaInstance();LuaFunction fn(lua->getLuaState(),"recruiterScreenplay","swgxrCost",1);fn<<c;fn<<f.c_str();fn<<key.c_str();fn.callFunction();bool valid=lua_isnumber(lua->getLuaState(),-1);int value=valid?lua_tointeger(lua->getLuaState(),-1):-1;lua_pop(lua->getLuaState(),1);return value;}
++ static bool jedi(CreatureObject* c){return c->hasSkill("force_rank_light_novice") || c->hasSkill("force_rank_dark_novice");}
++ static int standing(CreatureObject* c,const std::string& f){return c->getPlayerObject()->getFactionStanding(String(f.c_str()));}
++public:
++ static std::string faction(CreatureObject* c){return c->isImperial()?"imperial":c->isRebel()?"rebel":"neutral";}
++ static bool recruiter(SceneObject* o){if(!o || !o->isAiAgent())return false;auto npc=o->asAiAgent();auto crc=npc->getConvoTemplateCRC();return (npc->isImperial() && crc==String("imperialRecruiterConvoTemplate").hashCode()) || (npc->isRebel() && crc==String("rebelRecruiterConvoTemplate").hashCode());}
++ static void validate(CreatureObject* c,SceneObject* npc,float range=5){if(!recruiter(npc) || npc->getZone()!=c->getZone() || npc->getParentID()!=c->getParentID() || !npc->isInRange(c,range) || npc->asAiAgent()->isDead() || npc->asAiAgent()->isIncapacitated() || !CollisionManager::checkLineOfSight(npc,c))throw std::runtime_error("recruiter_unavailable_cell_distance_or_sight");}
++ static bool canToggle(CreatureObject* c,SceneObject* npc){return recruiter(npc) && faction(c)==faction(npc->asCreatureObject()) && c->getFutureFactionStatus()<0 && c->getFactionStatus()<=1 && !jedi(c) && !c->isDead() && !c->isIncapacitated() && !c->isInCombat();}
++ static Json scan(CreatureObject* c){auto session=c->getActiveSession(SessionFacadeType::CONTRABANDSCAN).castTo<ContrabandScanSession*>();auto ghost=c->getPlayerObject();Json out={{"active",session!=nullptr},{"id",""},{"phase",-1},{"phase_name","idle"},{"answer_pending",false},{"answer_given",false},{"fine",0},{"contraband_count",0},{"crackdown_tef",{{"imperial",ghost->hasCrackdownTefTowards(Factions::FACTIONIMPERIAL)},{"rebel",ghost->hasCrackdownTefTowards(Factions::FACTIONREBEL)}}}};if(c->getZone() && c->getZone()->getGCWManager() && c->getInventory())out["contraband_count"]=c->getZone()->getGCWManager()->countContrabandItems(c);if(!session)return out;int phase=session->getSwgxrPhase();const char* names[]={"checking","initiating","return_to_scanner","mind_trick","scanner_considers","scanner_replies","jedi_check","faction_check","scanning","fine","finished"};auto scanner=session->getSwgxrScanner();out["id"]=std::to_string(session->getSwgxrScanID());out["phase"]=phase;out["phase_name"]=phase>=0 && phase<=10?names[phase]:"unknown";out["scanner_id"]=scanner?std::to_string(scanner->getObjectID()):"0";out["fine"]=session->getSwgxrFine();out["time_left"]=session->getSwgxrTimeLeft();out["answer_given"]=session->getSwgxrAnswerGiven();out["answer_pending"]=phase==9 && !session->getSwgxrAnswerGiven();return out;}
++ static Json state(CreatureObject* c){int status=c->getFactionStatus(),future=c->getFutureFactionStatus();uint64 deadline=0;auto text=c->getPlayerObject()->getScreenPlayData("swgxr_gcw","transition_deadline");if(!text.isEmpty())try{deadline=std::stoull(text.toCharArray());}catch(...){}return {{"faction",faction(c)},{"status",status},{"status_name",c->isNeutral()?"neutral":status==0?"on_leave":"combatant"},{"pve_only",true},{"changing",future>=0},{"pending_status",future},{"cooldown_remaining_ms",future>=0 && deadline>now()?deadline-now():0},{"standings",{{"imperial",standing(c,"imperial")},{"rebel",standing(c,"rebel")}}},{"recruiters",Json::array()},{"scan",scan(c)}};}
++ static void describe(CreatureObject* c,SceneObject* npc,Json& view){std::string f=faction(npc->asCreatureObject());view["faction"]=f;view["status"]=c->getFactionStatus();view["can_join"]=c->isNeutral() && c->getFutureFactionStatus()<0;view["can_toggle"]=canToggle(c,npc);view["can_salute"]=canToggle(c,npc) && c->isInRange(npc,3) && CollisionManager::checkLineOfSight(npc,c);view["reason"]=faction(c)!=f && !c->isNeutral()?"A member of the opposing faction cannot enlist or purchase rewards.":c->getFutureFactionStatus()>=0?"A faction status change is already pending.":"";std::string greeting=c->isNeutral()?(f=="imperial"?"s_414":"s_566"):faction(c)!=f?(f=="imperial"?"s_308":"s_464"):c->getFactionStatus()==0?(f=="imperial"?"s_80":"s_448"):(f=="imperial"?"s_310":"s_466");view["recruiter_text"]="@conversation/faction_recruiter_"+f+":"+greeting;auto fm=FactionManager::instance();int rank=c->getFactionRank(),next=rank+1;bool highest=fm->isHighestRank(rank);int promotion=highest?0:fm->getRankCost(next);view["rank"]=rank;view["rank_name"]="@faction_recruiter:"+str(fm->getRankName(rank));view["next_rank"]=highest?-1:next;view["next_rank_name"]=highest?"":"@faction_recruiter:"+str(fm->getRankName(next));view["promotion_cost_faction_points"]=promotion;std::string why=faction(c)!=f?"Faction membership required.":c->getFactionStatus()==0?"Return to combatant duty first.":c->getFutureFactionStatus()>=0?"A faction status change is pending.":highest?"Highest original faction rank reached.":standing(c,f)<promotion+200?"Insufficient faction points for promotion and 200 point reserve.":"";view["can_promote"]=why.empty();view["promotion_reason"]=why;view["rewards"]=Json::array();for(auto row:catalog()["rewards"]){if(row.value("faction",std::string())!=f)continue;auto category=row.value("category",std::string());if(category!="weaponsArmor" && category!="uniforms" && category!="furniture")continue;int price=cost(c,f,row.at("key").get<std::string>());row["cost_faction_points"]=price;std::string reason=c->getFutureFactionStatus()>=0?"A faction status change is pending.":faction(c)!=f?"Faction membership required.":c->getFactionStatus()==0?"Return to combatant duty to requisition rewards.":price<0?"Original reward unavailable.":standing(c,f)<price+200?"Insufficient faction points; retain the original 200 point standing reserve.":c->getInventory()==nullptr || c->getInventory()->isContainerFullRecursive()?"Inventory is full.":"";row["eligible"]=reason.empty();row["reason"]=reason;view["rewards"].push_back(row);}}
++ static Json mutate(CreatureObject* c,SceneObject* npc,const Json& r){std::string action=r.at("action").get<std::string>();if(!c->isOnline() || !c->getPlayerObject() || c->getPlayerObject()->isOnLoadScreen())throw std::runtime_error("native_ready_player_required");if(action=="contraband_answer"){auto session=c->getActiveSession(SessionFacadeType::CONTRABANDSCAN).castTo<ContrabandScanSession*>();if(!session || r.at("scan_id").get<std::string>()!=std::to_string(session->getSwgxrScanID()) || session->getSwgxrPhase()!=9 || session->getSwgxrAnswerGiven())throw std::runtime_error("native_pending_contraband_fine_required");session->setAcceptFineAnswer(r.at("accept").get<bool>());c->getPlayerObject()->closeSuiWindowType(SuiWindowType::CONTRABAND_SCAN_FINE);return {{"accepted",r["accept"]},{"pending_native_scan",true}};}
++  validate(c,npc,action=="recruiter_status_toggle"?3:5);std::string f=faction(npc->asCreatureObject());
++  if(action=="recruiter_join"){if(!c->isNeutral() || c->getFutureFactionStatus()>=0)throw std::runtime_error("neutral_unaffiliated_player_required");c->setFaction(npc->asCreatureObject()->getFaction());c->setFactionStatus(FactionStatus::COVERT);return {{"faction",f},{"status",1}};}
++  if(action=="recruiter_status_toggle"){if(!canToggle(c,npc) || r.at("expected_status").get<int>()!=c->getFactionStatus())throw std::runtime_error("faction_status_changed_or_transition_unavailable");int status=c->getFactionStatus()==0?1:0;auto lua=DirectorManager::instance()->getLuaInstance();LuaFunction fn(lua->getLuaState(),"recruiterScreenplay","swgxrToggle",1);fn<<c;fn<<status;fn.callFunction();int delay=lua_tointeger(lua->getLuaState(),-1);lua_pop(lua->getLuaState(),1);if(delay<=0 || c->getFutureFactionStatus()!=status)throw std::runtime_error("native_faction_transition_rejected");c->getPlayerObject()->setScreenPlayData("swgxr_gcw","transition_deadline",String(std::to_string(now()+delay).c_str()));return {{"pending_status",status},{"delay_ms",delay}};}
++  if(action=="recruiter_promote"){Json view;describe(c,npc,view);if(r.at("expected_rank").get<int>()!=c->getFactionRank())throw std::runtime_error("faction_rank_changed");if(!view["can_promote"].get<bool>())throw std::runtime_error(view["promotion_reason"].get<std::string>());int price=view["promotion_cost_faction_points"].get<int>(),next=view["next_rank"].get<int>();c->getPlayerObject()->decreaseFactionStanding(String(f.c_str()),price);c->setFactionRank(next);return {{"rank",next},{"faction_points_paid",price}};}
++  Json view;describe(c,npc,view);for(auto& row:view["rewards"]){if(row["id"]!=r.at("reward_id"))continue;if(!row["eligible"].get<bool>())throw std::runtime_error(row["reason"].get<std::string>());int before=standing(c,f);auto lua=DirectorManager::instance()->getLuaInstance();LuaFunction fn(lua->getLuaState(),"recruiterScreenplay","awardItem",1);fn<<c;fn<<f.c_str();fn<<row.at("key").get<std::string>().c_str();fn<<c->getZone()->getGCWManager()->getGCWDiscount(c);fn.callFunction();bool valid=lua_isnumber(lua->getLuaState(),-1);int code=valid?lua_tointeger(lua->getLuaState(),-1):-1;lua_pop(lua->getLuaState(),1);if(code!=0)throw std::runtime_error("native_faction_purchase_rejected_"+std::to_string(code));return {{"reward_id",row["id"]},{"faction_points_paid",before-standing(c,f)}};}throw std::runtime_error("original_supported_faction_reward_required");
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -6,6 +6,7 @@
+ #include "SwgxrHousing.h"
+ #include "SwgxrTrainers.h"
+ #include "SwgxrDelivery.h"
++#include "SwgxrGcw.h"
+ #include "SwgxrVendorPlacement.h"
+ #include "SwgxrVendorCommerce.h"
+ #include "server/zone/managers/auction/AuctionManager.h"
+@@ -28,7 +29,7 @@
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
+  static uint64 oid(const Json& r,const char* k){auto v=r.at(k).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_object_id");return std::stoull(v);}
+  static Json pos(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+- static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":!SwgxrTrainers::type(o).empty()?"trainer":"";}
++ static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":SwgxrGcw::recruiter(o)?"recruiter":!SwgxrTrainers::type(o).empty()?"trainer":"";}
+  static Json terminal(SceneObject* o){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";}return out;}
+  static ManagedReference<SceneObject*> nearby(CreatureObject* c,const Json& r,const std::string& expected=""){
+   auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(t==nullptr || kind(t).empty() || (!expected.empty() && kind(t)!=expected) || t->getZone()!=c->getZone() || c->getParentID()!=t->getParentID() || !c->isInRange(t,kind(t)=="mission"?6:kind(t)=="crafting"?7:8))throw std::runtime_error("terminal_type_cell_or_distance");if(kind(t)=="trainer")SwgxrTrainers::validate(c,t);return t;
+@@ -37,7 +38,7 @@
+   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name);if(cmd==nullptr)throw std::runtime_error("native_command_unavailable");int code=cmd->doQueueCommand(c,target,UnicodeString(String(args.c_str())));if(code!=QueueCommand::SUCCESS)throw std::runtime_error(std::string("native_")+name+"_rejected_"+std::to_string(code));return code;
+  }
+  static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon" || type=="deliver" || type=="crafting" || type=="survey";}
+- static Json mission(MissionObject* m,bool active){return {{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};}
++ static Json mission(MissionObject* m,bool active){return {{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"faction",m->getFaction()==Factions::FACTIONIMPERIAL?"imperial":m->getFaction()==Factions::FACTIONREBEL?"rebel":"neutral"},{"faction_points",{{"imperial",m->getRewardFactionPointsImperial()},{"rebel",m->getRewardFactionPointsRebel()}}},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};}
+  static Json missions(CreatureObject* c,bool active){Json a=Json::array();auto bag=c->getSlottedObject(active?"datapad":"mission_bag");if(bag!=nullptr)for(int i=0;i<bag->getContainerObjectsSize() && a.size()<64;++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getTypeCRC()!=0 && m->getRewardCredits()>0)a.push_back(mission(m,active));}return a;}
+  static Json listings(CreatureObject* c,const Json& r){Json rows=Json::array();int matched=0,offset=r.value("page",0)*100,category=r.value("category_id",0);auto manager=c->getZoneServer()->getAuctionManager();ManagedReference<SceneObject*> terminalObject;if(r.contains("terminal_id"))terminalObject=c->getZoneServer()->getObject(oid(r,"terminal_id"));auto lists=terminalObject!=nullptr && terminalObject->isVendor()?manager->getAuctionMap()->getVendorTerminalData("","",terminalObject):manager->getAuctionMap()->getBazaarTerminalData("","",nullptr);if(terminalObject!=nullptr && terminalObject->isBazaarTerminal()){auto vendors=manager->getAuctionMap()->getVendorTerminalData("","",nullptr);for(int j=0;j<vendors.size();++j)lists.put(vendors.get(j));}for(int i=0;i<lists.size() && rows.size()<101;++i){auto list=lists.get(i);ReadLocker guard(list);for(int j=0;j<list->size() && rows.size()<101;++j){auto a=list->get(j);if(a==nullptr || (a->getStatus()!=AuctionItem::FORSALE && a->getBuyerID()!=c->getObjectID() && a->getOwnerID()!=c->getObjectID()))continue;auto sellingVendor=c->getZoneServer()->getObject(a->getVendorID());bool local=terminalObject!=nullptr && terminalObject->getObjectID()==a->getVendorID();if(!a->isOnBazaar()){if(sellingVendor==nullptr || sellingVendor->getZone()==nullptr)continue;auto data=sellingVendor->getDataObjectComponent();auto vd=data && data->get() && data->get()->isVendorData()?cast<VendorDataComponent*>(data->get()):nullptr;if(!vd || vd->isSwgxrStored() || (!local && !vd->isVendorSearchEnabled()))continue;}if(!a->isSwgxrGalacticSearch() && (terminalObject==nullptr || a->getVendorID()!=terminalObject->getObjectID()) && a->getOwnerID()!=c->getObjectID() && a->getBuyerID()!=c->getObjectID())continue;if(!manager->checkItemCategory(category,a))continue;if(matched++<offset)continue;rows.push_back({{"id",std::to_string(a->getAuctionedItemObjectID())},{"name",str(a->getItemName())},{"description",str(a->getItemDescription())},{"price",a->getPrice()},{"category_id",a->getItemType()},{"auction",a->isAuction()},{"status",a->getStatus()},{"owner_id",std::to_string(a->getOwnerID())},{"buyer_id",std::to_string(a->getBuyerID())},{"vendor_id",std::to_string(a->getVendorID())},{"expires",a->getExpireTime()},{"min_bid",a->getPrice()+1},{"galactic_search",a->isSwgxrGalacticSearch()},{"location",sellingVendor!=nullptr && sellingVendor->getZone()!=nullptr?str(sellingVendor->getZone()->getZoneName())+" / "+str(sellingVendor->getDisplayedName()):""},{"buy_eligible",(a->isOnBazaar() || local) && a->getStatus()==AuctionItem::FORSALE && a->getOwnerID()!=c->getObjectID()},{"retrieve_eligible",(a->isOnBazaar() || local) && (a->getStatus()==AuctionItem::SOLD?a->getBuyerID()==c->getObjectID():a->getStatus()==AuctionItem::EXPIRED && a->getOwnerID()==c->getObjectID())}});}}return rows;}
+  static Json tickets(CreatureObject* c,const Json& travel){Json out=Json::array();auto inv=c->getInventory();if(inv==nullptr)return out;for(int i=0;i<inv->getContainerObjectsSize();++i){auto ticket=inv->getContainerObject(i).castTo<TicketObject*>();if(ticket==nullptr)continue;out.push_back({{"id",id(ticket)},{"departure",str(ticket->getDeparturePoint())},{"departure_planet",str(ticket->getDeparturePlanet())},{"arrival",str(ticket->getArrivalPoint())},{"planet",str(ticket->getArrivalPlanet())},{"destination_planet",str(ticket->getArrivalPlanet())},{"usable",ticket->getDeparturePlanet()==c->getZone()->getZoneName() && str(ticket->getDeparturePoint())==travel.value("departure",std::string()) && SwgxrPlanets::supported(ticket->getArrivalPlanet()) && c->getZoneServer()->getZone(ticket->getArrivalPlanet())!=nullptr}});}return out;}
+@@ -64,6 +65,7 @@
+  static Json snapshot(CreatureObject* c,const Json& r){
+   String customization;c->getCustomizationString(customization);std::string hex;static const char* digits="0123456789abcdef";for(int i=0;i<customization.length();++i){unsigned char b=customization[i];hex+=digits[b>>4];hex+=digits[b&15];}
+   Json out={{"backend","core3"},{"source_kind","core3_services"},{"zone",SwgxrPlanets::name(c)},{"character_id",id(c)},{"wallet",{{"cash",c->getCashCredits()},{"bank",c->getBankCredits()}}},{"player",location(c)},{"terminals",Json::array()},{"terminal",Json::object()},{"missions",missions(c,true)}};
++  out["gcw"]=SwgxrGcw::state(c);
+   out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   SwgxrDelivery::snapshot(c,out);SwgxrVendorPlacement::snapshot(c,out);for(auto& row:out["placed_vendors"]){auto v=c->getZoneServer()->getObject(std::stoull(row["id"].get<std::string>()));if(row["owner_id"]==id(c))row["customization_controls"]=SwgxrVendorCommerce::controls(v);}
+   if(r.value("action",std::string())=="delivery_open" || r.value("action",std::string())=="delivery_pickup")out["terminal"]=SwgxrDelivery::open(c,r);
+@@ -71,9 +73,9 @@
+   out["player"]["appearance"]={{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"client_crc",c->getClientObjectCRC()},{"customization_hex",hex},{"height",c->getHeight(false)}};
+   SortedVector<TreeEntry*> objects;auto w=c->getWorldPosition();c->getZone()->getInRangeObjects(w.getX(),w.getZ(),w.getY(),64,&objects,true);
+   auto cell=c->getParent().get();if(cell!=nullptr && cell->isCellObject())for(int i=0;i<cell->getContainerObjectsSize();++i)objects.put(cell->getContainerObject(i));
+-  for(int i=0;i<objects.size() && out["terminals"].size()<128;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!kind(o).empty()){auto entry=terminal(o);if(kind(o)=="trainer"){entry["trainer_type"]=SwgxrTrainers::type(o);entry["profession"]=SwgxrTrainers::type(o).substr(8);}out["terminals"].push_back(entry);}}
++  for(int i=0;i<objects.size() && out["terminals"].size()<128;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!kind(o).empty()){auto entry=terminal(o);if(kind(o)=="trainer"){entry["trainer_type"]=SwgxrTrainers::type(o);entry["profession"]=SwgxrTrainers::type(o).substr(8);}if(kind(o)=="recruiter"){entry["can_salute"]=SwgxrGcw::canToggle(c,o) && c->isInRange(o,3) && c->getParentID()==o->getParentID() && CollisionManager::checkLineOfSight(o,c);entry["faction"]=SwgxrGcw::faction(o->asCreatureObject());out["gcw"]["recruiters"].push_back(entry);}out["terminals"].push_back(entry);}}
+   auto travel=Json::parse(c->getZone()->getPlanetManager()->swgxrServicesTravel(c).toCharArray());out["tickets"]=tickets(c,travel);out["shuttle"]=travel.value("shuttle",Json::object());
+-  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
++  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="recruiter"){SwgxrGcw::validate(c,t);SwgxrGcw::describe(c,t,view);}else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
+    else if(k=="crafting"){auto station=static_cast<CraftingStation*>(t.get());view["station_type"]=station->getStationType();view["complexity"]=station->getComplexityLevel();view["tools"]=Json::array();auto inv=c->getInventory();if(inv!=nullptr)for(int i=0;i<inv->getContainerObjectsSize();++i){auto o=inv->getContainerObject(i);if(o->isCraftingTool()){auto tool=static_cast<CraftingTool*>(o.get());auto compatible=c->getZoneServer()->getPlayerManager()->getNearbyCraftingStation(c,tool->getToolType());if(compatible==t)view["tools"].push_back(Json{{"id",id(tool)},{"name",str(tool->getDisplayedName())},{"template",str(tool->getObjectTemplate()->getFullTemplateString())},{"client_crc",tool->getClientObjectCRC()}});}}}
+    out["terminal"]=view;
+   }return out;
+@@ -82,14 +84,15 @@
+   if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);move(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
+   if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);if(r.value("action",std::string())!="fishing_stow" && r.value("action",std::string())!="fishing_stop")move(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+-  Json receiptRequest=r;if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
++  Json receiptRequest=r;if(action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && (c->isDead() || c->isIncapacitated() || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+   if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
+   else if(action=="delivery_open"){SwgxrDelivery::open(c,r);}
+   else if(action=="delivery_pickup" || action=="delivery_complete"){auto delivery=SwgxrDelivery::mutate(c,r);for(auto it=delivery.begin();it!=delivery.end();++it)result[it.key()]=it.value();}
+   else if(action=="vendor_customize" || action=="vendor_recover"){auto changed=SwgxrVendorCommerce::mutate(c,r);for(auto it=changed.begin();it!=changed.end();++it)result[it.key()]=it.value();}
+   else if(action=="vendor_place"){auto placed=SwgxrVendorPlacement::place(c,r);for(auto it=placed.begin();it!=placed.end();++it)result[it.key()]=it.value();}
++  else if(action.rfind("recruiter_",0)==0 || action=="contraband_answer"){ManagedReference<SceneObject*> npc;if(action!="contraband_answer")npc=nearby(c,r,"recruiter");auto changed=SwgxrGcw::mutate(c,npc,r);for(auto& field:changed.items())result[field.key()]=field.value();}
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();int n=amount(r);if(target==nullptr || target==c || !target->isPlayerCreature() || !target->isOnline() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,3))throw std::runtime_error("payment_target_unavailable");if(int64(target->getCashCredits())+n>2147483647)throw std::runtime_error("recipient_balance_limit");command(c,"tip",target->getObjectID(),std::to_string(n));}
+@@ -102,7 +105,7 @@
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || (!SwgxrPlanets::supported(ticket->getArrivalPlanet()) || c->getZoneServer()->getZone(ticket->getArrivalPlanet())==nullptr))throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+   if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- a/MMOCoreORB/src/server/zone/managers/gcw/sessions/ContrabandScanSession.idl
++++ b/MMOCoreORB/src/server/zone/managers/gcw/sessions/ContrabandScanSession.idl
+@@ -36,6 +36,7 @@
+ 	private static final int FINISHED = 10;
+ 
+ 	private int scanState;
++ private transient unsigned long swgxrScanID;
+ 	private int previousScanState;
+ 
+ 	private int timeLeft;
+@@ -84,7 +85,13 @@
+ 		enforcedScan = enforced;
+ 	}
+ 
+-	public native int initializeSession();
++	public int getSwgxrPhase() { return scanState; }
++ public int getSwgxrTimeLeft() { return timeLeft; }
++ public int getSwgxrFine() { return fineToPay; }
++ public boolean getSwgxrAnswerGiven() { return fineAnswerGiven; }
++ public unsigned long getSwgxrScanID() { return swgxrScanID; }
++ public native AiAgent getSwgxrScanner();
++ public native int initializeSession();
+ 
+ 	public native int cancelSession();
+ 
+--- a/MMOCoreORB/src/server/zone/managers/gcw/sessions/ContrabandScanSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/gcw/sessions/ContrabandScanSessionImplementation.cpp
+@@ -1,3 +1,4 @@
++#include <atomic>
+ /*
+  * ContrabandScanSessionImplementation.cpp
+  *
+@@ -25,6 +26,8 @@
+ #include "server/zone/packets/scene/PlayClientEffectLocMessage.h"
+ 
+ int ContrabandScanSessionImplementation::initializeSession() {
++ static std::atomic<uint64> nextScan{System::getMiliTime()};
++ swgxrScanID = ++nextScan;
+ 	ManagedReference<AiAgent*> scanner = weakScanner.get();
+ 	ManagedReference<CreatureObject*> player = weakPlayer.get();
+ 
+@@ -135,6 +138,7 @@
+ 
+ 	if (zone == nullptr || zone->getGCWManager() == nullptr) {
+ 		cancelSession();
++		return;
+ 	}
+ 
+ 	if (playerTriesToAvoidScan(scanner, player)) {
+@@ -347,7 +351,7 @@
+ 		return 0;
+ 	}
+ 
+-	return scanner != nullptr && player != nullptr && player->isPlayerCreature() && !scanner->isDead() && !player->isDead() && !player->isFeigningDeath() && !player->isIncapacitated() && !scanner->isInCombat() && !player->isInCombat();
++	return scanner != nullptr && player != nullptr && scanner->getZone() != nullptr && scanner->getZone() == player->getZone() && scanner->getParentID() == player->getParentID() && player->isOnline() && player->getPlayerObject() != nullptr && !player->getPlayerObject()->isOnLoadScreen() && player->isPlayerCreature() && !scanner->isDead() && !player->isDead() && !player->isFeigningDeath() && !player->isIncapacitated() && !scanner->isInCombat() && !player->isInCombat();
+ }
+ 
+ void ContrabandScanSessionImplementation::adjustReinforcementStrength(AiAgent* scanner) {
+@@ -901,4 +905,5 @@
+ 		return;
+ 
+ 	scanner->broadcastMessage(moveAlong, false);
+-}
+\ No newline at end of file
++}
++AiAgent* ContrabandScanSessionImplementation::getSwgxrScanner() { return weakScanner.get(); }
+--- a/MMOCoreORB/src/server/zone/managers/gcw/GCWManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/gcw/GCWManagerImplementation.cpp
+@@ -3479,7 +3479,7 @@
+ 
+ 		auto player = object->asCreatureObject();
+ 
+-		if (player == nullptr)
++		if (player == nullptr || player->getZone() != zone || !player->isOnline() || player->getPlayerObject() == nullptr || player->getPlayerObject()->isOnLoadScreen())
+ 			continue;
+ 
+ 		if (player->getParentID() != 0 && !player->isRidingMount())
+@@ -3540,7 +3540,7 @@
+ 		} else if (tangibleItem->isFactoryCrate()) {
+ 			ManagedReference<FactoryCrate*> crate = tangibleItem.castTo<FactoryCrate*>();
+ 			ManagedReference<TangibleObject*> prototype = crate->getPrototype();
+-			return isContraband(prototype.castTo<SceneObject*>());
++			return prototype != nullptr && isContraband(prototype.castTo<SceneObject*>());
+ 		}
+ 	}
+ 	return false;
+@@ -3549,7 +3549,7 @@
+ int GCWManagerImplementation::countContrabandItemsInContainer(SceneObject* container) {
+ 	int numberOfContrabandItems = 0;
+ 	int containerSize = container->getContainerObjectsSize();
+-	if (containerSize > 1) {
++	if (containerSize > 0) {
+ 		for (int i = 0; i < containerSize; i++) {
+ 			numberOfContrabandItems += countContrabandItemsInContainer(container->getContainerObject(i));
+ 		}
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -3635,6 +3635,13 @@
+ * This will pass the bitmask to the client to show this creature as attackable.
+ */
+ bool CreatureObjectImplementation::isAttackableBy(CreatureObject* creature, bool bypassDeadCheck) {
++	// SWGXR currently supports faction PvE only, including pets and vehicles.
++	if (creature != nullptr) {
++		ManagedReference<CreatureObject*> victimOwner = isPlayerCreature() ? asCreatureObject() : ((isPet() || isVehicleObject()) ? getLinkedCreature().get().get() : nullptr);
++		ManagedReference<CreatureObject*> attackerOwner = creature->isPlayerCreature() ? creature : ((creature->isPet() || creature->isVehicleObject()) ? creature->getLinkedCreature().get().get() : nullptr);
++		if (victimOwner != nullptr && attackerOwner != nullptr && victimOwner->isPlayerCreature() && attackerOwner->isPlayerCreature())
++			return false;
++	}
+ 	if (creature == nullptr || creature == asCreatureObject())
+ 		return false;
+ 
+--- a/MMOCoreORB/bin/scripts/screenplays/gcw/recruiters/recruiterScreenplay.lua
++++ b/MMOCoreORB/bin/scripts/screenplays/gcw/recruiters/recruiterScreenplay.lua
+@@ -835,3 +835,21 @@
+ 
+ 	PlayerObject(pGhost):decreaseFactionStanding(oldFactionName, 0)
+ end
++
++-- SWGXR presents the original reward and status operations without conversation windows.
++function recruiterScreenplay:swgxrCost(pPlayer, faction, itemString)
++ local cost = self:getItemCost(faction, itemString)
++ if cost == nil then return -1 end
++ local bothan = CreatureObject(pPlayer):getSpecies() == SPECIES_BOTHAN and 0.9 or 1
++ return math.ceil(cost * getGCWDiscount(pPlayer) * self:getSmugglerDiscount(pPlayer) * bothan)
++end
++function recruiterScreenplay:swgxrToggle(pPlayer, status)
++ if CreatureObject(pPlayer):isChangingFactionStatus() then return -1 end
++ if CreatureObject(pPlayer):hasSkill("force_rank_light_novice") or CreatureObject(pPlayer):hasSkill("force_rank_dark_novice") then return -1 end
++ if status ~= 0 and status ~= 1 then return -1 end
++ local delay = status == 0 and 300000 or 30000
++ CreatureObject(pPlayer):setFutureFactionStatus(status)
++ writeData(CreatureObject(pPlayer):getObjectID() .. ":changingFactionStatus", 1)
++ createEvent(delay, "recruiterScreenplay", status == 0 and "handleGoOnLeave" or "handleGoCovert", pPlayer, "")
++ return delay
++end
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/LuaAiAgent.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/LuaAiAgent.h
+@@ -31,6 +31,7 @@
+ 		~LuaAiAgent();
+ 
+ 		int _setObject(lua_State* L);
++ int startContrabandScan(lua_State* L);
+ 		int setAITemplate(lua_State* L);
+ 		int setFollowObject(lua_State* L);
+ 		int setOblivious(lua_State* L);
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/LuaAiAgent.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/LuaAiAgent.cpp
+@@ -6,6 +6,8 @@
+  */
+ 
+ #include "LuaAiAgent.h"
++#include "server/zone/Zone.h"
++#include "server/zone/managers/gcw/GCWManager.h"
+ 
+ #include <engine/core/ManagedReference.h>
+ #include <system/lang/ref/Reference.h>
+@@ -28,6 +30,7 @@
+ 
+ Luna<LuaAiAgent>::RegType LuaAiAgent::Register[] = {
+ 		{ "_setObject", &LuaAiAgent::_setObject },
++ { "startContrabandScan", &LuaAiAgent::startContrabandScan },
+ 		{ "_getObject", &LuaSceneObject::_getObject },
+ 		{ "setAITemplate", &LuaAiAgent::setAITemplate },
+ 		{ "setFollowObject", &LuaAiAgent::setFollowObject },
+@@ -1073,3 +1076,13 @@
+ 
+ 	return 0;
+ }
++
++// Trusted screenplay binding for original authored/enforced searches, never an HTTP command.
++int LuaAiAgent::startContrabandScan(lua_State* L) {
++ auto player = static_cast<CreatureObject*>(lua_touserdata(L, -2));
++ bool enforced = lua_toboolean(L, -1);
++ if (!player || !player->isPlayerCreature() || !realObject->getZone() || player->getZone()!=realObject->getZone() || !realObject->getZone()->getGCWManager()) { lua_pushboolean(L,false);return 1; }
++ Locker lock(realObject);Locker cross(player,realObject);
++ realObject->getZone()->getGCWManager()->startContrabandScanSession(realObject,player,enforced);
++ lua_pushboolean(L,player->getActiveSession(SessionFacadeType::CONTRABANDSCAN)!=nullptr);return 1;
++}
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -4421,6 +4421,13 @@
+ }
+ 
+ bool AiAgentImplementation::isAttackableBy(CreatureObject* creature) {
++	// SWGXR PvE policy also applies to mind-tricked player-owned pets.
++	if (creature != nullptr && isPet()) {
++		auto owner = getLinkedCreature().get();
++		ManagedReference<CreatureObject*> attacker = creature->isPlayerCreature() ? creature : ((creature->isPet() || creature->isVehicleObject()) ? creature->getLinkedCreature().get().get() : nullptr);
++		if (owner != nullptr && owner->isPlayerCreature() && attacker != nullptr && attacker->isPlayerCreature())
++			return false;
++	}
+ 	if (creature == nullptr || asAiAgent() == creature)
+ 		return false;
+ 

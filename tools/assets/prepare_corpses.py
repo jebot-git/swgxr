@@ -12,6 +12,7 @@ import numpy as np
 from prepare_characters import CharacterImporter
 from character_animations import ash_summary, decode_clip, load_lat, resolve
 from swg_formats import cstring, parse_iff
+from planet_config import PLANETS
 ROOT=Path(__file__).resolve().parents[2]
 
 def planet_templates(planet):
@@ -92,7 +93,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--template',action='append',default=[])
     parser.add_argument('--snapshot',type=Path)
-    parser.add_argument('--planet',choices=['tatooine'],help='Explicit harvestable animals in local Core3 planet mobile definitions')
+    parser.add_argument('--planet',choices=PLANETS,help='Explicit harvestable animals in local Core3 planet mobile definitions')
     parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
     parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/corpses')
     args=parser.parse_args(); templates=set(args.template)

@@ -6,6 +6,10 @@ It deliberately has no fallback character database. Godot locomotion is local;
 entry validates the persistent identity through Core3, then chooses the stage.
 """
 from __future__ import annotations
+try:
+ from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
+except ImportError:
+ from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 import argparse
 import hashlib
 import hmac
@@ -35,6 +39,8 @@ try:
     from .multiplayer_sync import HUB as WORLD_SYNC
     from .crafting_protocol import command as crafting_command, crafting_snapshot
     from .gathering_protocol import gathering_snapshot, corpse_snapshot
+    from .entertainer_protocol import command as entertainer_command, snapshot as entertainer_snapshot
+    from .image_design_protocol import normalize as image_design_normalize, normalize_appearance as image_appearance_normalize
     from .entertainment import HUB as PERFORMANCE_HUB
     from .live_combat import HUB as LIVE_COMBAT, LiveConflict
 except ImportError:
@@ -52,6 +58,8 @@ except ImportError:
     from multiplayer_sync import HUB as WORLD_SYNC
     from crafting_protocol import command as crafting_command, crafting_snapshot
     from gathering_protocol import gathering_snapshot, corpse_snapshot
+    from entertainer_protocol import command as entertainer_command, snapshot as entertainer_snapshot
+    from image_design_protocol import normalize as image_design_normalize, normalize_appearance as image_appearance_normalize
     from entertainment import HUB as PERFORMANCE_HUB
     from live_combat import HUB as LIVE_COMBAT, LiveConflict
 
@@ -172,10 +180,10 @@ def select_character(account, oid, timeout=60):
     result = invoke(account, [{'action': 'selectContext', 'characterOid': int(oid)},
                               {'action': 'zoneInCharacter'}], timeout=max(0.1, deadline-time.monotonic()))
     scene = result.get('variables', {}).get('scene', {})
-    if (scene.get('terrain') != 'terrain/tatooine.trn'
+    if (scene.get('terrain') not in {'terrain/'+p+'.trn' for p in SUPPORTED_PLANETS}
             or str(scene.get('characterOid', '')) != oid
             or not result.get('zoneStats', {}).get('sceneReady')):
-        raise BackendError('Core3 did not confirm this character in a ready Tatooine scene.')
+        raise BackendError('Core3 did not confirm this character in a ready original ground scene.')
     scene['characterOid'] = str(scene['characterOid'])
     try: character = appearance(result, oid)
     except ValueError as exc: raise BackendError(str(exc)) from exc
@@ -286,6 +294,8 @@ def vehicles_request(account, oid, action, data):
     if not isinstance(oid,str) or not oid.isdigit():raise ValueError('Owned character_id required')
     command=vehicles_command(action,data)
     active=LIVE_COMBAT.active_for(account)
+    if action.startswith("ch_") and not active:
+        raise LiveConflict("Creature Handler interactions need an owned native gameplay session")
     if active:
         live=LIVE_COMBAT.request(account,'vehicles',dict(data,vehicles=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
         if live.get('error_code'):raise ValueError(live['error_code'])
@@ -297,6 +307,23 @@ def vehicles_request(account, oid, action, data):
         out=vehicles_snapshot(raw.get('variables',{}).get('vehicles',{}),oid);attributes=raw.get('variables',{}).get('weaponAttributes',{})
     if out.get('inventory'):out['inventory']=inventory_snapshot({'variables':{'inventory':out['inventory'],'weaponAttributes':attributes}},oid)
     return out
+
+def entertainer_request(account, oid, action, data):
+    if not isinstance(oid,str) or not oid.isdigit():raise ValueError('Owned character_id required')
+    command=entertainer_command(action,data)
+    active=LIVE_COMBAT.active_for(account)
+    if not active:raise LiveConflict('Entertainer interactions need an owned native gameplay session')
+    live=LIVE_COMBAT.request(account,'entertainer',dict(data,entertainer=command,character_id=oid,
+        session_id=data.get('live_session_id',active['id'])))
+    if live.get('error_code'):raise ValueError(live['error_code'])
+    out=entertainer_snapshot(live.get('mutation',{}),oid)
+    state=out['state']
+    if isinstance(state.get('appearance'),dict):state['appearance']=image_appearance_normalize(state['appearance'])
+    if isinstance(state.get('image_design'),dict):state['image_design']=image_design_normalize(state['image_design'])
+    out.update(sequence=live.get('sequence',0),live_response=live)
+    PERFORMANCE_HUB.observe_native(account,oid,out)
+    return out
+
 
 def medic_request(account, oid, action, data):
     if not isinstance(oid,str) or not oid.isdigit():raise ValueError('Owned character_id required')
@@ -312,8 +339,11 @@ def medic_request(account, oid, action, data):
 def scout_request(account, oid, action, data):
     if not isinstance(oid,str) or not oid.isdigit():raise ValueError('Owned character_id required')
     command=scout_command(action,data)
-    if LIVE_COMBAT.active_for(account):
-        live=LIVE_COMBAT.request(account,'scout',dict(data,scout=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',LIVE_COMBAT.active_for(account)['id']))))
+    active=LIVE_COMBAT.active_for(account)
+    if action in ('ranger_status','conceal','rescue','area_track') and not active:
+        raise LiveConflict('Ranger interactions need an owned native gameplay session')
+    if active:
+        live=LIVE_COMBAT.request(account,'scout',dict(data,scout=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
         if live.get('error_code'):raise ValueError(live['error_code'])
         out=scout_snapshot(live['mutation'],oid,live.get('scout_attributes',{}))
     else:
@@ -325,10 +355,12 @@ def scout_request(account, oid, action, data):
 def services_request(account, oid, action, data):
     if not isinstance(oid,str) or not oid.isdigit():raise ValueError('Owned character_id required.')
     command=services_command(action,data)
+    if action in ('recruiter_join','recruiter_promote','recruiter_status_toggle','recruiter_purchase','contraband_answer') and not LIVE_COMBAT.active_for(account):
+        raise LiveConflict('Faction interactions need an owned native gameplay session')
     temporary_recipient=None
     try:
-        if action=='pay':
-            proof=SERVICES_PRESENCE.authorize_payment(account,oid,command['target_id'],command['request_id'],command['amount'])
+        if action in ('pay','house_permission'):
+            proof=(SERVICES_PRESENCE.authorize_payment(account,oid,command['target_id'],command['request_id'],command['amount']) if action=='pay' else SERVICES_PRESENCE.authorize_house_permission(account,oid,command['target_id'],command['request_id'],command['arm_id']))
             recipient_account=proof.get('target_account')
             if recipient_account and not LIVE_COMBAT.active_for(recipient_account):
                 native={'position':proof['target_position'],'zone':proof['target_zone'],'building_id':proof['target_building_id'],'cell_index':proof['target_cell_index']}
@@ -347,6 +379,8 @@ def services_request(account, oid, action, data):
                 {'action':'zoneInCharacter','inventoryRequest':'swgxr_services_v1 '+json.dumps(command,separators=(',',':'))}])
             out=services_snapshot(raw.get('variables',{}).get('services',{}),oid,raw.get('variables',{}).get('weaponAttributes',{}))
         out['presence']=SERVICES_PRESENCE.register(account,oid,out['state']['player'])
+        if action=='house_permission_arm' and out.get('mutation',{}).get('success') and out['mutation'].get('arm'):
+            SERVICES_PRESENCE.arm_house_permission(account,oid,out['mutation']['arm'])
         try:VOICE_STATE.publish(account,oid,out['state']['player'],session_id=active['id'] if active else '',live=bool(active))
         except (OSError,ValueError):pass
         return out
@@ -376,7 +410,7 @@ def crafting_request(account, oid, action='status', data=None):
 def gathering_request(account, oid, action='status', data=None):
     if not isinstance(oid,str) or not oid.isdigit() or int(oid)>2**64-1:
         raise ValueError('character_id must be an unsigned integer.')
-    data=data or {};command={'action':action}
+    data=data or {};command={'action':action,**planet_context(data)}
     if action not in ('status','survey','deploy','collect','holster','return_tool'):
         raise ValueError('Unsupported gathering action.')
     if action!='status':
@@ -395,10 +429,9 @@ def gathering_request(account, oid, action='status', data=None):
         if not isinstance(position,list) or len(position)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in position):
             raise ValueError('position must be finite SWG world [x,y,z], y up.')
         if abs(position[0])>8192 or abs(position[2])>8192 or abs(position[1])>2048:
-            raise ValueError('Position is outside Tatooine bounds.')
-        if data.get('planet','tatooine')!='tatooine':raise ValueError('Only Tatooine gathering is supported.')
+            raise ValueError('Position is outside ground planet bounds.')
         if action in ('survey','deploy') and (not command.get('tool_id') or not command.get('resource_id')):raise ValueError('tool_id and resource_id are required.')
-        command.update(position=position,planet='tatooine')
+        command.update(position=position)
     if action=='collect':
         deployment=data.get('deployment_id')
         if not isinstance(deployment,str) or not re.fullmatch(r'[0-9]{1,20}:[0-9]{1,20}',deployment):raise ValueError('Invalid deployment_id.')
@@ -428,10 +461,9 @@ def corpse_request(account, oid, action='corpses', data=None):
     if not isinstance(oid,str) or not oid.isdigit() or int(oid)>2**64-1:raise ValueError('Invalid character_id.')
     data=data or {};position=data.get('position')
     if not isinstance(position,list) or len(position)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in position):raise ValueError('position must be finite source world [x,y,z].')
-    if abs(position[0])>8192 or abs(position[2])>8192 or abs(position[1])>2048:raise ValueError('Position outside Tatooine bounds.')
-    if data.get('planet','tatooine')!='tatooine':raise ValueError('Only Tatooine supported.')
+    if abs(position[0])>8192 or abs(position[2])>8192 or abs(position[1])>2048:raise ValueError('Position outside ground planet bounds.')
     if action not in ('corpses','corpse_inspect','corpse_harvest','corpse_loot'):raise ValueError('Unsupported corpse action.')
-    command={'action':action,'position':position,'planet':'tatooine'}
+    command={'action':action,'position':position,**planet_context(data)}
     if action!='corpses':
         corpse=data.get('corpse_id');key=data.get('request_id')
         if not isinstance(corpse,str) or not corpse.isdigit() or int(corpse)>2**64-1:raise ValueError('Invalid corpse_id.')
@@ -494,25 +526,24 @@ def create_waypoint(account, data):
     if not isinstance(name, str) or not re.fullmatch(r'[ -~]{1,64}', name) or not name.strip():
         raise ValueError('Waypoint name must contain 1–64 printable ASCII characters.')
     name = name.strip()
-    if data.get('planet', 'tatooine') != 'tatooine':
-        raise ValueError('This prototype creates waypoints on Tatooine only.')
+    waypoint_planet=validate_planet(data.get('planet','tatooine'))
     position = data.get('position', {})
     if not isinstance(position, dict): raise ValueError('position must contain x, y, z.')
     values = []
     for axis, bound in [('x',8192),('y',4096),('z',8192)]:
         value = position.get(axis)
         if isinstance(value, bool) or not isinstance(value, (int,float)) or not math.isfinite(value) or abs(value)>bound:
-            raise ValueError('Waypoint position is outside the supported Tatooine bounds.')
+            raise ValueError('Waypoint position is outside the supported ground planet bounds.')
         values.append(float(value))
     before = read_datapad(account, oid)
     old_ids = {w['id'] for w in before['waypoints']}
-    arguments = 'tatooine ' + ' '.join(format(v,'.9g') for v in values) + ' ' + name
+    arguments = waypoint_planet+' ' + ' '.join(format(v,'.9g') for v in values) + ' ' + name
     invoke(account,[{'action':'selectContext','characterOid':int(oid)},
                     {'action':'zoneInCharacter','datapadCommand':{'name':'requestwaypointatposition','arguments':arguments}}],timeout=25)
     # A sent command is not an acknowledgement. A separate authenticated
     # session must receive the persisted PlayerObject waypoint before success.
     after = read_datapad(account, oid, timeout=max(0.1,deadline-time.monotonic()))
-    match = next((w for w in after['waypoints'] if w['id'] not in old_ids and w['name']==name and w['planet']=='tatooine' and all(abs(a-b)<0.002 for a,b in zip(w['position'],values))), None)
+    match = next((w for w in after['waypoints'] if w['id'] not in old_ids and w['name']==name and w['planet']==waypoint_planet and all(abs(a-b)<0.002 for a,b in zip(w['position'],values))), None)
     if match is None:
         raise BackendError('Core3 did not confirm waypoint creation on fresh login. Refresh before retrying to avoid duplicates.')
     return {'backend':'core3','waypoint':match,'datapad':after,'verified_by':'fresh_owned_native_snapshot'}
@@ -695,6 +726,8 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200,services_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/vehicles/'):
                     self.respond(200,vehicles_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
+                elif self.path.startswith('/entertainer/'):
+                    self.respond(200,entertainer_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/medic/'):
                     self.respond(200,medic_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/scout/'):
@@ -730,7 +763,7 @@ class Handler(BaseHTTPRequestHandler):
                     server_scene = result['variables']['scene']
                     location=session_snapshot(result.get('variables',{}).get('session',{}),oid)['location']
                     self.respond(200, {'backend': 'core3', 'character_id': oid, 'name': character['name'], 'character': character,
-                                       'scene': 'tatooine', 'stage': 'mos_eisley_starport',
+                                       'scene': location['zone'], 'stage': 'mos_eisley_starport' if location['zone']=='tatooine' else location['zone'],
                                        'position':dict(zip(('x','y','z'),location['position'])), 'position_space': 'swg_world', 'source_location':location,
                                        'core3_zone_verified': result.get('zoneConnected', False),
                                        'core3_scene': server_scene,

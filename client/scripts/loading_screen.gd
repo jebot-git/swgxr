@@ -14,6 +14,7 @@ var xr_status: Label
 var xr_viewport: SubViewport
 var active := false
 var failed := false
+var failure_hint := "Press Menu / Esc to return."
 var message := ""
 var history: Array[String] = []
 
@@ -32,6 +33,12 @@ func make_content() -> Control:
 	background.color = Color("08121a")
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	background.mouse_filter = Control.MOUSE_FILTER_STOP
+	var frame:=Panel.new()
+	frame.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	frame.offset_left=-350;frame.offset_right=350;frame.offset_top=-150;frame.offset_bottom=150
+	frame.mouse_filter=Control.MOUSE_FILTER_IGNORE
+	frame.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").frame(32,"wide"))
+	background.add_child(frame)
 	var center := CenterContainer.new()
 	center.name = "Center"
 	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -133,7 +140,9 @@ func sync_text() -> void:
 	for title in [desktop_title,xr_title]:
 		if is_instance_valid(title): title.text = "Loading stopped" if failed else "SWG XR"
 	for label in [desktop_status,xr_status]:
-		if is_instance_valid(label): label.text = message + ("\n\nPress Menu / Esc to return." if failed else "")
+		if is_instance_valid(label): label.text = message + ("\n\n"+failure_hint if failed else "")
+
+func set_failure_hint(text:String)->void:failure_hint=text
 
 func fail(text: String) -> void:
 	begin(text)

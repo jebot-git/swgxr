@@ -5,10 +5,10 @@ signal action_requested(action: String, payload: Dictionary)
 signal opened
 signal closed
 signal wallet_changed(held: bool)
-const ServicePanel=preload("res://scripts/service_panel.gd")
+const ServicePanel=preload("res://gcw/panel.gd")
 const HandInput=preload("res://scripts/tracked_hand_input.gd")
 const InventoryAssets=preload("res://scripts/inventory_assets.gd")
-const PANEL_METERS=Vector2(0.64,0.432)
+const PANEL_METERS=Vector2(0.64,0.4614)
 const CLOSE_DISTANCE=3.0
 const WALLET_TEMPLATE="object/tangible/item/loot_credit_chip.iff"
 var rig: XROrigin3D
@@ -46,6 +46,7 @@ var pointer_last:=Vector2.ZERO
 var interaction_epoch:=0
 var assets:=InventoryAssets.new()
 var point_math:=SwgWristDatapad.new()
+var slider_surface:Dictionary={}
 var handshake_id:=""
 var handshake_seconds:=0.0
 var handshake_latched:=false
@@ -53,13 +54,15 @@ var handshake_anchor:=Vector3.ZERO
 var handshake_travel:=0.0
 var boarding_latch:=""
 var pointer_saved: Dictionary={}
+var inventory_focus:=false
+var inventory_focus_provider:Callable
 
 func configure(origin: XROrigin3D, player: CharacterBody3D, side: String="left") -> void:
 	rig=origin;body=player;offhand="right" if side=="right" else "left"
 	process_priority=123
-	pointer_visual=preload("res://scripts/finger_pointer_visual.gd").new();add_child(pointer_visual)
+	pointer_visual=preload("res://scripts/finger_pointer_visual.gd").new();pointer_visual.show_beam=false;add_child(pointer_visual)
 	panel=ServicePanel.new()
-	viewport=SubViewport.new();viewport.size=Vector2i(860,580)
+	viewport=SubViewport.new();viewport.size=Vector2i(860,620)
 	viewport.transparent_bg=true;viewport.disable_3d=true;viewport.gui_disable_input=false
 	viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
 	add_child(viewport);viewport.add_child(panel)
@@ -92,6 +95,19 @@ func set_allowed(value: bool) -> void:
 		grip_armed=false;trigger_armed=false
 		handshake_id="";handshake_seconds=0;handshake_latched=false
 
+func set_inventory_focus(value: bool) -> void:
+	if inventory_focus==value:return
+	inventory_focus=value
+	if value:
+		pointer_pressed=false;pointer_button="";trigger_armed=false;pointer_grip_armed=false
+		hover_anchor.clear();panel.cancel_pointer();set_stick_capture(false);pointer_visual.hide()
+
+func confirm_button(side: String) -> bool:
+	if inventory_focus_provider.is_valid():set_inventory_focus(bool(inventory_focus_provider.call()))
+	if not allowed or inventory_focus or terminal.is_empty() or side==offhand:return false
+	if not pending and not pointer_pressed:panel.confirm_navigation()
+	return true
+
 func blocks_combat() -> bool:
 	return wallet_held or not terminal.is_empty()
 
@@ -111,18 +127,22 @@ func apply_response(response: Dictionary, resolve_pending: bool=true) -> void:
 	if response.get("tickets") is Array: tickets=response.tickets.duplicate(true)
 	if resolve_pending: set_pending(false)
 	var mutation: Dictionary=response.get("mutation",{})
-	var updated: Dictionary=response.get("terminal",{})
+	var updated: Dictionary=response.get("terminal",{}).duplicate(true)
+	if updated.get("kind","")=="recruiter":updated.gcw=response.get("gcw",{}).duplicate(true)
 	# A late response must not reopen a closed/different terminal.
 	if not terminal.is_empty() and str(updated.get("id",""))==str(terminal.get("id","")) and not updated.is_empty() and (terminal.get("kind","")!="delivery" or str(updated.get("mission_id",""))==str(terminal.get("mission_id",""))):
 		var anchor: Variant=terminal.get("position",terminal_origin)
 		var changed:=false
-		for key in ["kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","trainer_text","profession","dialogue","confirm_action","stage","parcel_id"]:
+		for key in ["kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
 			if updated.has(key) and updated[key]!=terminal.get(key): changed=true
 		terminal.merge(updated,true);terminal.position=anchor
 		if changed:
 			panel.configure(terminal,wallet,tickets)
 			panel.set_pending(pending)
-		else: panel.terminal=terminal.duplicate(true)
+		else:
+			var upkeep:bool=panel.terminal.get("kind","")=="house_deposit" and terminal.get("kind","")=="house"
+			panel.terminal=terminal.duplicate(true)
+			if upkeep:panel.terminal.kind="house_deposit"
 	panel.message=str(mutation.get("message",mutation.get("error",mutation.get("error_code",""))))
 	if mutation.has("success") and bool(mutation.success) and panel.message.is_empty(): panel.message="Confirmed by Core3"
 	panel.queue_redraw()
@@ -155,6 +175,7 @@ func open_terminal(record: Dictionary) -> void:
 	trigger_armed=false
 	sync_pointers();opened.emit()
 	set_pending(true)
+	if record.get("kind","")=="contraband":set_pending(false);return
 	if record.get("kind","")=="delivery":action_requested.emit("delivery_open",{"npc_id":str(record.id),"mission_id":str(record.get("mission_id",""))})
 	else:action_requested.emit("open",{"terminal_id":str(record.id)})
 
@@ -164,7 +185,9 @@ func close_interface() -> void:
 	pointer_pressed=false;pointer_button="";stick_scroll=0;hover_anchor.clear()
 	set_stick_capture(false)
 	if is_instance_valid(pointer_visual):pointer_visual.hide()
-	if is_instance_valid(panel): panel.cancel_pointer()
+	if is_instance_valid(panel):
+		panel.cancel_pointer()
+		if panel.has_method("interface_closed"):panel.interface_closed()
 	if is_instance_valid(surface): surface.visible=false
 	if is_instance_valid(viewport): viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
 	# Request latches remain server-owned; closing cannot enable duplicate mutations.
@@ -322,6 +345,18 @@ func pointer_frame(hit: Dictionary, trigger: float, grip: float) -> void:
 
 	if grip>=.65:pointer_grip_armed=false
 
+func sync_slider_handles()->void:
+	if slider_surface.is_empty():slider_surface={"mesh":surface,"meters":PANEL_METERS,"viewport":viewport,"control":panel}
+	slider_surface.control=panel
+	preload("res://scripts/xr_slider_drag.gd").sync_handles([slider_surface])
+
+func physical_slider_hit(position:Vector3)->Dictionary:
+	if pending or not surface.visible:return {}
+	var candidate:Dictionary=preload("res://scripts/xr_slider_drag.gd").near_handle({"mesh":surface,"meters":PANEL_METERS,"viewport":viewport,"control":panel},position)
+	if candidate.is_empty():return {}
+	var pixel:Vector2=candidate.pixel
+	return {"valid":true,"pixel":pixel,"world":surface.global_transform*Vector3((pixel.x/viewport.size.x-.5)*PANEL_METERS.x,(.5-pixel.y/viewport.size.y)*PANEL_METERS.y,.002)}
+
 func interaction_hit(hand: XRController3D, finger: Dictionary) -> Dictionary:
 	if pointer_pressed:
 		# Pulling a trigger curls the rendered index. Once pressed, retain the
@@ -329,6 +364,9 @@ func interaction_hit(hand: XRController3D, finger: Dictionary) -> Dictionary:
 		var movement: Vector3=surface.global_basis.inverse()*(hand.global_position-drag_hand_anchor)
 		var pixel:=drag_pixel_anchor+Vector2(movement.x/PANEL_METERS.x*viewport.size.x,-movement.y/PANEL_METERS.y*viewport.size.y)
 		return {"valid":true,"pixel":pixel,"world":surface.global_transform*Vector3((pixel.x/viewport.size.x-.5)*PANEL_METERS.x,(.5-pixel.y/viewport.size.y)*PANEL_METERS.y,.002)}
+	if pointer_grip_armed and hand.get_float("grip")>=.65:
+		var physical:=physical_slider_hit(hand.global_position)
+		if not physical.is_empty():return physical
 	if hand.get_float("trigger")>=.3 and not hover_anchor.is_empty():
 		# Retain the extended-finger hover before analog trigger curl starts.
 		# Continue to account for hand translation; the point is not frozen in space.
@@ -354,22 +392,25 @@ func scroll_frame(hit: Dictionary, stick: Vector2, delta: float) -> void:
 	stick_scroll+=-stick.y*12.0*delta
 	if absf(stick_scroll)>=1:
 		var steps:=int(stick_scroll)
-		panel.scroll_at(hit.pixel,steps);stick_scroll-=steps
+		panel.navigate_at(hit.pixel,steps);stick_scroll-=steps
 
 func finger_pose(controller: XRController3D) -> Dictionary:
 	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"right" if offhand=="left" else "left",rig,controller)
 
 func _process(delta: float) -> void:
 	if not allowed or not is_instance_valid(rig): return
+	if inventory_focus_provider.is_valid():set_inventory_focus(bool(inventory_focus_provider.call()))
 	var hand: XRController3D=rig.get_node("RightHand" if offhand=="left" else "LeftHand")
 	var mount: XRController3D=rig.get_node("LeftHand" if offhand=="left" else "RightHand")
 	var head: Camera3D=rig.get_node("XRCamera3D")
 	var head_tracker=XRServer.get_tracker("head")
 	var head_pose: XRPose=head_tracker.get_pose("default") if head_tracker!=null else null
 	var tracked:=head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(mount) and HandInput.controller_tracked(hand)
-	update_wallet_gesture(tracked,head.global_transform,mount.global_transform,mount.get_float("grip") if tracked else 0)
+	if not inventory_focus:update_wallet_gesture(tracked,head.global_transform,mount.global_transform,mount.get_float("grip") if tracked else 0)
 	if not tracked:
 		close_interface();pointer_pressed=false;trigger_armed=false;return
+	if inventory_focus:
+		update_proximity(body.global_position);pointer_visual.hide();return
 	var finger:=finger_pose(hand)
 	if wallet_held:
 		var peers: Array=remote_hands_provider.call() if remote_hands_provider.is_valid() else []
@@ -386,6 +427,7 @@ func _process(delta: float) -> void:
 		var was_pressed:=pointer_pressed
 		pointer_visual.update_pointer(finger.tip,hit)
 		pointer_frame(hit,hand.get_float("trigger"),hand.get_float("grip"))
+		sync_slider_handles()
 		if pointer_pressed and not was_pressed:
 			drag_hand_anchor=hand.global_position;drag_pixel_anchor=pointer_last
 		scroll_frame(hit,hand.get_vector2("primary"),delta)
@@ -396,7 +438,7 @@ func _process(delta: float) -> void:
 	if candidate.is_empty():pointer_visual.hide();return
 	# Nearby terminal targeting is invisible until its interface is opened.
 	# Keep original screen hit-testing and trigger activation; the active UI
-	# still owns its finger pointer and click dot.
+	# retains its click dot without a projected beam.
 	pointer_visual.hide()
 	if trigger_armed and hand.get_float("trigger")>=0.55:
 		trigger_armed=false;open_terminal(candidate)
@@ -429,20 +471,10 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 	return best
 
 func sync_pointers() -> void:
-	if not is_instance_valid(rig): return
-	if blocks_combat():
-		for side in ["LeftHand","RightHand"]:
-			var pointer=rig.get_node_or_null(side+"/FunctionPointer")
-			if pointer!=null and not pointer_saved.has(pointer): pointer_saved[pointer]=pointer.enabled;pointer.enabled=false
-	else:
-		for pointer in pointer_saved:
-			if is_instance_valid(pointer): pointer.enabled=pointer_saved[pointer]
-		pointer_saved.clear()
+	preload("res://scripts/pointer_capture.gd").suspend(self,rig,blocks_combat())
 
 func _exit_tree() -> void:
-	for pointer in pointer_saved:
-		if is_instance_valid(pointer): pointer.enabled=pointer_saved[pointer]
-	pointer_saved.clear()
+	preload("res://scripts/pointer_capture.gd").suspend(self,rig,false)
 
 func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) -> Transform3D:
 	var best: Transform3D=face_pose(fallback_center,head)

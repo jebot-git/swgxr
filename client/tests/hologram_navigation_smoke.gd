@@ -1,0 +1,51 @@
+extends SceneTree
+## Local UI state only; no backend mutations, renderer or live XR claims.
+var checks:=0
+var failures:Array=[]
+func check(value:bool,label:String)->void:
+	checks+=1
+	if not value:failures.append(label)
+func _initialize()->void:call_deferred("run")
+func run()->void:
+	var service:=preload("res://scripts/service_panel.gd").new();root.add_child(service)
+	var actions:Array=[];service.action_requested.connect(func(action,payload):actions.append([action,payload]))
+	for i in range(20):service.rows.append({"id":str(i),"name":"Option %d"%i})
+	service.navigate_at(Vector2(40,150),1)
+	check(service.selected==0,"initial service option highlighted")
+	for i in range(12):service.navigate_at(Vector2(40,150),1)
+	check(service.selected==12 and service.offset==5,"service selection stays in viewport")
+	check(actions.is_empty(),"stick does not perform native actions")
+	service.pointer_begin(Vector2(40,150));service.pointer_end(Vector2(40,150))
+	check(service.selected==12,"trigger retains stick highlighted row")
+	service.navigate_at(Vector2(40,150),100)
+	check(service.selected==19,"service clamps last option")
+	service.navigate_at(Vector2(40,150),-100)
+	check(service.selected==0 and service.offset==0,"service clamps first option")
+	service.pending=true;service.navigate_at(Vector2(40,150),1)
+	check(service.selected==0,"pending service blocks navigation")
+	service.pending=false;service.terminal={"kind":"bazaar"};service.category_rows=[{"id":1},{"id":2}]
+	service.navigate_at(Vector2(40,150),1);service.navigate_at(Vector2(40,150),1)
+	check(service.category_selected==1 and actions.is_empty(),"bazaar category highlights without browsing")
+	var inventory:=preload("res://scripts/inventory_ui.gd").new();root.add_child(inventory)
+	var entries:Array=[]
+	for i in range(50):entries.append({"id":str(i),"name":"Item %d"%i,"container_id":"bag"})
+	inventory.set_snapshot({"inventory":{"id":"bag","capacity":80,"occupied":50},"items":entries})
+	for i in range(41):inventory.navigate(1)
+	check(inventory.selected_id=="40" and inventory.first_row==2,"inventory selects each item and reveals lower rows")
+	inventory.navigate(-100)
+	check(inventory.selected_id=="0" and inventory.first_row==0,"inventory navigation clamps safely")
+	var design:=preload("res://entertainment/image_design_panel.gd").new();root.add_child(design)
+	design.rows=entries;design.navigate_at(Vector2(50,140),1)
+	for i in range(7):design.navigate_at(Vector2(50,140),1)
+	check(design.selected==7 and design.offset==3,"image design five-row viewport follows selection")
+	var slider:=service.slider;slider.configure(100,25)
+	check(slider.handle_rect().size.y>slider.TRACK.size.y,"square grip extends beyond slider track")
+	check(slider.begin_drag(slider.handle_rect().get_center()),"square grip starts ordinary drag")
+	slider.drag_to(Vector2(536,42));check(slider.amount==100,"ordinary slider drag retains range mapping")
+	slider.cancel_drag();check(not slider.dragging,"slider releases capture")
+	var map:=preload("res://scripts/datapad_map.gd").new();root.add_child(map);map.size=Vector2(850,260)
+	map.zoom=5;var point:=Vector3(3528,0,-4800)
+	check(map.screen_to_world(map.world_to_screen(point)).distance_to(point)<.01,"inset frame retains map coordinate roundtrip")
+	print(JSON.stringify({"test":"hologram_navigation","passed":failures.is_empty(),"checks":checks,"failures":failures,"renderer":"headless dummy","live_xr":false}))
+	for node in [service,inventory,design,map]:node.free()
+	await process_frame;quit(0 if failures.is_empty() else 1)

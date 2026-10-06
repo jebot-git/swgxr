@@ -1,8 +1,13 @@
 """Transient shared performance presence, authenticated by Core3 entry snapshots.
 
-This is not a character store or a persistent buff authority. Buff eligibility
-is reported for the future live Core3 session; no local HAM/stat grant occurs.
+Native performer sessions and accepted flourish receipts are projected here.
+This presence bus never grants HAM, stats or XP. Its automatic spectator circles
+remain presentation-only until native watch/listen sessions are connected.
 """
+try:
+ from .planets import SUPPORTED_PLANETS
+except ImportError:
+ from planets import SUPPORTED_PLANETS
 import math
 import secrets
 import threading
@@ -18,6 +23,10 @@ except ImportError:
 
 
 class PerformanceHub:
+    # Presence expires quickly, but scene loading/focus pauses must not destroy
+    # the account-bound credential issued before the client starts rendering.
+    PRESENCE_IDLE_SECONDS = 15
+    SESSION_IDLE_SECONDS = 3600
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.lock = threading.RLock()
@@ -31,17 +40,19 @@ class PerformanceHub:
         names = template_names()
         items = {key[1:]:names.get(r.get('templateCrc'), '').replace('/shared_', '/')
                  for key,r in objects.items() if owned(r,objects,str(oid))}
-        return self.register_observation(account, ctx, items, position)
+        zone=result.get('variables',{}).get('session',{}).get('location',{}).get('zone','tatooine')
+        return self.register_observation(account, ctx, items, position, zone)
 
-    def register_observation(self, account, ctx, items, position):
+    def register_observation(self, account, ctx, items, position, zone="tatooine"):
         """Only call with trusted decoded observation, never HTTP client fields."""
+        if zone not in SUPPORTED_PLANETS:raise ValueError('Unsupported performance area.')
         with self.lock:
             for token, actor in list(self.sessions.items()):
                 if actor['id'] == ctx['character_id']: self._remove(token)
             token = secrets.token_urlsafe(32)
             self.sessions[token] = {'id':ctx['character_id'], 'account':account, 'context':ctx,
                 'items':dict(items), 'item':'', 'band':'', 'position':self.point(position),
-                'area':'tatooine', 'seen':self.clock(), 'seq':-1, 'watching':{}, 'enabled':True}
+                'area':zone, 'seen':self.clock(), 'seq':-1, 'watching':{}, 'enabled':True}
             return {'token':token, 'context':ctx, 'radius':catalog()['circle_radius'],
                     'buff_authority':'core3_unconnected', 'scope':'shared_adapter_presence'}
 
@@ -51,6 +62,34 @@ class PerformanceHub:
                 if actor['account']==account and actor['id']==str(oid):
                     actor['items']={str(i['id']):str(i['template']).replace('/shared_', '/') for i in items}
                     if actor['item'] not in actor['items']: actor['item']=''
+
+    def observe_native(self, account, oid, envelope):
+        """Project an owned Core3 result; callers must never pass HTTP client data."""
+        with self.lock:
+            actor=self._actor(str(oid))
+            if not actor or actor['account']!=account.lower():return
+            if envelope.get('source_kind')!='core3_entertainer' or envelope.get('character_id')!=str(oid):raise ValueError('Native entertainer owner mismatch')
+            sequence=envelope.get('sequence',0)
+            if sequence and sequence<=actor.get('native_sequence',-1):return
+            state=envelope.get('state',{});mutation=envelope.get('mutation',{})
+            learned=list(state.get('skills',[]))
+            actor['context']=dict(actor['context'],skills=learned,commands=list(state.get('commands',[])),
+                flourishes=list(state.get('flourishes',[])),complete=True,entertainer='social_entertainer_novice' in learned)
+            actor['native_sequence']=sequence;actor['native_bound']=True
+            actor['area']=state.get('zone',actor['area'])
+            performance=next((p for p in catalog()['performances'].values()if state.get('performing') and p['performance_index']==state.get('performance_index') and p['kind']==state.get('kind')), {})
+            previous=actor.get('native_performance',{})
+            actor['native_performance']=performance
+            band=self.bands.get(actor['band']);now=self.clock()
+            if performance and not band:
+                self.serial+=1;bid=str(self.serial)
+                band={'id':bid,'leader':actor['id'],'members':{actor['id']},'performance':{},'started':now,'flourish':{},'revision':0}
+                self.bands[bid]=band;actor['band']=bid
+            if band and band['leader']==actor['id'] and performance!=previous:
+                band.update(performance=performance,started=now,flourish={},revision=band['revision']+1)
+            if band and mutation.get('success') and mutation.get('operation')=='flourish' and not mutation.get('replayed'):
+                band['flourish']={k:mutation[k]for k in ('index','command','level','effect_file','effect_position','target_id','duration','request_id')if k in mutation}
+                band['flourish'].update(actor=actor['id'],time=now,source_kind='core3_entertainer',sequence=sequence)
 
     @staticmethod
     def point(value):
@@ -80,7 +119,9 @@ class PerformanceHub:
         return a['area']==b['area'] and abs(a['position'][1]-b['position'][1])<=1.8 and math.hypot(a['position'][0]-b['position'][0],a['position'][2]-b['position'][2])<=radius
 
     def performance(self, actor, band):
-        if not actor['enabled'] or not band.get('performance'): return {}
+        if not actor['enabled']:return {}
+        if actor.get('native_bound'):return actor.get('native_performance',{})
+        if not band.get('performance'): return {}
         leader = self._actor(band['leader'])
         if not leader or not self.near(actor,leader,50): return {}
         template = actor['items'].get(actor['item'],'')
@@ -91,7 +132,16 @@ class PerformanceHub:
         with self.lock:
             now = self.clock()
             for token, actor in list(self.sessions.items()):
-                if now-actor['seen']>15: self._remove(token)
+                idle = now-actor['seen']
+                if idle > self.SESSION_IDLE_SECONDS:
+                    self._remove(token)
+                elif idle > self.PRESENCE_IDLE_SECONDS:
+                    self._leave(actor)
+                    actor['enabled'] = False
+                    actor['watching'] = {}
+                    # A fresh native observation must rebuild the projection on
+                    # resume; an old cached performance cannot restart it itself.
+                    actor.pop('native_performance', None)
             actor = self.sessions.get(data.get('token'))
             if not actor or actor['account']!=account: raise ValueError('Performance session expired; enter the character again.')
             seq = data.get('seq')
@@ -99,12 +149,14 @@ class PerformanceHub:
             # Retries return state without replaying mutations/flourishes.
             if seq<=actor['seq']: return self.snapshot(actor,now)
             position = self.point(data.get('position'))
-            area = data.get('area','tatooine')
-            if not isinstance(area,str) or area!='tatooine': raise ValueError('Unsupported performance area.')
+            area = data.get('area',actor['area'])
+            if not isinstance(area,str) or area not in SUPPORTED_PLANETS: raise ValueError('Unsupported performance area.')
             item = str(data.get('item_id',''))
             if item and item not in actor['items']: raise ValueError('Performance item is not owned by this character.')
             action = data.get('action','')
             if action not in ('','start_band','join','leave','perform','stop','flourish'): raise ValueError('Unknown performance action.')
+            if actor.get('native_bound') and action in ('perform','stop','flourish'):
+                action='' # Native receipts already project the exact accepted result.
             requested = None
             if action=='perform':
                 requested = next((p for p in eligible(actor['context']['skills'],actor['items'].get(item,'')) if p['id']==data.get('performance_id')),None)
@@ -114,7 +166,7 @@ class PerformanceHub:
             changed_item = item!=actor['item']
             actor['item']=item
             band = self.bands.get(actor['band'])
-            if band and band['leader']==actor['id'] and (not actor['enabled'] or changed_item): band['performance']={}
+            if band and band['leader']==actor['id'] and not actor.get('native_bound') and (not actor['enabled'] or changed_item): band['performance']={}
             if action not in ('','leave','stop') and (not actor['enabled'] or not actor['context'].get('entertainer')):
                 raise ValueError('An active entertainer is required.')
             if action=='start_band':
@@ -176,7 +228,7 @@ class PerformanceHub:
         actor['watching']=watching
         own=self.bands.get(actor['band'])
         playing=self.performance(actor,own) if own else {}
-        return {'server_time':now,'bands':visible,'band_id':actor['band'],'leader':own['leader'] if own else '',
+        return {'context':actor['context'],'native_authority':actor.get('native_bound',False),'server_time':now,'bands':visible,'band_id':actor['band'],'leader':own['leader'] if own else '',
                 'performance_id':playing.get('id',''),'watching':watching,
                 'buff_authority':'core3_unconnected','source':'shared_adapter_presence'}
 

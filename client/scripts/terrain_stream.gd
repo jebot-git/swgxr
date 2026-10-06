@@ -28,16 +28,18 @@ const SKIRT_DEPTH := 64.0
 var center := Vector2i(99999, 99999)
 var observer_centers: Array[Vector2i] = []
 var configured := false
+var source_manifest:Dictionary={}
 var report: Dictionary = {"installed": 0, "discarded": 0, "peak_resident": 0}
 
 func configure(path: String, world_origin: Vector3) -> bool:
 	if not FileAccess.file_exists(path):
-		push_error("Tatooine terrain missing: " + path)
+		push_error("Planet terrain missing: " + path)
 		return false
 	var source = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not source is Dictionary or not evaluator.configure(source):
-		push_error("Invalid Tatooine terrain manifest")
+		push_error("Invalid planet terrain manifest")
 		return false
+	source_manifest=source
 	origin = world_origin
 	material = _make_material(source, path.get_base_dir())
 	_make_water(source, path.get_base_dir())
@@ -235,12 +237,21 @@ func _channel(textures: Array, tag: String, directory: String, fallback: Color) 
 	return result
 
 func _make_water(source: Dictionary, directory: String) -> void:
-	for region in source.get("water_regions", []):
+	var regions:Array=source.get("water_regions",[]).duplicate(true)
+	if source.get("global_water_enabled",false):
+		regions.append({"points":[[-EXTENT,-EXTENT],[EXTENT,-EXTENT],[EXTENT,EXTENT],[-EXTENT,EXTENT]],"water_height":source.get("global_water_height",0.0),"water_shader_size":source.get("global_water_shader_size",2.0),"water_shader":source.get("global_water_shader","")})
+	for region in regions:
+		if not bool(region.get("enabled",true)) or not bool(region.get("water_enabled",true)):continue
+		var points:Array=region.get("points",[])
+		if region.get("type","")=="BREC" and region.get("rect") is Array and region.rect.size()==4:
+			var rect:Array=region.rect
+			points=[[rect[0],rect[1]],[rect[2],rect[1]],[rect[2],rect[3]],[rect[0],rect[3]]]
+		if points.size()<3:continue
 		var polygon := PackedVector2Array()
 		var vertices := PackedVector3Array()
 		var normals := PackedVector3Array()
 		var uvs := PackedVector2Array()
-		for point in region.points:
+		for point in points:
 			polygon.append(Vector2(point[0], point[1]))
 			vertices.append(Vector3(point[0]-origin.x, float(region.water_height)-origin.y, origin.z-point[1]))
 			normals.append(Vector3.UP)

@@ -1,5 +1,17 @@
 # Tatooine remote test realm
 
+Latest server update (2026-10-05): client-resolved vehicle motion and the
+entertainment/session-retention corrections are deployed. The running Core3 SHA-256
+is `75cffc9991be267a0e79c3257f9f58f0e65989611efd3737f4b196ec5fb1acce`.
+Graceful shutdown preceded SQL, BerkeleyDB, authentication and previous-runtime
+backup at `runtime/deploy/pre-vehicle-20261005T213915Z` on the VPS. All services are
+active; account/character counts, private configuration, Tatooine-only scope and
+the 05:00 UTC restart timer are preserved. Authenticated HTTPS verified native
+readiness, `driver_motion: client_pose`, owned inventory, a persistent session,
+and saved logout on the existing dedicated test character. No VR test was run,
+as requested. Evidence: `runtime/deploy/vehicle-live/` and
+`runtime/evidence/vehicle-live-https.json` locally.
+
 The custom client connects to `https://45.147.228.101:18443` through the
 account-bound TLS gateway. The native Core3 UDP protocol and MariaDB are inside
 a Podman container with `--network none`. The adapter listens on host loopback
@@ -421,3 +433,38 @@ auth-only test identity with no character: saved token reload/resume, revocation
 followed by401 rejection, session logout and temporary-file cleanup. Evidence:
 `runtime/evidence/yoke-recall-login/portable-login-live.json`. Core3, adapter,
 gateway and voice remain running; no live VR test was launched.
+
+
+## Ten-planet preparation — local validation, remote unchanged
+
+**User deployment hold (2026-10-05):** the live test server remains Tatooine-only
+until the player test server is ready. Restored planets stay in local development.
+Do not include planet restoration or expanded travel in unrelated live-server
+updates. Capacity upgrades alone do not lift this hold; wait for the user's
+instruction to expand the player test server.
+
+The client and native patch0041 support all ten original ground planets. Local
+Core3 startup took12seconds with all zones; its RSS measured4,337,156KiB
+(4.14GiB) with no swap. This exceeds the current VPS's2GiB physical RAM before
+MariaDB, adapter, gateway, voice and OS overhead. The remote realm therefore
+retains its existing Tatooine configuration and persistent data. Merely adding
+swap does not establish acceptable multiplayer response latency. An8GiB host is
+a starting capacity target for subsequent measurement, not a16-player guarantee.
+
+`tools/deploy/prepare_planet_profile.py runtime/deploy/<new-directory> --planets all`
+stages private configuration/resource overlays from the existing remote profile.
+It preserves the DB credential, excludes space zones, and does not touch running
+services or realm data. Apply through the established graceful save/backup/restart
+procedure only after the user lifts the deployment hold and capacity is available;
+check all native routes and retained
+character state before exposing expanded travel. Do not rerun fresh bootstrap or
+replace realm databases.
+
+Local original-ticket Tatooine→Naboo→Tatooine tests passed30 checks, including
+saved destination logout/reentry, retained owned sessions, original return-ticket
+consumption, rejected stale-zone movement and actual Naboo resource surveying.
+Forty-one RPCs measured median0.350s and p951.272s, including temporary login and
+character entry; this is functional evidence, not a load benchmark. Evidence:
+`runtime/evidence/planets-native-roundtrip.json` and
+`runtime/evidence/planets-native-capacity.json`. Client mock/replay and original
+geometry tests plus desktop Vulkan captures do not validate live XR.

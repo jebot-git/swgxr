@@ -13,7 +13,25 @@ from character_animations import load_lat, resolve, decode_clip
 from prepare_assets import Assets
 from prepare_inventory import InventoryImporter
 from prepare_datapad import Elements
+from character_formats import datatable
 from PIL import Image
+
+EFFECT_STEMS = {'dazzle':'dazzle', 'distract':'distract', 'spotlight':'spot_light',
+                'colorlights':'color_lights', 'smokebomb':'smoke_bomb',
+                'firejets':'fire_jets', 'ventriloquism':'ventriloquism'}
+
+def prepare_effects(importer):
+    """Keep original CEF/PRT data for the shared, bounded particle renderer."""
+    failures = []
+    rows = datatable(importer.read('datatables/performance/perform_effect.iff'))
+    for row in rows:
+        name = row['effectName'].lower()
+        source = 'clienteffect/entertainer_'+EFFECT_STEMS[name[:-1]]+'_level_'+name[-1]+'.cef'
+        try:
+            importer.effect(source)
+        except (ValueError, KeyError) as exc:
+            failures.append({'source':source, 'phase':'special_effect', 'error':str(exc)})
+    return failures
 
 def main():
     out = ROOT/'runtime/entertainment'
@@ -21,11 +39,18 @@ def main():
     data = catalog()
     previous = json.loads((out/'catalog.json').read_text()) if (out/'catalog.json').exists() else {}
     data['provenance'].update(previous.get('provenance',{}))
-    imp = Assets(ROOT/'runtime/assets/active_tre', out)
+    imp = Assets(ROOT/'runtime/assets/active_tre', out, bounded_particle_graphs=True)
     source_sounds = sorted({s for p in data['performances'].values() for s in p['sounds'].values()})
     failures = []
     for source in source_sounds:
         if not imp.audio_importer.sound(source): failures.append({'source':source, 'phase':'audio'})
+    failures.extend(prepare_effects(imp))
+    data['effects'] = imp.effects
+    data['particles'] = imp.particles
+    data['particle_limitations'] = [
+        'Original quad curves and textures feed the shared bounded particle renderer.',
+        'Nested attachment emitter motion is flattened; mesh particles are omitted and recorded per source.',
+        'Dynamic CEF lights and camera shake are not played in XR.']
     data['sounds'] = imp.audio_importer.sounds
     data['provenance'].update(imp.dependencies)
     data['provenance'].update(imp.audio_importer.dependencies)
@@ -75,7 +100,8 @@ def main():
     ui = imp.read('ui/ui_styles.inc')
     styles = {a.get('name','').lower():a for tag,a in Elements(ui.decode()).items if tag.lower()=='imagestyle'}
     data['icons'] = {}
-    for command in ['startband','startmusic','startdance','stopmusic','stopdance','imagedesign']:
+    for command in ['startband','startmusic','startdance','stopmusic','stopdance','imagedesign',
+                    'registerwithlocation','spotlight','colorlights','dazzle','distract','smokebomb','firejet','ventriloquism']:
         style = styles.get('group' if command=='startband' else command)
         if not style: failures.append({'icon':command,'phase':'icon'}); continue
         texture = 'texture/'+style['source'].split(':')[-1]+'.dds'

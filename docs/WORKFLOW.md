@@ -1312,3 +1312,123 @@ Evidence and a Forward+ Vulkan recruitment-room capture are under
 `runtime/evidence/npc-floating/`. Terminal interactions retain 62 mocked checks;
 the full original ambient streaming check passes with 32 resident skeletons,
 original equipment and no errors. No live VR testing was performed.
+
+## Core3 recording interaction corrections (2026-10-05)
+
+`Downloads/core3.mp4` was inspected using 64 timestamped frames across its
+21-minute duration and the correlated client log. Review evidence is under
+`runtime/evidence/core3-review/`; the recording shows tracking filters at
+230–250 seconds, missing performance options and an expired-session message
+from about 330 seconds, vehicle grip problems at 690–950 seconds, and steep
+exterior terrain at 1010–1270 seconds.
+
+Recognized profession gestures now reserve the datapad chord until release.
+Performance priming survives ordinary HAM replication; learned command matching
+handles Core3's mixed-case names, and a completed gesture can wait behind a
+background status request without being silently discarded. Dancing is prop-free:
+select a learned dance, spread both arms at chest height with open palms facing
+down, then make repeated waves or circles. The ribbon is no longer a performance
+prop. Previously provisioned native items are not silently deleted by this code
+change.
+
+Area Track status updates clear both the drawn panel and XR input pending state.
+Mask Scent has one hand-anchored badge; lost hand tracking hides it instead of
+moving it into the head view. Text-only native pet training options no longer
+abort radial-page construction because they lack an icon name.
+
+Vehicle grips remain latched until release rather than expiring with reach or
+snapshot age. The later physical-control revision also removes seated-driver
+grab proximity: each hand attaches to its corresponding model grip, even from a
+distant or crossed controller pose. Vehicle-only IK permits visual arm extension
+to keep the original hold socket attached; releasing restores ordinary reach
+limits. HMD, controller and physics-body transforms are unchanged by attachment.
+
+Landspeeder throttle uses physical model-forward push/backward pull, independently
+of wheel rotation; bike throttle retains wrist twist. Joysticks do not drive.
+Control positions survive one-hand release, hand transfers and tracking
+suspension, and reset only after both grips are released. Suspension stops drive
+output while retaining the visible control position. Swoop/speederbike handlebars
+pivot around model up, so opposite grips move fore/aft. All six original steering
+meshes now move locally; source seams partition existing triangles without
+replacement geometry. `vehicle-rigid-attachment.json` records 132 original-model
+attachment checks; `vehicle-handlebar-assets.json` and
+`vehicle-handlebar-mesh-smoke.json` record topology, source hashes and geometry
+validation. These checks are headless, not headset/GPU observations.
+
+Patch `0058-client-vehicle-motion.patch` adds negotiated local
+driver motion: the client resolves controls, collision and terrain height, while
+Core3 validates the owned ride and publishes its pose/properties. Current servers
+without `driver_motion=client_pose` retain the legacy motion protocol. The patch
+has protocol and client tests. The resumed build passed after Podman became
+accessible, and 14 running local Core3 checks now verify accepted poses, passenger
+replication, ownership/speed/world-boundary rejection, stale stopping and legacy
+controls. The probe restores its dedicated fixture poses and releases seats.
+Evidence: `runtime/evidence/vehicle-client-motion-native.json`. The user restored
+SSH access and authorized server-only deployment. The Tatooine VPS now runs the
+verified binary; HTTPS checks confirm the new capability and a retained native
+session. No VR test was launched.
+
+Terrain following uses actual resident terrain triangles, Core3 Scout slope
+modifiers, and swept building collisions. Missing terrain and explicitly denied
+surfaces remain unsupported. The bridge currently provides no per-position
+Core3 passability query, so this is imported-terrain support, not a claim of
+server-authoritative walkability. Evidence includes 55°, 70° and 82° slope tests
+at 60/120 Hz, wall/hole controls, and an actual imported Tatooine triangle in
+chunk `(4096,-4608)` with a 50.387° slope.
+
+The presentation hub now removes stale visible presence after 15 seconds while
+retaining an account-bound session for up to one hour of inactivity. This lets
+initial loading exceed 15 seconds without destroying the token; a new character
+entry still revokes the old token. Native performance resumes only after a fresh
+Core3 observation. This server-side correction is included in the deployed update.
+
+The native client library and targeted headless regressions were rebuilt with
+`--xr-mode off`. Mocked XR inputs and dummy rendering do not establish live
+headset validation. No new live test was launched for these corrections.
+
+Resume validation (2026-10-05): the native build completed and the deployment,
+vehicle protocol, launcher and session-retention suite passed 51 tests. A five-file
+delta bundle is staged under ignored `runtime/deploy/vehicle-live/`; it includes
+Core3/core3client and three changed adapter modules, without planet configuration
+or player data. The installer retains the Tatooine-only guard and graceful save,
+persistent backup and configuration-hash checks. Deployment passed; four files
+changed, while the included core3client binary already matched. All services are
+active, player counts and private configuration are preserved, and the daily
+05:00 UTC restart remains enabled. The dedicated HTTPS test character entered
+Tatooine, read its inventory and new vehicle capability, retained its native
+session, and saved/logout successfully. Evidence: `runtime/evidence/vehicle-live-https.json`
+and `runtime/deploy/vehicle-live/applied.json`.
+WiVRn reports a connected Quest Pro, but no project XR launch or headset rendering
+validation was performed during this resume.
+
+
+## core4 recording corrections (2026-10-06)
+
+Reviewed all 192 seconds of `/home/blux/Downloads/core4.mp4` using timestamped
+frames. The bazaar sequence shows the projected finger beam and backpack access
+problem. No crafting-station sequence was found in this clip; the reported
+stick-click failure was independently confirmed in the input handlers.
+
+The free-hand stick now confirms highlighted crafting and terminal rows, with
+both crafting-tool hand assignments covered. Consumed UI clicks cannot also jump.
+Bazaar/vendor browsing permits shoulder-backpack access and temporarily yields
+input while retaining terminal context. Nested pointer ownership prevents either
+panel from restoring the stock beam before the other closes. Terminal interaction
+keeps its contact dot without drawing a beam. Item-drop sale proposals still use
+the existing native commerce path.
+
+Original vehicle engine and droid sound bindings now feed the shared spatial
+mixer independently of weapon equipment. Original idle, movement, start/stop and
+observed droid damage effects are connected. See `tools/assets/README.md` for
+source limitations and the remaining unwired event types.
+
+Evidence is under ignored `runtime/evidence/core4-review/`: recording hash and
+48 timestamped frames, `ui.json` (24 checks), `audio.json` (18 checks with real
+Ogg decode and nonzero mixer capture), and regression logs. Crafting (40),
+hologram navigation (16), service controller (59), backpack (49), vendor commerce
+(23), and slider regressions passed. Terminal interaction (62), vehicle controls and
+weapon spatial-audio (12) regressions also passed. The asset audit verified 2,977
+source hashes and 115 converted Ogg files. Editor import was clean. Tests used
+`--xr-mode off` with dummy rendering; UI tracking and commerce responses were
+mocked. Audio capture verifies mixed output, not headset listening. No live VR
+test or server deployment was performed for these client corrections.

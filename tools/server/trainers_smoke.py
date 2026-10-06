@@ -48,7 +48,7 @@ end
  try:
   first=service('status',position=[3506,5,-4760],building_id='0',cell_index=0);check(first.get('ok'),'Native trainer service state available')
   trainers={t['profession']:t for t in first['state']['terminals']if t['kind']=='trainer'and t['cell_index']==0}
-  check(set(trainers)=={'artisan','brawler','entertainer','marksman','medic','scout'},'All six original spawned basic trainers discovered by native identity')
+  check({'artisan','brawler','entertainer','marksman','medic','scout'}<=set(trainers),'All six original spawned basic trainers discovered by native identity')
   for profession,t in trainers.items():
    opened=service('open',**at(t));view=opened.get('state',{}).get('terminal',{})
    check(opened.get('ok')and len(view.get('skills',[]))==18 and bool(view.get('trainer_text'))and not view['trainer_text'].startswith('@'),'Original '+profession+' trainer catalogue and media greeting available')

@@ -5,9 +5,10 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 from swg_formats import TreSet, Iff, parse_iff, cstring
 from terrain_formats import generator
+from planet_config import PLANETS, path_for
 ROOT = Path(__file__).resolve().parents[2]
 
-def prepare(tre_directory, output, stage_path):
+def prepare(tre_directory, output, stage_path, planet="tatooine"):
     tre = TreSet(tre_directory)
     dependencies, cache, failures = {}, {}, []
     def read(name):
@@ -27,7 +28,7 @@ def prepare(tre_directory, output, stage_path):
                 if value[:1] == b'\x01': result[key] = cstring(value, 1)[0]
         cache[name] = result
         return result
-    snapshot = parse_iff(read('snapshot/tatooine.ws'))
+    snapshot = parse_iff(read(f'snapshot/{planet}.ws'))
     names = snapshot.first('OTNL').data[4:].split(b'\0')
     placements, sources, buildings = [], {}, 0
     for node in snapshot.walk('NODE'):
@@ -49,33 +50,37 @@ def prepare(tre_directory, output, stage_path):
                                'position': list(struct.unpack_from('<3f', data, 32)),
                                'quaternion_wxyz': list(struct.unpack_from('<4f', data, 16))})
         except Exception as exc: failures.append({'template': template, 'error': str(exc)})
-    stage = json.loads(stage_path.read_text()); origin = stage['origin']; triangles = []
-    for cell in stage['cells'].values():
-        if cell['is_exterior']: continue
-        vertices, indices = cell['floor_vertices'], cell['floor_indices']
-        for offset in range(0, len(indices), 3):
-            triangles.append([(origin[0]+vertices[i*3], origin[2]-vertices[i*3+2]) for i in indices[offset:offset+3]])
-    points = [p for tri in triangles for p in tri]
-    xmin, zmin = min(p[0] for p in points)-1, min(p[1] for p in points)-1
-    xmax, zmax = max(p[0] for p in points)+1, max(p[1] for p in points)+1
-    resolution = 2048
-    image = Image.new('L', (resolution, resolution)); draw = ImageDraw.Draw(image)
-    for tri in triangles:
-        draw.polygon([((x-xmin)/(xmax-xmin)*(resolution-1), (z-zmin)/(zmax-zmin)*(resolution-1)) for x,z in tri], fill=255)
     output.mkdir(parents=True, exist_ok=True)
-    image.save(output/'starport-interior-mask.png')
+    triangles=[]; masks=[]
+    if planet=='tatooine' and stage_path.exists():
+        stage = json.loads(stage_path.read_text()); origin = stage['origin']; triangles = []
+        for cell in stage['cells'].values():
+            if cell['is_exterior']: continue
+            vertices, indices = cell['floor_vertices'], cell['floor_indices']
+            for offset in range(0, len(indices), 3):
+                triangles.append([(origin[0]+vertices[i*3], origin[2]-vertices[i*3+2]) for i in indices[offset:offset+3]])
+        points = [p for tri in triangles for p in tri]
+        xmin, zmin = min(p[0] for p in points)-1, min(p[1] for p in points)-1
+        xmax, zmax = max(p[0] for p in points)+1, max(p[1] for p in points)+1
+        resolution = 2048
+        image = Image.new('L', (resolution, resolution)); draw = ImageDraw.Draw(image)
+        for tri in triangles:
+            draw.polygon([((x-xmin)/(xmax-xmin)*(resolution-1), (z-zmin)/(zmax-zmin)*(resolution-1)) for x,z in tri], fill=255)
+        output.mkdir(parents=True, exist_ok=True)
+        image.save(output/'starport-interior-mask.png')
+        masks=[{'path':'starport-interior-mask.png','world_rect':[xmin,zmin,xmax-xmin,zmax-zmin], 'source':'original non-exterior starport FLR triangles','triangles':len(triangles),'resolution':resolution,'stage_manifest_sha256':hashlib.sha256(stage_path.read_bytes()).hexdigest()}]
     report = {'schema_version': 1, 'snapshot_buildings_examined': buildings,
               'modification_sources': sources, 'modifications': placements,
-              'interior_masks': [{'path': 'starport-interior-mask.png', 'world_rect': [xmin,zmin,xmax-xmin,zmax-zmin],
-                                  'source': 'original non-exterior starport FLR triangles', 'triangles': len(triangles),
-                                  'resolution': resolution, 'stage_manifest_sha256': hashlib.sha256(stage_path.read_bytes()).hexdigest()}],
+              'interior_masks': masks,
+              'planet':planet,
               'provenance': {'dependencies': dependencies}, 'failures': failures}
     (output/'context.json').write_text(json.dumps(report, separators=(',',':')))
     print(json.dumps({'buildings': buildings,'modifications':len(placements),'sources':list(sources),'interior_triangles':len(triangles),'failures':failures},indent=2))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--planet', choices=PLANETS, default='tatooine')
     parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
-    parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/terrain')
+    parser.add_argument('--out', type=Path, default=None)
     parser.add_argument('--stage', type=Path, default=ROOT/'runtime/assets/mos_eisley/scene.json')
-    args = parser.parse_args(); prepare(args.tre_dir, args.out, args.stage)
+    args = parser.parse_args(); prepare(args.tre_dir, args.out or path_for(args.planet,"terrain"), args.stage,args.planet)

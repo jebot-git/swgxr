@@ -11,7 +11,11 @@ except ImportError:
     from character_protocol import Reader, assets, template_names, crc, parse_iff, cstring, skills
 from stf import string_table
 
-PLANETS = ['tatooine','naboo','corellia','rori','talus','dantooine','dathomir','endor','lok','yavin4']
+try:
+ from .planets import SUPPORTED_PLANETS
+except ImportError:
+ from planets import SUPPORTED_PLANETS
+PLANETS = list(SUPPORTED_PLANETS)
 
 @lru_cache(maxsize=64)
 def labels(table):

@@ -1,0 +1,442 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrRanger.h
+@@ -0,0 +1,49 @@
++#ifndef SWGXR_RANGER_H
++#define SWGXR_RANGER_H
++#include "SwgxrPets.h"
++#include "ConcealCommand.h"
++#include "AreatrackCommand.h"
++#include "server/zone/objects/tangible/threat/ThreatStates.h"
++// Native item/command mechanics; gestures never grant skills, buffs or tracking.
++class SwgxrRanger {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static Json position(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static bool near(CreatureObject* c,CreatureObject* t,float range){return t && t->getZone()==c->getZone() && t->getParentID()==c->getParentID() && c->isInRange(t,range) && CollisionManager::checkLineOfSight(c,t);}
++ static bool rescueTarget(CreatureObject* c,CreatureObject* t){if(!c->getPlayerObject()->hasAbility("rescue") || !t || !t->isAiAgent() || t->isPet() || t->isDead() || t->isIncapacitated() || !t->isInCombat() || !t->isAttackableBy(c) || !near(c,t,32) || !c->isGrouped())return false;auto defender=t->getMainDefender();return defender && defender->isPlayerCreature() && defender!=c && defender->asCreatureObject()->getGroup()==c->getGroup();}
++ static bool validConceal(CreatureObject* c){auto b=c->getBuff(STRING_HASHCODE("skill_buff_mask_scent"));return b && b->getTimeLeft()>0 && c->getZone() && static_cast<ConcealBuff*>(b)->getPlanetName()==c->getZone()->getZoneName();}
++ static Json concealState(CreatureObject* c){auto b=c->getBuff(STRING_HASHCODE("skill_buff_mask_scent"));return {{"active",validConceal(c)},{"power",c->getSkillModFromBuffs("private_conceal")},{"remaining_seconds",b?b->getTimeLeft():0.f},{"zone",b?std::string(static_cast<ConcealBuff*>(b)->getPlanetName().toCharArray()):""}};}
++public:
++ static bool action(const std::string& v){return v=="ranger_status" || v=="conceal" || v=="rescue" || v=="area_track";}
++ static Json status(CreatureObject* c){
++  auto ghost=c->getPlayerObject();Json types=Json::array();if(c->hasSkill("outdoors_ranger_novice")){types.push_back("animal");if(c->hasSkill("outdoors_ranger_harvest_02"))types.push_back("npc");if(c->hasSkill("outdoors_ranger_harvest_04"))types.push_back("player");}
++  Json out={{"commands",Json::array()},{"camouflage",c->getSkillMod("camouflage")},{"rescue_mod",c->getSkillMod("rescue")},{"rescue_range_m",32},{"rescue_available",ghost->hasAbility("rescue") && c->isGrouped()},{"area_track_available",!types.empty() && c->getParentID()==0 && !c->isInCombat() && c->getPendingTask("areatrack")==nullptr},{"track_types",types},{"conceal",concealState(c)},{"kits",Json::array()},{"targets",Json::array()},{"tracking",Json::object()}};
++  for(auto name:{"conceal","rescue","areatrack"})if(ghost->hasAbility(name))out["commands"].push_back(name);
++  auto saved=ghost->getScreenPlayData("swgxr_ranger","tracking");if(!saved.isEmpty()){auto job=Json::parse(saved.toCharArray());if(job.value("state",std::string())=="pending" && c->getPendingTask("areatrack")==nullptr){job["state"]="failed";job["reason"]="native_tracking_interrupted";ghost->setScreenPlayData("swgxr_ranger","tracking",String(job.dump().c_str()));}out["tracking"]=job;}
++  auto inventory=c->getSlottedObject("inventory");if(inventory){std::vector<SceneObject*> todo{inventory};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto box=todo.back();todo.pop_back();if(!seen.insert(box->getObjectID()).second)continue;for(int i=0;i<box->getContainerObjectsSize();++i){auto o=box->getContainerObject(i);if(o->isCamoKit()){auto kit=o.castTo<TangibleObject*>();auto data=dynamic_cast<CamoKitTemplate*>(kit->getObjectTemplate());if(data)out["kits"].push_back({{"id",id(kit)},{"charges",kit->getUseCount()},{"effective_zone",std::string(data->getEffectiveZone().toCharArray())},{"usable",kit->getUseCount()>0 && data->getEffectiveZone()==c->getZone()->getZoneName()},{"tool_kind","camouflage"}});}else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
++  SortedVector<TreeEntry*> nearby(128,128);auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),32,&nearby,true);
++  for(int i=0;i<nearby.size() && out["targets"].size()<64;++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(o==c || !o->isCreatureObject())continue;auto t=o->asCreatureObject();Locker lock(t,c);bool player=t->isPlayerCreature() && near(c,t,3.5);bool rescue=rescueTarget(c,t);if(!player && !rescue)continue;out["targets"].push_back({{"id",id(t)},{"name",std::string(t->getDisplayedName().toCharArray())},{"template",std::string(t->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(t)},{"kind",player?"player":"rescue"},{"eligible",!t->isDead() && !t->isIncapacitated()},{"reason",""},{"radius",t->getTemplateRadius()},{"height",t->getHeight(false)},{"body_bounds",SwgxrPets::bodyBounds(t)}});}
++  return out;
++ }
++ static void execute(CreatureObject* c,const Json& q,Json& mutation){
++  mutation["request_id"]=q.at("request_id");auto verb=q.at("action").get<std::string>();auto controller=c->getZoneServer()->getObjectController();
++  if(verb=="conceal"){
++   auto kit=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>())).castTo<TangibleObject*>();if(!kit || !kit->isCamoKit() || !SwgxrEquipment::inInventory(kit,c) || kit->getUseCount()<1)throw std::runtime_error("owned_camouflage_kit_required");
++   auto data=dynamic_cast<CamoKitTemplate*>(kit->getObjectTemplate());if(!data || data->getEffectiveZone()!=c->getZone()->getZoneName())throw std::runtime_error("camouflage_kit_wrong_planet");
++   auto target=q.contains("target_id")?c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>())).castTo<CreatureObject*>():ManagedReference<CreatureObject*>(c);if(!target || !target->isPlayerCreature() || target->isDead() || target->isIncapacitated() || target->isInCombat() || !near(c,target,3.5))throw std::runtime_error("nearby_living_player_required");Locker lock(target,c);
++   if(c->isInCombat() || validConceal(target))throw std::runtime_error("target_in_combat_or_already_concealed");
++   if(target!=c){auto h=q.at("hand_position");Vector3 point(h[0].get<float>(),h[2].get<float>(),h[1].get<float>());if(!SwgxrPets::touches(c,target,point))throw std::runtime_error("touch_player_to_apply_camouflage");}
++   if(target->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self")))throw std::runtime_error("remove_mask_scent_before_camouflage");if(!target->checkCooldownRecovery("skill_buff_mask_scent_self"))throw std::runtime_error("camouflage_recovery_cooldown");
++   auto cmd=controller->getQueueCommand("conceal");auto conceal=dynamic_cast<const ConcealCommand*>(cmd);if(!conceal)throw std::runtime_error("native_conceal_unavailable");if(!cmd->checkStateMask(c) || !cmd->checkInvalidLocomotions(c))throw std::runtime_error("native_conceal_invalid_state");if(conceal->checkHostileInRange(c->getZone(),target))throw std::runtime_error("hostile_within_32m_prevents_camouflage");// The original zone transition retains foreign-planet ConcealBuff objects.
++   // Replace stale protection only after every non-mutating precondition passes.
++   if(target->hasBuff(STRING_HASHCODE("skill_buff_mask_scent")))target->removeBuff(STRING_HASHCODE("skill_buff_mask_scent"));
++   int before=kit->getUseCount();if(!cmd || cmd->doQueueCommand(c,target->getObjectID(),UnicodeString(String(id(kit).c_str())))!=QueueCommand::SUCCESS || !target->hasBuff(STRING_HASHCODE("skill_buff_mask_scent")))throw std::runtime_error("native_conceal_rejected");if(kit->getUseCount()!=before-1)throw std::runtime_error("native_camouflage_charge_mismatch");mutation["item_id"]=id(kit);mutation["target_id"]=id(target);mutation["charges_consumed"]=1;mutation["charges_remaining"]=kit->getUseCount();mutation["conceal"]=concealState(target);
++  }else if(verb=="rescue"){
++   auto t=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>())).castTo<CreatureObject*>();if(!t)throw std::runtime_error("rescue_enemy_required");Locker lock(t,c);if(!rescueTarget(c,t))throw std::runtime_error("original_rescue_target_or_skill_required");bool alreadyTaunted=t->getThreatMap()->hasState(ThreatStates::TAUNTED);auto cmd=controller->getQueueCommand("rescue");if(!cmd || cmd->doQueueCommand(c,t->getObjectID(),UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("native_rescue_rejected");mutation["target_id"]=id(t);mutation["rescued"]=!alreadyTaunted && t->getThreatMap()->hasState(ThreatStates::TAUNTED) && t->getThreatMap()->getHighestThreatAttacker()==c;
++  }else if(verb=="area_track"){
++   auto type=q.at("track_type").get<std::string>();int index=type=="animal"?0:type=="npc"?1:2;if(!c->hasSkill("outdoors_ranger_novice") || (index>=1 && !c->hasSkill("outdoors_ranger_harvest_02")) || (index==2 && !c->hasSkill("outdoors_ranger_harvest_04")) || c->isInCombat() || c->getParentID()!=0 || c->getPendingTask("areatrack")!=nullptr)throw std::runtime_error("native_area_track_unavailable");
++   auto cmd=controller->getQueueCommand("areatrack");if(!cmd || cmd->doQueueCommand(c,0,UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("native_area_track_rejected");auto ghost=c->getPlayerObject();auto box=ghost->getSuiBoxFromWindowType(SuiWindowType::RANGER_TRACK_OPTIONS);if(!box)throw std::runtime_error("native_track_selection_unavailable");Vector<UnicodeString> args;args.add(UnicodeString(String::valueOf(index)));AreaTrackSuiCallback callback(c->getZoneServer(),"AreaTrack",String(q.at("request_id").get<std::string>().c_str()));callback.run(c,box,0,&args);ghost->removeSuiBox(box->getBoxID());if(c->getPendingTask("areatrack")==nullptr)throw std::runtime_error("native_area_track_not_started");Json job={{"request_id",q.at("request_id")},{"state","pending"},{"track_type",type},{"duration_seconds",6},{"results",Json::array()}};ghost->setScreenPlayData("swgxr_ranger","tracking",String(job.dump().c_str()));mutation["pending"]=true;
++  }else throw std::runtime_error("unsupported_ranger_action");
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrPlanets.h"
+ #include "SwgxrGathering.h"
+ #include "SwgxrBioEngineer.h"
++#include "SwgxrRanger.h"
+ #include "server/zone/objects/area/CampSiteActiveArea.h"
+ #include "server/zone/objects/tangible/components/CampKitMenuComponent.h"
+ #include "server/zone/objects/tangible/components/CampTerminalMenuComponent.h"
+@@ -36,6 +37,7 @@
+  static Json snapshot(CreatureObject* c){
+   Json state={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
+   SwgxrBioEngineer::status(c,state);
++  state["ranger"]=SwgxrRanger::status(c);
+   state["inventory"]=SwgxrInventory::snapshot(c);
+   auto burst=c->getBuff(STRING_HASHCODE("burstrun"));state["burst_remaining"]=burst!=nullptr?burst->getTimeLeft():0.f;
+   for(int i=0;i<9;++i)state["ham"].push_back(c->getHAM(i));
+@@ -53,22 +55,25 @@
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+   SwgxrPlanets::require(c,request);
+-  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || c->getParent().get()!=nullptr)throw std::runtime_error("Scout actions require outdoors a supported planet");
+-  auto verb=request.value("action",std::string("status"));auto p=SwgxrGathering::position(request);
++  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);
++  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
++  auto p=SwgxrGathering::position(request);
+   if(!c->isDead() && !c->isIncapacitated()){
+-   c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);
++   if(!ranger)c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);
+    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
+     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
+     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
+    }
+   }
+   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_scout","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());Json mutation={{"success",true},{"action",verb}};
+-  if(verb!="status"){
++  if(verb!="status" && verb!="ranger_status"){
++   auto semantic=request;if(ranger)for(auto field:{"position","building_id","cell_index","zone","planet","hand_position","posture"})semantic.erase(field);
+    const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");bool replay=false;
+-   for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=request)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
++   for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=semantic)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
+    if(!replay){
+     if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
+-    if(verb=="holster" || verb=="return_tool"){
++    if(ranger)SwgxrRanger::execute(c,request,mutation);
++    else if(verb=="holster" || verb=="return_tool"){
+      auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject())throw std::runtime_error("Scout belt only accepts owned traps");
+      auto q=request;q["tool_id"]=id(trap);SwgxrGathering::execute(c,g,q);SwgxrGathering::save(c,g);
+     }else if(verb=="forage"){
+@@ -108,7 +113,7 @@
+      if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}
+      mutation["target_id"]=id(target);mutation["item_id"]=id(trap);
+     }else throw std::runtime_error("Unsupported scout action");
+-    receipts.push_back({{"key",key},{"request",request},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
++    receipts.push_back({{"key",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
+    }
+   }
+   return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -189,7 +189,7 @@
+   }
+   if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");if(!SwgxrVehicles::seated(c))SwgxrServices::move(c,request.at("vehicles"));return SwgxrVehicles::run(c,request.at("vehicles"));}
+   if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+-  if(verb=="scout")return SwgxrScout::run(c,request.at("scout"));
++  if(verb=="scout"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("scout");if(SwgxrRanger::action(q.value("action",std::string())))SwgxrServices::move(c,q);return SwgxrScout::run(c,q);}
+   if(verb=="gathering"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrGathering::run(c,request.at("gathering"));}
+   if(verb=="entertainer"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("entertainer");SwgxrServices::move(c,q);return SwgxrEntertainer::run(c,q);}
+   if(verb=="crafting"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto out=SwgxrCrafting::run(c,request.at("crafting"));out["inventory"]=SwgxrInventory::snapshot(c);return out;}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -49,7 +49,7 @@
+    {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
+   SwgxrEquipment::enrich(result,o,c);
+   auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
+-  result["tool_kind"]=(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isTrapObject()?"trap":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  result["tool_kind"]=(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isCamoKit()?"camouflage":o->isTrapObject()?"trap":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
+   if(auto deed=dynamic_cast<StructureDeed*>(o))result["structure_template"]=std::string(deed->getGeneratedObjectTemplate().toCharArray());
+   result["fishing_bait"]=o->isFishingBait();
+   result["tool_type"]=survey!=nullptr?survey->getToolType():0;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
+@@ -26,6 +26,7 @@
+   {"trainer_imagedesigner", {"social_imagedesigner_novice", "social_imagedesigner_master", "social_imagedesigner_hairstyle_01", "social_imagedesigner_hairstyle_02", "social_imagedesigner_hairstyle_03", "social_imagedesigner_hairstyle_04", "social_imagedesigner_exotic_01", "social_imagedesigner_exotic_02", "social_imagedesigner_exotic_03", "social_imagedesigner_exotic_04", "social_imagedesigner_bodyform_01", "social_imagedesigner_bodyform_02", "social_imagedesigner_bodyform_03", "social_imagedesigner_bodyform_04", "social_imagedesigner_markings_01", "social_imagedesigner_markings_02", "social_imagedesigner_markings_03", "social_imagedesigner_markings_04"}},
+   {"trainer_creaturehandler", {"outdoors_creaturehandler_novice", "outdoors_creaturehandler_master", "outdoors_creaturehandler_taming_01", "outdoors_creaturehandler_taming_02", "outdoors_creaturehandler_taming_03", "outdoors_creaturehandler_taming_04", "outdoors_creaturehandler_training_01", "outdoors_creaturehandler_training_02", "outdoors_creaturehandler_training_03", "outdoors_creaturehandler_training_04", "outdoors_creaturehandler_healing_01", "outdoors_creaturehandler_healing_02", "outdoors_creaturehandler_healing_03", "outdoors_creaturehandler_healing_04", "outdoors_creaturehandler_support_01", "outdoors_creaturehandler_support_02", "outdoors_creaturehandler_support_03", "outdoors_creaturehandler_support_04"}},
+   {"trainer_bioengineer", {"outdoors_bio_engineer_novice", "outdoors_bio_engineer_master", "outdoors_bio_engineer_creature_01", "outdoors_bio_engineer_creature_02", "outdoors_bio_engineer_creature_03", "outdoors_bio_engineer_creature_04", "outdoors_bio_engineer_tissue_01", "outdoors_bio_engineer_tissue_02", "outdoors_bio_engineer_tissue_03", "outdoors_bio_engineer_tissue_04", "outdoors_bio_engineer_dna_harvesting_01", "outdoors_bio_engineer_dna_harvesting_02", "outdoors_bio_engineer_dna_harvesting_03", "outdoors_bio_engineer_dna_harvesting_04", "outdoors_bio_engineer_production_01", "outdoors_bio_engineer_production_02", "outdoors_bio_engineer_production_03", "outdoors_bio_engineer_production_04"}},
++  {"trainer_ranger", {"outdoors_ranger_novice", "outdoors_ranger_master", "outdoors_ranger_movement_01", "outdoors_ranger_movement_02", "outdoors_ranger_movement_03", "outdoors_ranger_movement_04", "outdoors_ranger_tracking_01", "outdoors_ranger_tracking_02", "outdoors_ranger_tracking_03", "outdoors_ranger_tracking_04", "outdoors_ranger_harvest_01", "outdoors_ranger_harvest_02", "outdoors_ranger_harvest_03", "outdoors_ranger_harvest_04", "outdoors_ranger_support_01", "outdoors_ranger_support_02", "outdoors_ranger_support_03", "outdoors_ranger_support_04"}},
+  };return catalog;
+ }
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ConcealCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ConcealCommand.h
+@@ -55,7 +55,7 @@
+ 		return false;
+ 	}
+ 
+-	ManagedReference<TangibleObject*> getCamoKit(Zone* zone, CreatureObject* player) const {
++	ManagedReference<TangibleObject*> getCamoKit(Zone* zone, CreatureObject* player, uint64 selectedID = 0) const {
+ 		if (zone == nullptr || player == nullptr)
+ 			return nullptr;
+ 
+@@ -67,10 +67,10 @@
+ 		ManagedReference<TangibleObject*> usableKit = nullptr;
+ 		String zoneName = zone->getZoneName();
+ 
+-		for (int i = 0; i < inventory->getContainerObjectsSize(); ++i) {
+-			Reference<TangibleObject*> item = inventory->getContainerObject(i).castTo<TangibleObject*>();
+-
+-			if (item == nullptr || !item->isCamoKit())
++		for (int i = 0; i < (selectedID ? 1 : inventory->getContainerObjectsSize()); ++i) {
++			Reference<TangibleObject*> item = selectedID ? player->getZoneServer()->getObject(selectedID).castTo<TangibleObject*>() : inventory->getContainerObject(i).castTo<TangibleObject*>();
++
++			if (item == nullptr || !item->isCamoKit() || !item->isASubChildOf(inventory) || (selectedID != 0 && item->getObjectID() != selectedID))
+ 				continue;
+ 
+ 			SharedObjectTemplate* templateData = TemplateManager::instance()->getTemplate(item->getServerObjectCRC());
+@@ -182,7 +182,7 @@
+ 			return GENERALERROR;
+ 		}
+ 
+-		ManagedReference<TangibleObject*> usableKit = getCamoKit(zone, creature);
++		ManagedReference<TangibleObject*> usableKit = getCamoKit(zone, creature, arguments.isEmpty() ? 0 : UnsignedLong::valueOf(arguments.toString()));
+ 
+ 		if (usableKit == nullptr) {
+ 			creature->sendSystemMessage("@skl_use:sys_conceal_nokit"); // You need to have a Camouflage Kit in your inventory to Conceal.
+@@ -193,7 +193,9 @@
+ 		StringIdChatParameter endStringId("skl_use", "sys_conceal_stop");	// You are no longer concealed from view.
+ 
+ 		String zoneName = zone->getZoneName();
+-		int camoMod = creature->getSkillMod("camouflage") / 2;
++		// A usable kit provides a small base even without Ranger training.
++		// Preserve source scaling and the AI recipient skill contribution.
++		int camoMod = Math::max(5, creature->getSkillMod("camouflage") / 2);
+ 		int duration = 40 * camoMod;
+ 
+ 		ManagedReference<ConcealBuff*> buff = new ConcealBuff(targetPlayer, creature, crc, duration, zoneName);
+--- a/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.cpp
+@@ -35,6 +35,7 @@
+ 		{ "getPaletteColorCount", &LuaTangibleObject::getPaletteColorCount },
+ 		{ "setConditionDamage", &LuaTangibleObject::setConditionDamage },
+ 		{ "setMaxCondition", &LuaTangibleObject::setMaxCondition },
++		{ "setUseCount", &LuaTangibleObject::setUseCount },
+ 		{ "setFaction", &LuaTangibleObject::setFaction },
+ 		{ "getFaction", &LuaTangibleObject::getFaction },
+ 		{ "setFactionStatus", &LuaTangibleObject::setFactionStatus },
+@@ -458,3 +459,10 @@
+ 
+ 	return 1;
+ }
++
++// Trusted screenplay wrapper; public players cannot grant charges through HTTP.
++int LuaTangibleObject::setUseCount(lua_State* L) {
++ if(!lua_isinteger(L,-1)){lua_pushboolean(L,false);return 1;}
++ auto count=lua_tointeger(L,-1);if(count<0 || count>1000000){lua_pushboolean(L,false);return 1;}
++ Locker lock(realObject);realObject->setUseCount(uint32(count),true);realObject->updateToDatabase();lua_pushboolean(L,true);return 1;
++}
+--- a/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.h
++++ b/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.h
+@@ -45,6 +45,7 @@
+ 		int getPaletteColorCount(lua_State *L);
+ 		int setConditionDamage(lua_State *L);
+ 		int setMaxCondition(lua_State *L);
++		int setUseCount(lua_State* L);
+ 		int setFaction(lua_State *L);
+ 		int setFactionStatus(lua_State* L);
+ 		int getFaction(lua_State *L);
+--- a/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
+@@ -52,6 +52,7 @@
+ 		{ "getMaxHAM", &LuaCreatureObject::getMaxHAM },
+ 		{ "getTargetID", &LuaCreatureObject::getTargetID },
+ 		{ "clearCombatState", &LuaCreatureObject::clearCombatState },
++		{ "setBuffDuration", &LuaCreatureObject::setBuffDuration },
+ 		{ "getParent", &LuaSceneObject::getParent },
+ 		{ "getZoneName", &LuaSceneObject::getZoneName },
+ 		{ "getObjectID", &LuaSceneObject::getObjectID },
+@@ -1621,3 +1622,12 @@
+ 
+ 	return 0;
+ }
++
++// Trusted screenplay access to the existing native buff duration operation.
++int LuaCreatureObject::setBuffDuration(lua_State* L) {
++ if (!lua_isinteger(L,-2) || !lua_isinteger(L,-1)) { lua_pushboolean(L,false);return 1; }
++ auto crc=lua_tointeger(L,-2);auto duration=lua_tointeger(L,-1);
++ if(crc<=0 || uint64(crc)>0xffffffffULL || duration<1 || duration>86400){lua_pushboolean(L,false);return 1;}
++ Locker lock(realObject);if(realObject->getBuff(uint32(crc))==nullptr){lua_pushboolean(L,false);return 1;}
++ auto buff=realObject->getBuff(uint32(crc));Locker buffLock(buff,realObject);buff->renew(float(duration));buff->sendTo(realObject);lua_pushboolean(L,true);return 1;
++}
+--- a/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.h
+@@ -49,6 +49,7 @@
+ 		int sendOpenHolocronToPageMessage(lua_State* L);
+ 		int getTargetID(lua_State* L);
+ 		int clearCombatState(lua_State* L);
++		int setBuffDuration(lua_State* L);
+ 		int getHAM(lua_State* L);
+ 		int getBaseHAM(lua_State* L);
+ 		int getMaxHAM(lua_State* L);
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgent.idl
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgent.idl
+@@ -95,7 +95,7 @@
+ 	protected transient CreatureAttackMap defaultAttackMap;
+ 
+ 	@dereferenced
+-	protected transient SortedVector<unsigned long> camouflagedObjects;
++	protected transient VectorMap<unsigned long, unsigned long> camouflagedObjects;
+ 
+ 	@dereferenced
+ 	protected CreatureTemplateReference npcTemplate;
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -3752,20 +3752,20 @@
+ 
+ 	bool concealed = effectiveTarget->hasBuff(concealCRC);
+ 
+-	if ((!concealed && !isMonster()) || isPet() || isDroid() || isAndroid())
+-		return false;
+-
+ 	bool scentMasked = effectiveTarget->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"));
+ 	uint64 effectiveTargetID = effectiveTarget->getObjectID();
+-
+-	if (!concealed && !scentMasked) {
++	if ((!concealed && !scentMasked) || (!concealed && !isMonster()) || isPet() || isDroid() || isAndroid()) {
+ 		camouflagedObjects.drop(effectiveTargetID);
+ 		return false;
+ 	}
+-
+-	// Don't check if it's already been checked
+-	if (camouflagedObjects.contains(effectiveTargetID))
+-		return true;
++	// Bind cached success to this actual buff application, not player identity.
++	auto activeBuff = effectiveTarget->getBuff(concealed ? concealCRC : STRING_HASHCODE("skill_buff_mask_scent_self"));
++	if (activeBuff == nullptr || activeBuff->getTimeLeft() <= 0) {
++		camouflagedObjects.drop(effectiveTargetID);
++		return false;
++	}
++	auto applied = activeBuff->getTimeApplied();
++	uint64 camouflageGeneration = applied.getMiliTime();
+ 
+ 	StringBuffer camoDebug;
+ 
+@@ -3779,8 +3779,10 @@
+ 
+ 		String buffPlanet = concealBuff->getPlanetName();
+ 
+-		if (buffPlanet != getZoneUnsafe()->getZoneName())
++		if (getZoneUnsafe() == nullptr || buffPlanet != getZoneUnsafe()->getZoneName()) {
++			camouflagedObjects.drop(effectiveTargetID);
+ 			return false;
++		}
+ 
+ 		concealMod = effectiveTarget->getSkillModFromBuffs("private_conceal");
+ 
+@@ -3804,8 +3806,13 @@
+ 
+ 	camoDebug << " Initial Mod = " << mod << ". ";
+ 
+-	if (mod < 5)
++	if (mod < 5) {
++		camouflagedObjects.drop(effectiveTargetID);
+ 		return false;
++	}
++	if (camouflagedObjects.contains(effectiveTargetID) && camouflagedObjects.get(effectiveTargetID) == camouflageGeneration)
++		return true;
++	camouflagedObjects.drop(effectiveTargetID);
+ 
+ 	// Player is masked or concealed, do not roll chance to break on non-aggressive Mobs
+ 	if (!isStalker() && !isAggressiveTo(effectiveTarget))
+@@ -3870,7 +3877,7 @@
+ 	bool success = (System::random(100) +1) < roll ? true : false;
+ 
+ 	if (success) {
+-		camouflagedObjects.put(effectiveTargetID);
++		camouflagedObjects.put(effectiveTargetID, camouflageGeneration);
+ 
+ 		camoDebug << "Success";
+ 	} else {
+--- a/MMOCoreORB/src/server/zone/objects/creature/events/CamoTask.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/events/CamoTask.h
+@@ -19,6 +19,7 @@
+ 	ManagedWeakReference<CreatureObject*> creature;
+ 	bool success;
+ 	bool maskScent;
++	uint64 buffApplication = 0;
+ 
+ public:
+ 	CamoTask(CreatureObject* pl, CreatureObject* creo, bool ms, bool succ) : Task() {
+@@ -26,6 +27,8 @@
+ 		creature = creo;
+ 		success = succ;
+ 		maskScent = ms;
++		auto buff = pl->getBuff((ms ? STRING_HASHCODE("skill_buff_mask_scent_self") : STRING_HASHCODE("skill_buff_mask_scent")));
++		if (buff != nullptr) { auto applied=buff->getTimeApplied(); buffApplication=applied.getMiliTime(); }
+ 	}
+ 
+ 	void run() {
+@@ -43,6 +46,11 @@
+ 
+ 		Locker locker(aiCreo);
+ 		Locker clocker(playerCreo, aiCreo);
++
++		auto currentBuff = playerCreo->getBuff(crc);
++		if (currentBuff == nullptr) return;
++		auto applied=currentBuff->getTimeApplied();
++		if (applied.getMiliTime() != buffApplication) return;
+ 
+ 		if (!success) {
+ 			if (playerCreo->hasBuff(crc)) {
+--- a/MMOCoreORB/src/server/zone/objects/player/events/AreaTrackTask.h
++++ b/MMOCoreORB/src/server/zone/objects/player/events/AreaTrackTask.h
+@@ -17,9 +17,16 @@
+ 	ManagedReference<CreatureObject*> player;
+ 	int type;
+ 	Coordinate initialPosition;
++	String swgxrRequest;
++	void publish(const char* state, const char* reason, const JSONSerializationType& rows = JSONSerializationType::array(), int totalResults = 0) {
++		if (swgxrRequest.isEmpty() || player->getPlayerObject() == nullptr) return;
++		JSONSerializationType out={{"request_id",std::string(swgxrRequest.toCharArray())},{"state",state},{"reason",reason},{"track_type",type==0?"animal":type==1?"npc":"player"},{"duration_seconds",6},{"results",rows},{"total_results",totalResults},{"truncated",totalResults>int(rows.size())}};
++		player->getPlayerObject()->setScreenPlayData("swgxr_ranger","tracking",String(out.dump().c_str()));
++	}
+ 
+ public:
+-	AreaTrackTask(CreatureObject* cr, int index) {
++	AreaTrackTask(CreatureObject* cr, int index, const String& requestID = "") {
++		swgxrRequest = requestID;
+ 		player = cr;
+ 		type = index;
+ 		initialPosition.setPosition(player->getPositionX(), player->getPositionZ(), player->getPositionY());
+@@ -31,6 +38,7 @@
+ 		try {
+ 
+ 			player->removePendingTask("areatrack");
++			publish("failed", "native_tracking_interrupted");
+ 
+ 			if (!player->isPlayerCreature())
+ 				return;
+@@ -65,6 +73,7 @@
+ 			rangerTrackResults->setPromptTitle("@skl_use:scan_results_t"); // Area Track Results
+ 			rangerTrackResults->setPromptText("@skl_use:scan_results_d"); // You have examined the tracks and clues in the area for information about what kinds of creatures might be nearby. This is what you have determined.
+ 			StringBuffer results;
++			JSONSerializationType swgxrRows = JSONSerializationType::array();
+ 
+ 			bool canGetDirection = player->hasSkill("outdoors_ranger_harvest_01");
+ 		    bool canGetDistance = player->hasSkill("outdoors_ranger_harvest_03");
+@@ -115,8 +124,15 @@
+ 				}
+ 
+ 				rangerTrackResults->addMenuItem(results.toString());
+-			}
+-
++				if (swgxrRows.size() < 256) {
++					JSONSerializationType row={{"name",std::string(creature->getDisplayedName().toCharArray())}};
++					if (canGetDirection) row["direction"]=std::string(direction.toCharArray());
++					if (canGetDistance) row["distance"]=int(player->getDistanceTo(creature));
++					swgxrRows.push_back(row);
++				}
++			}
++
++			publish("succeeded", "", swgxrRows, rangerTrackResults->getMenuSize());
+ 			if(rangerTrackResults->getMenuSize() == 0) {
+ 				player->sendSystemMessage("@skl_use:sys_scan_nothing"); // You aren't able to determine anything from the tracks in the area.
+ 			} else {
+--- a/MMOCoreORB/src/server/zone/objects/player/sui/callbacks/AreaTrackSuiCallback.h
++++ b/MMOCoreORB/src/server/zone/objects/player/sui/callbacks/AreaTrackSuiCallback.h
+@@ -15,10 +15,12 @@
+ 
+ class AreaTrackSuiCallback : public SuiCallback {
+ 	String nodeName;
++	String swgxrRequest;
+ 
+ public:
+-	AreaTrackSuiCallback(ZoneServer* serv, const String& name) : SuiCallback(serv) {
++	AreaTrackSuiCallback(ZoneServer* serv, const String& name, const String& requestID = "") : SuiCallback(serv) {
+ 		nodeName = name;
++		swgxrRequest = requestID;
+ 	}
+ 
+ 	void run(CreatureObject* creature, SuiBox* sui, uint32 eventIndex, Vector<UnicodeString>* args) {
+@@ -45,7 +47,7 @@
+ 				creature->broadcastMessage(emsg, true);
+ 				creature->sendSystemMessage("@skl_use:sys_scan_begin"); // You begin to examine the environment for information.
+ 
+-				Reference<AreaTrackTask*> att = new AreaTrackTask(creature, index);
++				Reference<AreaTrackTask*> att = new AreaTrackTask(creature, index, swgxrRequest);
+ 				creature->addPendingTask("areatrack", att, 6000);
+ 				creature->addCooldown("areatrack", 6000);
+ 			}

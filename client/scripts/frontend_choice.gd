@@ -29,7 +29,7 @@ func _ready() -> void:
 	overlay.mouse_filter=Control.MOUSE_FILTER_STOP
 	overlay.theme=preload("res://scripts/frontend_theme.gd").build()
 	popup=PanelContainer.new();overlay.add_child(popup)
-	popup.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").box("071c29","67dcea",2,8))
+	popup.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").frame(8))
 	scroll=ScrollContainer.new();popup.add_child(scroll)
 	scroll.horizontal_scroll_mode=ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.scroll_deadzone=100000;scroll.follow_focus=true

@@ -41,6 +41,42 @@ class MultiplayerSync:
         with self.lock:
             self.sessions.pop(account.lower(), None)
 
+    @classmethod
+    def speech_snapshot(cls, value):
+        """Copy only the native recipient's normalized, bounded speech envelope."""
+        if value is None:
+            return {'sequence': 0, 'events': [], 'languages': []}
+        if not isinstance(value, dict) or type(value.get('sequence')) is not int or not 0 <= value['sequence'] <= 2**53:
+            raise ValueError('Invalid native NPC speech sequence')
+        events, languages = value.get('events'), value.get('languages')
+        if not isinstance(events, list) or len(events) > 32 or not isinstance(languages, list) or len(languages) > 11:
+            raise ValueError('Native NPC speech exceeds presentation bounds')
+        for event in events:
+            if not isinstance(event, dict) or not isinstance(event.get('id'), str) or not 0 < len(event['id']) <= 96:
+                raise ValueError('Stable native speech identity required')
+            if type(event.get('age_ms')) is not int or not 0 <= event['age_ms'] <= 60000 or type(event.get('lifetime_ms')) is not int or not 0 < event['lifetime_ms'] <= 10000:
+                raise ValueError('Bounded native speech lifetime required')
+            cls.point(event.get('position'))
+            cls.cell(event)
+            if not isinstance(event.get('text'), str) or len(event['text']) > 2048:
+                raise ValueError('Bounded native speech text required')
+        return deepcopy(value)
+
+    def _speech(self, current, now):
+        """Cached presentation ages without new native requests or progress grants."""
+        speech = deepcopy(current['npc_speech'])
+        elapsed_ms = max(0, round((now - current['speech_at']) * 1000))
+        active = []
+        for event in speech['events']:
+            event['age_ms'] += elapsed_ms
+            if event['age_ms'] >= event['lifetime_ms']:
+                continue
+            if event.get('zone') != current['zone'] or self.cell(event) != current['cell']:
+                continue
+            active.append(event)
+        speech['events'] = active
+        return speech
+
     def publish(self, account, character_id, session_id, snapshot, sequence, command=None, mutation=None):
         if not isinstance(snapshot, dict) or not isinstance(snapshot.get('player'), dict):
             return
@@ -51,6 +87,7 @@ class MultiplayerSync:
             raise ValueError('Native world snapshot exceeds the presentation budget')
         native = snapshot['player']
         position, cell = self.point(native.get('position')), self.cell(native)
+        speech = self.speech_snapshot(native.get('npc_speech'))
         with self.lock:
             now = self.clock()
             # A disconnected native session cannot reserve a presentation slot forever.
@@ -66,10 +103,13 @@ class MultiplayerSync:
                 current = {'character_id': str(character_id), 'session_id': session_id,
                            'pose_sequence': -1, 'pose_at': -math.inf, 'pose': None, 'shots': {}}
                 self.sessions[account.lower()] = current
-            if current.get('cell', cell) != cell:
+            if current.get('cell', cell) != cell or current.get('zone',native.get('zone','tatooine')) != native.get('zone','tatooine'):
                 current['pose'] = None
+                current['shots'] = {}
+                current['pose_at'] = -math.inf
             current.update(native_at=now, position=position, cell=cell,
                            zone=native.get('zone', 'tatooine'), revision=int(sequence),
+                           npc_speech=speech, speech_at=now,
                            world=deepcopy(world))
             self._action(current, command or {}, mutation or {}, now)
 
@@ -119,6 +159,8 @@ class MultiplayerSync:
             current = self.sessions.get(account.lower())
             if not current or now-current['native_at'] > self.NATIVE_TTL or str(data.get('character_id', '')) != current['character_id'] or data.get('session_id') != current['session_id']:
                 raise ValueError('A fresh owned native session is required for multiplayer sync')
+            if any(data[key] != current['zone'] for key in ('zone','planet') if key in data):
+                raise ValueError('Native source zone mismatch')
             sequence = data.get('sequence')
             if type(sequence) is not int or not current['pose_sequence'] < sequence <= 2**53:
                 raise ValueError('Fresh presentation sequence required')
@@ -178,9 +220,10 @@ class MultiplayerSync:
                       and row['zone'] == current['zone'] and row['cell'] == current['cell']]
             return {'ok': True, 'backend': 'core3', 'source_kind': 'core3_multiplayer_sync',
                     'character_id': current['character_id'], 'session_id': current['session_id'],
-                    'sequence': sequence, 'world_revision': current['revision'],
+                    'sequence': sequence, 'zone': current['zone'], 'world_revision': current['revision'],
                     'world': deepcopy(current['world']) if data.get('world_revision', -1) != current['revision'] else None,
                     'events': events[-64:], 'event_sequence': self.event_sequence,
+                    'npc_speech': self._speech(current, now),
                     'poses': poses, 'pose_ttl_ms': round(self.POSE_TTL*1000)}
 
 

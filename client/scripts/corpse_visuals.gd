@@ -24,7 +24,7 @@ func vector(value: Variant) -> Variant:
 	var result:=Vector3(float(value[0]),float(value[1]),float(value[2]))
 	return result if result.is_finite() else null
 func world_position(state: Dictionary) -> Variant:
-	if str(state.get("planet","tatooine"))!="tatooine": return null
+	if is_instance_valid(stage) and str(state.get("planet",stage.get_meta("planet","tatooine")))!=str(stage.get_meta("planet","tatooine")):return null
 	if state.has("world_position"): return vector(state.world_position)
 	if not is_instance_valid(stage): return null
 	var origin: Variant=vector(stage.get_meta("manifest",{}).get("origin"))

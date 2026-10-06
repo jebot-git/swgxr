@@ -1,0 +1,97 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -4,6 +4,7 @@
+ #include "SwgxrInventory.h"
+ #include "SwgxrTrainers.h"
+ #include "SwgxrDelivery.h"
++#include "SwgxrVendorPlacement.h"
+ #include "server/zone/managers/auction/AuctionManager.h"
+ #include "server/zone/managers/auction/AuctionsMap.h"
+ #include "server/zone/objects/auction/AuctionItem.h"
+@@ -61,7 +62,7 @@
+   String customization;c->getCustomizationString(customization);std::string hex;static const char* digits="0123456789abcdef";for(int i=0;i<customization.length();++i){unsigned char b=customization[i];hex+=digits[b>>4];hex+=digits[b&15];}
+   Json out={{"backend","core3"},{"source_kind","core3_services"},{"zone",SwgxrPlanets::name(c)},{"character_id",id(c)},{"wallet",{{"cash",c->getCashCredits()},{"bank",c->getBankCredits()}}},{"player",location(c)},{"terminals",Json::array()},{"terminal",Json::object()},{"missions",missions(c,true)}};
+   out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+-  SwgxrDelivery::snapshot(c,out);
++  SwgxrDelivery::snapshot(c,out);SwgxrVendorPlacement::snapshot(c,out);
+   if(r.value("action",std::string())=="delivery_open" || r.value("action",std::string())=="delivery_pickup")out["terminal"]=SwgxrDelivery::open(c,r);
+   out["skills"]=SwgxrTrainers::skills(c);out["skills_complete"]=true;out["experience"]=SwgxrTrainers::experience(c);out["experience_complete"]=true;
+   out["player"]["appearance"]={{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"client_crc",c->getClientObjectCRC()},{"customization_hex",hex},{"height",c->getHeight(false)}};
+@@ -77,11 +78,12 @@
+  static Json run(CreatureObject* c,const Json& r){
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   Json receiptRequest=r;if(action=="delivery_pickup" || action=="delivery_complete")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})receiptRequest.erase(field);
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && (c->isDead() || c->isIncapacitated() || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+   if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
+   else if(action=="delivery_open"){SwgxrDelivery::open(c,r);}
+   else if(action=="delivery_pickup" || action=="delivery_complete"){auto delivery=SwgxrDelivery::mutate(c,r);for(auto it=delivery.begin();it!=delivery.end();++it)result[it.key()]=it.value();}
++  else if(action=="vendor_place"){auto placed=SwgxrVendorPlacement::place(c,r);for(auto it=placed.begin();it!=placed.end();++it)result[it.key()]=it.value();}
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();int n=amount(r);if(target==nullptr || target==c || !target->isPlayerCreature() || !target->isOnline() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,3))throw std::runtime_error("payment_target_unavailable");if(int64(target->getCashCredits())+n>2147483647)throw std::runtime_error("recipient_balance_limit");command(c,"tip",target->getObjectID(),std::to_string(n));}
+@@ -94,7 +96,7 @@
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || (!SwgxrPlanets::supported(ticket->getArrivalPlanet()) || c->getZoneServer()->getZone(ticket->getArrivalPlanet())==nullptr))throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+   if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVendorPlacement.h
+@@ -0,0 +1,52 @@
++#ifndef SWGXR_VENDOR_PLACEMENT_H
++#define SWGXR_VENDOR_PLACEMENT_H
++#include "SwgxrInventory.h"
++#include "server/zone/objects/building/BuildingObject.h"
++#include "server/zone/objects/cell/CellObject.h"
++#include "server/zone/managers/objectcontroller/ObjectController.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/objects/tangible/components/vendor/VendorDataComponent.h"
++#include "server/zone/objects/scene/variables/ContainerPermissions.h"
++#include <memory>
++// Datapad rows reference existing native inventory vendors. Preview is client-only.
++class SwgxrVendorPlacement {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static VendorDataComponent* data(SceneObject* o){auto d=o?o->getDataObjectComponent():nullptr;return o && o->isVendor() && d && d->get() && d->get()->isVendorData()?cast<VendorDataComponent*>(d->get()):nullptr;}
++ static bool eligible(CreatureObject* c){
++  auto parent=c->getParent().get();auto root=c->getRootParent();
++  if(parent==nullptr || !parent->isCellObject() || root==nullptr || !root->isBuildingObject() || c->isDead() || c->isIncapacitated() || c->isInCombat())return false;
++  auto building=static_cast<BuildingObject*>(root);
++  return building->isPublicStructure() && (building->isOnAdminList(c) || building->isOnPermissionList("VENDOR",c));
++ }
++ static Json describe(SceneObject* o,CreatureObject* c){auto row=SwgxrInventory::describe(o,c);auto p=o->getWorldPosition();auto parent=o->getParent().get();auto root=o->getRootParent();bool cell=parent!=nullptr && parent->isCellObject();row["position"]=Json::array({p.getX(),p.getZ(),p.getY()});row["building_id"]=cell?id(root):"0";row["cell_index"]=cell?static_cast<CellObject*>(parent.get())->getCellNumber():0;row["heading_radians"]=o->getDirection()->getRadians()+(cell && root?root->getDirection()->getRadians():0);return row;}
++public:
++ static void snapshot(CreatureObject* c,Json& out){
++  out["vendors"]=Json::array();out["placed_vendors"]=Json::array();auto parent=c->getParent().get();auto root=c->getRootParent();bool cell=parent!=nullptr && parent->isCellObject();
++  out["vendor_placement"]={{"eligible",eligible(c)},{"building_id",cell?id(root):"0"},{"cell_index",cell?static_cast<CellObject*>(parent.get())->getCellNumber():0},{"max_distance",4.0},{"reason",eligible(c)?"":"Enter a public building where you have administrator or vendor permission."}};
++  auto ids=c->getPlayerObject()->getOwnedVendors();
++  for(int i=0;i<ids->size() && out["vendors"].size()<64;++i){auto o=c->getZoneServer()->getObject(ids->elementAt(i));auto d=data(o);if(d && d->getOwnerId()==c->getObjectID() && !d->isInitialized() && c->getInventory()!=nullptr && o->isASubChildOf(c->getInventory()))out["vendors"].push_back(describe(o,c));}
++  if(cell)for(int i=0;i<parent->getContainerObjectsSize() && out["placed_vendors"].size()<64;++i){auto o=parent->getContainerObject(i);auto d=data(o);if(d && d->isInitialized())out["placed_vendors"].push_back(describe(o,c));}
++ }
++ static Json place(CreatureObject* c,const Json& r){
++  if(!eligible(c))throw std::runtime_error("vendor_location_not_permitted");
++  auto value=r.at("vendor_id").get<std::string>();if(value.empty() || value.size()>20 || value.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_vendor_id");
++  auto vendor=c->getZoneServer()->getObject(std::stoull(value));if(vendor==nullptr)throw std::runtime_error("vendor_missing");Locker lock(vendor,c);auto d=data(vendor);auto inv=c->getInventory();
++  if(!d || d->getOwnerId()!=c->getObjectID() || d->isInitialized() || inv==nullptr || !vendor->isASubChildOf(inv))throw std::runtime_error("owned_unplaced_vendor_required");
++  auto parent=c->getParent().get();auto root=c->getRootParent();auto cell=static_cast<CellObject*>(parent.get());
++  if(r.value("building_id",std::string())!=id(root) || r.value("cell_index",0)!=cell->getCellNumber() || !cell->checkContainerPermission(c,ContainerPermissions::MOVEVENDOR))throw std::runtime_error("vendor_cell_changed");
++  auto p=r.at("placement_position");double heading=r.at("placement_heading").get<double>();if(!p.is_array() || p.size()!=3 || !std::isfinite(heading))throw std::runtime_error("invalid_vendor_pose");
++  for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(i==1?2048:8192))throw std::runtime_error("invalid_vendor_pose");
++  auto player=c->getWorldPosition();double dx=p[0].get<double>()-player.getX(),dy=p[2].get<double>()-player.getY(),dz=p[1].get<double>()-player.getZ();if(dx*dx+dy*dy+dz*dz>16)throw std::runtime_error("vendor_too_far");
++  double a=root->getDirection()->getRadians();dx=p[0].get<double>()-root->getPositionX();dy=p[2].get<double>()-root->getPositionY();double x=dx*std::cos(a)-dy*std::sin(a),y=dx*std::sin(a)+dy*std::cos(a),z=p[1].get<double>()-root->getPositionZ();
++  std::unique_ptr<Vector<float>> floors(CollisionManager::getCellFloorCollision(x,y,cell));bool supported=false;float floorZ=0;if(floors)for(int i=0;i<floors->size();++i)if(std::abs(floors->get(i)-z)<=.25){floorZ=floors->get(i);supported=true;break;}if(!supported)throw std::runtime_error("vendor_requires_cell_floor");
++  Vector3 end(x,y,floorZ);if(!CollisionManager::checkLineOfSightInParentCell(c,end))throw std::runtime_error("vendor_position_obstructed");
++  String error;if(cell->canAddObject(vendor,-1,error)!=0)throw std::runtime_error("vendor_container_rejected");
++  auto old=vendor->getPosition();float oldHeading=vendor->getDirection()->getRadians();vendor->initializePosition(x,floorZ,y);vendor->setDirection(float(heading-a));
++  if(!c->getZoneServer()->getObjectController()->transferObject(vendor,cell,-1,true)){vendor->initializePosition(old.getX(),old.getZ(),old.getY());vendor->setDirection(oldHeading);throw std::runtime_error("vendor_transfer_failed");}
++  // Same initialization and maintenance scheduling as the original radial 79.
++  d->setInitialized(true);d->setEmpty();d->scheduleVendorCheckTask(VendorDataComponent::VENDORCHECKINTERVAL);vendor->updateToDatabaseAllObjects(false);
++  return {{"vendor_id",value},{"placed",true}};
++ }
++};
++#endif

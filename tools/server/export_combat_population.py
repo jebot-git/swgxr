@@ -17,21 +17,21 @@ sys.path.insert(0, str(ROOT / 'tools/server'))
 from export_ambient_npcs import clean, table, strings, rows
 
 
-def export(groups=None):
+def export(groups=None, planet="tatooine"):
     scripts = ROOT / 'vendor/Core3/MMOCoreORB/bin/scripts'
     dependencies = {}; failures = []
     def read(path):
         raw = path.read_bytes()
         dependencies[str(path.relative_to(ROOT))] = hashlib.sha256(raw).hexdigest()
         return clean(raw.decode())
-    region_path = scripts / 'managers/planet/tatooine_regions.lua'
+    region_path = scripts / f'managers/planet/{planet}_regions.lua'
     region_text = read(region_path)
-    group_dir = scripts / 'mobile/spawn/tatooine'
+    group_dir = scripts / 'mobile/spawn' / planet
     referenced = sorted({name for name in strings(region_text)
                          if (group_dir / (name + '.lua')).is_file()})
     if groups:
         unknown = set(groups) - set(referenced)
-        if unknown: raise ValueError('Groups not referenced by Tatooine regions: ' + str(sorted(unknown)))
+        if unknown: raise ValueError('Groups not referenced by '+planet+' regions: ' + str(sorted(unknown)))
         referenced = sorted(set(groups))
     lair_paths = {}
     for path in (scripts / 'mobile/lair').rglob('*.lua'):

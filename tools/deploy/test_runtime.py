@@ -18,12 +18,49 @@ class Tests(unittest.TestCase):
         self.assertNotIn('DBPass = "123456"',changed)
         self.assertEqual(source.split('Core3.TreFiles = {')[1].split('}')[0],changed.split('Core3.TreFiles = {')[1].split('}')[0])
         with self.assertRaises(ValueError):runtime.render_config(source,'bad credential')
+    def test_explicit_ground_planets_and_resources_agree(self):
+        source=(runtime.BIN/'conf/config-local.lua').read_text()
+        resource=(runtime.BIN/'scripts/managers/resource_manager.lua').read_text()
+        configured=runtime.render_config(source,'a'*64,runtime.SUPPORTED_PLANETS)
+        from tools.configure_core3 import configured_planets, select_planets
+        self.assertEqual(configured_planets(configured),runtime.SUPPORTED_PLANETS)
+        self.assertEqual(select_planets(None,configured),runtime.SUPPORTED_PLANETS)
+        self.assertEqual(select_planets('all'),runtime.SUPPORTED_PLANETS)
+        rendered=runtime.render_resources(resource,runtime.SUPPORTED_PLANETS)
+        self.assertIn('activeZones = "'+','.join(runtime.SUPPORTED_PLANETS)+'"',rendered)
+        self.assertIn('Core3.SpaceZonesEnabled = {}',configured)
+        for bad in ((),('tatooine','tatooine'),('space_tatooine',),('tatooine"}',)):
+            with self.assertRaises(ValueError):runtime.render_config(source,'a'*64,bad)
+            with self.assertRaises(ValueError):runtime.render_resources(resource,bad)
+        for bad in ('', 'naboo,naboo','mustafar','tatooine,space_tatooine'):
+            with self.assertRaises(ValueError):select_planets(bad)
+        self.assertEqual(select_planets(None),('tatooine',))
+
     def test_resources(self):
         source=(runtime.BIN/'scripts/managers/resource_manager.lua').read_text()
         changed=runtime.render_resources(source)
         for value in ('buildInitialResourcesFromScript = 0','activeZones = "tatooine"','fixedpoolincludes = {{"iron",14}}'):self.assertIn(value,changed)
         for line in source.splitlines():
             if 'excludes =' in line:self.assertIn(line,changed)
+    def test_planet_overlay_stages_privately_without_changing_realm(self):
+        from tools.deploy.prepare_planet_profile import prepare
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);source=root/'realm';source.mkdir();dest=root/'staged'
+            config=runtime.render_config((runtime.BIN/'conf/config-local.lua').read_text(),'a'*64)
+            resource=runtime.render_resources((runtime.BIN/'scripts/managers/resource_manager.lua').read_text())
+            (source/'config-local.lua').write_text(config);(source/'resource_manager.lua').write_text(resource)
+            (source/'realm.db').write_bytes(b'persistent realm fixture')
+            result=prepare(source,dest,runtime.SUPPORTED_PLANETS)
+            self.assertFalse(result['live_configuration_changed']);self.assertFalse(result['database_changed'])
+            self.assertEqual((source/'config-local.lua').read_text(),config)
+            self.assertEqual((source/'resource_manager.lua').read_text(),resource)
+            self.assertEqual((source/'realm.db').read_bytes(),b'persistent realm fixture')
+            self.assertEqual(dest.stat().st_mode&0o777,0o700)
+            self.assertEqual((dest/'config-local.lua').stat().st_mode&0o777,0o600)
+            self.assertIn('"'+'a'*64+'"',(dest/'config-local.lua').read_text())
+            self.assertNotIn('a'*64,(dest/'profile.json').read_text())
+            with self.assertRaises(ValueError):prepare(source,dest,runtime.SUPPORTED_PLANETS)
+
     def test_refuse_incomplete_source(self):
         with self.assertRaises(ValueError):runtime.render_resources('activeZones = "tatooine"')
     def test_fresh_schema_only(self):

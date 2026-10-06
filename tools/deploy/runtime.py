@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+from server.planets import SUPPORTED_PLANETS, planet
 
 def vehicle_catalog_status(root=ROOT):
     path = root/'runtime/assets/vehicles/catalog.json'
@@ -70,10 +72,18 @@ def assignment(source, key, value):
     return source
 
 
-def render_config(source, password):
+def validate_planets(planets):
+    values = tuple(planets)
+    if not values or len(set(values)) != len(values):
+        raise ValueError("Enabled ground planets must be nonempty and unique")
+    return tuple(planet(value) for value in values)
+
+
+def render_config(source, password, planets=("tatooine",)):
+    planets = validate_planets(planets)
     if not re.fullmatch(r'[0-9a-f]{64}', password): raise ValueError('Invalid generated DB credential')
     changes = {'Core3.DBHost':'"127.0.0.1"','Core3.DBName':'"swgemu"','Core3.DBUser':'"swgemu"',
-        'Core3.DBPass':json.dumps(password),'Core3.ZonesEnabled':'{"tatooine"}','Core3.SpaceZonesEnabled':'{}',
+        'Core3.DBPass':json.dumps(password),'Core3.ZonesEnabled':'{'+','.join(json.dumps(p) for p in planets)+'}','Core3.SpaceZonesEnabled':'{}',
         'Core3.ZoneProcessingThreads':'2','Core3.MaxNavMeshJobs':'1','Core3.AutoReg':'1'}
     for key,value in changes.items(): source=assignment(source,key,value)
     # The optional bug-tracker database is outside this prototype's scope.
@@ -84,8 +94,9 @@ def render_config(source, password):
     return '-- Remote profile; private generated credential; source files remain unchanged.\n'+source
 
 
-def render_resources(source):
-    for key,value in {'buildInitialResourcesFromScript':'0','activeZones':'"tatooine"',
+def render_resources(source, planets=("tatooine",)):
+    planets = validate_planets(planets)
+    for key,value in {'buildInitialResourcesFromScript':'0','activeZones':json.dumps(','.join(planets)),
                       'fixedpoolincludes':'{{"iron",14}}'}.items(): source=assignment(source,key,value)
     return source
 

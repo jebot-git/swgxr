@@ -165,6 +165,18 @@ def export_character_animations(imp, appearance, race, bones, names):
         leaves = selected(logical)
         if leaves:
             add(state, leaves[0], logical, False)
+    # The crackdown carrier is an AiAgent whose native posture drives the
+    # original shuttle graph. Its authored flight clips are visual only and
+    # must not be treated as humanoid locomotion or move the network identity.
+    if appearance == 'appearance/lamda_shuttle_faction_perk.sat':
+        for state, logical, loop in [('carrier_land', 'land', False),
+                                     ('carrier_takeoff', 'takeoff', False),
+                                     ('carrier_ground', 'loop_ground', True),
+                                     ('carrier_sky', 'loop_sky', True)]:
+            leaves = selected(logical)
+            if len(leaves) != 1:
+                raise ValueError('Expected one original carrier clip for ' + logical)
+            add(state, leaves[0], logical, loop, True)
     # These authored humanoid clips exist outside the default LAT's forward-only
     # locomotion selector. Explicit mappings are recorded, not invented graphs.
     for state, stem in {'strafe_left': 'all_b_loc_walking_side_step_left', 'strafe_right': 'all_b_loc_walking_side_step_right',

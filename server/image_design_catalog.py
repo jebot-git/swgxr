@@ -47,6 +47,28 @@ def options(designer, appearance):
             'type':'color' if color else 'shape','scope':scope,'min':0,'max':maximum,'step':1 if color else 0.01,
             'variables':variables,'reverse':bool(row['REVERSE']),'height':bool(row['IS_SCALE']),
             'colors':matched[0].get('colors',[])[:int(maximum)+1] if color and matched else []})
+    # Project the recipient's current source customization into each UI control.
+    # An untouched control must not silently start from an arbitrary midpoint.
+    existing_hair=(appearance.get('hair') or {})
+    existing_template=existing_hair.get('template','').replace('/shared_','/')
+    current_hair_vars=hair_vars.get(existing_template,[])
+    for control in controls:
+        if control['height']:
+            span=source['height_max']-source['height_min']
+            value=(appearance.get('height',1.0)-source['height_min'])/span if span else .5
+        else:
+            source_vars=body_vars if control['scope']=='body' else current_hair_vars
+            customization=appearance.get('customization',{}) if control['scope']=='body' else existing_hair.get('customization',{})
+            components=[]
+            for name in control['variables']:
+                var=next((v for v in source_vars if v['id'].rsplit('/',1)[-1]==name),None)
+                if var is None:components.append(0.0);continue
+                raw=customization.get(var['id'],var.get('default',0))
+                if control['type']=='color':components.append(raw);continue
+                span=var['max']-var['min']
+                components.append(((var['max']-raw) if control['reverse'] else (raw-var['min']))/span if span else 0)
+            value=(.5+(components[1]-components[0])*.5) if len(components)==2 and control['type']!='color' else components[0] if components else 0
+        control['value']=max(control['min'],min(control['max'],value))
     return {'race':race,'controls':controls,'hair':[{'template':h['template'],'label':'Style '+str(i+1)} for i,h in enumerate(hair)],
             'allow_bald':bald_rules().get(race,True), 'holoemotes':[r['HOLOEMOTE'] for r in holo if mods.get('hair',0)>=r['REQUIRED_HAIR_SKILLMOD']],
             'source':'original_image_design_tables'}

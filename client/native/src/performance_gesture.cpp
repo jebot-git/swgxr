@@ -4,20 +4,33 @@
 using namespace godot;
 void SwgPerformanceGesture::_bind_methods() {
     ClassDB::bind_method(D_METHOD("reset"), &SwgPerformanceGesture::reset);
-    ClassDB::bind_method(D_METHOD("sample", "delta", "kind", "head", "main", "off", "tracked"), &SwgPerformanceGesture::sample);
+    ClassDB::bind_method(D_METHOD("sample", "delta", "kind", "head", "main", "off", "tracked", "hands"), &SwgPerformanceGesture::sample, DEFVAL(Dictionary()));
 }
 void SwgPerformanceGesture::reset() {
-    have=false; mode=""; elapsed=held=0; last_stroke=-10; direction=0; axis=-1; strokes=0; last_hand=-1;
+    have=false; mode=""; elapsed=held=0; last_stroke=-10; direction=0; axis=-1; strokes=0; last_hand=-1; dance_main_travel=dance_off_travel=0;
 }
-bool SwgPerformanceGesture::sample(double dt, const String &kind, const Transform3D &head, const Transform3D &main, const Transform3D &off, bool tracked) {
+bool SwgPerformanceGesture::sample(double dt, const String &kind, const Transform3D &head, const Transform3D &main, const Transform3D &off, bool tracked, const Dictionary &hands) {
     if (!tracked || !std::isfinite(dt) || dt<=0 || dt>0.12 || !head.origin.is_finite() || !main.origin.is_finite() || !off.origin.is_finite() || !head.basis.is_finite() || std::abs(head.basis.determinant())<0.001) { reset(); return false; }
     Vector3 a=head.basis.inverse().xform(main.origin-head.origin), b=head.basis.inverse().xform(off.origin-head.origin);
+    if (kind=="dance") {
+        Vector3 back=head.basis.get_column(2); back.y=0;
+        if(back.length_squared()<.01){reset();return false;}
+        back.normalize(); const Basis chest_basis(Vector3(0,1,0).cross(back),Vector3(0,1,0),back);
+        a=chest_basis.inverse().xform(main.origin-head.origin);b=chest_basis.inverse().xform(off.origin-head.origin);
+        // Prop-free, bilateral chest-height movement. Controller/optical hand
+        // interpretation supplies openness and palm-down confidence explicitly.
+        bool palms=bool(hands.get("main_open",false))&&bool(hands.get("off_open",false))&&bool(hands.get("main_down",false))&&bool(hands.get("off_down",false));
+        bool chest=a.y>-.8&&a.y<-.12&&b.y>-.8&&b.y<-.12;
+        bool spread=a.x*b.x<0&&std::abs(a.x)>.2&&std::abs(b.x)>.2&&a.distance_to(b)>.55;
+        if(!palms||!chest||!spread){reset();return false;}
+    }
     if (mode!=kind) { reset(); mode=kind; }
     if (!have) { previous_main=anchor=a; previous_off=b; key_top_main=a.y; key_top_off=b.y; have=true; return false; }
     Vector3 da=a-previous_main, db=b-previous_off;
     previous_main=a; previous_off=b;
     if (da.length()>0.5 || db.length()>0.5 || da.length()/dt>7 || db.length()/dt>7) { reset(); return false; }
     elapsed+=dt;
+    if(kind=="dance"){dance_main_travel+=da.length();dance_off_travel+=db.length();}
     if (elapsed-last_stroke>1.5) { strokes=0; direction=0; axis=-1; anchor=a; }
     if (kind=="wind") {
         // Grip/mouth proxy is deliberately forgiving across original horns.
@@ -46,16 +59,19 @@ bool SwgPerformanceGesture::sample(double dt, const String &kind, const Transfor
         Vector3 point=kind=="strings" ? b-a : a;
         Vector3 velocity=kind=="strings" ? db-da : da;
         if (kind=="strings" && point.length()>0.65) { strokes=0; direction=0; return false; }
-        int candidate=kind=="strings" ? 1 : std::abs(velocity.x)>std::abs(velocity.y) ? 0 : 1;
+        int candidate=kind=="strings" ? 1 : axis>=0 ? axis : std::abs(velocity.x)>std::abs(velocity.y) ? 0 : 1;
         double speed=velocity[candidate]/dt;
         if (std::abs(speed)>0.2) {
             int next=speed>0 ? 1 : -1;
             if (direction==0 || candidate!=axis) { direction=next; axis=candidate; anchor=point; last_stroke=elapsed; }
+            else if(next==direction) {
+                if((direction>0&&point[axis]>anchor[axis])||(direction<0&&point[axis]<anchor[axis]))anchor=point;
+            }
             else if (next!=direction && std::abs(point[axis]-anchor[axis])>(kind=="dance" ? 0.14 : 0.06)) {
                 ++strokes; direction=next; anchor=point; last_stroke=elapsed;
             }
         }
     }
-    if (strokes>=2) { reset(); return true; }
+    if (strokes>=2 && (kind!="dance" || (dance_main_travel>.3 && dance_off_travel>.3))) { reset(); return true; }
     return false;
 }

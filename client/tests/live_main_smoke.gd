@@ -16,6 +16,8 @@ class Rig extends Node3D:
 class Controller extends Node3D:
 	func reset()->void: pass
 class Session extends Node3D:
+	var live:=true
+	var session_id:="native-main-fixture"
 	signal stopped
 	var app:Node
 	var stopped_count:=0

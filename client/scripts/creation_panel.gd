@@ -40,7 +40,7 @@ func _ready() -> void:
 	offset_right = -32
 	offset_bottom = -26
 	theme = preload("res://scripts/frontend_theme.gd").build()
-	add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").box("071c29", "3ea8b9", 2, 20))
+	add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").frame(20))
 	var column := VBoxContainer.new()
 	column.add_theme_constant_override("separation", 14)
 	add_child(column)
@@ -136,7 +136,7 @@ func _ready() -> void:
 	var preview_frame := PanelContainer.new()
 	preview_frame.custom_minimum_size.x = 390
 	preview_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	preview_frame.add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").box("06131e", "245363", 1, 14))
+	preview_frame.add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").frame(14,"tall"))
 	columns.add_child(preview_frame)
 	var right := VBoxContainer.new()
 	preview_frame.add_child(right)

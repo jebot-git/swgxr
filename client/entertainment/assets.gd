@@ -8,6 +8,8 @@ func load_catalog() -> bool:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not parsed is Dictionary: return false
 	catalog = parsed
+	# Old local caches may still list the retired dance prop.
+	if catalog.get("items",{}) is Dictionary: catalog.items.erase("object/static/item/item_ribbon.iff")
 	return true
 func sound(path: String) -> AudioStream:
 	if not cache.has(path):
@@ -17,8 +19,8 @@ func sound(path: String) -> AudioStream:
 func performances(context: Dictionary, item: Dictionary) -> Array:
 	if not context.get("complete",false): return []
 	var descriptor: Dictionary = catalog.get("items",{}).get(str(item.get("template","")).replace("/shared_","/"),{})
-	var instrument := str(descriptor.get("instrument",""))
-	var commands: Array = context.get("commands",[])
+	var instrument := "dance" if item.is_empty() else str(descriptor.get("instrument",""))
+	var commands: Array = context.get("commands",[]).map(func(command): return str(command).to_lower())
 	if instrument != "dance" and not instrument in commands: return []
 	var result: Array = []
 	for performance: Dictionary in catalog.get("performances",{}).values():

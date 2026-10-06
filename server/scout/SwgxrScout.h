@@ -1,6 +1,9 @@
 #ifndef SWGXR_SCOUT_H
 #define SWGXR_SCOUT_H
+#include "SwgxrPlanets.h"
 #include "SwgxrGathering.h"
+#include "SwgxrBioEngineer.h"
+#include "SwgxrRanger.h"
 #include "server/zone/objects/area/CampSiteActiveArea.h"
 #include "server/zone/objects/tangible/components/CampKitMenuComponent.h"
 #include "server/zone/objects/tangible/components/CampTerminalMenuComponent.h"
@@ -32,39 +35,45 @@ class SwgxrScout {
   }return result;
  }
  static Json snapshot(CreatureObject* c){
-  Json state={{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
+  Json state={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
+  SwgxrBioEngineer::status(c,state);
+  state["ranger"]=SwgxrRanger::status(c);
   state["inventory"]=SwgxrInventory::snapshot(c);
   auto burst=c->getBuff(STRING_HASHCODE("burstrun"));state["burst_remaining"]=burst!=nullptr?burst->getTimeLeft():0.f;
   for(int i=0;i<9;++i)state["ham"].push_back(c->getHAM(i));
   auto root=c->getSlottedObject("inventory");if(root!=nullptr){std::vector<SceneObject*> todo{root};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto container=todo.back();todo.pop_back();if(!seen.insert(container->getObjectID()).second)continue;for(int i=0;i<container->getContainerObjectsSize();++i){auto o=container->getContainerObject(i);if(o->isTrapObject() || o->isCampKit())state["items"].push_back(SwgxrInventory::describe(o,c));else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
   auto gathering=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,gathering.value("hip_tool_id",std::string()));if(hip!=nullptr)state["hip_tool"]=SwgxrInventory::describe(hip,c);
   SortedVector<TreeEntry*> objects(256,256);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),64,&objects,true);
-  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!eligible(c,o))continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
+  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || !o->isCreatureObject())continue;Locker targetLock(o,c);bool trapEligible=eligible(c,o),dnaEligible=SwgxrBioEngineer::eligible(c,o);if(!trapEligible && !dnaEligible)continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
    entry["bounds"]=nullptr;
    if(volume!=nullptr){const auto& sphere=volume->getBoundingSphere();const auto& center=sphere.getCenter();double radius=sphere.getRadius()*scale;
     if(std::isfinite(radius) && radius>0 && radius<=128)entry["bounds"]={{"center",Json::array({center.getX()*scale,center.getY()*scale,center.getZ()*scale})},{"radius",radius},{"source","original_appearance_sphere"}};
    }
-   entry["eligible"]=true;state["targets"].push_back(entry);}
+   entry["dna_eligible"]=dnaEligible;entry["eligible"]=trapEligible;state["targets"].push_back(entry);}
   return state;
  }
 public:
  static Json run(CreatureObject* c,const Json& request){
-  if(!c || !c->getPlayerObject() || !c->getZone() || c->getZone()->getZoneName()!="tatooine" || c->getParent().get()!=nullptr)throw std::runtime_error("Scout actions require outdoors Tatooine");
-  auto verb=request.value("action",std::string("status"));auto p=SwgxrGathering::position(request);
+  SwgxrPlanets::require(c,request);
+  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);
+  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+  auto p=SwgxrGathering::position(request);
   if(!c->isDead() && !c->isIncapacitated()){
-   c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);
+   if(!ranger)c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);
    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
    }
   }
   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_scout","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());Json mutation={{"success",true},{"action",verb}};
-  if(verb!="status"){
+  if(verb!="status" && verb!="ranger_status"){
+   auto semantic=request;if(ranger)for(auto field:{"position","building_id","cell_index","zone","planet","hand_position","posture"})semantic.erase(field);
    const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");bool replay=false;
-   for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=request)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
+   for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=semantic)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
    if(!replay){
     if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
-    if(verb=="holster" || verb=="return_tool"){
+    if(ranger)SwgxrRanger::execute(c,request,mutation);
+    else if(verb=="holster" || verb=="return_tool"){
      auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject())throw std::runtime_error("Scout belt only accepts owned traps");
      auto q=request;q["tool_id"]=id(trap);SwgxrGathering::execute(c,g,q);SwgxrGathering::save(c,g);
     }else if(verb=="forage"){
@@ -72,6 +81,8 @@ public:
      command(c,"forage");if(c->getPendingTask("foraging")==nullptr)throw std::runtime_error("Core3 rejected foraging");
     }else if(verb=="mask_scent")command(c,"maskscent");
     else if(verb=="burst_run")command(c,"burstrun");
+    else if(verb=="sample_dna"){SwgxrBioEngineer::run(c,request);mutation["target_id"]=request.at("target_id");mutation["sampling_started"]=true;}
+    else if(verb=="discard_sample_dna")SwgxrBioEngineer::discard(c);
     else if(verb=="discard_mask_scent"){
      if(c->getSkillMod("mask_scent")<=0)throw std::runtime_error("Mask scent not learned");
      c->addCooldown("skill_buff_mask_scent_self",6000*c->getSkillMod("mask_scent"));
@@ -102,10 +113,10 @@ public:
      if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}
      mutation["target_id"]=id(target);mutation["item_id"]=id(trap);
     }else throw std::runtime_error("Unsupported scout action");
-    receipts.push_back({{"key",key},{"request",request},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
+    receipts.push_back({{"key",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
    }
   }
-  return {{"backend","core3"},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
+  return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
  }
 };
 #endif

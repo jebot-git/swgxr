@@ -8,6 +8,7 @@ from character_formats import datatable, qmul, mirror
 from static_assets import qrot
 from terrain_formats import terrain
 from interior_layout import expand_layouts, template_properties
+from planet_config import PLANETS, origin_for, path_for
 ROOT=Path(__file__).resolve().parents[2]
 
 class EnvironmentImporter:
@@ -45,8 +46,8 @@ class EnvironmentImporter:
    source=cstring(tx.first('NAME').data)[0];image=self.image(source);textures.append({k:v for k,v in image.items() if k!='pixels'})
   return {'source':path,'textures':textures}
 
-def snapshot(imp):
- root=parse_iff(imp.read('snapshot/tatooine.ws'));names=root.first('OTNL').data[4:].split(b'\0');nodes={}
+def snapshot(imp, planet="tatooine"):
+ root=parse_iff(imp.read(f'snapshot/{planet}.ws'));names=root.first('OTNL').data[4:].split(b'\0');nodes={}
  for node in root.walk('NODE'):
   data=node.first('DATA').data;oid,parent,tid,cell=struct.unpack_from('<4I',data);nodes[oid]={'id':oid,'parent':parent,'template':names[tid].decode(),'cell':cell,'q':struct.unpack_from('<4f',data,16),'p':struct.unpack_from('<3f',data,32)}
  cache={}
@@ -61,8 +62,8 @@ def snapshot(imp):
  return [resolve(oid) for oid in nodes]
 
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/tatooine_environment');ap.add_argument('--world',type=Path,default=ROOT/'runtime/assets/tatooine_world/world.json');ap.add_argument('--npc-placements',type=Path,default=ROOT/'runtime/assets/ambient_npcs/placements.json');args=ap.parse_args();imp=EnvironmentImporter(args.tre_dir,args.out)
- rows=datatable(imp.read('datatables/environment/tatooine.iff'));families={}
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=None);ap.add_argument('--world',type=Path,default=None);ap.add_argument('--npc-placements',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"environment");args.world=args.world or path_for(args.planet,"world")/"world.json";args.npc_placements=args.npc_placements or path_for(args.planet,"ambient")/"placements.json";imp=EnvironmentImporter(args.tre_dir,args.out)
+ rows=datatable(imp.read(f'datatables/environment/{args.planet}.iff'));families={}
  for row in rows:
   family=row['Environment Family Name'];entry=families.setdefault(family,{'weather_variants':[]});entry['weather_variants'].append(row)
   if row['Weather Index']!=0:continue
@@ -73,11 +74,11 @@ def main():
   for key,column in [('day_ambient','Day Ambient Sound 1 (2d .snd)'),('day_ambient_secondary','Day Ambient Sound 2 (2d .snd)'),('night_ambient','Night Ambient Sound 1 (2d .snd)'),('night_ambient_secondary','Night Ambient Sound 2 (2d .snd)'),('first_music','First Music (2d .snd)'),('sunrise_music','Sunrise Music (2d .snd)'),('sunset_music','Sunset Music (2d .snd)')]:entry[key]=imp.sound(row[column]) if row[column] else ''
   entry['fog']={'enabled':bool(row['Fog Enabled']),'minimum_density':row['Minimum Fog Density'],'maximum_density':row['Maximum Fog Density']}
  celestials=[]
- for node in parse_iff(imp.read('terrain/environment/tatooine.iff')).children[0].children:
+ for node in parse_iff(imp.read(f'terrain/environment/{args.planet}.iff')).children[0].children:
   record={'tag':node.tag,'raw_hex':node.data.hex()}
   if node.tag in ('SUN ','SSUN','MOON','SMOO','CELS'):
    shader,p=cstring(node.data);size=struct.unpack_from('<f',node.data,p)[0];p+=4;glow,p=cstring(node.data,p)
-   record.update(shader=imp.shader(shader),angular_size_source=size,glow_shader=imp.shader(glow) if glow else None,parameters=list(struct.unpack_from('<'+'f'*((len(node.data)-p)//4),node.data,p)))
+   record.update(shader=imp.shader(shader) if shader else None,angular_size_source=size,glow_shader=imp.shader(glow) if glow else None,parameters=list(struct.unpack_from('<'+'f'*((len(node.data)-p)//4),node.data,p)))
   elif node.tag=='STAR':
    texture,p=cstring(node.data);image=imp.image(texture);record.update(texture={k:v for k,v in image.items() if k!='pixels'},count=struct.unpack_from('<I',node.data,p)[0])
   celestials.append(record)
@@ -86,7 +87,7 @@ def main():
   entry={'pob_name':row['PobName'],'cell_name':row['Cell Name'],'source_table':interior_table,'source_row':index,'room_type':row['Room Type'],'source_values':row}
   for role,column in [('day_ambient','Day sound/ambient Sound (2d .snd)'),('night_ambient','Night sound/ambient Sound (2d .snd)'),('first_music','First Music (2d .snd)')]:entry[role]=imp.sound(row[column]) if row[column] else ''
   interior_soundscapes[row['PobName']+':'+row['Cell Name']]=entry
- nodes=snapshot(imp);layout_nodes=expand_layouts(imp,nodes);nodes.extend(layout_nodes);origin=next(n['p'] for n in nodes if n['id']==1106368);emitters=[]
+ nodes=snapshot(imp,args.planet);layout_nodes=expand_layouts(imp,nodes);nodes.extend(layout_nodes);origin=origin_for(args.planet);emitters=[]
  for node in nodes:
   if not node['template'].startswith(('object/soundobject/','object/building/')):continue
   try:
@@ -128,7 +129,7 @@ def main():
     count=len(surface['vertices'])//3;colored=len(surface.get('colors',[]))==count*4;has|=colored;coverage['surface_count']+=1;coverage['vertex_count']+=count
     if colored:coverage['surfaces_with_vertex_colors']+=1;coverage['colored_vertex_count']+=count
    coverage['meshes_with_vertex_colors' if has else 'meshes_without_vertex_colors']+=1
- source_terrain=terrain(imp.read('terrain/tatooine.trn'));family_ids={family['id']:family['name'] for family in source_terrain['environment_families']};family_regions=[]
+ source_terrain=terrain(imp.read(f'terrain/{args.planet}.trn'));family_ids={family['id']:family['name'] for family in source_terrain['environment_families']};family_regions=[]
  def environment_regions(layer,parents=(),enabled=True):
   enabled=enabled and layer.get('enabled',True)
   if enabled:
@@ -137,6 +138,6 @@ def main():
     family_regions.append({'family':family_ids[affector['family']],'source_layer':layer['name'],'source_coordinate_system':'SWG x,z','boundaries':layer['boundaries'],'filters':layer['filters'],'ancestor_constraints':[{'name':p['name'],'boundaries':p['boundaries'],'filters':p['filters']} for p in parents if p['boundaries'] or p['filters']],'affector':affector})
   for child_layer in layer['children']:environment_regions(child_layer,parents+(layer,),enabled)
  for layer in source_terrain['layers']:environment_regions(layer)
- output={'schema_version':1,'planet':'tatooine','origin':origin,'coordinate_system':'Godot Y-up, SWG Z mirrored; same Mos Eisley stage origin','cycle_seconds':7200,'cycle_source':'Prototype configurable duration; original day-length source not found','default_phase':0.25,'default_family':'moseisley','families':families,'family_regions':family_regions,'sounds':imp.sounds,'interior_soundscapes':interior_soundscapes,'interior_layout_nodes':len(layout_nodes),'emitters':emitters,'celestials':celestials,'vertex_color_coverage':coverage,'provenance':{'tre_directory':str(args.tre_dir.resolve()),'dependencies':imp.dependencies,'npc_placements':npc_source},'npc_ambient_emitters':npc_ambient_count,'failures':imp.failures,'warnings':['Source vertex colors are retained; their use as original baked lighting is not verified.','Original source shadows-enabled flags retained in table but runtime request disables dynamic shadows.','Lighting row role mapping and day duration are explicitly presentation choices; raw source values retained.','Original weather records exported; particle weather simulation is not implemented.']}
+ output={'schema_version':1,'planet':args.planet,'origin':origin,'coordinate_system':'Godot Y-up, SWG Z mirrored; same Mos Eisley stage origin','cycle_seconds':7200,'cycle_source':'Prototype configurable duration; original day-length source not found','default_phase':0.25,'default_family':'moseisley' if args.planet=='tatooine' else next(iter(families)),'families':families,'family_regions':family_regions,'sounds':imp.sounds,'interior_soundscapes':interior_soundscapes,'interior_layout_nodes':len(layout_nodes),'emitters':emitters,'celestials':celestials,'vertex_color_coverage':coverage,'provenance':{'tre_directory':str(args.tre_dir.resolve()),'dependencies':imp.dependencies,'npc_placements':npc_source},'npc_ambient_emitters':npc_ambient_count,'failures':imp.failures,'warnings':['Source vertex colors are retained; their use as original baked lighting is not verified.','Original source shadows-enabled flags retained in table but runtime request disables dynamic shadows.','Lighting row role mapping and day duration are explicitly presentation choices; raw source values retained.','Original weather records exported; particle weather simulation is not implemented.']}
  dest=args.out/'environment.json';tmp=dest.with_suffix('.tmp');tmp.write_text(json.dumps(output,separators=(',',':')));tmp.replace(dest);print(json.dumps({'families':len(families),'sounds':len(imp.sounds),'emitters':len(emitters),'failures':len(imp.failures),'coverage':coverage,'output':str(dest)},indent=2))
 if __name__=='__main__':main()

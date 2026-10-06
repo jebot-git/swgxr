@@ -1,0 +1,46 @@
+{
+  "title": "Free UI Hologram Interface",
+  "author": "Wenrexa",
+  "license": "CC0-1.0",
+  "source_url": "https://opengameart.org/content/free-ui-hologram-interface",
+  "download_url": "https://opengameart.org/sites/default/files/1._free_hologram_interface_wenrexa.zip",
+  "archive_sha256": "23e2a76ab0e4fcd2bafe64435c57019653ffedd04e6ba02fed284bb0784879b7",
+  "files": [
+    {
+      "path": "panel_square.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Card X2/Card X3.png",
+      "sha256": "8d88590fdff9bbbbdba436f15e4ce15aac9b1dbc6a707f2189f5483efd4de9c4"
+    },
+    {
+      "path": "panel_tall.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Card X1/Card X2.png",
+      "sha256": "bfd90a0fd661d2ed1bf21c7ae14287397196412ffaa50c88e980d4e28103f50c"
+    },
+    {
+      "path": "panel_wide.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Card X3/Card X5.png",
+      "sha256": "bb67c6997613c4c8710b125df1cd851a1bc62efececd6b94243d0f1cdd8c3182"
+    },
+    {
+      "path": "button_normal.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Button 1/Button Normal.png",
+      "sha256": "5a348b7d1420ddd72beb0c1d699f9d083e6dea9f28a05da44a1f764076265d00"
+    },
+    {
+      "path": "button_hover.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Button 1/Button Hover.png",
+      "sha256": "d568d93525cbe67e29121223797638ddcaa309c5ac983b2a2fe841b183c5e377"
+    },
+    {
+      "path": "button_pressed.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Button 1/Button Active.png",
+      "sha256": "20feccce91b33807f99cc4c19566a7dbb173657da2e58b4dce6ab48d600e0ded"
+    },
+    {
+      "path": "button_disabled.png",
+      "archive_member": "1. Free Hologram Interface Wenrexa/Button 1/Button Disable.png",
+      "sha256": "2863531867e92adc5c8e43f99c504b134aa79dd107e660043f6d2dca517a7b9f"
+    }
+  ],
+  "modifications": "PNG files copied byte-for-byte with descriptive filenames. Scaled/tinted at runtime. Icons and promotional assets excluded."
+}

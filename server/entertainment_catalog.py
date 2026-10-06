@@ -34,8 +34,6 @@ def catalog():
         provenance[str(path.relative_to(ROOT))] = hashlib.sha256(raw).hexdigest()
         audio_id = int(re.search(rb'instrumentType\s*=\s*(\d+)',raw)[1])
         items[template] = {'instrument':instrument, 'gesture':gesture, 'animation':'music_'+str(animation), 'audio_id':audio_id}
-    # Original ribbon appearance; no server item is fabricated or granted.
-    items['object/static/item/item_ribbon.iff'] = {'instrument':'dance', 'gesture':'dance', 'animation':''}
     performances = {}
     for index, row in enumerate(rows, 1):
         dance = bool(row['requiredDance'])
@@ -50,7 +48,20 @@ def catalog():
             'performance_index':index, 'loop_seconds':row['loopDuration'],
             'action_per_loop':row['actionPointsPerLoop'], 'heal_shock':row['healShockWound'],
             'sounds':{k:row[k] for k in ['mainloop','intro','outro']+['flourish'+str(i) for i in range(1,9)] if row[k]}}
-    return {'schema':1, 'performances':performances, 'items':items, 'skill_grants':grants,
+    effect_source='datatables/performance/perform_effect.iff'
+    effect_raw=assets().read(effect_source)
+    provenance[effect_source]=hashlib.sha256(effect_raw).hexdigest()
+    names={'dazzle':'dazzle','distract':'distract','spotlight':'spot_light','colorlights':'color_lights','smokebomb':'smoke_bomb','firejets':'fire_jets','ventriloquism':'ventriloquism'}
+    effects={}
+    for row in datatable(effect_raw):
+        family=row['effectName'][:-1].lower();level=int(row['effectName'][-1]);key=family+str(level)
+        effects[key]={'command':'firejet' if family=='firejets' else family,'level':level,
+            'effect_file':f'clienteffect/entertainer_{names[family]}_level_{level}.cef',
+            'required_skill_mod_value':row['requiredSkillModValue'],
+            'is_dance':'dance' in row['performanceType'],'is_music':'music' in row['performanceType'],
+            'required_performing':bool(row['requiredPerforming']),'target_type':row['targetType'],
+            'action_cost':row['effectActionCost'],'duration':row['effectDuration']}
+    return {'schema':1, 'special_effects':effects, 'performances':performances, 'items':items, 'skill_grants':grants,
             'circle_radius':8.0, 'cull_distance':96.0, 'provenance':provenance}
 
 def commands(learned):
@@ -61,7 +72,7 @@ def eligible(learned, template):
     data = catalog()
     grant = commands(learned)
     item = data['items'].get(template.replace('/shared_', '/'), {})
-    instrument = item.get('instrument')
+    instrument = 'dance' if not template else item.get('instrument')
     if instrument != 'dance' and instrument not in grant: return []
     return [p for p in data['performances'].values() if p['instrument'] == instrument and p['required_command'].lower() in grant]
 

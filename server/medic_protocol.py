@@ -1,4 +1,8 @@
 """Basic native Medic actions; no client-side HAM, supply or recovery authority."""
+try:
+ from .planets import context as planet_context
+except ImportError:
+ from planets import context as planet_context
 from copy import deepcopy
 import re,math
 try:
@@ -11,7 +15,7 @@ ABILITIES=('healdamage','healwound','tenddamage','tendwound','firstaid','quickhe
 ACTIONS=('status','provision','select','heal','holster','return_tool','drag')
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported medical action')
- out={'action':action}
+ out={'action':action,**planet_context(data)}
  if 'pose' in data:out['pose']=pose(data['pose'])
  if action=='status':return out
  key=data.get('request_id','')

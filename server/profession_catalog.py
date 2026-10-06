@@ -49,6 +49,7 @@ def catalog():
                           'xp_type':skill['XP_TYPE'], 'xp_cost':skill['XP_COST'],
                           'credits':skill['MONEY_REQUIRED'], 'points':skill['POINTS_REQUIRED'],
                           'modifiers':mods,
+                          'schematic_groups':list(filter(None,skill['SCHEMATICS_GRANTED'].split(','))),
                           'certificates':[c for c in skill['COMMANDS'].split(',') if c.startswith('cert_')]})
         professions.append({'id':row['NAME'], 'label':all_labels[row['NAME']],
                             'graph_type':row['GRAPH_TYPE'], 'nodes':nodes})

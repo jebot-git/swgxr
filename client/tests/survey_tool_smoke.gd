@@ -66,8 +66,13 @@ func run()->void:
 	bag.set_survey_result("tool1",result)
 	check(bag.survey_ui.map.spots.size()==2 and bag.survey_ui.map.highest.density==0.81 and "waypoint" in bag.survey_ui.status.text,"Returned densities/highest waypoint display without local synthesis")
 	var hit:Dictionary={"surface":bag.survey_surface,"pixel":Vector2(100,100)}
+	var selected_before:int=bag.survey_ui.selected_ids.find(bag.survey_ui.selected_resource_id)
 	bag.update_stick_capture(Vector2(0,-1),hit,0.5)
-	check(bag.stick_captured and player.turn_captured and bag.survey_ui.resources.get_v_scroll_bar().value>0,"Pointed main stick scrolls resource list and captures its locomotion channel")
+	check(bag.stick_captured and player.turn_captured and bag.survey_ui.selected_resource_id==bag.survey_ui.selected_ids[selected_before+1],"Pointed stick advances highlighted resource and captures its locomotion channel")
+	check(surveys.size()==1,"Stick selection does not start a survey")
+	for i in range(20):bag.update_stick_capture(Vector2(0,-1),hit,.2)
+	await process_frame
+	check(bag.survey_ui.resources.get_v_scroll_bar().value>0,"Highlighted resource remains visible as selection crosses viewport")
 	bag.update_stick_capture(Vector2.ZERO,{},0.01)
 	check(not bag.stick_captured,"Neutral main stick releases survey capture")
 	bag.set_open(false);bag.main_grip_armed=false

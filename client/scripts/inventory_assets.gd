@@ -41,7 +41,7 @@ func model(template: String, customization: Dictionary = {}) -> ArrayMesh:
 	var data: Variant=JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not data is Dictionary: return null
 	var surfaces: Array=data.get("surfaces",[])
-	var mesh: ArrayMesh=builder.create_mesh(surfaces)
+	var mesh: ArrayMesh=builder.create_avatar_mesh(data) if not data.get("blend_shapes",[]).is_empty() else builder.create_mesh(surfaces)
 	if mesh==null: return null
 	for i in range(mesh.get_surface_count()):
 		if str(data.get("material_pipeline",source.get("material_pipeline","")))=="original_character":
@@ -67,11 +67,20 @@ func model(template: String, customization: Dictionary = {}) -> ArrayMesh:
 		loader.textures.clear() # Mesh materials retain live textures; no unbounded lookup pins.
 	return mesh
 
+static func apply_morphs(node:MeshInstance3D,customization:Dictionary)->void:
+	for i in range(node.mesh.get_blend_shape_count()):
+		var name:=str(node.mesh.get_blend_shape_name(i))
+		var value:=0.0
+		for key in customization:
+			if str(key).get_file()==name.get_file():value=float(customization[key])/255.0;break
+		node.set_blend_shape_value(i,clampf(value,0,1))
+
 func instance(template: String, max_extent: float, customization: Dictionary = {}) -> MeshInstance3D:
 	var mesh:=model(template,customization)
 	if mesh==null: return null
 	var node:=MeshInstance3D.new()
 	node.mesh=mesh
+	apply_morphs(node,customization)
 	node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var bounds:=mesh.get_aabb()
 	var extent:=maxf(bounds.size.x,maxf(bounds.size.y,bounds.size.z))

@@ -35,6 +35,7 @@ var context: Dictionary={}
 var result: Dictionary={}
 var selected_resource_id := ""
 var pending := false
+var navigation_delay:=0.0
 var catalog: Dictionary={}
 var selected_ids: Array[String]=[]
 var source_center:=Vector3.ZERO
@@ -44,7 +45,7 @@ var configured_planet := ""
 func configure() -> void:
 	theme=ThemeSource.build(); size=Vector2(PIXELS); custom_minimum_size=size
 	var panel:=Panel.new(); panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT); add_child(panel)
-	panel.add_theme_stylebox_override("panel",ThemeSource.box("071c29","3ea8b9",2,14))
+	panel.add_theme_stylebox_override("panel",ThemeSource.frame(14,"wide"))
 	title=Label.new(); add_child(title); title.position=Vector2(18,12); title.size=Vector2(780,40); title.text="RESOURCE SURVEY"
 	var holster:=Button.new(); add_child(holster); holster.position=Vector2(865,10); holster.size=Vector2(165,42); holster.text="Tool slot"; holster.pressed.connect(func(): tool_slot_requested.emit())
 	resources=ItemList.new(); add_child(resources); resources.position=Vector2(18,65); resources.size=Vector2(330,515); resources.item_selected.connect(select_index)
@@ -72,7 +73,7 @@ func set_context(value: Dictionary) -> void:
 		map.configure(data,ProjectSettings.globalize_path("res://../runtime/assets/datapad")); configured_planet=planet
 	var range_m:=maxf(1,float(context.get("max_range_m",context.get("range_m",1))))
 	map.zoom=minf(map.world_bounds.size.x,map.world_bounds.size.y)/range_m
-	info.text=("Survey span %dm · skill %d · holding trigger surveys · point + stick scrolls"%[int(range_m),int(context.get("surveying_skill",0))]) if context.has("max_range_m") else "Waiting for authoritative tool and skill range…"
+	info.text=("Survey span %dm · skill %d · holding trigger surveys · point + stick selects"%[int(range_m),int(context.get("surveying_skill",0))]) if context.has("max_range_m") else "Waiting for authoritative tool and skill range…"
 	if selected_resource_id in selected_ids:
 		resources.select(selected_ids.find(selected_resource_id));resource_details_changed.emit(selected_resource())
 	else:
@@ -111,8 +112,13 @@ func set_pending(value: bool, message := "") -> void:
 	if not message.is_empty(): status.text=message
 
 func scroll(stick: Vector2, delta: float) -> void:
-	if pending: return
-	resources.get_v_scroll_bar().value-=stick.y*delta*600
+	if pending or absf(stick.y)<.25:navigation_delay=0;return
+	navigation_delay-=delta
+	if navigation_delay>0 or resources.item_count==0:return
+	navigation_delay=.18
+	var selected:=resources.get_selected_items()
+	var index:=clampi(0 if selected.is_empty() else selected[0]+(-1 if stick.y>0 else 1),0,resources.item_count-1)
+	resources.select(index);resources.ensure_current_is_visible();select_index(index)
 
 func set_active(value: bool) -> void:
 	if active==value: return

@@ -1,5 +1,6 @@
 extends Node3D
 ## A short visible ray starts at the same rendered fingertip used for hit testing.
+var show_beam:=true
 var beam: MeshInstance3D
 var dot: MeshInstance3D
 func _ready() -> void:
@@ -22,7 +23,7 @@ func update_pointer(tip: Vector3, hit: Dictionary) -> void:
 	dot.global_position=end
 	var difference:=end-tip
 	var length:=difference.length()
-	beam.visible=length>.003
+	beam.visible=show_beam and length>.003
 	if not beam.visible:return
 	var y:=difference/length
 	var x:=y.cross(Vector3.UP if absf(y.y)<.95 else Vector3.RIGHT).normalized()

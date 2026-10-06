@@ -9,6 +9,9 @@ var camera: XRCamera3D
 var input_active := true
 var hovered_pointers: Dictionary = {}
 var pointer_position := Vector2.ZERO
+var slider_surface:Dictionary={}
+var slider_drags:Dictionary={}
+var slider_capture_hand:=""
 const Choice=preload("res://scripts/frontend_choice.gd")
 const PageScroll=preload("res://scripts/frontend_scroll.gd")
 
@@ -75,7 +78,10 @@ func set_input_active(value: bool) -> void:
 		screen.input_keyboard=visible and value
 
 func cancel_interaction() -> void:
+	for drag in slider_drags.values():drag.cancel()
+	slider_capture_hand=""
 	if screen==null:return
+	screen.enabled=visible and input_active
 	var viewport: Viewport=screen.get_node("Viewport")
 	Choice.close_all(viewport)
 	for page in get_tree().get_nodes_in_group(PageScroll.GROUP):
@@ -110,6 +116,22 @@ func scroll_pointer(point: Vector2,axis: float,delta: float) -> bool:
 	if not visible or not input_active:return false
 	return PageScroll.scroll_at(screen.get_node("Viewport"),point,axis,delta)
 
+func slider_surfaces()->Array:
+	if slider_surface.is_empty():slider_surface={"mesh":screen.get_node("Screen"),"meters":screen.screen_size,"viewport":screen.get_node("Viewport"),"control":ui}
+	return [slider_surface]
+
+func physical_slider_frame(side:String,pose:Transform3D,grip:float,tracked:bool)->bool:
+	if not slider_drags.has(side):slider_drags[side]=preload("res://scripts/xr_slider_drag.gd").new()
+	var drag=slider_drags[side]
+	var consumed:bool=drag.frame(slider_surfaces(),{},pose,grip,0,tracked and visible and input_active and (slider_capture_hand.is_empty() or slider_capture_hand==side))
+	if not drag.capture.is_empty():slider_capture_hand=side
+	elif slider_capture_hand==side:slider_capture_hand=""
+	# Retain the pinned XRTools normal trigger path whenever no physical hand
+	# owns a slider. While gripped its pointable collision cannot steal the drag.
+	screen.enabled=visible and input_active and slider_capture_hand.is_empty()
+	preload("res://scripts/xr_slider_drag.gd").sync_handles(slider_surfaces())
+	return consumed
+
 func _process(delta: float) -> void:
 	if screen == null or not visible or not input_active:
 		return
@@ -122,6 +144,11 @@ func _process(delta: float) -> void:
 		var head=XRServer.get_tracker("head")
 		var pose: XRPose=head.get_pose("default") if head!=null else null
 		if pose==null or not pose.has_tracking_data:cancel_interaction();return
+	var slider_consumed:=false
+	for side in ["LeftHand","RightHand"]:
+		var hand:XRController3D=camera.get_parent().get_node_or_null(side)
+		if hand!=null:slider_consumed=physical_slider_frame(side,hand.global_transform,hand.get_float("grip"),preload("res://scripts/tracked_hand_input.gd").controller_tracked(hand)) or slider_consumed
+	if slider_consumed:return
 	var strongest:=0.0
 	var point:=pointer_position
 	for pointer in hovered_pointers.keys():

@@ -1,0 +1,384 @@
+--- a/MMOCoreORB/src/server/zone/managers/structure/StructureManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/structure/StructureManager.cpp
+@@ -267,7 +267,7 @@
+ 	return 0;
+ }
+ 
+-int StructureManager::placeStructureFromDeed(CreatureObject* creature, StructureDeed* deed, float x, float y, int angle) {
++int StructureManager::placeStructureFromDeed(CreatureObject* creature, StructureDeed* deed, float x, float y, int angle, bool preview) {
+ 	ManagedReference<Zone*> zone = creature->getZone();
+ 
+ 	// Already placing a structure?
+@@ -282,7 +282,7 @@
+ 			StringIdChatParameter message("@faction_perk:prose_not_neutral"); // You cannot use %TT if you are neutral or on leave.
+ 			message.setTT(deed->getDisplayedName());
+ 
+-			creature->sendSystemMessage(message);
++			if (!preview) creature->sendSystemMessage(message);
+ 			return 1;
+ 		}
+ 
+@@ -299,7 +299,7 @@
+ 			message.setTT(deed->getDisplayedName());
+ 			message.setTO(deedFaction);
+ 
+-			creature->sendSystemMessage(message);
++			if (!preview) creature->sendSystemMessage(message);
+ 			return 1;
+ 		}
+ 	}
+@@ -310,12 +310,12 @@
+ 
+ 	// Check to see if this zone allows this structure.
+ 	if (serverTemplate == nullptr || !serverTemplate->isAllowedZone(zone->getZoneName())) {
+-		creature->sendSystemMessage("@player_structure:wrong_planet"); // That deed cannot be used on this planet.
++		if (!preview) creature->sendSystemMessage("@player_structure:wrong_planet"); // That deed cannot be used on this planet.
+ 		return 1;
+ 	}
+ 
+ 	if (!planetManager->isBuildingPermittedAt(x, y, creature)) {
+-		creature->sendSystemMessage("@player_structure:not_permitted"); // Building is not permitted here.
++		if (!preview) creature->sendSystemMessage("@player_structure:not_permitted"); // Building is not permitted here.
+ 		return 1;
+ 	}
+ 
+@@ -337,7 +337,7 @@
+ 	}
+ 
+ 	if (city != nullptr && city->isClientRegion()) {
+-		creature->sendSystemMessage("@player_structure:not_permitted"); // Building is not permitted here.
++		if (!preview) creature->sendSystemMessage("@player_structure:not_permitted"); // Building is not permitted here.
+ 		return 1;
+ 	}
+ 
+@@ -383,7 +383,7 @@
+ 			if (rect.containsPoint(x0, y0) || rect.containsPoint(x0, y1) || rect.containsPoint(x1, y0) || rect.containsPoint(x1, y1)) {
+ 				debug() << "existing footprint contains placing point";
+ 
+-				creature->sendSystemMessage("@player_structure:no_room"); // there is no room to place the structure here..
++				if (!preview) creature->sendSystemMessage("@player_structure:no_room"); // there is no room to place the structure here..
+ 
+ 				return 1;
+ 			}
+@@ -391,7 +391,7 @@
+ 			if (placingFootprint.containsPoint(xx0, yy0) || placingFootprint.containsPoint(xx0, yy1) || placingFootprint.containsPoint(xx1, yy0) || placingFootprint.containsPoint(xx1, yy1) || (xx0 == x0 && yy0 == y0 && xx1 == x1 && yy1 == y1)) {
+ 				debug() << "placing footprint contains existing point";
+ 
+-				creature->sendSystemMessage("@player_structure:no_room"); // there is no room to place the structure here.
++				if (!preview) creature->sendSystemMessage("@player_structure:no_room"); // there is no room to place the structure here.
+ 
+ 				return 1;
+ 			}
+@@ -401,13 +401,13 @@
+ 	int rankRequired = serverTemplate->getCityRankRequired();
+ 
+ 	if (city == nullptr && rankRequired > 0) {
+-		creature->sendSystemMessage("@city/city:build_no_city"); // You must be in a city to place that structure.
++		if (!preview) creature->sendSystemMessage("@city/city:build_no_city"); // You must be in a city to place that structure.
+ 		return 1;
+ 	}
+ 
+ 	if (city != nullptr) {
+ 		if (city->isZoningEnabled() && !city->hasZoningRights(creature->getObjectID())) {
+-			creature->sendSystemMessage("@player_structure:no_rights"); // You don't have the right to place that structure in this city. The mayor or one of the city milita must grant you zoning rights first.
++			if (!preview) creature->sendSystemMessage("@player_structure:no_rights"); // You don't have the right to place that structure in this city. The mayor or one of the city milita must grant you zoning rights first.
+ 			return 1;
+ 		}
+ 
+@@ -416,17 +416,17 @@
+ 			param.setDI(rankRequired);
+ 			param.setTO("city/city", "rank" + String::valueOf(rankRequired));
+ 
+-			creature->sendSystemMessage(param);
++			if (!preview) creature->sendSystemMessage(param);
+ 			return 1;
+ 		}
+ 
+ 		if (serverTemplate->isCivicStructure() && !city->isMayor(creature->getObjectID())) {
+-			creature->sendSystemMessage("@player_structure:cant_place_civic"); //"This structure must be placed within the borders of the city in which you are mayor."
++			if (!preview) creature->sendSystemMessage("@player_structure:cant_place_civic"); //"This structure must be placed within the borders of the city in which you are mayor."
+ 			return 1;
+ 		}
+ 
+ 		if (serverTemplate->isUniqueStructure() && city->hasUniqueStructure(serverTemplate->getServerObjectCRC())) {
+-			creature->sendSystemMessage("@player_structure:cant_place_unique"); // This city can only support a single structure of this type.
++			if (!preview) creature->sendSystemMessage("@player_structure:cant_place_unique"); // This city can only support a single structure of this type.
+ 			return 1;
+ 		}
+ 	}
+@@ -435,7 +435,7 @@
+ 
+ 	// Ensure that it is the correct deed, and that it is in a container in the creature's inventory.
+ 	if (!deed->isASubChildOf(creature)) {
+-		creature->sendSystemMessage("@player_structure:no_possession"); // You no longer are in possession of the deed for this structure. Aborting construction.
++		if (!preview) creature->sendSystemMessage("@player_structure:no_possession"); // You no longer are in possession of the deed for this structure. Aborting construction.
+ 		return 1;
+ 	}
+ 
+@@ -445,7 +445,7 @@
+ 		String abilityRequired = serverTemplate->getAbilityRequired();
+ 
+ 		if (!abilityRequired.isEmpty() && !ghost->hasAbility(abilityRequired)) {
+-			creature->sendSystemMessage("@player_structure:" + abilityRequired);
++			if (!preview) creature->sendSystemMessage("@player_structure:" + abilityRequired);
+ 			return 1;
+ 		}
+ 
+@@ -454,7 +454,7 @@
+ 		if (!ghost->hasLotsRemaining(lots)) {
+ 			StringIdChatParameter param("@player_structure:not_enough_lots");
+ 			param.setDI(lots);
+-			creature->sendSystemMessage(param);
++			if (!preview) creature->sendSystemMessage(param);
+ 			return 1;
+ 		}
+ 	}
+@@ -462,6 +462,9 @@
+ 	// Validate that the structure can be placed at the given coordinates:
+ 	// Ensure that no other objects impede on this structures footprint, or overlap any city regions or no build areas.
+ 	// Make sure that the player has zoning rights in the area.
++
++	// Shared validation above is deliberately read-only for the XR hologram.
++	if (preview) return 0;
+ 
+ 	ManagedReference<PlaceStructureSession*> session = new PlaceStructureSession(creature, deed);
+ 	creature->addActiveSession(SessionFacadeType::PLACESTRUCTURE, session);
+--- a/MMOCoreORB/src/server/zone/managers/structure/StructureManager.h
++++ b/MMOCoreORB/src/server/zone/managers/structure/StructureManager.h
+@@ -56,7 +56,7 @@
+ 
+ 	void loadPlayerStructures(const String& zoneName);
+ 
+-	int placeStructureFromDeed(CreatureObject* creature, StructureDeed* deed, float x, float y, int angle);
++	int placeStructureFromDeed(CreatureObject* creature, StructureDeed* deed, float x, float y, int angle, bool preview = false);
+ 
+ 	/**
+ 	 * Simply creates and places a structure at the provided coordinates.
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/PlaceStructureCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/PlaceStructureCommand.h
+@@ -10,6 +10,7 @@
+ #include "server/zone/managers/planet/PlanetManager.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
+ #include "QueueCommand.h"
++#include "server/zone/managers/structure/StructureManager.h"
+ 
+ class PlaceStructureCommand : public QueueCommand {
+ public:
+@@ -20,8 +21,12 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		return placement(creature, arguments, false);
++	}
++
++	int placement(CreatureObject* creature, const UnicodeString& arguments, bool preview) const {
+ 		if (creature->isRidingMount()) {
+-			creature->sendSystemMessage("@player_structure:cant_place_mounted");
++			if (!preview) creature->sendSystemMessage("@player_structure:cant_place_mounted");
+ 			return INVALIDLOCOMOTION;
+ 		}
+ 
+@@ -32,7 +37,7 @@
+ 			return INVALIDLOCOMOTION;
+ 
+ 		if (creature->getParent() != nullptr) {
+-			creature->sendSystemMessage("@player_structure:not_inside"); //You can not place a structure while you are inside a building.
++			if (!preview) creature->sendSystemMessage("@player_structure:not_inside"); //You can not place a structure while you are inside a building.
+ 			return GENERALERROR;
+ 		}
+ 
+@@ -41,7 +46,7 @@
+ 		if (city != nullptr && city->isClientRegion()) {
+ 			StringIdChatParameter param("player_structure", "city_too_close"); // You cannot place here. It is too close to %TO.
+ 			param.setTO(city->getCityRegionName());
+-			creature->sendSystemMessage(param);
++			if (!preview) creature->sendSystemMessage(param);
+ 			return GENERALERROR;
+ 		}
+ 
+@@ -59,7 +64,7 @@
+ 			placementLoc.setY(tokenizer.getFloatToken());
+ 			angle = tokenizer.getIntToken();
+ 
+-			if (angle > 3)
++			if (angle < 0 || angle > 3)
+ 				return GENERALERROR;
+ 
+ 			// Validate player position -vs- attempted placement
+@@ -82,7 +87,7 @@
+ 					<< " Distance from placement Location: " << distance << " Height Difference: " << heightDiff;
+ 
+ 				creature->error(msg.toString());
+-				creature->sendSystemMessage("@system_msg:out_of_range");
++				if (!preview) creature->sendSystemMessage("@system_msg:out_of_range");
+ 
+ 				return GENERALERROR;
+ 			}
+@@ -98,7 +103,7 @@
+ 					continue;
+ 
+ 				if (area->isNoBuildZone()) {
+-					creature->sendSystemMessage("@player_structure:not_permitted"); //Building is not permitted here.
++					if (!preview) creature->sendSystemMessage("@player_structure:not_permitted"); //Building is not permitted here.
+ 					return GENERALERROR;
+ 				}
+ 			}
+@@ -113,7 +118,7 @@
+ 			if (conflict != nullptr) {
+ 				StringIdChatParameter param("player_structure", "city_too_close"); // You cannot place here. It is too close to %TO.
+ 				param.setTO(conflict->getDisplayedName());
+-				creature->sendSystemMessage(param);
++				if (!preview) creature->sendSystemMessage(param);
+ #ifdef WITH_DEV_MODE
+ 				Logger::console.info(true) << "\033[41;30m" << __FUNCTION__ << " at " << placementLoc << " conflict = " << *conflict << "\033[0m";
+ #endif // WITH_DEV_MODE
+@@ -127,10 +132,10 @@
+ 		//We want to begin the session here.
+ 		ManagedReference<StructureDeed*> deed = server->getZoneServer()->getObject(deedID).castTo<StructureDeed*>();
+ 
+-		if (deed != nullptr)
+-			deed->placeStructure(creature, placementLoc.getX(), placementLoc.getY(), angle * 90);
+-
+-		return SUCCESS;
++		if (deed == nullptr || !deed->isASubChildOf(creature->getInventory())) return INVALIDTARGET;
++		if (preview) return StructureManager::instance()->placeStructureFromDeed(creature, deed, placementLoc.getX(), placementLoc.getY(), angle * 90, true) == 0 ? SUCCESS : GENERALERROR;
++		deed->placeStructure(creature, placementLoc.getX(), placementLoc.getY(), angle * 90);
++		return creature->containsActiveSession(SessionFacadeType::PLACESTRUCTURE) ? SUCCESS : GENERALERROR;
+ 	}
+ 
+ };
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
+@@ -0,0 +1,60 @@
++#ifndef SWGXR_HOUSING_H
++#define SWGXR_HOUSING_H
++#include "SwgxrInventory.h"
++#include "PlaceStructureCommand.h"
++#include "PermissionListModifyCommand.h"
++#include "server/zone/objects/building/BuildingObject.h"
++#include "server/zone/objects/cell/CellObject.h"
++#include "server/zone/objects/scene/variables/ContainerPermissions.h"
++#include "server/zone/Zone.h"
++#include "server/zone/objects/tangible/terminal/Terminal.h"
++#include <memory>
++// Native structures, construction sessions, permission lists and item transfers.
++class SwgxrHousing {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static uint64 oid(const Json& r,const char* key){auto v=r.at(key).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("Invalid housing object");return std::stoull(v);}
++ static String data(CreatureObject* c,const char* key){return c->getPlayerObject()->getScreenPlayData("swgxr_housing",key);}
++ static void put(CreatureObject* c,const char* key,const Json& value){c->getPlayerObject()->setScreenPlayData("swgxr_housing",key,String(value.dump().c_str()));}
++ static Json point(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static Json record(SceneObject* o){auto q=o->getDirection();return {{"id",id(o)},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",point(o)},{"local_position",Json::array({o->getPositionX(),o->getPositionZ(),o->getPositionY()})},{"quaternion",Json::array({q->getX(),q->getY(),q->getZ(),q->getW()})},{"heading_radians",q->getRadians()}};}
++ static void vector(const Json& p){if(!p.is_array() || p.size()!=3)throw std::runtime_error("Invalid housing position");for(auto& v:p)if(!v.is_number() || !std::isfinite(v.get<double>()) || std::abs(v.get<double>())>8192)throw std::runtime_error("Invalid housing position");}
++ static StructureObject* terminalStructure(CreatureObject* c,const Json& r){auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));auto s=controlled(t);if(!s || t->getZone()!=c->getZone() || t->getParentID()!=c->getParentID() || !c->isInRange(t,8) || !CollisionManager::checkLineOfSight(c,t))throw std::runtime_error("House terminal out of reach");return s;}
++ static Json furnish(CreatureObject* c,const Json& r,bool recover){
++  ManagedReference<SceneObject*> parent=c->getParent().get();SceneObject* root=c->getRootParent();if(!parent || !parent->isCellObject() || !root || !root->isBuildingObject() || !static_cast<BuildingObject*>(root)->isOnAdminList(c))throw std::runtime_error("Enter a house where you have administrator permission");
++  auto o=c->getZoneServer()->getObject(oid(r,"item_id"));if(!o || o->isVendor() || o->isCreatureObject() || o->isTerminal())throw std::runtime_error("Movable furniture required");Locker lock(o,c);
++  auto cell=static_cast<CellObject*>(parent.get());
++  if(recover){if(o->getParentID()!=parent->getObjectID() || !c->isInRange(o,3) || !CollisionManager::checkLineOfSight(c,o))throw std::runtime_error("Furniture out of reach");for(auto field:{"left_hand","right_hand"}){auto p=r.at(field);vector(p);auto op=o->getWorldPosition();if(Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>()).distanceTo(op)>1.0f)throw std::runtime_error("Both hands must touch the item");}}
++  else if(!SwgxrEquipment::inInventory(o,c))throw std::runtime_error("Owned inventory item required");
++  float x=0,y=0,z=0;Json q;
++  if(!recover){auto p=r.at("placement_position");vector(p);auto wp=c->getWorldPosition();if(Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>()).distanceTo(wp)>3)throw std::runtime_error("Place furniture within hand reach");double a=root->getDirection()->getRadians(),dx=p[0].get<double>()-root->getPositionX(),dy=p[2].get<double>()-root->getPositionY();x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z=p[1].get<float>()-root->getPositionZ();
++   std::unique_ptr<Vector<float>> floors(CollisionManager::getCellFloorCollision(x,y,cell));bool supported=false;float floorZ=-100000;if(floors)for(int i=0;i<floors->size();++i)if(floors->get(i)<=z+.1 && floors->get(i)>floorZ){floorZ=floors->get(i);supported=true;}if(!supported)throw std::runtime_error("Release inside the current house cell");
++   Vector3 endpoint(x,y,z);if(!CollisionManager::checkLineOfSightInParentCell(c,endpoint))throw std::runtime_error("Furniture position obstructed");if(!r.value("suspended",false))z=floorZ;
++   q=r.at("local_quaternion");if(!q.is_array() || q.size()!=4)throw std::runtime_error("Invalid furniture orientation");double norm=0;for(auto& v:q){if(!v.is_number() || !std::isfinite(v.get<double>()))throw std::runtime_error("Invalid furniture orientation");norm+=v.get<double>()*v.get<double>();}if(std::abs(norm-1)>.01)throw std::runtime_error("Unit furniture orientation required");
++  }
++  SceneObject* dest=recover?c->getInventory().get():parent.get();auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("transferitemmisc");auto args=id(dest)+" -1 0 0 0";if(!cmd || cmd->doQueueCommand(c,o->getObjectID(),UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS || o->getParentID()!=dest->getObjectID())throw std::runtime_error("Core3 furniture transfer rejected: permissions or item limit");
++  if(!recover){o->initializePosition(x,z,y);o->setDirection(q[3].get<float>(),q[0].get<float>(),q[1].get<float>(),q[2].get<float>());o->updateZoneWithParent(parent,true);}o->updateToDatabaseAllObjects(false);return record(o);
++ }
++public:
++ static StructureObject* controlled(SceneObject* o){if(!o || !o->isTerminal() || !o->getObjectTemplate()->getFullTemplateString().contains("/terminal_player_structure"))return nullptr;SceneObject* s=static_cast<Terminal*>(o)->getControlledObject();return s && s->isStructureObject()?static_cast<StructureObject*>(s):nullptr;}
++ static void describe(CreatureObject* c,SceneObject* t,Json& view){auto s=controlled(t);if(!s)return;view["structure_id"]=id(s);view["owner"]=s->isOwnerOf(c);view["maintenance"]=s->getSurplusMaintenance();view["maintenance_rate"]=s->getMaintenanceRate();view["options"]=Json::array();if(s->isOnAdminList(c))view["options"].push_back({{"id","deposit"},{"name","Deposit upkeep credits"},{"description","Maintenance: "+std::to_string(s->getSurplusMaintenance())+" credits"}});if(s->isOwnerOf(c))for(auto list:{"ENTRY","ADMIN","BAN","VENDOR"})for(auto op:{"add","remove"})view["options"].push_back({{"id",std::string(op)+"_"+list},{"name",std::string(op)+" "+list+" permission"},{"description","Select, then shake hands with the target within one minute."},{"permission_list",list},{"permission_action",op}});if(s->isBuildingObject()){auto b=static_cast<BuildingObject*>(s);view["item_count"]=b->getCurrentNumberOfPlayerItems();view["item_limit"]=b->getMaximumNumberOfPlayerItems();}}
++ static Json snapshot(CreatureObject* c){
++  Json out={{"structures",Json::array()},{"items",Json::array()},{"construction_active",c->containsActiveSession(SessionFacadeType::PLACESTRUCTURE)}};SortedVector<ManagedReference<TreeEntry*>> objects;c->getZone()->getInRangeObjects(c->getWorldPosition().getX(),c->getWorldPosition().getZ(),c->getWorldPosition().getY(),256,&objects,true,false);
++  for(int i=0;i<objects.size() && out["structures"].size()<64;++i){auto o=static_cast<SceneObject*>(objects.get(i).get());if(o && o->isStructureObject() && static_cast<StructureObject*>(o)->getOwnerObjectID()!=0){auto row=record(o);row["owner_id"]=std::to_string(static_cast<StructureObject*>(o)->getOwnerObjectID());out["structures"].push_back(row);}}
++  ManagedReference<SceneObject*> parent=c->getParent().get();SceneObject* root=c->getRootParent();if(parent && parent->isCellObject() && root && root->isBuildingObject()){auto b=static_cast<BuildingObject*>(root);out["item_count"]=b->getCurrentNumberOfPlayerItems();out["item_limit"]=b->getMaximumNumberOfPlayerItems();out["can_furnish"]=b->isOnAdminList(c);for(int ci=1;ci<=b->getTotalCellNumber();++ci){auto cell=b->getCell(ci);if(!cell)continue;for(int i=0;i<cell->getContainerObjectsSize() && out["items"].size()<1000;++i){auto o=cell->getContainerObject(i);if(!o || !o->isTangibleObject() || o->isCreatureObject() || o->isVendor())continue;auto row=record(o);row["building_id"]=id(b);row["cell_index"]=ci;row["terminal"]=o->isTerminal();row["recoverable"]=!o->isTerminal() && !o->isClientObject() && o->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) && cell->checkContainerPermission(c,ContainerPermissions::MOVEOUT);out["items"].push_back(row);}}}return out;
++ }
++ static Json run(CreatureObject* c,const Json& r){
++  auto action=r.at("action").get<std::string>();bool mutation=action!="house_status" && action!="house_preview";Json result={{"success",true}},proposal=r,receipts=Json::array();for(auto f:{"position","building_id","cell_index","zone","request_id","left_hand","right_hand"})proposal.erase(f);auto saved=data(c,"receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());auto key=r.value("request_id",std::string());bool replay=false;
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable housing request ID required");for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=proposal)throw std::runtime_error("Housing request ID reused");result=receipt["result"];result["replayed"]=true;replay=true;break;}}
++  if(!replay){if(action!="house_status" && (c->isDead() || c->isIncapacitated() || c->isRidingMount() || c->isInCombat()))throw std::runtime_error("Housing unavailable in current state");
++   if(action=="house_preview" || action=="house_place"){auto p=r.at("placement_position");vector(p);int angle=r.at("rotation").get<int>();if(angle<0 || angle>3)throw std::runtime_error("Quarter turn required");auto cmd=dynamic_cast<const PlaceStructureCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("placestructure"));if(!cmd)throw std::runtime_error("Native placement command unavailable");auto args=std::to_string(oid(r,"deed_id"))+" "+std::to_string(p[0].get<double>())+" "+std::to_string(p[2].get<double>())+" "+std::to_string(angle);bool valid=cmd->placement(c,UnicodeString(String(args.c_str())),action=="house_preview")==QueueCommand::SUCCESS;result["valid"]=valid;result["placement_position"]=p;result["rotation"]=angle;result["deed_id"]=r["deed_id"];result["reason"]=valid?"":"Core3 placement rules reject this location, deed or player state.";if(action=="house_place" && !valid)throw std::runtime_error("Core3 rejected structure placement");}
++   else if(action=="house_deposit"){auto s=terminalStructure(c,r);Locker lock(s,c);int amount=r.at("amount").get<int>();if(!s->isOnAdminList(c) || amount<=0 || amount>c->getCashCredits() || amount>100000000-s->getSurplusMaintenance())throw std::runtime_error("Invalid maintenance deposit");auto before=c->getCashCredits();StructureManager::instance()->payMaintenance(s,c,amount);if(before-c->getCashCredits()!=amount)throw std::runtime_error("Maintenance payment rejected");s->updateToDatabaseAllObjects(false);}
++   else if(action=="house_permission_arm"){auto s=terminalStructure(c,r);if(!s->isOwnerOf(c))throw std::runtime_error("Owner permission required");auto list=r.at("permission_list").get<std::string>(),op=r.at("permission_action").get<std::string>();if((list!="ENTRY" && list!="ADMIN" && list!="BAN" && list!="VENDOR") || (op!="add" && op!="remove"))throw std::runtime_error("Invalid house permission");Json arm={{"structure_id",id(s)},{"permission_list",list},{"permission_action",op},{"arm_id",key}};put(c,"arm",arm);c->addCooldown("swgxr_house_permission",60000);result["arm"]=arm;}
++   else if(action=="house_permission"){if(c->checkCooldownRecovery("swgxr_house_permission") || data(c,"arm").isEmpty())throw std::runtime_error("Select house permission again; one minute expired");auto arm=Json::parse(data(c,"arm").toCharArray());if(arm.value("arm_id",std::string())!=r.value("arm_id",std::string()))throw std::runtime_error("House permission changed");auto s=c->getZoneServer()->getObject(oid(arm,"structure_id")).castTo<StructureObject*>();auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();if(!s || !s->isOwnerOf(c) || !target || !target->isPlayerCreature() || target==c || c->getParentID()!=target->getParentID() || !c->isInRange(target,3) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("Owner and nearby handshake target required");auto cmd=dynamic_cast<const PermissionListModifyCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("permissionlistmodify"));if(!cmd || cmd->handleStructurePermissions(c,s,target->getFirstName(),String(arm["permission_list"].get<std::string>().c_str()),String(arm["permission_action"].get<std::string>().c_str()),"SWGXR handshake")!=QueueCommand::SUCCESS)throw std::runtime_error("Native permission change rejected");put(c,"arm",Json::object());s->updateToDatabaseAllObjects(false);}
++   else if(action=="house_drop" || action=="house_recover")result["item"]=furnish(c,r,action=="house_recover");else if(action!="house_status")throw std::runtime_error("Unknown housing action");
++   if(mutation){result["request_id"]=key;receipts.push_back({{"id",key},{"request",proposal},{"result",result}});while(receipts.size()>64)receipts.erase(receipts.begin());put(c,"receipts",receipts);c->updateToDatabaseAllObjects(false);}
++  }
++  return {{"backend","core3"},{"source_kind","core3_services"},{"character_id",id(c)},{"housing",snapshot(c)},{"inventory",SwgxrInventory::snapshot(c)},{"mutation",result}};
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -6,6 +6,7 @@
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include <set>
+ #include "SwgxrEquipment.h"
++#include "server/zone/objects/tangible/deed/structure/StructureDeed.h"
+ #include "server/zone/objects/tangible/tool/SurveyTool.h"
+ 
+ class SwgxrInventory {
+@@ -49,6 +50,7 @@
+   SwgxrEquipment::enrich(result,o,c);
+   auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
+   result["tool_kind"]=(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isTrapObject()?"trap":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  if(auto deed=dynamic_cast<StructureDeed*>(o))result["structure_template"]=std::string(deed->getGeneratedObjectTemplate().toCharArray());
+   result["fishing_bait"]=o->isFishingBait();
+   result["tool_type"]=survey!=nullptr?survey->getToolType():0;
+   return result;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -144,7 +144,7 @@
+    else {building=c->getZoneServer()->getObject(buildingID);if(building==nullptr || !building->isBuildingObject() || building->getZone()!=c->getZone() || index<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(building.get())->getCell(index);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");if(distance(position(building),p)>256)throw std::runtime_error("cell_position_outside_building");}
+   }
+   double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();
+-  if(cell!=nullptr){if(!cell->isCellObject() || building==nullptr || !building->isBuildingObject())throw std::runtime_error("unsupported_parent");double angle=building->getDirection()->getRadians(),dx=x-building->getPositionX(),dy=y-building->getPositionY();x=dx*std::cos(angle)-dy*std::sin(angle);y=dx*std::sin(angle)+dy*std::cos(angle);z-=building->getPositionZ();heading-=angle;}
++  if(cell!=nullptr){if(building!=nullptr && building->isBuildingObject() && !static_cast<BuildingObject*>(building.get())->isAllowedEntry(c))throw std::runtime_error("house_entry_denied");if(!cell->isCellObject() || building==nullptr || !building->isBuildingObject())throw std::runtime_error("unsupported_parent");double angle=building->getDirection()->getRadians(),dx=x-building->getPositionX(),dy=y-building->getPositionY();x=dx*std::cos(angle)-dy*std::sin(angle);y=dx*std::sin(angle)+dy*std::cos(angle);z-=building->getPositionZ();heading-=angle;}
+   c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));c->teleport(float(x),float(z),float(y),cell!=nullptr?cell->getObjectID():0);
+  }
+  static void ownedReplication(CreatureObject* c,SceneObject* node,Json& ids,std::set<uint64>& seen){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrPlanets.h"
+ #include "SwgxrInventory.h"
+ #include "SwgxrFishing.h"
++#include "SwgxrHousing.h"
+ #include "SwgxrTrainers.h"
+ #include "SwgxrDelivery.h"
+ #include "SwgxrVendorPlacement.h"
+@@ -27,7 +28,7 @@
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
+  static uint64 oid(const Json& r,const char* k){auto v=r.at(k).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_object_id");return std::stoull(v);}
+  static Json pos(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+- static std::string kind(SceneObject* o){int t=o->getGameObjectType();return o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":!SwgxrTrainers::type(o).empty()?"trainer":"";}
++ static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":!SwgxrTrainers::type(o).empty()?"trainer":"";}
+  static Json terminal(SceneObject* o){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";}return out;}
+  static ManagedReference<SceneObject*> nearby(CreatureObject* c,const Json& r,const std::string& expected=""){
+   auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(t==nullptr || kind(t).empty() || (!expected.empty() && kind(t)!=expected) || t->getZone()!=c->getZone() || c->getParentID()!=t->getParentID() || !c->isInRange(t,kind(t)=="mission"?6:kind(t)=="crafting"?7:8))throw std::runtime_error("terminal_type_cell_or_distance");if(kind(t)=="trainer")SwgxrTrainers::validate(c,t);return t;
+@@ -46,7 +47,7 @@
+  static void move(CreatureObject* c,const Json& r){
+   SwgxrPlanets::require(c,r);  if(!r.contains("position"))return;if(c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");auto p=r.at("position");if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_position");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(i==1?2048:8192))throw std::runtime_error("invalid_position");
+   ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> root=c->getRootParent();if(r.contains("building_id")){auto bid=oid(r,"building_id");int ci=r.value("cell_index",0);if(!bid && !ci){cell=nullptr;root=nullptr;}else{root=c->getZoneServer()->getObject(bid);if(root==nullptr || !root->isBuildingObject() || root->getZone()!=c->getZone() || ci<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(root.get())->getCell(ci);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");}}
+-  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();if(cell!=nullptr){if(!cell->isCellObject() || root==nullptr)throw std::runtime_error("invalid_source_cell");double dx=x-root->getPositionX(),dy=y-root->getPositionY(),a=root->getDirection()->getRadians();if(dx*dx+dy*dy>256*256)throw std::runtime_error("cell_position_outside_building");x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();}c->teleport(x,z,y,cell?cell->getObjectID():0);
++  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();if(cell!=nullptr){if(!cell->isCellObject() || root==nullptr)throw std::runtime_error("invalid_source_cell");double dx=x-root->getPositionX(),dy=y-root->getPositionY(),a=root->getDirection()->getRadians();if(dx*dx+dy*dy>256*256)throw std::runtime_error("cell_position_outside_building");x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();}if(cell && root && root->isBuildingObject() && !static_cast<BuildingObject*>(root.get())->isAllowedEntry(c))throw std::runtime_error("Core3 house entry denied");c->teleport(x,z,y,cell?cell->getObjectID():0);
+  }
+  static Json sessionState(CreatureObject* c,const Json& r){
+   SwgxrPlanets::require(c,r);  auto action=r.value("action",std::string("status"));if(action!="status" && action!="logout")throw std::runtime_error("invalid_session_action");Json receipts=Json::array(),original=r.value("receipt_request",r);auto ghost=c->getPlayerObject();
+@@ -72,12 +73,13 @@
+   auto cell=c->getParent().get();if(cell!=nullptr && cell->isCellObject())for(int i=0;i<cell->getContainerObjectsSize();++i)objects.put(cell->getContainerObject(i));
+   for(int i=0;i<objects.size() && out["terminals"].size()<128;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!kind(o).empty()){auto entry=terminal(o);if(kind(o)=="trainer"){entry["trainer_type"]=SwgxrTrainers::type(o);entry["profession"]=SwgxrTrainers::type(o).substr(8);}out["terminals"].push_back(entry);}}
+   auto travel=Json::parse(c->getZone()->getPlanetManager()->swgxrServicesTravel(c).toCharArray());out["tickets"]=tickets(c,travel);out["shuttle"]=travel.value("shuttle",Json::object());
+-  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
++  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
+    else if(k=="crafting"){auto station=static_cast<CraftingStation*>(t.get());view["station_type"]=station->getStationType();view["complexity"]=station->getComplexityLevel();view["tools"]=Json::array();auto inv=c->getInventory();if(inv!=nullptr)for(int i=0;i<inv->getContainerObjectsSize();++i){auto o=inv->getContainerObject(i);if(o->isCraftingTool()){auto tool=static_cast<CraftingTool*>(o.get());auto compatible=c->getZoneServer()->getPlayerManager()->getNearbyCraftingStation(c,tool->getToolType());if(compatible==t)view["tools"].push_back(Json{{"id",id(tool)},{"name",str(tool->getDisplayedName())},{"template",str(tool->getObjectTemplate()->getFullTemplateString())},{"client_crc",tool->getClientObjectCRC()}});}}}
+    out["terminal"]=view;
+   }return out;
+  }
+  static Json run(CreatureObject* c,const Json& r){
++  if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);move(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
+   if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);if(r.value("action",std::string())!="fishing_stow" && r.value("action",std::string())!="fishing_stop")move(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   Json receiptRequest=r;if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);

@@ -11,6 +11,8 @@ class SwgXRStepSolver : public RefCounted {
 protected:
     static void _bind_methods();
 public:
+    Dictionary terrain_support(CharacterBody3D *body, const Vector3 &point, double up = 0.35, double down = 0.6) const;
+    Dictionary move_on_terrain(CharacterBody3D *body, const Vector3 &motion, double attachment = 0.35) const;
     bool has_support(CharacterBody3D *body, double distance = 0.1) const;
     bool step_up(CharacterBody3D *body, const Vector3 &motion, double maximum = 0.35) const;
     bool step_down(CharacterBody3D *body, double maximum = 0.35) const;

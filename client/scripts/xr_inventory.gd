@@ -175,14 +175,7 @@ func sync_pointers() -> void:
 	var suspend:=is_open or not held_item.is_empty()
 	if suspend==pointers_suspended: return
 	pointers_suspended=suspend
-	if suspend:
-		for side in ["LeftHand","RightHand"]:
-			var pointer=rig.get_node_or_null(side+"/FunctionPointer")
-			if pointer!=null: pointer_saved[pointer]=pointer.enabled; pointer.enabled=false
-	else:
-		for pointer in pointer_saved:
-			if is_instance_valid(pointer): pointer.enabled=pointer_saved[pointer]
-		pointer_saved.clear()
+	preload("res://scripts/pointer_capture.gd").suspend(self,rig,suspend)
 
 func cancel_interaction() -> void:
 	# Cancellation never means a world-drop request.
@@ -273,6 +266,12 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 
 func take_item(item: Dictionary, side := "") -> void:
 	var presentation:=assets.instance(str(item.get("template","")),0.28,item.get("customization",{}))
+	# Manufacturing schematics are native datapad records with no source mesh.
+	# Display a labeled holographic record, never claim it is original geometry.
+	if presentation==null and item.get("type","")=="manufacturing_blueprint":
+		presentation=MeshInstance3D.new();var card:=QuadMesh.new();card.size=Vector2(.18,.22);presentation.mesh=card
+		var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;material.albedo_color=Color(.03,.24,.32);presentation.material_override=material
+		var label:=Label3D.new();presentation.add_child(label);label.text="BLUEPRINT\n"+str(item.get("name","Manufacturing schematic"));label.font_size=18;label.pixel_size=.0006;label.position.z=.001;label.width=250;label.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	if presentation==null: return # Never fabricate missing original geometry.
 	held_trigger_armed=false
 	held_status.text=""
@@ -408,6 +407,8 @@ func rebuild_preview(item: Dictionary) -> void:
 	if is_open and not hologram.active: preview_viewport.render_target_update_mode=SubViewport.UPDATE_ONCE
 
 func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void:
+	if not slider_dragger.capture.is_empty():
+		stick_captured=stick.length()>.15;apply_capture();return
 	if stick.length()<0.15: stick_captured=false; scroll_time=0
 	if is_survey_held() and not hologram.active and not hit.is_empty() and int(hit.get("surface",-1)) in [survey_surface,resource_surface] and stick.length()>0.2:
 		stick_captured=true; resource_panel.scroll(stick,delta) if int(hit.get("surface",-1))==resource_surface else survey_ui.scroll(stick,delta)
@@ -417,7 +418,7 @@ func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void
 	elif is_open and not hit.is_empty() and absf(stick.y)>0.5:
 		stick_captured=true; scroll_time-=delta
 		if scroll_time<=0:
-			if int(hit.surface)==0: ui.scroll_rows(-1 if stick.y>0 else 1)
+			if int(hit.surface)==0: ui.navigate(-1 if stick.y>0 else 1,hit.pixel)
 			else: ui.detail_text.get_v_scroll_bar().value-=stick.y*80
 			scroll_time=0.18
 	apply_capture()
@@ -432,10 +433,11 @@ func _process(delta: float) -> void:
 	var camera: Camera3D=rig.get_node("XRCamera3D")
 	var bag_pointer:XRController3D=controller_for("right" if bag_hand_side()=="left" else "left")
 	var hit:=find_hit(tool_pointer_pose(bag_pointer)) if is_open and tracked and not hologram.active else {}
-	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,hit,main.global_transform)
+	var slider_consumed:=slider_frame(hit,bag_pointer.global_transform,bag_pointer.get_float("grip"),bag_pointer.get_float("trigger"),tracked and not action_pending and held_item.is_empty())
+	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,{} if slider_consumed else hit,main.global_transform)
 	if is_open:
 		pose_bag()
-		update_pointer(hit,bag_pointer.get_float("trigger"))
+		if not slider_consumed:update_pointer(hit,bag_pointer.get_float("trigger"))
 		update_stick_capture(main.get_vector2("primary"),hit,delta)
 	elif stick_captured or hologram.active: update_stick_capture(main.get_vector2("primary"),{},delta)
 	if is_survey_held() and not is_open and not hologram.active and tracked and allowed:
@@ -472,6 +474,7 @@ func update_resource_details(resource: Dictionary) -> void:
 	resource_preview_viewport.render_target_update_mode=SubViewport.UPDATE_ONCE
 
 func _exit_tree() -> void:
+	preload("res://scripts/pointer_capture.gd").suspend(self,rig,false)
 	if RenderingServer.frame_pre_draw.is_connected(refresh_hand_presentations): RenderingServer.frame_pre_draw.disconnect(refresh_hand_presentations)
 	cancel_interaction()
 	if is_instance_valid(body): body.set_interface_capture(false,false)
@@ -558,12 +561,14 @@ func close_equipment_hologram() -> void:
 	sync_presentation()
 
 func update_held_trigger(trigger: float, head: Transform3D) -> void:
-	if held_item.is_empty() or not allowed or is_open: return
+	if held_item.is_empty() or not allowed or is_open or held_item.get("tool_kind","")=="fishing" or not str(held_item.get("structure_template","")).is_empty(): return
 	if trigger<0.35: held_trigger_armed=true; return
 	if trigger<0.55 or not held_trigger_armed or action_pending: return
 	held_trigger_armed=false
-	if is_vehicle_deed(held_item):
-		begin_mutation("Registering vehicle in datapad…"); vehicle_deed_requested.emit(held_item.duplicate(true))
+	if is_vehicle_deed(held_item) or is_pet_deed(held_item):
+		begin_mutation("Registering deed in datapad…"); vehicle_deed_requested.emit(held_item.duplicate(true))
+	elif preload("res://scout/ranger_input.gd").is_kit(held_item):
+		begin_mutation("Applying camouflage…");scout_requested.emit(held_item.duplicate(true))
 	elif not str(held_item.get("tool_kind","")).is_empty():
 		if hologram.active: close_equipment_hologram()
 		elif str(held_item.get("tool_kind",""))=="crafting": crafting_requested.emit(held_item.duplicate(true))
@@ -585,6 +590,10 @@ static func is_vehicle_deed(item: Dictionary) -> bool:
 	if item.get("vehicle_deed",false): return true
 	var template := str(item.get("template",item.get("shared_template","")))
 	return template.begins_with("object/tangible/deed/vehicle_deed/") and template.ends_with(".iff")
+
+static func is_pet_deed(item: Dictionary) -> bool:
+	var template := str(item.get("template",item.get("shared_template","")))
+	return template.begins_with("object/tangible/deed/pet_deed/") and template.ends_with(".iff")
 
 func finish_equipment_action(success: bool) -> void:
 	finish_item_action(success)

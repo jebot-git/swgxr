@@ -3,10 +3,10 @@ extends SceneTree
 const ServicePanel=preload("res://scripts/service_panel.gd")
 func _initialize() -> void: call_deferred("run")
 func run() -> void:
-	root.size=Vector2i(1280,950)
-	root.content_scale_size=Vector2i(1280,950)
+	root.size=Vector2i(1280,1000)
+	root.content_scale_size=Vector2i(1280,1000)
 	var host:=Control.new();root.add_child(host)
-	var background:=ColorRect.new();background.color=Color("030b13");background.size=Vector2(1280,950);host.add_child(background)
+	var background:=ColorRect.new();background.color=Color("030b13");background.size=Vector2(1280,1000);host.add_child(background)
 	var label:=Label.new();host.add_child(label);label.text="SERVICE UI • MOCK DATA • DESKTOP VULKAN • XR DISABLED";label.position=Vector2(20,12);label.add_theme_font_override("font",preload("res://resources/fonts/Jupiteroid-Regular.ttf"));label.add_theme_font_size_override("font_size",20)
 	var data: Array=[
 		{"id":"bank","kind":"bank","name":"GALACTIC BANK"},
@@ -15,7 +15,7 @@ func run() -> void:
 		{"id":"payment","kind":"payment","name":"DIRECT PAYMENT","recipient_name":"Varek Solun"}]
 	data[1].categories=preload("res://tests/bazaar_tree_smoke.gd").source_categories()
 	for index in range(4):
-		var panel:=ServicePanel.new();host.add_child(panel);panel.position=Vector2(20+(index%2)*630,54+(index/2)*440);panel.scale=Vector2.ONE*0.71
+		var panel:=ServicePanel.new();host.add_child(panel);panel.position=Vector2(20+(index%2)*630,54+(index/2)*465);panel.scale=Vector2.ONE*0.71
 		panel.configure(data[index],{"cash":12500,"bank":89000},[{"id":"31","arrival":"Mos Espa","planet":"tatooine","usable":true},{"id":"32","arrival":"Bestine","planet":"tatooine","usable":true}])
 		if index==1:
 			for category_index in range(panel.category_rows.size()):
@@ -44,7 +44,7 @@ func run() -> void:
 	print("Desktop Vulkan services UI and original wallet model captured; mock balances; XR disabled.")
 	world.free();caption.free()
 	var mission_host:=Control.new();root.add_child(mission_host)
-	var mission_background:=ColorRect.new();mission_host.add_child(mission_background);mission_background.color=Color("030b13");mission_background.size=Vector2(1280,950)
+	var mission_background:=ColorRect.new();mission_host.add_child(mission_background);mission_background.color=Color("030b13");mission_background.size=Vector2(1280,1000)
 	var mission_caption:=Label.new();mission_host.add_child(mission_caption);mission_caption.text="MISSION AVAILABILITY · MOCK SOURCE ROWS · DESKTOP VULKAN · XR DISABLED";mission_caption.position=Vector2(20,20)
 	for index in range(2):
 		var mission_panel:=ServicePanel.new();mission_host.add_child(mission_panel);mission_panel.position=Vector2(20+630*index,80);mission_panel.scale=Vector2.ONE*0.71

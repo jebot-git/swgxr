@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Configure a deliberately bounded Core3 instance from locally extracted media."""
 from pathlib import Path
+import argparse
 import json
 import re
 import subprocess
@@ -10,8 +11,34 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / 'vendor/Core3'
 TRE = ROOT / 'runtime/assets/active_tre'
+sys.path.insert(0, str(ROOT))
+from server.planets import SUPPORTED_PLANETS, planet
+
+
+def configured_planets(source):
+    match = re.search(r'^Core3\.ZonesEnabled\s*=\s*\{([^}]*)\}', source, re.M)
+    if not match:
+        raise ValueError('Missing enabled ground planet configuration')
+    values = re.findall(r'"([^"]+)"', match[1])
+    if not values or len(values) != len(set(values)):
+        raise ValueError('Enabled ground planets must be nonempty and unique')
+    return tuple(planet(value) for value in values)
+
+
+def select_planets(option, existing=''):
+    if option is None:
+        return configured_planets(existing) if existing else ('tatooine',)
+    values = SUPPORTED_PLANETS if option == 'all' else tuple(option.split(','))
+    if not values or len(values) != len(set(values)):
+        raise ValueError('Enabled ground planets must be nonempty and unique')
+    return tuple(planet(value) for value in values)
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--planets', help='all or comma-separated original ground planets; omission preserves existing selection')
+    args = parser.parse_args()
+    target = CORE / 'MMOCoreORB/bin/conf/config-local.lua'
+    planets = select_planets(args.planets, target.read_text() if target.exists() else '')
     config = CORE / 'MMOCoreORB/bin/conf/config.lua'
     if not config.exists() or not TRE.exists():
         raise SystemExit('Provision Core3 and extract the supplied media first.')
@@ -35,6 +62,7 @@ Core3.SpaceZonesEnabled = {}
 Core3.TrePath = "/workspace/runtime/assets/active_tre"
 Core3.TreFiles = {
 '''
+    prefix = prefix.replace('Core3.ZonesEnabled = {"tatooine"}', 'Core3.ZonesEnabled = {' + ','.join(json.dumps(p) for p in planets) + '}')
     suffix = '''}
 Core3.MakePing = 0
 Core3.MakeStatus = 0
@@ -89,7 +117,9 @@ Core3.PlayerCreationManager = { EnableTutorial = false }
                 (CORE/path).parent.mkdir(parents=True, exist_ok=True)
                 (CORE/path).write_bytes(desired)
     subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_crafting_profile.py')], check=True)
-    report = {'profile': 'user_media_tatooine_only', 'archives': selected,
+    subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_chatter.py')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_gcw.py')], check=True)
+    report = {'profile': 'user_media_ground_planets', 'enabled_planets': list(planets), 'archives': selected,
               'missing_from_standard_core3_profile': [x for x in expected if x not in available],
               'configuration': str(target.relative_to(ROOT)),
               'note': 'Missing standard archives are reported, not synthesized. Runtime validation required.'}

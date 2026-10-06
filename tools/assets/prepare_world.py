@@ -6,6 +6,7 @@ from swg_formats import parse_iff
 from static_assets import StaticAssets,mirror,qmirror,qrot
 from character_formats import qmul
 from interior_layout import expand_layouts
+from planet_config import PLANETS, origin_for, path_for
 ROOT=Path(__file__).resolve().parents[2]
 
 def write(path,data):
@@ -13,7 +14,7 @@ def write(path,data):
 
 def refresh_interiors(args,assets,nodes,layout_nodes):
  manifest=json.loads((args.out/'world.json').read_text())
- if args.stage.exists():manifest['existing_stage_object_ids']=sorted({item['object_id'] for item in json.loads(args.stage.read_text()).get('instances',[])})
+ if args.planet=='tatooine' and args.stage.exists():manifest['existing_stage_object_ids']=sorted({item['object_id'] for item in json.loads(args.stage.read_text()).get('instances',[])})
  assets.meshes.update(manifest['meshes']);assets.collisions.update(manifest['collisions']);assets.dependencies.update(manifest['provenance']['dependencies'])
  chunks={key:json.loads((args.out/info['path']).read_text()) for key,info in manifest['chunks'].items()};removed=0
  for chunk in chunks.values():
@@ -43,9 +44,9 @@ def refresh_interiors(args,assets,nodes,layout_nodes):
  print(json.dumps({key:value for key,value in report.items() if key!='buildings'},indent=2),flush=True)
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');p.add_argument('--out',type=Path,default=ROOT/'runtime/assets/tatooine_world');p.add_argument('--chunk-size',type=int,default=256);p.add_argument('--refresh-interiors',action='store_true',help='Refresh only original ILF decorations in an existing world, preserving terrain and other placements');p.add_argument('--stage',type=Path,default=ROOT/'runtime/assets/mos_eisley/scene.json');args=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--planet',choices=PLANETS,default='tatooine');p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');p.add_argument('--out',type=Path,default=None);p.add_argument('--chunk-size',type=int,default=256);p.add_argument('--refresh-interiors',action='store_true',help='Refresh only original ILF decorations in an existing world, preserving terrain and other placements');p.add_argument('--stage',type=Path,default=ROOT/'runtime/assets/mos_eisley/scene.json');args=p.parse_args();args.out=args.out or path_for(args.planet,"world")
  assert args.chunk_size>0
- assets=StaticAssets(args.tre_dir,args.out);snapshot='snapshot/tatooine.ws';root=parse_iff(assets.read(snapshot));names=root.first('OTNL').data[4:].split(b'\0');nodes=[]
+ assets=StaticAssets(args.tre_dir,args.out);snapshot=f'snapshot/{args.planet}.ws';root=parse_iff(assets.read(snapshot));names=root.first('OTNL').data[4:].split(b'\0');nodes=[]
  for node in root.walk('NODE'):
   data=node.first('DATA').data;oid,parent,tid,cell=struct.unpack_from('<4I',data);nodes.append({'id':oid,'parent':parent,'template':names[tid].decode(),'cell':cell,'q':struct.unpack_from('<4f',data,16),'p':struct.unpack_from('<3f',data,32)})
  # Snapshot child transforms are local to their parent cell/building.
@@ -71,8 +72,8 @@ def main():
   refresh_interiors(args,assets,nodes,layout_nodes);return
  nodes.extend(layout_nodes)
  elevation_outliers=[{'object_id':n['id'],'template':n['template'],'source_position':list(n['p'])} for n in nodes if not n['parent'] and abs(n['p'][1])>10000]
- origin=next(n['p'] for n in nodes if n['id']==1106368);chunks={};skipped=[];placed=0;cell_count=0
- stage=json.loads(args.stage.read_text()) if args.stage.exists() else {};snapshot_failure_count=None;existing_ids=sorted({i['object_id'] for i in stage.get('instances',[])})
+ origin=origin_for(args.planet);chunks={};skipped=[];placed=0;cell_count=0
+ stage=json.loads(args.stage.read_text()) if args.planet=='tatooine' and args.stage.exists() else {};snapshot_failure_count=None;existing_ids=sorted({i['object_id'] for i in stage.get('instances',[])})
  for node in nodes:
   if 'source_layout' in node and snapshot_failure_count is None:snapshot_failure_count=len(assets.failures)
   if node['template']=='object/cell/shared_cell.iff':continue
@@ -92,6 +93,6 @@ def main():
   relative='chunks/'+key.replace(':','_')+'.json';write(args.out/relative,chunk);cell_count+=len(chunk['cells'])
   chunk_index[key]={'path':relative,'bounds_min':chunk['bounds_min'],'bounds_max':chunk['bounds_max'],'instance_count':len(chunk['instances']),'cell_count':len(chunk['cells'])}
  stats={'snapshot_nodes':snapshot_count,'interior_layout_nodes':len(layout_nodes),'interior_layout_conversion_failures':len(assets.failures)-(snapshot_failure_count if snapshot_failure_count is not None else len(assets.failures)),'interior_layout_skipped_objects':sum('source_layout' in item for item in skipped),'interior_layout_instances':sum('source_layout' in i for c in chunks.values() for i in c['instances']),'interior_layout_buildings':len({n['building_object_id'] for n in layout_nodes}),'snapshot_child_nodes':sum(bool(n['parent']) for n in nodes if 'source_layout' not in n),'root_objects':sum(not n['parent'] for n in nodes),'placed_objects':placed,'instances':sum(len(c['instances']) for c in chunks.values()),'meshes':len(assets.meshes),'chunks':len(chunks),'cells':cell_count,'collision_definitions':len(assets.collisions),'authored_collision_definitions':sum(c['status']=='authored' for c in assets.collisions.values()),'skipped_objects':len(skipped),'conversion_failures':len(assets.failures),'unique_triangles':sum(m['triangles'] for m in assets.meshes.values()),'instanced_triangles':sum(assets.meshes[i['mesh']]['triangles'] for c in chunks.values() for i in c['instances'])}
- manifest={'schema_version':2,'collision_schema_version':1,'collisions':assets.collisions,'planet':'tatooine','origin':list(origin),'coordinate_system':'Godot Y-up; SWG Z mirrored; positions relative to origin','chunk_size':args.chunk_size,'meshes':assets.meshes,'chunks':chunk_index,'existing_stage_object_ids':existing_ids,'statistics':stats,'source_elevation_outliers':elevation_outliers,'provenance':{'snapshot':snapshot,'tre_directory':str(args.tre_dir.resolve()),'dependencies':assets.dependencies},'warnings':['Source static snapshot roots and hierarchy-owned furnishings; no gameplay/NPC/particle/sound simulation.','POB interior geometry and floor/portal ownership are preserved; exterior-only streaming is supported by is_exterior.','Static materials use original diffuse textures and alpha classification; multipass effects remain approximate.','When retaining the existing Mos Eisley stage, skip existing_stage_object_ids to avoid duplicate geometry.']}
+ manifest={'schema_version':2,'collision_schema_version':1,'collisions':assets.collisions,'planet':args.planet,'origin':list(origin),'coordinate_system':'Godot Y-up; SWG Z mirrored; positions relative to origin','chunk_size':args.chunk_size,'meshes':assets.meshes,'chunks':chunk_index,'existing_stage_object_ids':existing_ids,'statistics':stats,'source_elevation_outliers':elevation_outliers,'provenance':{'snapshot':snapshot,'tre_directory':str(args.tre_dir.resolve()),'dependencies':assets.dependencies},'warnings':['Source static snapshot roots and hierarchy-owned furnishings; no gameplay/NPC/particle/sound simulation.','POB interior geometry and floor/portal ownership are preserved; exterior-only streaming is supported by is_exterior.','Static materials use original diffuse textures and alpha classification; multipass effects remain approximate.','When retaining the existing Mos Eisley stage, skip existing_stage_object_ids to avoid duplicate geometry.']}
  write(args.out/'collision_report.json',assets.collision_report([i for c in chunks.values() for i in c['instances']]));write(args.out/'world.json',manifest);write(args.out/'conversion_report.json',{'statistics':stats,'skipped_objects':skipped,'failures':assets.failures,'source_elevation_outliers':elevation_outliers});print(json.dumps(stats,indent=2),flush=True)
 if __name__=='__main__':main()

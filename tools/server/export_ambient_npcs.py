@@ -55,6 +55,7 @@ def qmul(a, b):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--planet', default='tatooine', choices=('corellia','dantooine','dathomir','endor','lok','naboo','rori','talus','tatooine','yavin4'))
     parser.add_argument('--city', default='mos_eisley', help='Tatooine city suffix, or all')
     parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/ambient_npcs')
     parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
@@ -149,18 +150,18 @@ def main():
             record.update(status='excluded',reason='Intrinsic, unarmed or vehicle weapon has no ambient loose-equipment presentation')
         weapon_cache[name] = record
         return record
-    tre = TreSet(args.tre_dir); raw = tre.read('snapshot/tatooine.ws'); snapshot = parse_iff(raw)
+    tre = TreSet(args.tre_dir); raw = tre.read(f'snapshot/{args.planet}.ws'); snapshot = parse_iff(raw)
     names = snapshot.first('OTNL').data[4:].split(b'\0'); nodes = {}
     for node in snapshot.walk('NODE'):
         data = node.first('DATA').data; oid,parent,tid,cell = struct.unpack_from('<4I',data)
         nodes[oid] = {'parent':parent,'template':names[tid].decode(),'cell':cell,'q':struct.unpack_from('<4f',data,16),'p':struct.unpack_from('<3f',data,32)}
-    origin = list(nodes[1106368]['p'])
+    origin = list(nodes[1106368]['p']) if args.planet=='tatooine' else [0,0,0]
     def world_pose(oid):
         node = nodes[oid]
         if not node['parent']: return list(node['q']),list(node['p']),oid
         q,p,root = world_pose(node['parent']); rotated = qrot(q,node['p'])
         return qmul(q,node['q']), [p[i]+rotated[i] for i in range(3)], root
-    city_files = sorted((scripts/'screenplays/cities').glob('tatooine_*.lua')) if args.city == 'all' else [scripts/'screenplays/cities'/f'tatooine_{args.city}.lua']
+    city_files = sorted((scripts/'screenplays/cities').glob(f'{args.planet}_*.lua')) if args.city == 'all' else [scripts/'screenplays/cities'/f'{args.planet}_{args.city}.lua']
     entries = []
     for path in city_files:
         text = read(path)
@@ -198,10 +199,10 @@ def main():
                 except (ValueError,IndexError,TypeError) as error:
                     skipped.append({'source':str(path.relative_to(ROOT)),'line':line,'table':kind,'row':row,'reason':str(error)})
     args.out.mkdir(parents=True,exist_ok=True)
-    result={'schema_version':1,'planet':'tatooine','origin':origin,'catalog':'catalog.json','instances':entries,
+    result={'schema_version':1,'planet':args.planet,'origin':origin,'catalog':'catalog.json','instances':entries,
         'statistics':{'placements':len(entries),'templates':len({e['template'] for e in entries}),'appearance_variants':len({e['appearance_id'] for e in entries}),'outfit_placements':sum(e['core3_outfit'] is not None for e in entries),'primary_weapon_placements':sum(e['source_primary_weapon'] is not None and e['source_primary_weapon']['status']=='selected' for e in entries),'excluded_primary_weapon_placements':sum(e['source_primary_weapon'] is not None and e['source_primary_weapon']['status']!='selected' for e in entries),'interior':sum(bool(e['cell_id']) for e in entries),'skipped':len(skipped)},
         'provenance':{'core3_commit':subprocess.check_output(['git','-C',str(ROOT/'vendor/Core3'),'rev-parse','HEAD'],text=True).strip(),'files_sha256':sources,
-            'snapshot_sha256':hashlib.sha256(raw).hexdigest(),'snapshot_archive':tre.entries['snapshot/tatooine.ws'][0].name},
+            'snapshot_sha256':hashlib.sha256(raw).hexdigest(),'snapshot_archive':tre.entries[f'snapshot/{args.planet}.ws'][0].name},
         'limitations':['Ambient local presentation only: no combat, dialogue, AI or live Core3 population authority.',
             'Runtime-random mobile/dressgroup choices use recorded deterministic source variants.',
             'GCW placements show the first source faction variant, not current server city control.',

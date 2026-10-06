@@ -1,5 +1,9 @@
 """Bounded authenticated persistent Core3 zone session; private file IPC only."""
 from __future__ import annotations
+try:
+ from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
+except ImportError:
+ from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 import atexit,hashlib,hmac,json,math,os,re,secrets,subprocess,time
 try:
  from .voice_protocol import NATIVE as VOICE_STATE
@@ -123,6 +127,10 @@ class LiveCombatHub:
    row['customization']=decode_customization(bytes.fromhex(row.get('customization_hex','')))
   snapshot=result.get('snapshot',{})
   world=snapshot.get('world',{})
+  if 'npc_speech' in snapshot.get('player',{}):
+   try:from .chatter_protocol import normalize as normalize_speech
+   except ImportError:from chatter_protocol import normalize as normalize_speech
+   snapshot['player']['npc_speech']=normalize_speech(snapshot['player']['npc_speech'],snapshot['player'],world)
   for actor in snapshot.get('actors',[])+world.get('actors',[])+world.get('players',[])+world.get('deployments',[]):
    visual(actor)
    appearance=actor.get('appearance')
@@ -135,6 +143,7 @@ class LiveCombatHub:
   result.setdefault('backend','core3');result.setdefault('source_kind','core3_live_combat')
   return result
  def start(self,account,data,secret,container,characters):
+  source_zone=planet_context(data)
   account=account.lower()
   active=self.active_for(account)
   if active:
@@ -166,7 +175,7 @@ class LiveCombatHub:
    # Credential-bearing options are no longer needed after successful login.
    options.unlink(missing_ok=True)
    active['next_command_at']=time.monotonic()+1.05 # Separate initial source attribute commands from the live window.
-   result=self._exchange(active,{'action':'start','session_id':token,'position':data.get('position'),'heading_radians':data.get('heading_radians',0),'spawn_test_lair':bool(data.get('spawn_test_lair',False)),**{k:data[k]for k in ('building_id','cell_index')if k in data}})
+   result=self._exchange(active,{'action':'start',**source_zone,'session_id':token,'position':data.get('position'),'heading_radians':data.get('heading_radians',0),'spawn_test_lair':bool(data.get('spawn_test_lair',False)),**{k:data[k]for k in ('building_id','cell_index')if k in data}})
    if not result.get('session_live'):raise LiveConflict(result.get('error_code','Native session start rejected.'))
    # Capability is learned only from the owned native start reply, never a
    # client-provided field. Older binaries retain global HTTP serialization.
@@ -177,9 +186,9 @@ class LiveCombatHub:
   account=account.lower()
   active=self.active_for(account)
   if not active or active['account']!=account or active['character_id']!=str(data.get('character_id','')) or active['id']!=data.get('session_id'):raise LiveConflict('Live session identity does not match this owned character.')
-  if action not in ('snapshot','update','fire','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles'):raise ValueError('Unsupported live combat action.')
-  fields={'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
-  command={'action':action,'session_id':active['id']}
+  if action not in ('snapshot','update','fire','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
+  fields={'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
+  command={'action':action,'session_id':active['id'],**planet_context(data)}
   for key in fields:
    if key not in data and key!='heading_radians':raise ValueError('Missing '+key)
    command['life_action' if action=='life' and key=='action' else key]=data.get(key,0)

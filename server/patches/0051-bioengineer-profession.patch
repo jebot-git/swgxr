@@ -1,0 +1,74 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -8,6 +8,7 @@
+ #include "templates/creature/SharedCreatureObjectTemplate.h"
+ #include "server/zone/objects/tangible/deed/vehicle/VehicleDeed.h"
+ #include "SwgxrInventory.h"
++#include "server/zone/objects/tangible/deed/pet/PetDeed.h"
+ #include "SwgxrPets.h"
+ #include "SwgxrCreatureHandler.h"
+ #include <set>
+@@ -202,12 +203,18 @@
+    auto ghost=c->getPlayerObject();auto saved=ghost->getScreenPlayData("swgxr_vehicles","activation_receipts");Json receipts=saved.isEmpty()?Json::array():Json::parse(saved.toCharArray());
+    for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=q)throw std::runtime_error("Activation request_id reused");auto prior=receipt["mutation"];prior["replayed"]=true;return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",prior},{"inventory",SwgxrInventory::snapshot(c)}};}
+    auto reject=[&](const char* reason)->Json{return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"error",reason},{"confirmed_rejection",true},{"mutation_started",false}};};
+-   if(c->isDead() || c->isIncapacitated() || c->isInCombat() || c->getParent().get()!=nullptr)return reject("Unpack a vehicle while alive, outside and at peace");
+-   auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>()));if(item==nullptr || !item->isVehicleDeedObject() || !SwgxrEquipment::inInventory(item,c))return reject("Owned vehicle deed required");
++   if(c->isDead() || c->isIncapacitated() || c->isInCombat() || c->getParent().get()!=nullptr)return reject("Unpack a deed while alive, outside and at peace");
++   auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>()));if(item==nullptr || (!item->isVehicleDeedObject() && dynamic_cast<PetDeed*>(item.get())==nullptr) || !SwgxrEquipment::inInventory(item,c))return reject("Owned vehicle or creature deed required");
+    auto datapad=c->getSlottedObject("datapad");if(datapad==nullptr)return reject("Native datapad missing");std::set<uint64> before;for(int i=0;i<datapad->getContainerObjectsSize();++i)before.insert(datapad->getContainerObject(i)->getObjectID());
+-   Locker itemLock(item,c);int code=item->handleObjectMenuSelect(c,20);ManagedReference<VehicleControlDevice*> created=nullptr;for(int i=0;i<datapad->getContainerObjectsSize();++i){auto device=datapad->getContainerObject(i);if(device->isVehicleControlDevice() && !before.count(device->getObjectID()))created=device.castTo<VehicleControlDevice*>();}
+-   if(code!=0 || created==nullptr || item->isASubChildOf(c))throw std::runtime_error("Core3 rejected vehicle deed activation: check native vehicle capacity and location");
+-   mutation["item_id"]=q.at("item_id");mutation["device_id"]=id(created);mutation["vehicle_id"]=id(created->getControlledObject());receipts.push_back({{"id",key},{"request",q},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_vehicles","activation_receipts",String(receipts.dump().c_str()));
++   bool creatureDeed=dynamic_cast<PetDeed*>(item.get())!=nullptr;
++   Locker itemLock(item,c);int code=item->handleObjectMenuSelect(c,20);ManagedReference<SceneObject*> created=nullptr;ManagedReference<SceneObject*> controlled=nullptr;
++   for(int i=0;i<datapad->getContainerObjectsSize();++i){auto device=datapad->getContainerObject(i);if(before.count(device->getObjectID()))continue;
++    if(creatureDeed && device->isPetControlDevice()){auto pet=device.castTo<PetControlDevice*>();if(pet->getPetType()==PetManager::CREATUREPET){created=device;controlled=pet->getControlledObject();}}
++    else if(!creatureDeed && device->isVehicleControlDevice()){created=device;controlled=device.castTo<VehicleControlDevice*>()->getControlledObject();}
++   }
++   if(code!=0 && created==nullptr && item->isASubChildOf(c))return reject("Core3 rejected deed activation: check pet control skills, datapad capacity and location");
++   if(code!=0 || created==nullptr || controlled==nullptr || item->isASubChildOf(c))throw std::runtime_error("Deed activation outcome unconfirmed; retain request receipt");
++   mutation["item_id"]=q.at("item_id");mutation["device_id"]=id(created);mutation[creatureDeed?"pet_id":"vehicle_id"]=id(controlled);receipts.push_back({{"id",key},{"request",q},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_vehicles","activation_receipts",String(receipts.dump().c_str()));
+   }else if(action=="pet_command"){SwgxrPets::execute(c,q,mutation);
+   }else if(action=="pet_call" || action=="pet_store" || action=="pet_recall"){petAction(c,q,mutation);
+   }else if(action=="call"){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
+@@ -25,6 +25,7 @@
+   {"trainer_musician", {"social_musician_novice", "social_musician_master", "social_musician_ability_01", "social_musician_ability_02", "social_musician_ability_03", "social_musician_ability_04", "social_musician_wound_01", "social_musician_wound_02", "social_musician_wound_03", "social_musician_wound_04", "social_musician_knowledge_01", "social_musician_knowledge_02", "social_musician_knowledge_03", "social_musician_knowledge_04", "social_musician_shock_01", "social_musician_shock_02", "social_musician_shock_03", "social_musician_shock_04"}},
+   {"trainer_imagedesigner", {"social_imagedesigner_novice", "social_imagedesigner_master", "social_imagedesigner_hairstyle_01", "social_imagedesigner_hairstyle_02", "social_imagedesigner_hairstyle_03", "social_imagedesigner_hairstyle_04", "social_imagedesigner_exotic_01", "social_imagedesigner_exotic_02", "social_imagedesigner_exotic_03", "social_imagedesigner_exotic_04", "social_imagedesigner_bodyform_01", "social_imagedesigner_bodyform_02", "social_imagedesigner_bodyform_03", "social_imagedesigner_bodyform_04", "social_imagedesigner_markings_01", "social_imagedesigner_markings_02", "social_imagedesigner_markings_03", "social_imagedesigner_markings_04"}},
+   {"trainer_creaturehandler", {"outdoors_creaturehandler_novice", "outdoors_creaturehandler_master", "outdoors_creaturehandler_taming_01", "outdoors_creaturehandler_taming_02", "outdoors_creaturehandler_taming_03", "outdoors_creaturehandler_taming_04", "outdoors_creaturehandler_training_01", "outdoors_creaturehandler_training_02", "outdoors_creaturehandler_training_03", "outdoors_creaturehandler_training_04", "outdoors_creaturehandler_healing_01", "outdoors_creaturehandler_healing_02", "outdoors_creaturehandler_healing_03", "outdoors_creaturehandler_healing_04", "outdoors_creaturehandler_support_01", "outdoors_creaturehandler_support_02", "outdoors_creaturehandler_support_03", "outdoors_creaturehandler_support_04"}},
++  {"trainer_bioengineer", {"outdoors_bio_engineer_novice", "outdoors_bio_engineer_master", "outdoors_bio_engineer_creature_01", "outdoors_bio_engineer_creature_02", "outdoors_bio_engineer_creature_03", "outdoors_bio_engineer_creature_04", "outdoors_bio_engineer_tissue_01", "outdoors_bio_engineer_tissue_02", "outdoors_bio_engineer_tissue_03", "outdoors_bio_engineer_tissue_04", "outdoors_bio_engineer_dna_harvesting_01", "outdoors_bio_engineer_dna_harvesting_02", "outdoors_bio_engineer_dna_harvesting_03", "outdoors_bio_engineer_dna_harvesting_04", "outdoors_bio_engineer_production_01", "outdoors_bio_engineer_production_02", "outdoors_bio_engineer_production_03", "outdoors_bio_engineer_production_04"}},
+  };return catalog;
+ }
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
+@@ -6,6 +6,7 @@
+ #include "server/zone/objects/player/sessions/crafting/CraftingSession.h"
+ #include "server/zone/objects/player/sessions/crafting/events/CreateObjectTask.h"
+ #include "server/zone/objects/tangible/tool/CraftingStation.h"
++#include "server/zone/objects/tangible/component/dna/DnaComponent.h"
+ #include <map>
+ #include <cmath>
+ class SwgxrCrafting : public SwgxrCraftingView {
+@@ -46,6 +47,19 @@
+   for(auto& o:items){Json slots=Json::array();for(int i=0;i<d->getDraftSlotCount();++i)if(fits(o,d->getDraftSlot(i)))slots.push_back(i);if(slots.empty())continue;
+    auto row=SwgxrInventory::describe(o,c);row["quantity"]=quantity(o);row["slots"]=slots;row["quality"]=Json::array();
+    if(o->isResourceContainer()){auto spawn=o.castTo<ResourceContainer*>()->getSpawnObject();for(int i=0;i<d->getResourceWeightCount();++i){auto weight=d->getResourceWeight(i);if(weight->isFiller())continue;float value=0;for(int j=0;j<weight->getPropertyListSize();++j)value+=spawn->getValueOf(weight->getTypeAndWeight(j)>>4)*weight->getPropertyPercentage(j);row["quality"].push_back({{"name",text(weight->getExperimentalTitle())},{"value",value/1000.f}});}}
++   // Original DNA attributes are not resource spawn properties. Show the two
++   // attributes associated with each genetic profile, preserving native values.
++   TangibleObject* component=o.get();if(o->isFactoryCrate())component=o.castTo<FactoryCrate*>()->getPrototype();
++   DnaComponent* dna=dynamic_cast<DnaComponent*>(component);
++   if(dna){
++    row["dna"]={{"quality",dna->getQuality()},{"level",dna->getLevel()}};
++    const char* profiles[]={"physique_profile","prowess_profile","mental_profile","psychological_profile","aggression_profile"};
++    const char* names[]={"Hardiness","Fortitude","Dexterity","Endurance","Intellect","Cleverness","Dependability","Courage","Fierceness","Power"};
++    float values[]={dna->getHardiness(),dna->getFortitude(),dna->getDexterity(),dna->getEndurance(),dna->getIntellect(),dna->getCleverness(),dna->getDependability(),dna->getCourage(),dna->getFierceness(),dna->getPower()};
++    for(int i=0;i<d->getDraftSlotCount();++i){if(!fits(o,d->getDraftSlot(i)))continue;auto name=text(d->getDraftSlot(i)->getStringIdName());
++     for(int group=0;group<5;++group)if(name==profiles[group])for(int n=group*2;n<group*2+2;++n)row["quality"].push_back({{"name",names[n]},{"value",values[n]/1000.f},{"raw",values[n]},{"slot",i}});
++    }
++   }
+    result.push_back(row);
+   }return result;
+  }

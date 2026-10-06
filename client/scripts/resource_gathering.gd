@@ -57,6 +57,8 @@ func request_path(tool_id: String="") -> String:
 	return path
 
 func accept_state(value: Dictionary) -> bool:
+	var zone:=preload("res://scripts/planet_catalog.gd").current(app)
+	if str(value.get("zone",value.get("planet",zone)))!=zone:return false
 	if value.get("source_kind","")!="core3_gathering" or str(value.get("character_id",""))!=app.datapad_character_id: return false
 	world_tools.set_context(app.stage,app.player,app.terrain)
 	if not world_tools.set_states(value.get("deployments",[])): return false
@@ -90,7 +92,7 @@ func refresh(tool_id: String="") -> bool:
 	return accepted
 
 func refresh_tool(tool: Dictionary) -> void:
-	if tool.get("tool_kind","") in ["crafting","camp","trap","medical"]: return
+	if tool.get("tool_kind","") in ["crafting","camp","trap","medical","fishing"]: return
 	var id:=str(tool.get("id","")); var epoch: int=app.datapad_epoch
 	var held_revision: int=bag.held_revision
 	bag.set_busy(true,"Reading current planetary resources…")
@@ -180,7 +182,7 @@ func survey(tool: Dictionary, resource_id: String) -> void:
 	bag.begin_mutation("Surveying current resource concentrations…")
 	var center:=source_position(app.player.global_position)
 	var visual_center: Vector3 = app.player.global_position
-	var result:=await perform("survey",{"tool_id":str(tool.id),"resource_id":resource_id,"planet":"tatooine","position":center})
+	var result:=await perform("survey",{"tool_id":str(tool.id),"resource_id":resource_id,"planet":preload("res://scripts/planet_catalog.gd").current(app),"position":center})
 	if result.is_empty(): return
 	if result.get("mutation", {}).get("success", false) and not bool(result.get("mutation", {}).get("replayed", false)):
 		var receipt := str(result.get("confirmed_request_id", ""))
@@ -202,7 +204,7 @@ func deploy(tool: Dictionary, pose: Transform3D) -> void:
 	var resource_id:=str(bag.survey_ui.selected_resource_id)
 	if resource_id.is_empty(): bag.finish_item_action(false); bag.set_busy(false,"Select a resource before placing the tool."); return
 	bag.begin_mutation("Placing survey tool…")
-	var result:=await perform("deploy",{"tool_id":str(tool.id),"resource_id":resource_id,"planet":"tatooine","position":source_position(support.position)})
+	var result:=await perform("deploy",{"tool_id":str(tool.id),"resource_id":resource_id,"planet":preload("res://scripts/planet_catalog.gd").current(app),"position":source_position(support.position)})
 	if result.is_empty(): return
 	bag.finish_item_action(true); app.reconcile_inventory_presentations(); app.update_inventory_presentation()
 
@@ -244,7 +246,7 @@ func pickup(candidate: Dictionary) -> void:
 	# Confirm original geometry before transferring server possessions.
 	if bag.assets.model(template)==null: bag.set_busy(false,"Original deployed tool appearance is unavailable."); return
 	bag.begin_mutation("Checking room for the tool and collected resources…")
-	var result:=await perform("collect",{"deployment_id":str(record.get("id","")),"planet":"tatooine","position":source_position(app.player.global_position)})
+	var result:=await perform("collect",{"deployment_id":str(record.get("id","")),"planet":preload("res://scripts/planet_catalog.gd").current(app),"position":source_position(app.player.global_position)})
 	if result.is_empty(): return
 	var id:=str(record.get("tool_id",tool.get("id","")))
 	var item: Dictionary=app.owned_inventory_item(id).duplicate(true)

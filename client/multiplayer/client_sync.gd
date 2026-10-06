@@ -9,6 +9,7 @@ var app:Node
 var state:=State.new()
 var players:Node3D
 var entities:Node3D
+var chatter:Node3D
 var generation:=0
 var owner_character:=""
 var owner_session:=""
@@ -27,10 +28,12 @@ func setup(host:Node)->void:
 	players=preload("res://multiplayer/remote_players.gd").new();app.add_child(players);players.configure()
 	if players.has_method("configure_world"):players.configure_world(app)
 	entities=preload("res://multiplayer/world_entities.gd").new();app.add_child(entities);entities.setup(app)
+	chatter=preload("res://chatter/controller.gd").new();app.add_child(chatter);chatter.setup(app)
 func reset()->void:
 	generation+=1;owner_character="";owner_session="";busy=false;priming=false;clock=0;confirmed_ms=0;last_error="";state.reset()
 	if is_instance_valid(players):players.clear()
 	if is_instance_valid(entities):entities.clear()
+	if is_instance_valid(chatter):chatter.clear()
 func prime()->bool:
 	var session:=active_session()
 	if not is_instance_valid(session):return false
@@ -56,7 +59,7 @@ func identity()->Dictionary:
 	var tracked_avatar:Variant=app.get("tracked_avatar")
 	if is_instance_valid(tracked_avatar):heading=-tracked_avatar.global_rotation.y
 	return {"account":app.datapad_account,"character_id":owner_character,"session_id":owner_session,
-		"sequence":request_sequence,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"position":[p.x,p.y,p.z],"heading_radians":heading,
+		"zone":preload("res://scripts/planet_catalog.gd").current(app),"sequence":request_sequence,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"position":[p.x,p.y,p.z],"heading_radians":heading,
 		"building_id":str(cell.get("building_object_id","0")),"cell_index":int(str(cell.get("cell_id","0:0")).get_slice(":",1)),"tracking":tracking(),"physical_posture":physical_posture()}
 func physical_posture()->int:
 	var avatar:Variant=app.get("tracked_avatar")
@@ -102,6 +105,8 @@ func normalized_players()->Array:
 		rows.append(row)
 	return rows
 func apply_response(result:Dictionary,sent_sequence:int)->bool:
+	var zone:=preload("res://scripts/planet_catalog.gd").current(app)
+	if str(result.get("zone",zone))!=zone or (result.get("world") is Dictionary and str(result.world.get("zone",zone))!=zone):last_error="Discarded multiplayer world from previous planet.";return false
 	if not state.accept(result,owner_character,owner_session,sent_sequence):last_error=state.error;return false
 	accepted+=1;confirmed_ms=Time.get_ticks_msec();last_error=""
 	var status:Variant=app.get("asset_status")
@@ -131,6 +136,7 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 			var deployment:=value.duplicate(true);deployment.position=world(value.position);deployments.append(deployment)
 		players.apply_deployments(deployments,owner_character,app.player.global_position)
 	if not app.live_combat_reserved:entities.accept(state.actors,owner_session,state.world_revision)
+	if is_instance_valid(chatter):chatter.accept(result.get("npc_speech"))
 	return true
 func _process(delta:float)->void:
 	if not is_instance_valid(app):return
@@ -146,6 +152,7 @@ func _process(delta:float)->void:
 	clock-=delta
 	if confirmed_ms>0 and Time.get_ticks_msec()-confirmed_ms>STALE_MS:
 		players.clear();entities.clear();confirmed_ms=0
+		if is_instance_valid(chatter):chatter.clear()
 		var status:Variant=app.get("asset_status")
 		if is_instance_valid(status):status.text="Multiplayer world sync interrupted: "+last_error
 	if not busy and clock<=0:poll()
@@ -158,7 +165,8 @@ func poll()->void:
 	busy=false
 	if not apply_response(result,sequence):clock=maxf(clock,.3)
 func statistics()->Dictionary:
-	return {"requests":requests,"accepted":accepted,"busy":busy,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"native_players":state.players.size(),"native_actors":state.actors.size(),"last_error":last_error,"snapshot_age_ms":Time.get_ticks_msec()-confirmed_ms if confirmed_ms>0 else -1,"visuals":players.report.duplicate(true) if is_instance_valid(players) else {}}
+	return {"requests":requests,"accepted":accepted,"busy":busy,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"native_players":state.players.size(),"native_actors":state.actors.size(),"last_error":last_error,"snapshot_age_ms":Time.get_ticks_msec()-confirmed_ms if confirmed_ms>0 else -1,"visuals":players.report.duplicate(true) if is_instance_valid(players) else {},"npc_speech":chatter.statistics() if is_instance_valid(chatter) else {}}
 func _exit_tree()->void:
 	if is_instance_valid(players):players.queue_free()
 	if is_instance_valid(entities):entities.queue_free()
+	if is_instance_valid(chatter):chatter.queue_free()

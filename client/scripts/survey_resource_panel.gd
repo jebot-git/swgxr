@@ -10,7 +10,7 @@ var unavailable: Label
 func configure() -> void:
 	theme=ThemeSource.build();size=Vector2(PIXELS);custom_minimum_size=size
 	var panel:=Panel.new();panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);add_child(panel)
-	panel.add_theme_stylebox_override("panel",ThemeSource.box("071c29","3ea8b9",2,14))
+	panel.add_theme_stylebox_override("panel",ThemeSource.frame(14,"tall"))
 	heading=Label.new();add_child(heading);heading.position=Vector2(20,14);heading.size=Vector2(440,54);heading.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;heading.add_theme_font_size_override("font_size",25)
 	family=Label.new();add_child(family);family.position=Vector2(20,74);family.size=Vector2(440,50);family.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;family.add_theme_font_size_override("font_size",18)
 	unavailable=Label.new();add_child(unavailable);unavailable.position=Vector2(20,175);unavailable.size=Vector2(440,50);unavailable.horizontal_alignment=HORIZONTAL_ALIGNMENT_CENTER;unavailable.text="Original resource preview unavailable";unavailable.add_theme_font_size_override("font_size",17)

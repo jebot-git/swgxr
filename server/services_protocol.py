@@ -1,4 +1,12 @@
 """Native terminal services validation and source text resolution."""
+try:
+ from .housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
+ from .fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
+ from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
+except ImportError:
+ from housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
+ from fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
+ from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 from copy import deepcopy
 import math,re,json
 from pathlib import Path
@@ -11,11 +19,12 @@ except ImportError:
  from datapad_protocol import display,template_label
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
-ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train')
-MUTATIONS=set(ACTIONS)-{'status','open','delivery_open'}
+ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
+ACTIONS+=FISHING_ACTIONS+HOUSING_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
+MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
- out={'action':action}
+ out={'action':action,**planet_context(data)}
  for field,maximum in [('category_id',2147483647),('page',100000)]:
   if field in data:
    value=data[field]
@@ -27,13 +36,15 @@ def command(action,data):
   out['request_id']=key
  if 'position' in data:
   p=data['position']
-  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite source Tatooine position required.')
+  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite source position required.')
   out['position']=p
  if 'building_id' in data:
   v=data['building_id'];ci=data.get('cell_index')
-  if not isinstance(v,str) or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
+  if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
   out.update(building_id=v,cell_index=ci)
  required={
+  'recruiter_promote':('terminal_id',),'recruiter_join':('terminal_id',),'recruiter_status_toggle':('terminal_id',),'recruiter_purchase':('terminal_id',),'contraband_answer':('scan_id',),
+  'vendor_place':('vendor_id',),'vendor_customize':('vendor_id',),'vendor_recover':('vendor_id',),'vendor_sell':('terminal_id','item_id'),'vendor_buy':('terminal_id','listing_id'),'vendor_retrieve':('terminal_id','listing_id'),'vendor_cancel':('terminal_id','listing_id'),
   'delivery_open':('npc_id','mission_id'),'delivery_pickup':('npc_id','mission_id'),'delivery_complete':('npc_id','mission_id','parcel_id'),
   'trainer_train':('terminal_id',),'open':('terminal_id',),'mission_refresh':('terminal_id',),'mission_accept':('terminal_id','mission_id'),
   'mission_abort':('mission_id',),'bazaar_buy':('terminal_id','listing_id'),'bazaar_retrieve':('terminal_id','listing_id'),
@@ -41,12 +52,24 @@ def command(action,data):
   'travel_purchase':('terminal_id',),'travel_board':('ticket_id',)}.get(action,())
  for k in set(required)|({'terminal_id'} if data.get('terminal_id') else set()):
   v=data.get(k)
-  if not isinstance(v,str) or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+k)
+  if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+k)
   out[k]=v
  if action in ('bank_transfer','pay'):
   n=data.get('amount')
   if type(n) is not int or not 0<n<=2000000000:raise ValueError('Positive integer amount required.')
   out['amount']=n
+ if action=='vendor_place':
+  p=data.get('placement_position');heading=data.get('placement_heading')
+  if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite vendor placement position required.')
+  if type(heading) not in (int,float) or not math.isfinite(heading) or abs(heading)>math.tau:raise ValueError('Finite vendor placement heading required.')
+  if out.get('building_id','0')=='0' or 'position' not in out:raise ValueError('Vendor placement requires player position and source building cell.')
+  out.update(placement_position=p,placement_heading=heading)
+  out.pop('terminal_id',None)
+ if action=='vendor_customize':
+  values=data.get('customization')
+  if not isinstance(values,dict) or len(values)>128 or any(not isinstance(k,str) or not re.fullmatch(r'[A-Za-z0-9_/]{1,128}',k) or type(v) is not int or not 0<=v<=255 for k,v in values.items()):raise ValueError('Valid original vendor customization required.')
+  out['customization']=values
+ if action in ('vendor_recover','vendor_customize'):out.pop('terminal_id',None)
  if action=='trainer_train':
   skill=data.get('skill_id')
   if not isinstance(skill,str) or not re.fullmatch(r'[a-z][a-z0-9_]{1,95}',skill):raise ValueError('Native trainer skill_id required.')
@@ -54,26 +77,46 @@ def command(action,data):
  if action=='bank_transfer':
   if data.get('direction') not in ('deposit','withdraw'):raise ValueError('Choose deposit or withdraw.')
   out['direction']=data['direction']
- if action in ('bazaar_buy','bazaar_sell'):
+ if action in ('bazaar_buy','bazaar_sell','vendor_buy','vendor_sell'):
+  limit=99999999 if action.startswith('vendor_') else 20000
   n=data.get('price')
-  if type(n) is not int or not 0<n<=20000:raise ValueError('Invalid original bazaar price.')
+  if type(n) is not int or not 0<n<=limit:raise ValueError('Invalid original bazaar price.')
   out['price']=n
   if 'max_price' in data:
    maximum=data['max_price']
-   if type(maximum) is not int or not n<=maximum<=20000:raise ValueError('Invalid maximum bid.')
+   if type(maximum) is not int or not n<=maximum<=limit:raise ValueError('Invalid maximum bid.')
    out['max_price']=maximum
- if action=='bazaar_sell':
+ if action in ('bazaar_sell','vendor_sell'):
   description=data.get('description','')
   if not isinstance(description,str) or len(description)>512:raise ValueError('Bazaar description too long.')
   out['description']=description
   if type(data.get('auction',False)) is not bool:raise ValueError('auction must be boolean.')
   out['auction']=data.get('auction',False)
+  if action=='vendor_sell' and out['auction']:raise ValueError('Vendor listings use fixed prices.')
+  if type(data.get('galactic_search',True)) is not bool:raise ValueError('galactic_search must be boolean.')
+  out['galactic_search']=data.get('galactic_search',True)
  if action=='travel_board' or action.startswith('delivery_'):out.pop('terminal_id',None)
  if action=='travel_purchase':
   destination=data.get('destination_id')
   if not isinstance(destination,str) or not re.fullmatch(r"[A-Za-z0-9 '\-]{1,100}",destination):raise ValueError('Native destination name required.')
   if type(data.get('round_trip',False)) is not bool:raise ValueError('round_trip must be boolean.')
   out.update(destination_id=destination,round_trip=data.get('round_trip',False))
+  if 'destination_planet' in data:out['destination_planet']=validate_planet(data['destination_planet'])
+ if action=='recruiter_promote':
+  if type(data.get('expected_rank')) is not int or not 0<=data['expected_rank']<=15:raise ValueError('Current original faction rank required.')
+  out['expected_rank']=data['expected_rank']
+ if action=='recruiter_status_toggle':
+  if type(data.get('expected_status')) is not int or data['expected_status'] not in (0,1):raise ValueError('Current native faction status required.')
+  out['expected_status']=data['expected_status']
+ if action=='recruiter_purchase':
+  reward=data.get('reward_id')
+  if not isinstance(reward,str) or not re.fullmatch(r'(imperial|rebel):(weaponsArmor|uniforms|furniture):[a-z0-9_]{1,96}',reward):raise ValueError('Supported original faction reward required.')
+  out['reward_id']=reward
+ if action=='contraband_answer':
+  if type(data.get('accept')) is not bool:raise ValueError('Choose pay or refuse the original contraband fine.')
+  out['accept']=data['accept'];out.pop('terminal_id',None)
+ if action in HOUSING_ACTIONS:out.update(housing_fields(action,data))
+ if action in FISHING_ACTIONS:out.update(fishing_fields(action,data))
  return out
 
 def label(value):
@@ -98,8 +141,19 @@ def snapshot(raw,oid,attributes=None):
  if state.get('character_id')!=str(oid) or state.get('source_kind')!='core3_services':raise ValueError('Owned native service snapshot required.')
  if len(state.get('terminals',[]))>128 or len(state.get('tickets',[]))>256:raise ValueError('Native services snapshot exceeds bounds.')
  if len(state.get('delivery_contacts',[]))>32 or len(state.get('parcels',[]))>16:raise ValueError('Native delivery snapshot exceeds bounds.')
+ if len(state.get('vendors',[]))>64 or len(state.get('placed_vendors',[]))>64:raise ValueError('Native vendor snapshot exceeds bounds.')
+ for vendor in state.get('vendors',[])+state.get('placed_vendors',[]):
+  if not isinstance(vendor.get('id'),str) or not vendor['id'].isdigit():raise ValueError('Native vendor identity required.')
+  vendor['shared_template']=template_names().get(vendor.get('client_crc'),'')
+  vendor['customization']=decode_customization(bytes.fromhex(vendor.pop('customization_hex','')))
+  vendor['name']=vendor.pop('custom_name','') or template_label(vendor['shared_template'] or vendor.get('template',''))[0]
+  vendor.update(category='vendors',type='vendor',deletable=False,source='core3_owned_vendor')
+  vendor['description']='Grip and pull this vendor from the datapad. Move the hologram by hand; trigger places, releasing grip cancels.'
+ if 'fishing' in state:
+  state['fishing']['message']=label(state['fishing'].get('message',''))
+  for bait in state['fishing'].get('baits',[]):bait['name']=template_label(bait.get('template',''))[0]
  mutation=state.pop('mutation',{'success':True})
- if state.get('terminal',{}).get('kind')=='bazaar':
+ if state.get('terminal',{}).get('kind') in ('bazaar','vendor'):
   tree,limitations=categories();state['terminal']['categories']=deepcopy(tree);state['terminal']['category_limitations']=limitations
  appearance=state.get('player',{}).get('appearance',{})
  if appearance:
@@ -112,6 +166,8 @@ def snapshot(raw,oid,attributes=None):
   if terminal.get('kind')=='delivery':
    terminal['mission_name']=label(terminal.get('mission_name',''))
    if 'dialogue' in terminal:terminal['dialogue']=label(terminal['dialogue'])
+  if terminal.get('kind')=='recruiter':
+   for field in ('recruiter_text','rank_name','next_rank_name'):terminal[field]=label(terminal.get(field,''))
   if terminal.get('kind')=='trainer':terminal['trainer_text']=label(terminal.get('trainer_text',''))
   for kind in ('missions','listings','tools','skills'):
    for row in terminal.get(kind,[]):
@@ -133,6 +189,10 @@ def snapshot(raw,oid,attributes=None):
  if 'dialogue' in mutation:mutation['dialogue']=label(mutation['dialogue'])
  if state.get('terminal',{}).get('kind')=='mission':state['terminal'].setdefault('missions',[]).extend(deepcopy(state.get('missions',[])))
  if state.get('inventory'):state['inventory']=inventory_snapshot({'variables':{'inventory':state['inventory'],'weaponAttributes':attributes or {}}},oid)
+ if 'housing' in state:
+  owned={item['id']:item for item in state.get('inventory',{}).get('items',[])}
+  state['housing']['deeds']=[dict(owned[row['id']],category='data',type='factory_deed' if owned[row['id']].get('structure_template','').startswith('object/installation/manufacture/') else 'harvesting_deed',deletable=False,description='Grip and pull to preview placement. Trigger builds; releasing grip cancels.') for row in state['housing'].get('deeds',[]) if row.get('id') in owned]
+
  shuttle=state.get('shuttle',{})
  state['shuttles']=[shuttle] if shuttle else []
  if mutation.get('transport_destination'):

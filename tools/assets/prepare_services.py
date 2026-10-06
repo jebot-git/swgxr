@@ -16,6 +16,7 @@ from static_assets import StaticAssets
 from swg_formats import cstring, parse_iff
 from audit_trainers import export as export_trainers
 
+from planet_config import PLANETS, origin_for, path_for
 ROOT = Path(__file__).resolve().parents[2]
 WALLET = 'object/tangible/item/loot_credit_chip.iff'
 SHUTTLES = ('object/mobile/player_transport.iff', 'object/creature/npc/theme_park/player_shuttle.iff')
@@ -66,14 +67,14 @@ def static_anchors(world_dir, provenance):
     return world['origin'], sorted(anchors.values(), key=lambda v: int(v['id']))
 
 
-def travel_points(core3, provenance):
+def travel_points(core3, provenance, planet="tatooine"):
     path = core3 / 'MMOCoreORB/bin/scripts/managers/planet/planet_manager.lua'
     raw = path.read_bytes(); provenance[str(path.resolve())] = hashlib.sha256(raw).hexdigest()
-    text = raw.decode().split('tatooine = {', 1)[1].split('planetTravelPoints = {', 1)[1].split('\n\t}', 1)[0]
+    text = raw.decode().split(planet+' = {', 1)[1].split('planetTravelPoints = {', 1)[1].split('\n\t}', 1)[0]
     result = []
     for row in re.findall(r'\{([^{}]+)\}', text):
         values = dict(re.findall(r'(\w+)\s*=\s*("[^"]*"|[-\d.]+)', row))
-        result.append({'name': values['name'].strip('"'), 'zone': 'tatooine',
+        result.append({'name': values['name'].strip('"'), 'zone': planet,
                        'position': [float(values[k]) for k in ('x','z','y')],
                        'interplanetary': bool(int(values['interplanetaryTravelAllowed'])),
                        'incoming': bool(int(values['incomingTravelAllowed'])),
@@ -123,15 +124,19 @@ def export_shuttle(imp, static, template):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--planet',choices=PLANETS,default='tatooine')
     parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
-    parser.add_argument('--world', type=Path, default=ROOT/'runtime/assets/tatooine_world')
+    parser.add_argument('--world', type=Path, default=None)
     parser.add_argument('--core3', type=Path, default=ROOT/'vendor/Core3')
-    parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/services')
+    parser.add_argument('--out', type=Path, default=None)
     parser.add_argument('--inventory', type=Path, default=ROOT/'runtime/assets/inventory')
-    parser.add_argument('--ambient', type=Path, default=ROOT/'runtime/assets/ambient_npcs')
+    parser.add_argument('--ambient', type=Path, default=None)
     args = parser.parse_args()
+    args.out=args.out or path_for(args.planet,"services")
+    args.world=args.world or path_for(args.planet,"world")
+    args.ambient=args.ambient or path_for(args.planet,"ambient")
     provenance = {}; origin, anchors = static_anchors(args.world, provenance)
-    points = travel_points(args.core3, provenance)
+    points = travel_points(args.core3, provenance,args.planet)
     imp = CharacterImporter(args.tre_dir, args.out)
     static = StaticAssets(args.tre_dir, args.out); static.t = imp.t; static.dependencies = imp.dependencies
     shuttles = {}; failures = []
@@ -152,13 +157,14 @@ def main():
         unsupported=sum(i['status']!='ready' for i in catalog['items'].values()), unique_models=len({i['model'] for i in catalog['items'].values() if i['status']=='ready'}),
         source_hashes=len(catalog['provenance']['dependencies']))
     write(catalog_path, catalog)
-    result = {'schema_version':1, 'zone':'tatooine', 'origin':origin, 'static_terminals':anchors,
+    result = {'schema_version':1, 'zone':args.planet, 'origin':origin, 'static_terminals':anchors,
               'travel_points':points, 'races':shuttles, 'wallet_template':WALLET,
               'provenance':{'files_sha256':provenance, 'dependencies':imp.dependencies},
               'failures':failures + imp.failures + static.failures,
               'policy':'Geometry/placement reference only. Native Core3 IDs, discovery, credit balances, tickets and shuttle state are authoritative.'}
     write(args.out/'catalog.json', result)
-    export_trainers(args.tre_dir, args.core3, args.ambient, args.out/'trainers.json')
+    if (args.ambient/'placements.json').exists() and (args.ambient/'catalog.json').exists():
+        export_trainers(args.tre_dir, args.core3, args.ambient, args.out/'trainers.json',planet=args.planet)
     print(json.dumps({'static_terminals':len(anchors), 'travel_points':len(points), 'shuttles':len(shuttles), 'failures':result['failures']}, indent=2))
     if failures: raise SystemExit(1)
 

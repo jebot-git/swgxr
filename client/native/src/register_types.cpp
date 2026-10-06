@@ -17,6 +17,9 @@
 #include "melee_swing.h"
 #include "view_posture.h"
 #include "performance_gesture.h"
+#include "creature_gesture.h"
+#include "ranger_gesture.h"
+#include "salute_gesture.h"
 #include "scout_locomotion.h"
 #include "medic_drag.h"
 #include "vehicle_controls.h"
@@ -47,6 +50,9 @@ void initialize_swg_native(ModuleInitializationLevel level) {
     ClassDB::register_class<SwgMeleeSwing>();
     ClassDB::register_class<SwgViewPosture>();
     ClassDB::register_class<SwgPerformanceGesture>();
+    ClassDB::register_class<SwgCreatureGesture>();
+    ClassDB::register_class<SwgRangerGesture>();
+    ClassDB::register_class<SwgSaluteGesture>();
     ClassDB::register_class<SwgScoutLocomotion>();
     ClassDB::register_class<SwgMedicDrag>();
     ClassDB::register_class<SwgVehicleControls>();

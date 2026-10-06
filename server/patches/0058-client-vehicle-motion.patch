@@ -1,0 +1,56 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -22,7 +22,7 @@
+ class SwgxrVehicles {
+  using Json=JSONSerializationType;
+  struct Rider {uint64 vehicle=0;std::string seat;double seen=0;};
+- struct Motion {double speed=0,throttle=0,steer=0,seen=0,tick=0;uint64 driver=0;};
++ struct Motion {double speed=0,throttle=0,steer=0,seen=0,tick=0;uint64 driver=0;bool clientPose=false;};
+  static auto& mutex(){static std::recursive_mutex value;return value;}
+  static auto& riders(){static std::map<uint64,Rider> value;return value;}
+  static auto& motions(){static std::map<uint64,Motion> value;return value;}
+@@ -102,6 +102,16 @@
+  static void place(CreatureObject* c,CreatureObject* v,const Rider& r){auto p=local(v,seat(descriptor(v),r.seat)["position"]);c->setDirection(v->getDirection()->getRadians());c->teleport(p.getX(),p.getZ(),p.getY(),0);}
+  static void tick(CreatureObject* c,CreatureObject* v){
+   auto it=motions().find(v->getObjectID());if(it==motions().end())return;auto& m=it->second;double stamp=now(),dt=clamp(stamp-m.tick,0.0,.4);m.tick=stamp;
++  if(m.clientPose){
++   // A driver sends already collision-resolved client motion. Do not integrate
++   // throttles or turn a delayed pose again when observers request snapshots.
++   if(!m.driver || stamp-m.seen>4 || v->isDisabled())m.speed=0;
++   v->setCurrentSpeed(std::abs(m.speed));
++   for(auto& entry:riders())if(entry.second.vehicle==v->getObjectID()){
++    auto p=c->getZoneServer()->getObject(entry.first).castTo<CreatureObject*>();if(!p)continue;Locker lock(p,c);if(!p->isDead() && !p->isIncapacitated())place(p,v,entry.second);
++   }
++   return;
++  }
+   bool drive=m.driver && stamp-m.seen<.75 && !v->isDisabled();double throttle=drive?m.throttle:0;
+   double maximum=std::max(0.f,v->getRunSpeed()*v->getSpeedMultiplierMod()),reverse=std::max(0.f,v->getWalkSpeed());
+   double accel=std::max(.1f,v->getRunAcceleration()*v->getAccelerationMultiplierMod());
+@@ -170,14 +180,25 @@
+  static bool update(CreatureObject* c,const Json& input){
+   std::lock_guard<std::recursive_mutex> lock(mutex());auto it=riders().find(c->getObjectID());if(it==riders().end())return false;it->second.seen=now();cleanup(c);it=riders().find(c->getObjectID());if(it==riders().end())return false;
+   auto v=vehicle(c,it->second.vehicle);Locker vl(v,c);auto& m=motions()[v->getObjectID()];
+-  if(it->second.seat=="driver"){
++  bool clientPose=input.value("mode",std::string())=="client_pose";
++  if(clientPose && it->second.seat!="driver")throw std::runtime_error("Only the owned driver may synchronize vehicle motion");
++  if(it->second.seat=="driver" && clientPose){
++   if(input.value("vehicle_id",std::string())!=id(v))throw std::runtime_error("Vehicle motion must match the owned driver seat");
++   auto cd=v->getControlDevice().get();if(!cd || !cd->isASubChildOf(c))throw std::runtime_error("Owned vehicle control device required");
++   auto p=point(input.at("position"));double speed=input.at("speed").get<double>(),heading=input.at("heading_radians").get<double>();
++   double maximum=std::max(0.f,v->getRunSpeed()*v->getSpeedMultiplierMod()),reverse=std::max(0.f,v->getWalkSpeed());
++   if(!std::isfinite(speed) || speed>maximum+.001 || speed< -reverse-.001 || !std::isfinite(heading) || std::abs(heading)>M_PI+.00001 || std::abs(p.getX())>8191 || std::abs(p.getY())>8191)throw std::runtime_error("Client vehicle motion exceeds native ride properties");
++   m.driver=c->getObjectID();m.clientPose=true;m.seen=now();m.throttle=0;m.steer=0;m.speed=v->isDisabled()?0:speed;
++   if(!v->isDisabled()){v->setDirection(heading);v->teleport(p.getX(),p.getZ(),p.getY(),0);}
++  }else if(it->second.seat=="driver"){
++   m.clientPose=false; // Retain the legacy control protocol for older clients.
+    double throttle=input.value("throttle",0.0),steer=input.value("steer",0.0);if(!std::isfinite(throttle) || !std::isfinite(steer) || std::abs(throttle)>1 || std::abs(steer)>1)throw std::runtime_error("Invalid vehicle controls");
+    bool held=input.value("held",false);m.driver=c->getObjectID();m.throttle=held?throttle:0;m.steer=held?steer:0;m.seen=now();
+   }
+   tick(c,v);place(c,v,it->second);return true;
+  }
+  static Json snapshot(CreatureObject* c){
+-  std::lock_guard<std::recursive_mutex> lock(mutex());auto ownSeen=riders().find(c->getObjectID());if(ownSeen!=riders().end())ownSeen->second.seen=now();cleanup(c);Json out={{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"vehicles",Json::array()},{"datapad",Json::array()},{"pets",Json::array()},{"pet_datapad",Json::array()},{"seat",Json::object()},{"position",wire(c->getWorldPosition())}};
++  std::lock_guard<std::recursive_mutex> lock(mutex());auto ownSeen=riders().find(c->getObjectID());if(ownSeen!=riders().end())ownSeen->second.seen=now();cleanup(c);Json out={{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"driver_motion","client_pose"},{"vehicles",Json::array()},{"datapad",Json::array()},{"pets",Json::array()},{"pet_datapad",Json::array()},{"seat",Json::object()},{"position",wire(c->getWorldPosition())}};
+   auto ejection=ejections().find(c->getObjectID());if(ejection!=ejections().end())out["forced_exit"]=ejection->second;
+   auto own=riders().find(c->getObjectID());if(own!=riders().end())out["seat"]={{"vehicle_id",std::to_string(own->second.vehicle)},{"id",own->second.seat}};
+   auto pad=c->getSlottedObject("datapad");if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isVehicleControlDevice())continue;auto cd=static_cast<VehicleControlDevice*>(item.get());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject())continue;auto v=controlled->asCreatureObject();

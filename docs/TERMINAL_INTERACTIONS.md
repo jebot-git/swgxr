@@ -8,8 +8,16 @@ lists and amount handles. Moving more than three metres away closes the screen.
 Losing tracking, opening the system menu, changing character, or entering a
 loading transition also releases the interface.
 
-Pointing at a closed terminal does not draw a guiding line. The opened hologram
-retains its fingertip pointer and click dot for selecting and dragging controls.
+Terminal interaction draws no projected finger beam, including while the
+hologram is open. A contact dot marks the selected control. Move the free-hand
+stick to highlight a menu row and click that stick to select it. Crafting uses
+the same confirmation on its schematic and resource panels.
+
+The backpack remains accessible while browsing a bazaar or vendor. Its controls
+temporarily take focus while the terminal stays open; closing the backpack
+returns focus to the terminal. Draw an owned item and release it onto the market
+to open its sale proposal, then set the price and confirm. Listing still requires
+the native Core3 receipt. Wallet and bank interactions retain exclusive hand use.
 
 The bazaar uses the original Game Object Type category hierarchy and source
 string labels. Select a category to descend into its subcategories. **Back**
@@ -26,6 +34,15 @@ objective eligibility belong to Core3. Crafting stations list compatible owned
 tools; selecting a tool draws its original model and enters the existing native
 crafting interface. Source station type, range, skill, ingredients and original
 crafting rolls still apply.
+
+Deployed factories open by pointing and pressing trigger. Insert a source
+manufacturing blueprint from the datapad into the slot above the centre panel.
+Drag matching inventory resources into the centre input inventory, and grip/pull
+them back out to retrieve them. Finished items appear in the separate right
+output panel. Energy and upkeep controls sit on the left. Factories share
+harvester placement and two-hand recovery; stop production and empty both
+inventories and the blueprint slot before recovery. See
+[factory controls and authority](../server/HOUSING_PROTOCOL.md#factories).
 
 Mission types needing an interaction this prototype does not yet provide, such
 as delivery-NPC conversations, remain visible with an explanation and a disabled
@@ -70,8 +87,12 @@ inventory. One eligible ticket boards directly; multiple eligible tickets open a
 local chooser in place of the datapad. Native boarding checks the ticket and
 schedule again. A loading cover stays up until the server-selected destination's
 streamed terrain, original cells and collision floor are ready. This client
-currently renders Tatooine, so unsupported interplanetary trips are rejected
-before a ticket is consumed.
+supports the ten original ground planets. Routes must be available in the running
+Core3 realm and destination assets must be ready; unsupported or unprepared trips
+are rejected before a ticket is consumed. The owned session remains connected
+while old world geometry/entities are retired and the destination loads. Failed
+loading stays covered with a retry option; acknowledgment follows valid original
+floor placement.
 
 ## Validation and operation
 
@@ -192,3 +213,100 @@ Client regression evidence is in `runtime/evidence/gameplay-core1/`,
 Native session ownership, saved interior/world position and vehicle lifecycle
 checks are in `runtime/evidence/session-20261005/`. All use dedicated fixtures or
 mocked tracking; no live headset test was launched.
+
+### Landspeeder yoke controls
+
+While gripping a landspeeder yoke, the main-hand joystick controls forward
+throttle and braking/reverse with a 12% deadzone. Moving the hands around the
+wheel steers; pushing or pulling the hands does not change throttle. Rendered
+avatar hands attach to the original riding grip sockets and use original rider
+finger poses. Releasing, losing tracking or dismounting restores normal hand
+tracking. Controller and HMD transforms are never modified by this attachment.
+
+The original X31/X34 and AV21 steering components rotate locally. The exporter
+separates complete disconnected source components, retaining every original
+triangle and material. Flash's component joins the dashboard stem, so it remains
+static with an explicit unsupported-split diagnostic. No substitute art is used.
+Validation is recorded in `runtime/evidence/vehicle-yoke/validation.json`; the
+Vulkan capture is desktop evidence, not live headset validation.
+
+
+## Merchant vendor placement
+
+The datapad **Vendors** tab references vendors already hired and owned in Core3.
+Grip a row with the main hand and pull it away from the datapad. Keep gripping
+while moving the original-model hologram across the floor and rotating it with
+your hand. Cyan means the local preview passes the current permission, room,
+floor, obstruction and four-metre reach checks; orange means it cannot be placed.
+Release and press trigger while holding the hologram to place it. Releasing grip
+before confirmation, losing tracking, opening the menu or changing session
+cancels the preview without moving or consuming the native vendor.
+
+Core3 rechecks ownership, uninitialized state, inventory possession, public
+building/admin-or-vendor permission, same cell, native floor and line of sight.
+The normal vendor initialization starts its original maintenance checks. A
+successful receipt removes the inventory reference and presents the native
+placed object to clients in that room. Releasing grip after the trigger request
+has already been submitted hides the preview but cannot reverse that request.
+Repeated trigger holds do not resubmit, and a busy service never queues a delayed
+placement. An uncertain reply requires a fresh authoritative vendor snapshot.
+
+Hiring remains outside this interface. NPC vendor previews use the original
+bind-pose item mesh and customization, including body and face morphs, without
+dynamic clothing or idle animation. Terminal and droid models retain their authored origin and scale.
+`tools/assets/prepare_vendors.py` records original asset hashes in the inventory
+catalogue and conversion coverage in `runtime/assets/vendors/coverage.json`.
+
+Implementation: `0043-vendor-placement.patch`, `/services/vendor_place`, and
+`client/scripts/vendor_placement.gd`. Headless protocol and mocked-controller
+checks pass; these do not validate native deployment or live XR. The current
+sandbox prevents Podman access (`/run/user/1000/libpod` is read-only), so native
+compilation, persistent placement/restart checks, and live headset verification
+remain outstanding.
+
+
+## Vendor and bazaar selling, customization and recovery
+
+Drag an owned inventory item onto a bazaar terminal or an owned vendor and
+release it. This opens a holographic sale proposal with coarse/fine credit
+sliders, a full-colour item preview and a grip-operated galactic-search knob.
+Clockwise enables search; counterclockwise disables it. Touch **Confirm** and
+press trigger to submit; **Cancel**, tracking loss or leaving the interface
+returns to normal play without transferring the item. The item remains in its
+native inventory until Core3 confirms the sale. The original limits apply:
+20,000 credits for bazaars and 99,999,999 for vendors, together with native fees,
+capacity, trade restrictions and ownership checks.
+
+The search knob controls the individual listing. Off listings remain visible at
+their own terminal and to their seller/buyer. Global bazaar browsing can discover
+searchable vendor listings and their location; purchase and retrieval of vendor
+stock require visiting that vendor. Existing listings default to searchable.
+Core3 records visibility before publishing the listing, and both native search
+and the VR services bridge honor it.
+
+With both hands touching an owned placed vendor, release then press both
+triggers to open customization. Grip the original colour and body/face sliders;
+the full-colour preview updates locally. Pages expose the source template's
+permitted values. Confirm commits the proposal; Cancel leaves the native vendor
+unchanged. Models with no original editable controls show that limitation.
+Changing outfits or hair objects is not part of this first vendor editor.
+
+A fresh two-hand grip with both triggers released recovers the vendor into its
+native inventory and datapad reference. Trigger customization takes precedence
+if grips and triggers are pressed together. Inventory space is checked before
+recovery. Stored vendors keep their identity and listings, become unavailable
+to buyers/search, and stop their maintenance task, planetary marker and barks.
+Normal listing expiry remains in effect. Replacing the vendor restores native
+location/indexing and its previous search setting. Recovery is an explicit
+extension to Core3's normal prohibition on moving initialized vendors.
+
+`0044-vendor-commerce.patch` contains the authoritative changes. The client never
+queues a deferred economic mutation behind a busy service. Ambiguous retries
+retain the exact original proposal and request ID; changing character clears
+local drafts and old input state.
+
+Validation evidence: `runtime/evidence/vendor-commerce.json`. Protocol,
+headless mocked-controller checks and Core3 IDL generation pass. Full C++ build,
+native sale/recovery/restart testing and live headset verification remain
+blocked by the current Podman access restriction; the host also lacks the native
+Lua/Berkeley DB development headers. These changes have not been deployed.

@@ -20,8 +20,12 @@ var retired := 0
 var stolen := 0
 var variants: Dictionary = {}
 var owned_buses: Array[String] = []
+var mobile:Node
+var requested_backend:=""
 
 func configure(head: Camera3D, collision_stage: Node3D = null, requested := "steam_audio", force_audio := false) -> void:
+	if enabled and camera==head and stage==collision_stage and requested_backend==requested:return
+	requested_backend=requested
 	clear()
 	camera = head; stage = collision_stage
 	enabled = force_audio or DisplayServer.get_name() != "headless"
@@ -52,6 +56,8 @@ func configure(head: Camera3D, collision_stage: Node3D = null, requested := "ste
 		backend = "steam_audio"
 	else:
 		backend = "stereo"
+	if not is_instance_valid(mobile):
+		mobile=preload("res://audio/mobile_audio.gd").new();add_child(mobile);mobile.configure(self)
 	sync_listener()
 	print("SWG weapon audio: ",backend," · HMD listener · ",MAX_VOICES," voice limit")
 
@@ -106,6 +112,13 @@ func play_original(assets: RefCounted, sound: String, position: Vector3, priorit
 	variants[sound]=index+1
 	var source: AudioStream = assets.sound(definition.samples[index])
 	if source==null: return null
+	var player:=play_stream(definition,sound,source,position,priority)
+	if player!=null:player.set_meta("source_sample",definition.samples[index])
+	return player
+
+func play_stream(definition:Dictionary,sound:String,source:AudioStream,position:Vector3,priority:=1,looped:=false)->AudioStreamPlayer3D:
+	if not enabled or not is_instance_valid(camera) or source==null:return null
+	if camera.global_position.distance_to(position)>float(definition.max_distance):return null
 	if active.size()>=MAX_VOICES:
 		var victim: AudioStreamPlayer3D = active[0]
 		for candidate in active:
@@ -116,8 +129,8 @@ func play_original(assets: RefCounted, sound: String, position: Vector3, priorit
 	player.stream=source
 	var dry_db := linear_to_db(maxf(0.00001,float(definition.volume)))
 	player.set_meta("dry_db",dry_db); player.set_meta("priority",priority)
-	player.set_meta("expires",clock+source.get_length()+0.15)
-	player.set_meta("source_sound",sound); player.set_meta("source_sample",definition.samples[index])
+	player.set_meta("expires",INF if looped else clock+source.get_length()+0.15)
+	player.set_meta("source_sound",sound)
 	add_child(player); player.global_position=position
 	active.append(player)
 	update_source(player)
@@ -144,6 +157,7 @@ func _process(_delta: float) -> void: sync_listener()
 func _physics_process(delta: float) -> void:
 	if not enabled or not is_instance_valid(camera): return
 	clock+=delta; poll+=delta; room_poll+=delta
+	if is_instance_valid(mobile):mobile.tick(delta)
 	if poll>=0.1:
 		poll=0
 		for player in active.duplicate():
@@ -162,6 +176,7 @@ func retire(player: AudioStreamPlayer3D) -> void:
 		player.stop(); player.queue_free(); retired+=1
 
 func clear() -> void:
+	if is_instance_valid(mobile):mobile.clear()
 	for player in active.duplicate(): retire(player)
 	active.clear()
 

@@ -6,6 +6,7 @@
 #include <godot_cpp/classes/capsule_shape3d.hpp>
 #include <godot_cpp/classes/collision_shape3d.hpp>
 #include <godot_cpp/variant/vector2.hpp>
+#include "xr_step_solver.h"
 
 namespace godot {
 
@@ -18,6 +19,8 @@ class SwgFirstPersonController : public CharacterBody3D {
     uint64_t ground_provider_id = 0;
     CollisionShape3D *body_shape = nullptr;
     Ref<CapsuleShape3D> capsule;
+    Ref<SwgXRStepSolver> terrain_solver;
+    bool terrain_grounded = false;
     bool third_person = false;
     double avatar_height = 1.8;
     int posture = 0; // 0 standing, 1 kneeling/crouched, 2 prone, 3 sitting.
@@ -73,6 +76,7 @@ public:
     bool get_movement_locked() const { return movement_locked; }
     void set_movement_locked(bool value) { movement_locked = value; }
 
+    bool get_grounded() const { return terrain_grounded || is_on_floor(); }
     bool get_active() const { return active; }
     void set_active(bool value) { active = value; }
     bool get_testing() const { return testing; }

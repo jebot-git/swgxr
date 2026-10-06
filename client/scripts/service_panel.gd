@@ -2,6 +2,7 @@ extends Control
 ## Compact local-only service UI. All values and entries come from Core3.
 signal action_requested(action: String, payload: Dictionary)
 signal close_requested
+const Holo=preload("res://scripts/datapad_theme.gd")
 const AmountSlider=preload("res://scripts/service_amount_slider.gd")
 const FONT=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 const ROWS_RECT=Rect2(20,128,548,352)
@@ -43,10 +44,13 @@ var last_pixel := Vector2.ZERO
 var down_row := -1
 var dragged := false
 var scroll_residual := 0.0
+var navigation_anchor:=Vector2.INF
+var navigation_category:=false
 var delivery_dialogue:RichTextLabel
 
 func _ready() -> void:
-	size=Vector2(860,580)
+	theme=Holo.build()
+	size=Vector2(860,620)
 	mouse_filter=Control.MOUSE_FILTER_STOP
 	slider=AmountSlider.new()
 	add_child(slider)
@@ -54,11 +58,15 @@ func _ready() -> void:
 	slider.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	slider.amount_changed.connect(func(_amount): queue_redraw())
 	slider.visible=false
-	delivery_dialogue=RichTextLabel.new();add_child(delivery_dialogue);delivery_dialogue.position=Vector2(40,125);delivery_dialogue.size=Vector2(770,270);delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_IGNORE;delivery_dialogue.add_theme_font_override("normal_font",FONT);delivery_dialogue.add_theme_font_size_override("normal_font_size",24);delivery_dialogue.add_theme_color_override("default_color",Color("ddfbff"));delivery_dialogue.hide()
+	delivery_dialogue=RichTextLabel.new();add_child(delivery_dialogue);delivery_dialogue.position=Vector2(40,125);delivery_dialogue.size=Vector2(770,270);delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_IGNORE;delivery_dialogue.add_theme_font_override("normal_font",FONT);delivery_dialogue.add_theme_font_size_override("normal_font_size",24);delivery_dialogue.add_theme_color_override("default_color",Color("d2f6ff"));delivery_dialogue.hide()
 
 func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[]) -> void:
+	var upkeep_mode:bool=terminal.get("kind","")=="house_deposit" and str(terminal.get("id",""))==str(record.get("id",""))
 	var previous_id:=str(terminal.get("id",""))
+	navigation_anchor=Vector2.INF
 	terminal=record.duplicate(true)
+	if upkeep_mode and terminal.get("kind","")=="house":terminal.kind="house_deposit"
+	if terminal.get("kind","")=="vendor":terminal.kind="bazaar";terminal.market_kind="vendor"
 	if is_instance_valid(delivery_dialogue):
 		delivery_dialogue.visible=terminal.get("kind","")=="delivery"
 		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
@@ -78,12 +86,13 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 		"boarding": rows=tickets.duplicate(true)
 		"crafting": rows=terminal.get("tools",[]).duplicate(true)
 		"trainer": rows=terminal.get("skills",[]).duplicate(true)
+		"house": rows=terminal.get("options",[]).duplicate(true)
 	if selected>=rows.size(): selected=-1
 	offset=clampf(offset,0,maxf(0,rows.size()-8))
 	pending=false
 	bid_mode=false
 	cancel_pointer()
-	slider.visible=str(terminal.get("kind","")) in ["bank","payment"]
+	slider.visible=str(terminal.get("kind","")) in ["bank","payment","house_deposit"]
 	update_limit()
 	queue_redraw()
 
@@ -93,7 +102,7 @@ func update_limit() -> void:
 		var minimum:=int(rows[selected].get("min_bid",int(rows[selected].get("price",0))+1))
 		slider.configure_range(minimum,maxi(minimum,int(wallet.get("cash",0))+int(wallet.get("bank",0))),maxi(minimum,slider.amount))
 		return
-	var maximum:=int(wallet.get("cash",0)) if direction=="deposit" or terminal.get("kind","")=="payment" else int(wallet.get("bank",0))
+	var maximum:=int(wallet.get("cash",0)) if direction=="deposit" or terminal.get("kind","") in ["payment","house_deposit"] else int(wallet.get("bank",0))
 	slider.configure(maximum,slider.amount)
 
 func set_pending(value: bool) -> void:
@@ -141,7 +150,7 @@ func pointer_end(pixel: Vector2) -> void:
 	if not pointer_down: return
 	var click:=not dragged and pixel.distance_to(down_pixel)<16 and not pending
 	cancel_pointer()
-	if click: click_at(pixel)
+	if click: click_at(navigation_target(pixel))
 
 func cancel_pointer() -> void:
 	pointer_down=false
@@ -156,6 +165,38 @@ func scroll_at(pixel: Vector2, steps: int) -> void:
 	# A stick/wheel scroll while pressing must not select its final hovered row.
 	if pointer_down:dragged=true
 	queue_redraw()
+
+func navigate_at(pixel: Vector2, steps: int) -> void:
+	if pending or slider.dragging or steps==0 or not ROWS_RECT.has_point(pixel):return
+	if terminal.get("kind","")=="bazaar" and CATEGORY_RECT.has_point(pixel):
+		if category_rows.is_empty():return
+		category_selected=clampi((category_offset if category_selected<0 else category_selected+steps),0,category_rows.size()-1)
+		category_offset=clampi(category_offset, maxi(0,category_selected-7), category_selected)
+	else:
+		if rows.is_empty():return
+		selected=clampi((int(offset) if selected<0 else selected+steps),0,rows.size()-1)
+		offset=clampf(offset,maxi(0,selected-7),selected)
+	navigation_anchor=pixel
+	navigation_category=terminal.get("kind","")=="bazaar" and CATEGORY_RECT.has_point(pixel)
+	if pointer_down:dragged=true
+	queue_redraw()
+
+func confirm_navigation() -> bool:
+	if pending or pointer_down or slider.dragging or not navigation_anchor.is_finite():return false
+	if navigation_category:
+		if category_selected<0 or category_selected>=category_rows.size():return false
+	elif selected<0 or selected>=rows.size():return false
+	click_at(navigation_target(navigation_anchor))
+	return true
+
+func navigation_target(pixel:Vector2)->Vector2:
+	if pixel.distance_to(navigation_anchor)>12:return pixel
+	if navigation_category and category_selected>=0:
+		return Vector2(CATEGORY_RECT.get_center().x,128+(category_selected-category_offset+.5)*ROW_HEIGHT)
+	if selected>=0:
+		var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else ROWS_RECT
+		return Vector2(region.get_center().x,128+(selected-int(offset)+.5)*ROW_HEIGHT)
+	return pixel
 
 func browse_payload() -> Dictionary:
 	return {"terminal_id":str(terminal.get("id","")),"category_id":category_id,"page":page}
@@ -188,6 +229,8 @@ func category_back() -> void:
 func click_at(pixel: Vector2) -> void:
 	if pending: return
 	if CLOSE_RECT.has_point(pixel): close_requested.emit(); return
+	if terminal.get("kind","")=="house_deposit" and REFRESH_RECT.has_point(pixel):
+		terminal.kind="house";slider.visible=false;rows=terminal.get("options",[]).duplicate(true);selected=-1;queue_redraw();return
 	if REFRESH_RECT.has_point(pixel) and bid_mode:
 		bid_mode=false;slider.visible=false;queue_redraw();return
 	if terminal.get("kind","")=="bazaar" and not bid_mode:
@@ -236,13 +279,20 @@ func confirm() -> void:
 	var payload: Dictionary={"terminal_id":str(terminal.get("id",""))}
 	var action:=""
 	if kind=="bazaar": payload.merge(browse_payload(),true)
-	if kind in ["bank","payment"]:
+	if kind in ["bank","payment","house_deposit"]:
 		if slider.amount<=0: return
 		payload.amount=slider.amount
-		if kind=="bank": action="bank_transfer";payload.direction=direction
+		if kind=="house_deposit":action="house_deposit"
+		elif kind=="bank": action="bank_transfer";payload.direction=direction
 		else:
 			if target_id.is_empty(): return
 			action="pay";payload.target_id=target_id;payload.erase("terminal_id")
+	elif kind=="house":
+		if selected<0 or selected>=rows.size():return
+		var choice:Dictionary=rows[selected]
+		if choice.get("id","")=="deposit":
+			terminal.kind="house_deposit";slider.visible=true;slider.amount=0;update_limit();queue_redraw();return
+		action="house_permission_arm";payload.permission_list=choice.permission_list;payload.permission_action=choice.permission_action
 	elif kind=="delivery":
 		if str(terminal.get("confirm_action",""))!="delivery_pickup":
 			message="Grip and pull the parcel from Data, present it to the recipient, and press trigger.";queue_redraw();return
@@ -274,9 +324,10 @@ func confirm() -> void:
 				payload.mission_id=str(row.get("id",row.get("mission_id","")))
 			"travel":
 				if not bool(row.get("available",true)): return
-				action="travel_purchase";payload.destination_id=str(row.get("id",row.get("destination_id","")))
+				action="travel_purchase";payload.destination_id=str(row.get("id",row.get("destination_id","")));payload.destination_planet=str(row.get("planet",row.get("zone","")))
 			"boarding": action="travel_board";payload.ticket_id=str(row.get("id",row.get("ticket_id","")))
 	if action.is_empty(): return
+	if terminal.get("market_kind","")=="vendor" and action.begins_with("bazaar_"):action=action.replace("bazaar_","vendor_")
 	set_pending(true)
 	action_requested.emit(action,payload)
 
@@ -293,6 +344,7 @@ func label_for(row: Dictionary) -> String:
 
 func detail_for(row: Dictionary) -> String:
 	var detail:=label_for(row)+"\n\n"
+	if terminal.get("kind","")=="house":detail+="Items: %d / %d\nUpkeep: %d credits\nRate: %.1f credits/hour\n\n"%[int(terminal.get("item_count",0)),int(terminal.get("item_limit",0)),int(terminal.get("maintenance",0)),float(terminal.get("maintenance_rate",0))]
 	if terminal.get("kind","")=="mission":
 		detail+="Type: "+str(row.get("type","mission")).capitalize()+"\n"
 		if not str(row.get("target","")).is_empty(): detail+="Target: "+str(row.target)+"\n"
@@ -302,6 +354,10 @@ func detail_for(row: Dictionary) -> String:
 			detail+="X %.0f · Z %.0f\n"%[float(target_position[0]),float(target_position[2])]
 		for key in ["difficulty","reward","planet"]:
 			if row.has(key): detail+=key.capitalize()+": "+str(row[key])+"\n"
+		var standing:Dictionary=row.get("faction_points",{})
+		for faction in ["imperial","rebel"]:
+			var points:=int(standing.get(faction,0))
+			if points!=0:detail+="%s standing: %s%d\n"%[faction.capitalize(),"+" if points>0 else "",points]
 		if not mission_blocked_reason(row).is_empty(): detail+="\n"+mission_blocked_reason(row)+"\n"
 		detail+="\n"+str(row.get("description",""))
 	elif terminal.get("kind","")=="trainer":
@@ -323,24 +379,25 @@ func detail_for(row: Dictionary) -> String:
 	return detail
 
 func _draw() -> void:
-	draw_style_box(preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,14),Rect2(Vector2.ZERO,size))
+	draw_style_box(preload("res://scripts/datapad_theme.gd").frame(14,"wide"),Rect2(Vector2.ZERO,size))
 	var kind:=str(terminal.get("kind","service"))
-	draw_string(FONT,Vector2(22,42),str(terminal.get("name",kind.to_upper())),HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("ccffff"))
-	draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("baffff"))
-	draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("95d7e0"))
+	draw_string(FONT,Vector2(30,50),str(terminal.get("name",kind.to_upper())),HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("d2f6ff"))
+	draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("d2f6ff"))
+	draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("9ac7da"))
 	if kind=="delivery":
 		var hint:=("Confirm to receive the mission recipe and components." if terminal.get("mission_kind","")=="crafting" else "Confirm to receive the mission parcel in Data.") if terminal.get("confirm_action","")=="delivery_pickup" else "Grip and pull the parcel from Data.\nPresent it to the recipient and press trigger.\nRelease grip to return it to the datapad."
-		draw_multiline_string(FONT,Vector2(40,408),hint,HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("95d7e0"))
-	elif kind in ["bank","payment"] or bid_mode:
+		draw_multiline_string(FONT,Vector2(40,408),hint,HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("9ac7da"))
+	elif kind in ["bank","payment","house_deposit"] or bid_mode:
 		if bid_mode:
-			draw_string(FONT,Vector2(170,228),"Bid: "+label_for(rows[selected]),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2ffff"))
+			draw_string(FONT,Vector2(170,228),"Bid: "+label_for(rows[selected]),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2f6ff"))
 		elif kind=="bank":
 			for index in range(2):
 				var active:=(index==0)==(direction=="deposit")
-				draw_rect(Rect2(170+index*260,192,250,60),Color("225b6b") if active else Color("10303e"))
-				draw_string(FONT,Vector2(180+index*260,229),"Deposit to bank" if index==0 else "Withdraw to wallet",HORIZONTAL_ALIGNMENT_LEFT,240,21,Color("d2ffff"))
-		else: draw_string(FONT,Vector2(170,228),"Pay "+str(terminal.get("recipient_name",target_id)),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2ffff"))
-		draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("95d7e0"))
+				draw_style_box(Holo.button("pressed" if active else "normal"),Rect2(170+index*260,192,250,60))
+				draw_string(FONT,Vector2(180+index*260,229),"Deposit to bank" if index==0 else "Withdraw to wallet",HORIZONTAL_ALIGNMENT_LEFT,240,21,Color("d2f6ff"))
+		elif kind=="house_deposit":draw_string(FONT,Vector2(170,228),"Deposit house upkeep · %d credits in reserve"%int(terminal.get("maintenance",0)),HORIZONTAL_ALIGNMENT_LEFT,630,24,Color("d2f6ff"))
+		else: draw_string(FONT,Vector2(170,228),"Pay "+str(terminal.get("recipient_name",target_id)),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2f6ff"))
+		draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("9ac7da"))
 	else:
 		var item_region:=BAZAAR_ROWS_RECT if kind=="bazaar" else ROWS_RECT
 		if kind=="bazaar":
@@ -348,38 +405,40 @@ func _draw() -> void:
 			for entry: Dictionary in category_path:
 				if int(entry.id)!=0: breadcrumb+=" / "+str(entry.name)
 			breadcrumb+=" / "+category_name
-			draw_string(FONT,Vector2(22,115),breadcrumb,HORIZONTAL_ALIGNMENT_LEFT,810,16,Color("95d7e0"))
+			draw_string(FONT,Vector2(22,115),breadcrumb,HORIZONTAL_ALIGNMENT_LEFT,810,16,Color("9ac7da"))
 			for index in range(category_offset,mini(category_rows.size(),category_offset+8)):
 				var category: Dictionary=category_rows[index]
 				var y:=128+(index-category_offset)*ROW_HEIGHT
-				draw_rect(Rect2(20,y,218,ROW_HEIGHT-2),Color("225b6b") if category_selected==index else Color("0b2533"))
-				draw_multiline_string(FONT,Vector2(28,y+18),str(category.get("label",category.get("name",""))),HORIZONTAL_ALIGNMENT_LEFT,195,16,2,Color("ddfbff"))
-			if category_rows.is_empty(): draw_multiline_string(FONT,Vector2(28,157),"No subcategories" if not categories.is_empty() else "Loading original categories…",HORIZONTAL_ALIGNMENT_LEFT,190,18,3,Color("95d7e0"))
+				draw_style_box(Holo.cell(category_selected==index),Rect2(20,y,218,ROW_HEIGHT-2))
+				draw_multiline_string(FONT,Vector2(28,y+18),str(category.get("label",category.get("name",""))),HORIZONTAL_ALIGNMENT_LEFT,195,16,2,Color("d2f6ff"))
+			if category_rows.is_empty(): draw_multiline_string(FONT,Vector2(28,157),"No subcategories" if not categories.is_empty() else "Loading original categories…",HORIZONTAL_ALIGNMENT_LEFT,190,18,3,Color("9ac7da"))
 		for index in range(int(offset),mini(rows.size(),int(offset)+8)):
 			var y:=128+(index-int(offset))*ROW_HEIGHT
-			draw_rect(Rect2(item_region.position.x,y,item_region.size.x,ROW_HEIGHT-2),Color("225b6b") if selected==index else Color("10303e"))
+			draw_style_box(Holo.cell(selected==index),Rect2(item_region.position.x,y,item_region.size.x,ROW_HEIGHT-2))
 			var row_width:=item_region.size.x-16
 			if kind=="trainer":
 				row_width-=100
 				var state:="Learned" if bool(rows[index].get("learned",false)) else ("Train" if bool(rows[index].get("eligible",false)) else "Locked")
 				draw_string(FONT,Vector2(item_region.end.x-98,y+27),state,HORIZONTAL_ALIGNMENT_RIGHT,88,17,Color("8bddd2") if state=="Train" else Color("85a9b2"))
-			draw_string(FONT,Vector2(item_region.position.x+8,y+29),label_for(rows[index]),HORIZONTAL_ALIGNMENT_LEFT,row_width,21,Color("ddfbff"))
-		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("95d7e0"))
+			draw_string(FONT,Vector2(item_region.position.x+8,y+29),label_for(rows[index]),HORIZONTAL_ALIGNMENT_LEFT,row_width,21,Color("d2f6ff"))
+		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
-			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("ddfbff"))
+			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
 		if selected>=0 and selected<rows.size():
 			var row: Dictionary=rows[selected]
 			var detail:=detail_for(row)
-			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("ddfbff"))
-		if rows.size()>8 and kind!="bazaar": draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("95d7e0"))
+			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
+		if rows.size()>8 and kind!="bazaar": draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("9ac7da"))
+	if kind=="house_deposit":
+		draw_style_box(Holo.button(),REFRESH_RECT);draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back",HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if kind in ["bazaar","mission","travel","trainer"]:
-		draw_rect(REFRESH_RECT,Color("16323d") if pending else Color("184454"))
-		draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back to listings" if bid_mode else ("Back" if kind=="bazaar" else ("Refresh offers" if kind=="mission" else "Refresh")),HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("c0f4f7"))
+		draw_style_box(Holo.button("disabled" if pending else "normal"),REFRESH_RECT)
+		draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back to listings" if bid_mode else ("Back" if kind=="bazaar" else ("Refresh offers" if kind=="mission" else "Refresh")),HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if kind=="bazaar" and not bid_mode:
 		for item in [{"rect":BAZAAR_REFRESH,"label":"Refresh"},{"rect":PAGE_PREVIOUS,"label":"‹"},{"rect":PAGE_NEXT,"label":"›"}]:
-			draw_rect(item.rect,Color("184454"))
-			draw_string(FONT,item.rect.position+Vector2(5,33),item.label,HORIZONTAL_ALIGNMENT_CENTER,item.rect.size.x-10,20,Color("c0f4f7"))
-		draw_string(FONT,Vector2(590,115),"Page %d · %d listings"%[page+1,rows.size()],HORIZONTAL_ALIGNMENT_LEFT,240,14,Color("95d7e0"))
+			draw_style_box(Holo.button(),item.rect)
+			draw_string(FONT,item.rect.position+Vector2(5,33),item.label,HORIZONTAL_ALIGNMENT_CENTER,item.rect.size.x-10,20,Color("d2f6ff"))
+		draw_string(FONT,Vector2(590,115),"Page %d · %d listings"%[page+1,rows.size()],HORIZONTAL_ALIGNMENT_LEFT,240,14,Color("9ac7da"))
 	var button: String={"bazaar":"Purchase","mission":"Accept mission","travel":"Buy ticket","boarding":"Board shuttle","bank":"Transfer","payment":"Send credits","crafting":"Use station","trainer":"Train skill"}.get(kind,"Confirm")
 	if kind=="delivery":button=("Receive recipe" if terminal.get("mission_kind","")=="crafting" else "Receive parcel") if terminal.get("confirm_action","")=="delivery_pickup" else "Present parcel by hand"
 	var confirmation_disabled:bool=(kind=="delivery" and terminal.get("confirm_action","")!="delivery_pickup") or pending or (kind=="trainer" and (selected<0 or selected>=rows.size()))
@@ -392,6 +451,6 @@ func _draw() -> void:
 		if kind=="bazaar":
 			if bool(rows[selected].get("retrieve_eligible",false)): button="Retrieve item"
 			elif bool(rows[selected].get("auction",false)): button="Place bid"
-	draw_rect(CONFIRM_RECT,Color("16323d") if confirmation_disabled else Color("225b6b"))
-	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for Core3…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2ffff"))
-	draw_string(FONT,Vector2(22,563),message,HORIZONTAL_ALIGNMENT_LEFT,814,18,Color("b0dde5"))
+	draw_style_box(Holo.button("disabled" if confirmation_disabled else "hover"),CONFIRM_RECT)
+	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for Core3…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
+	draw_string(FONT,Vector2(30,590),message,HORIZONTAL_ALIGNMENT_LEFT,814,18,Color("9ac7da"))

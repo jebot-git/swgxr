@@ -83,7 +83,7 @@ def apply_outfit_variants(importer, catalog, placements):
         descriptor['source_outfit'] = copy.deepcopy(outfit)
         descriptor['source_primary_weapon'] = copy.deepcopy(primary)
         descriptor['unsupported_equipment'] = []
-        descriptor['rigid_equipment'] = []
+        descriptor['rigid_equipment'] = copy.deepcopy(base.get('rigid_equipment', []))
         # Keep the original CDF, including its body customization and wearables.
         # Core3 supplies additional equipped objects rather than a replacement CDF.
         if base['body'] not in models:

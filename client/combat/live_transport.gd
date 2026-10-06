@@ -7,7 +7,7 @@ func cancel() -> void:
 	generation += 1
 
 func destination_valid(destination: Dictionary) -> bool:
-	if str(destination.get("zone", "")) != "tatooine": return false
+	if str(destination.get("zone", "")) not in preload("res://scripts/planet_catalog.gd").ZONES: return false
 	var point: Variant = destination.get("position")
 	if not point is Array or point.size() != 3: return false
 	for value in point:
@@ -24,6 +24,10 @@ func place(app: Node, destination: Dictionary) -> Dictionary:
 	if not destination_valid(destination): return {"ok":false,"error":"Core3 returned an unsupported destination."}
 	generation += 1
 	var epoch := generation
+	if app.has_method("prepare_destination_world"):
+		var loaded:Dictionary=await app.prepare_destination_world(destination)
+		if epoch!=generation:return {"ok":false,"cancelled":true}
+		if not loaded.get("ok",false):return loaded
 	var stage: Node3D = app.stage
 	var player: CharacterBody3D = app.player
 	var origin: Array = stage.get_meta("manifest", {}).get("origin", [0,0,0])
@@ -42,7 +46,8 @@ func place(app: Node, destination: Dictionary) -> Dictionary:
 		if epoch != generation or not is_instance_valid(app) or not is_instance_valid(player): return {"ok":false,"cancelled":true}
 		var terrain_ready: bool = app.terrain == null or app.terrain.ready_near(target)
 		var world_ready: bool = app.world_stream == null or bool(app.world_stream.report.get("ready",false))
-		if terrain_ready and world_ready: break
+		var ambient_ready:bool=app.ambient_npcs==null or bool(app.ambient_npcs.report.get("ready",false))
+		if terrain_ready and world_ready and ambient_ready: break
 		if app.world_stream != null and not str(app.world_stream.report.get("error", "")).is_empty(): return {"ok":false,"error":"Destination scenery could not be loaded."}
 		if Time.get_ticks_msec() > deadline: return {"ok":false,"error":"Destination loading timed out."}
 		await app.get_tree().process_frame

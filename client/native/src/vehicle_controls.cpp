@@ -9,43 +9,59 @@ void SwgVehicleControls::_bind_methods(){
  ClassDB::bind_method(D_METHOD("sample","kind","vehicle","left","right","left_handle","right_handle","left_grip","right_grip","left_available","right_available","tracked","joystick"),&SwgVehicleControls::sample,DEFVAL(0.0));
  ClassDB::bind_static_method("SwgVehicleControls",D_METHOD("advance","speed","throttle","steer","maximum","reverse","acceleration","turn_rate","delta"),&SwgVehicleControls::advance);
 }
-void SwgVehicleControls::reset(){for(auto& h:hands)h=Grip();wheel_angle=0;}
+void SwgVehicleControls::reset(){for(auto& h:hands)h=Grip();wheel_angle=throttle_offset=twist_angle=0;reference_angle=reference_offset=reference_twist=0;reference_ready=false;}
 static double axis(double value,double dead,double limit){if(!std::isfinite(value)||std::abs(value)<=dead)return 0;return std::copysign(std::clamp((std::abs(value)-dead)/(limit-dead),0.0,1.0),value);}
 Dictionary SwgVehicleControls::sample(const String& kind,const Transform3D& vehicle,const Transform3D& left,const Transform3D& right,const Vector3& lh,const Vector3& rh,double lg,double rg,bool la,bool ra,bool tracked,double joystick){
- Dictionary result;double throttle=0,steer=0,angle=0;int count=0;auto inverse=vehicle.affine_inverse();Transform3D poses[]={inverse*left,inverse*right};double grips[]={lg,rg};bool available[]={la,ra};Vector3 handles[]={lh,rh};Vector3 pivot=(lh+rh)*.5;Vector3 acquire[]={lh,rh};
- if(kind!="bike")for(int i=0;i<2;++i)acquire[i]=pivot+Basis(Vector3(0,0,1),wheel_angle).xform(handles[i]-pivot);
- for(int i=0;i<2;++i){auto& h=hands[i];auto p=poses[i];bool valid=tracked && available[i] && p.origin.is_finite() && p.basis.is_finite() && std::isfinite(grips[i]);
-  if(!valid || grips[i]<.25){h.held=false;if(valid && grips[i]<.25)h.armed=true;else h.armed=false;}
-  else if(grips[i]>.65 && h.armed && !h.held){h.armed=false;int handle=p.origin.distance_to(acquire[0])<p.origin.distance_to(acquire[1])?0:1;if(p.origin.distance_to(acquire[handle])<.24 && (!hands[1-i].held || hands[1-i].handle!=handle)){h.held=true;h.neutral=p;if(kind!="bike")h.neutral.origin=pivot+Basis(Vector3(0,0,1),-wheel_angle).xform(p.origin-pivot);h.pivot=pivot;h.handle=handle;}}
-  if(h.held && p.origin.distance_to(h.neutral.origin)>.65){h.held=false;h.armed=false;}
-  result[i==0?"left_held":"right_held"]=h.held;result[i==0?"left_handle":"right_handle"]=h.held?h.handle:-1;
-  if(!h.held)continue;
-  Basis change=p.basis*h.neutral.basis.inverse();double input=0,rotation=0;
-  if(kind=="bike"){
-   // Roll forward about the vehicle's left/right handle axis, independent of
-   // OpenXR controller-specific neutral grip orientation.
-   input=axis(std::atan2(change[1].z,change[1].y),.07,.55);
-   auto a=h.neutral.origin-h.pivot,b=p.origin-h.pivot;
-   rotation=std::atan2(a.z*b.x-a.x*b.z,a.x*b.x+a.z*b.z);
-   steer+=axis(-rotation,.05,.60);
-  }else{
-   // Landspeeder speed uses precise main-hand analog input, never reach depth.
-   input=axis(joystick,.12,1.0);
-   // Steering follows the grabbed rim around the wheel's vertical plane,
-   // not wrist roll or a lateral hand/controller direction. With both hands
-   // held, the rim-to-rim vector removes common translation of the hands.
-   auto a=h.neutral.origin-h.pivot,b=p.origin-h.pivot;
-   if(hands[1-i].held){
-    a=h.neutral.origin-hands[1-i].neutral.origin;
-    b=p.origin-poses[1-i].origin;
-   }
-   rotation=std::atan2(a.y*b.x-a.x*b.y,a.x*b.x+a.y*b.y);
-   steer+=axis(rotation,.05,.65);angle+=std::clamp(-rotation,-.65,.65);
-  }
-  throttle+=input;++count;
+ (void)joystick; // Kept in the ABI for old callers; physical controls own input.
+ Dictionary result;bool membership_changed=false;int count=0;
+ const bool frame_valid=tracked && vehicle.origin.is_finite() && vehicle.basis.is_finite() && std::abs(vehicle.basis.determinant())>.00001 && lh.is_finite() && rh.is_finite();
+ auto inverse=frame_valid?vehicle.affine_inverse():Transform3D();
+ Transform3D poses[]={inverse*left,inverse*right};double grips[]={lg,rg};bool available[]={la,ra};
+ bool valid[2];bool suspended=!frame_valid;
+ for(int i=0;i<2;++i){
+  valid[i]=frame_valid && poses[i].origin.is_finite() && poses[i].basis.is_finite() && std::abs(poses[i].basis.determinant())>.00001 && std::isfinite(grips[i]);
+  bool before=hands[i].held;
+  // Release is physical. Missing tracking/focus is a suspension, never release.
+  if(valid[i] && grips[i]<.25)hands[i].held=false;
+  else if(valid[i] && available[i] && grips[i]>.65)hands[i].held=true;
+  membership_changed|=before!=hands[i].held;
+  if(hands[i].held){++count;if(!valid[i] || !available[i])suspended=true;}
+  result[i==0?"left_held":"right_held"]=hands[i].held;
+  result[i==0?"left_handle":"right_handle"]=hands[i].held?i:-1;
  }
- wheel_angle=count && kind!="bike"?angle/count:0;result["wheel_angle"]=wheel_angle;
- result["held"]=count>0;result["throttle"]=count?throttle/count:0;result["steer"]=count?steer/count:0;return result;
+ if(!count){wheel_angle=throttle_offset=twist_angle=0;reference_ready=false;}
+ else if(suspended)reference_ready=false;
+ else if(membership_changed || !reference_ready){
+  // A new hand inherits the current control state, regardless of where its
+  // controller is held. The other hand's reference is rebased at the same time.
+  for(int i=0;i<2;++i)hands[i].reference=poses[i];
+  reference_angle=wheel_angle;reference_offset=throttle_offset;reference_twist=twist_angle;reference_ready=true;
+ }else{
+  const bool bike=kind=="bike";Vector3 pivot=(lh+rh)*.5;
+  Basis rotation(bike?Vector3(0,1,0):Vector3(0,0,1),reference_angle);
+  Vector3 a,b;double depth=0,twist=0;
+  if(count==2){
+   a=rotation.xform(rh-lh);
+   b=a+(poses[1].origin-hands[1].reference.origin)-(poses[0].origin-hands[0].reference.origin);
+  }else{
+   int i=hands[0].held?0:1;a=rotation.xform((i==0?lh:rh)-pivot);
+   b=a+poses[i].origin-hands[i].reference.origin;
+  }
+  double delta=bike?std::atan2(a.z*b.x-a.x*b.z,a.x*b.x+a.z*b.z):std::atan2(a.x*b.y-a.y*b.x,a.x*b.x+a.y*b.y);
+  if(std::isfinite(delta))wheel_angle=std::clamp(reference_angle+delta,-.65,.65);
+  for(int i=0;i<2;++i)if(hands[i].held){
+   depth+=(poses[i].origin-hands[i].reference.origin).z;
+   Basis change=poses[i].basis*hands[i].reference.basis.inverse();
+   twist+=std::atan2(change[1].z,change[1].y);
+  }
+  if(bike)twist_angle=std::clamp(reference_twist+twist/count,-.55,.55);
+  else throttle_offset=std::clamp(reference_offset+depth/count,-.20,.20);
+ }
+ result["wheel_angle"]=wheel_angle;result["throttle_offset"]=kind=="bike"?0:throttle_offset;
+ result["suspended"]=suspended;result["held"]=count>0 && !suspended;
+ result["throttle"]=count && !suspended?(kind=="bike"?axis(twist_angle,.07,.55):axis(-throttle_offset,.025,.20)):0;
+ result["steer"]=count && !suspended?axis(-wheel_angle,.05,.65):0;
+ return result;
 }
 Dictionary SwgVehicleControls::advance(double speed,double throttle,double steer,double maximum,double reverse,double accel,double turn,double dt){
  Dictionary out;out["speed"]=0.0;out["distance"]=0.0;out["yaw"]=0.0;

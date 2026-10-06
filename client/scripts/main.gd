@@ -11,6 +11,8 @@ var gameplay_session: Node
 var multiplayer_sync: Node
 var gameplay_combat: Node3D
 var mission_parcels: Node3D
+var vendor_placement: Node3D
+var vendor_commerce: Node3D
 var live_combat_reserved := false
 var live_combat_closing := false
 var api_requests_in_flight := 0
@@ -18,9 +20,15 @@ var api_realtime_requests_in_flight := 0
 var native_poll_budget:=preload("res://scripts/native_poll_budget.gd").new()
 var vehicle_activation_requests: Dictionary={}
 var live_combat_epoch := 0
+var active_planet:="tatooine"
+var planet_assets:Dictionary={}
+var planet_catalog:=preload("res://scripts/planet_catalog.gd").new()
+var planet_transition:=preload("res://scripts/planet_transition.gd").new()
 var medical_placement = preload("res://combat/live_transport.gd").new()
 var live_transport_busy := false
 var live_transport_epoch := 0
+var retry_transport:Dictionary={}
+var retry_transport_service:=false
 var live_appearance_text := ""
 var live_appearance_label: Label3D
 var combat_rig: Node3D
@@ -49,6 +57,8 @@ var medic: Node3D
 var vehicles: Node3D
 var pets: Node
 var scout: Node3D
+var housing: Node3D
+var fishing: Node3D
 var crafting: Node3D
 var services: Node3D
 var gathering: Node
@@ -183,7 +193,7 @@ func _ready() -> void:
 			busy = false
 			return
 		loading_screen.attach_head(player.get_camera())
-	loading_screen.set_status("Preparing Tatooine environment…")
+	loading_screen.set_status("Preparing the environment…")
 	await present_loading_frame()
 	make_environment()
 	ensure_voice_chat()
@@ -240,9 +250,10 @@ func configure_inputs() -> void:
 			InputMap.action_add_event(action, key)
 
 func make_environment() -> void:
+	if planet_assets.is_empty():planet_assets=planet_catalog.descriptor(active_planet)
 	environment_presentation = EnvironmentPresentation.new()
 	add_child(environment_presentation)
-	environment_presentation.configure(ProjectSettings.globalize_path("res://../runtime/assets/tatooine_environment/environment.json"))
+	environment_presentation.configure(str(planet_assets.get("environment",ProjectSettings.globalize_path("res://../runtime/assets/tatooine_environment/environment.json"))))
 	if args.has("time-of-day"):
 		environment_presentation.set_phase(float(args["time-of-day"]))
 	if args.has("day-seconds"):
@@ -359,7 +370,7 @@ func make_ui() -> void:
 	var settings_panel := PanelContainer.new()
 	settings_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	settings_panel.custom_minimum_size.x = 550
-	settings_panel.add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").box("081f2d", "245363", 1, 18))
+	settings_panel.add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").frame(18))
 	columns.add_child(settings_panel)
 	var settings := VBoxContainer.new()
 	settings.add_theme_constant_override("separation", 14)
@@ -541,6 +552,8 @@ func configure_backend_connection() -> bool:
 
 func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if session_leaving and path!="/session/logout":return {"ok":false,"error":"Logging off; background request cancelled.","cancelled":true}
+	if body is Dictionary and str(body.get("character_id",""))==datapad_character_id and not datapad_character_id.is_empty():
+		body=body.duplicate(true);body.zone=active_planet
 	var revision:=auth_revision
 	if path not in remote_connection.PUBLIC_AUTH and remote_connection.configured and remote_connection.authenticated and remote_connection.expires_at>0 and Time.get_unix_time_from_system()>=remote_connection.expires_at:
 		expire_account()
@@ -723,11 +736,19 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		status.text = "Live combat requires a real Core3 character and --combat-items."
 		return
 	await stop_live_combat()
+	var desired_zone:=str(entry.get("source_location",{}).get("zone",entry.get("zone",entry.get("character",{}).get("zone","tatooine")))) if not offline else str(args.get("planet","tatooine"))
+	planet_catalog.configure(str(args.get("planet-catalog",preload("res://scripts/planet_catalog.gd").DEFAULT_PATH)))
+	var availability:=planet_catalog.readiness(desired_zone)
+	if not availability.get("ok",false):status.text=str(availability.error);return
+	active_planet=desired_zone;planet_assets=availability.descriptor
+	if desired_zone!="tatooine" or stage_path.is_empty():stage_path=str(planet_assets.get("stage",""))
+	if is_instance_valid(environment_presentation):retire_world_node(environment_presentation);environment_presentation=null
+	make_environment()
 	loading_stage = true
 	desktop_voice_open=false
 	if is_instance_valid(voice_chat):voice_chat.set_allowed(false)
 	ensure_loading_screen()
-	loading_screen.begin("Loading Mos Eisley…")
+	loading_screen.begin("Loading "+active_planet.capitalize()+"…")
 	if is_instance_valid(xr_menu): xr_menu.set_open(false)
 	if ambient_npcs != null:
 		ambient_npcs.queue_free()
@@ -740,6 +761,8 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if is_instance_valid(inventory_drops): inventory_drops.clear()
 	if is_instance_valid(services): services.reset()
 	if is_instance_valid(crafting): crafting.reset()
+	if is_instance_valid(housing): housing.reset()
+	if is_instance_valid(fishing): fishing.reset()
 	if is_instance_valid(medic): medic.reset()
 	if is_instance_valid(vehicles): vehicles.reset()
 	if is_instance_valid(pets): pets.reset()
@@ -772,14 +795,15 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	player.active = false
 	player.velocity = Vector3.ZERO
 	player.set_physics_process(false)
-	asset_status.text = "Loading local Mos Eisley geometry…"
+	asset_status.text = "Loading original "+active_planet.capitalize()+" geometry…"
 	loading_screen.set_status(asset_status.text)
 	await present_loading_frame()
 	if stage == null:
-		stage = loader.load_stage(stage_path)
+		stage = loader.load_stage(stage_path) if not stage_path.is_empty() else loader.empty_stream_stage(planet_assets,planet_default_spawn())
 		if stage == null:
 			fail_loading(str(loader.report.error))
 			return
+		stage.set_meta("planet",active_planet)
 		add_child(stage)
 	player.ground_provider = stage
 	player.spawn_point = loader.vec(loader.report.get("spawn", [0, 2, 0]))
@@ -811,7 +835,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if world_stream == null and not args.has("no-world"):
 		world_stream = WorldStream.new()
 		add_child(world_stream)
-		if not world_stream.configure(str(args.get("world-manifest", ProjectSettings.globalize_path("res://../runtime/assets/tatooine_world/world.json"))), stage):
+		if not world_stream.configure(str(args.get("world-manifest",planet_assets.world)), stage):
 			var error := str(world_stream.report.get("error","World manifest could not be loaded."))
 			world_stream.set_process(false)
 			world_stream.queue_free()
@@ -821,11 +845,11 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if terrain == null and not args.has("no-terrain"):
 		terrain = TerrainStream.new()
 		add_child(terrain)
-		if not terrain.configure(ProjectSettings.globalize_path("res://../runtime/assets/terrain/tatooine.json"), loader.vec(loader.report.origin)):
+		if not terrain.configure(str(planet_assets.terrain), loader.vec(loader.report.origin)):
 			terrain.set_process(false)
 			terrain.queue_free()
 			terrain = null
-			fail_loading("Tatooine terrain could not be loaded. Check the local terrain manifest and converted assets.")
+			fail_loading(active_planet.capitalize()+" terrain could not be loaded. Check the original assets.")
 			return
 	if terrain != null:
 		terrain.set_cell_source(stage)
@@ -839,7 +863,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		terrain.update_observer(player.global_position)
 		player.set_physics_process(false)
 		while not terrain.ready_near(player.global_position):
-			asset_status.text = "Streaming Tatooine ground… %d chunks" % terrain.chunks.size()
+			asset_status.text = "Streaming %s ground… %d chunks" % [active_planet.capitalize(),terrain.chunks.size()]
 			loading_screen.set_status(asset_status.text)
 			await get_tree().process_frame
 	if world_stream != null:
@@ -849,7 +873,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 			if not str(world_stream.report.get("error", "")).is_empty():
 				fail_loading("World loading stopped: " + str(world_stream.report.error))
 				return
-			asset_status.text = "Loading nearby Tatooine scenery… %d objects remaining" % world_stream.report.pending_instances
+			asset_status.text = "Loading nearby %s scenery… %d objects remaining" % [active_planet.capitalize(),world_stream.report.pending_instances]
 			loading_screen.set_status(asset_status.text)
 			await get_tree().process_frame
 	loading_screen.set_status("Synchronizing collision and placing your character…")
@@ -889,15 +913,16 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	ambient_npcs.hidden_animation_enabled = not args.has("no-hidden-animation")
 	add_child(ambient_npcs)
 	ambient_npcs.set_visibility_provider(portal_visibility)
-	if ambient_npcs.configure(ProjectSettings.globalize_path("res://../runtime/assets/ambient_npcs/placements.json"),stage,terrain):
+	if ambient_npcs.configure(str(planet_assets.ambient_placements),stage,terrain):
 		radar_contacts.configure(ambient_npcs)
 		ambient_npcs.update_observer(player.global_position)
 		while not ambient_npcs.report.get("ready",false):
 			loading_screen.set_status("Preparing inhabitants… %d remaining" % int(ambient_npcs.report.get("pending",0)))
 			await get_tree().process_frame
+	get_node("/root/SWGSpatialAudio").configure(player.get_camera(),stage,str(args.get("spatial-audio","steam_audio")))
 	player.testing = smoke_mode or not screenshot_path.is_empty()
 	session_mode = "OFFLINE ASSET INSPECTION" if offline else "CORE3 CHARACTER · LOCAL MOVEMENT · " + str(entry.get("name", "Character"))
-	mode_label.text = "TATOOINE   /   " + session_mode
+	mode_label.text = active_planet.to_upper()+"   /   " + session_mode
 	asset_status.text = "%d mesh instances · %d collision bodies\nLocomotion is local to this prototype." % [loader.report.instances, loader.report.collision_bodies]
 	resume_button.visible = true
 	if args.has("combat-lab"):
@@ -906,6 +931,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		configure_combat_lab(entry.get("weapon_snapshot",{}))
 	if is_instance_valid(datapad):
 		datapad.avatar = tracked_avatar
+		datapad.ui.set_planet(active_planet)
 		await refresh_datapad()
 	if is_instance_valid(inventory):
 		inventory.avatar = tracked_avatar
@@ -922,8 +948,8 @@ func enter_stage(offline: bool, entry := {}) -> void:
 			fail_loading("Core3 gameplay connection failed: "+gameplay_session.last_error);return
 		if not gameplay_session.pending_transport.is_empty():
 			if not await perform_live_transport(gameplay_session.pending_transport,true):return
-		elif gameplay_session.player_state.get("position") is Array and gameplay_session.player_state.get("zone","tatooine")=="tatooine":
-			var native_destination: Dictionary=gameplay_session.player_state.duplicate(true);native_destination.zone="tatooine"
+		elif gameplay_session.player_state.get("position") is Array:
+			var native_destination: Dictionary=gameplay_session.player_state.duplicate(true)
 			var native_placement: Dictionary=await medical_placement.place(self,native_destination)
 			if not native_placement.get("ok",false):fail_loading(str(native_placement.get("error","Native character placement failed.")));return
 	if not is_instance_valid(services):
@@ -938,11 +964,15 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		loading_screen.set_status("Synchronizing nearby players and entities…")
 		var synchronized:bool=await multiplayer_sync.prime()
 		session_mode="CORE3 MULTIPLAYER · "+str(entry.get("name","Character"))
-		mode_label.text="TATOOINE / "+session_mode
+		mode_label.text=active_planet.to_upper()+" / "+session_mode
 		asset_status.text="Persistent Core3 character · shared nearby players and entities · tracked local locomotion" if synchronized else "Core3 connected · waiting for multiplayer world sync: "+multiplayer_sync.last_error
 	if not offline and not is_instance_valid(mission_parcels):
 		mission_parcels=preload("res://scripts/mission_parcels.gd").new();add_child(mission_parcels);mission_parcels.setup(self)
-	loading_screen.set_status("Ready to enter Tatooine")
+	if not offline and not is_instance_valid(vendor_placement):
+		vendor_placement=preload("res://scripts/vendor_placement.gd").new();add_child(vendor_placement);vendor_placement.setup(self)
+	if not offline and not is_instance_valid(vendor_commerce):
+		vendor_commerce=preload("res://scripts/vendor_commerce.gd").new();add_child(vendor_commerce);vendor_commerce.setup(self)
+	loading_screen.set_status("Ready to enter "+active_planet.capitalize()+"")
 	await present_loading_frame()
 	world_ready = true
 	loading_stage = false
@@ -956,6 +986,19 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		player.camera_orbit_yaw = float(args.get("orbit-yaw", args.get("orbit", 0.0)))
 	if not xr_requested and args.has("pitch"):
 		player.camera_pitch = float(args.pitch)
+
+func planet_default_spawn()->Vector3:
+	var source:Variant=planet_assets.get("default_entry",[])
+	if source.is_empty() and not planet_assets.get("travel_points",[]).is_empty():source=planet_assets.travel_points[0]
+	var point:Variant=source.get("position",[0,2,0]) if source is Dictionary else source if source is Array and source.size()==3 else [0,2,0]
+	var position:Vector3=loader.vec(point)-loader.vec(planet_assets.get("origin",[0,0,0]))
+	return Vector3(position.x,position.y+1,-position.z)
+
+func prepare_destination_world(destination:Dictionary)->Dictionary:
+	return await planet_transition.prepare(self,destination)
+
+func install_planet_world(destination:Dictionary)->Dictionary:
+	return await planet_transition.install(self,destination)
 
 func ensure_loading_screen() -> void:
 	if is_instance_valid(loading_screen): return
@@ -979,6 +1022,12 @@ func fail_loading(message: String) -> void:
 
 func dismiss_loading_error() -> bool:
 	if loading_screen==null or not loading_screen.failed or not loading_screen.active: return false
+	if not retry_transport.is_empty():
+		planet_catalog.configure(str(args.get("planet-catalog",preload("res://scripts/planet_catalog.gd").DEFAULT_PATH)))
+		loading_stage=false
+		if retry_transport_service:perform_service_transport(retry_transport)
+		else:perform_live_transport(retry_transport,false)
+		return true
 	loading_screen.finish()
 	menu.visible = true
 	player.active = false
@@ -1050,7 +1099,18 @@ func play_avatar_action(action: String) -> bool:
 		avatar.previous_posture = 0
 	return avatar.play_action(action)
 
+func entertainer_interaction_blocks() -> bool:
+	return (is_instance_valid(entertainer) and entertainer.has_method("blocks_interactions") and entertainer.blocks_interactions()) or (is_instance_valid(scout) and scout.has_method("blocks_interactions") and scout.blocks_interactions())
+
+func gameplay_gesture_reserved() -> bool:
+	if is_instance_valid(pets) and is_instance_valid(pets.creature_handler) and pets.creature_handler.reserves_datapad():
+		return true
+	return is_instance_valid(entertainer) and entertainer.reserves_datapad()
+
 func corpse_interaction_blocks() -> bool:
+	if entertainer_interaction_blocks():return true
+	if is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions():return true
+	if is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions():return true
 	if is_instance_valid(mission_parcels) and mission_parcels.blocks_interactions():return true
 	if (is_instance_valid(voice_controls) and voice_controls.blocks_combat()) or (is_instance_valid(desktop_voice_panel) and desktop_voice_panel.visible):return true
 	return (is_instance_valid(corpse_gathering) and corpse_gathering.blocks_combat()) or (is_instance_valid(services) and services.blocks_combat())
@@ -1064,29 +1124,47 @@ func ensure_gameplay_combat() -> void:
 		gameplay_combat=preload("res://multiplayer/gameplay_combat.gd").new();add_child(gameplay_combat)
 		gameplay_combat.attach(self,combat_rig,gameplay_session,multiplayer_sync)
 		if is_instance_valid(combat_target):combat_target.queue_free();combat_target=null
-		session_mode="CORE3 MULTIPLAYER · "+str(gameplay_session.player_state.get("name","Character"));mode_label.text="TATOOINE / "+session_mode
+		session_mode="CORE3 MULTIPLAYER · "+str(gameplay_session.player_state.get("name","Character"));mode_label.text=active_planet.to_upper()+" / "+session_mode
 		asset_status.text="Persistent Core3 session · equipped ranged attacks use native combat authority."
+
+func interface_button(button: String, side: String) -> bool:
+	if button!="primary_click" or not xr_focused or not world_ready or menu.visible:return false
+	var hand:XRController3D=xr_origin.get_node(side.capitalize()+"Hand")
+	if not preload("res://scripts/tracked_hand_input.gd").controller_tracked(hand) or not bool(player.combat_tracking_context().tracked):return false
+	if is_instance_valid(crafting) and crafting.is_open:return crafting.confirm_button(side)
+	if is_instance_valid(services) and is_instance_valid(services.ui):return services.ui.confirm_button(side)
+	return false
 
 func _process(_delta: float) -> void:
 	ensure_gameplay_combat()
 	update_voice_chat()
 	var diagnostic_active := xr_diagnostic_active()
 	if diagnostic_active and is_instance_valid(player): player.active = false
-	var parcel_blocks:bool=is_instance_valid(mission_parcels) and mission_parcels.blocks_interactions()
+	var parcel_blocks:bool=entertainer_interaction_blocks() or (is_instance_valid(mission_parcels) and mission_parcels.blocks_interactions()) or (is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions()) or (is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions())
 	var service_blocks: bool = (is_instance_valid(services) and services.blocks_combat()) or parcel_blocks
 	if is_instance_valid(services):
-		services.set_allowed(not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services()) and not (is_instance_valid(datapad) and datapad.is_open))
+		services.set_allowed(not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services() and not services.inventory_accessible()) and not (is_instance_valid(datapad) and datapad.is_open))
+	if (entertainer_interaction_blocks() or (is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions()) or (is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions())) and is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_allowed(false)
+	if is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_inventory_focus(is_instance_valid(inventory) and inventory.blocks_services())
+	var inventory_available:bool=not parcel_blocks and not (is_instance_valid(services) and services.blocks_inventory()) and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible
 	if is_instance_valid(inventory):
-		inventory.set_allowed(not service_blocks and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible and not (is_instance_valid(datapad) and datapad.is_open))
+		inventory.set_allowed(inventory_available and not (is_instance_valid(datapad) and datapad.is_open))
+	if is_instance_valid(housing):
+		# Choosing a source blueprint suspends the factory controls but retains its panel.
+		var factory_datapad_overlay:bool=is_instance_valid(housing.factory_panel) and housing.factory_panel.is_open and is_instance_valid(datapad) and datapad.is_open
+		housing.set_allowed(is_instance_valid(inventory) and inventory_available and (inventory.allowed or factory_datapad_overlay) and not player.feedback.life_locked)
+	if is_instance_valid(fishing):fishing.set_allowed(is_instance_valid(inventory) and inventory.allowed and not player.feedback.life_locked)
 	if is_instance_valid(pets):
 		pets.set_allowed(not service_blocks and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active))
 	if is_instance_valid(corpse_gathering):
 		corpse_gathering.set_allowed(not parcel_blocks and not live_combat_reserved and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active))
 	var inventory_blocks: bool = is_instance_valid(inventory) and inventory.blocks_combat()
+	if is_instance_valid(housing) and ((is_instance_valid(housing.harvester_panel) and housing.harvester_panel.is_open) or (is_instance_valid(housing.factory_panel) and housing.factory_panel.is_open)):inventory_blocks=true
 	if is_instance_valid(combat_rig):
 		combat_rig.set_allowed(not service_blocks and not player.feedback.life_locked and (not live_combat_reserved or (is_instance_valid(live_combat) and live_combat.is_ready())) and not diagnostic_active and not inventory_blocks and not inventory_request_pending and world_ready and not loading_stage and not menu.visible and not creator.visible and (not xr_requested or xr_focused) and not (is_instance_valid(datapad) and datapad.is_open))
 	if is_instance_valid(datapad):
-		datapad.set_allowed(not service_blocks and not live_combat_reserved and not diagnostic_active and not (is_instance_valid(inventory) and inventory.interaction_active) and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible)
+		datapad.set_gesture_reserved(gameplay_gesture_reserved())
+		datapad.set_allowed(not datapad.gesture_reserved and not service_blocks and not live_combat_reserved and not diagnostic_active and not (is_instance_valid(inventory) and inventory.interaction_active) and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible)
 		if world_ready:
 			datapad.ui.set_player_position(datapad_source_position())
 	if player != null and (loading_stage or not world_ready):
@@ -1118,9 +1196,9 @@ func _process(_delta: float) -> void:
 	if not xr_requested and avatar != null and stage != null:
 		var turning: float = angle_difference(avatar_previous_yaw, player.rotation.y) / maxf(_delta, 0.001)
 		avatar_previous_yaw = player.rotation.y
-		avatar.update_motion(_delta, Vector2(player.velocity.x, player.velocity.z).length(), {"velocity": player.global_basis.inverse() * player.velocity, "grounded": player.is_on_floor(), "posture": player.posture, "turn_rate": turning, "presentation":player.feedback.animation_context()})
+		avatar.update_motion(_delta, Vector2(player.velocity.x, player.velocity.z).length(), {"velocity": player.global_basis.inverse() * player.velocity, "grounded": player.get_grounded() if player.has_method("get_grounded") else player.is_on_floor(), "posture": player.posture, "turn_rate": turning, "presentation":player.feedback.animation_context()})
 	if stage != null:
-		hud.text = "WASD move  ·  Mouse look  ·  Shift run  ·  Space jump/recover  ·  V view  ·  Alt+mouse orbit  ·  Esc menu  ·  R reset\nC crouch · P prone · X sit · F1 wave · F2 bow · F3 smile · F4 blink\nTatooine · Streamed terrain   /   Position  %.1f  /  %.1f  /  %.1f   ·   %d FPS" % [player.global_position.x, player.global_position.y, player.global_position.z, Engine.get_frames_per_second()]
+		hud.text = "WASD move  ·  Mouse look  ·  Shift run  ·  Space jump/recover  ·  V view  ·  Alt+mouse orbit  ·  Esc menu  ·  R reset\nC crouch · P prone · X sit · F1 wave · F2 bow · F3 smile · F4 blink\n%s · Streamed terrain   /   Position  %.1f  /  %.1f  /  %.1f   ·   %d FPS" % [active_planet.capitalize(),player.global_position.x, player.global_position.y, player.global_position.z, Engine.get_frames_per_second()]
 		if not live_appearance_text.is_empty(): hud.text += "\n" + live_appearance_text
 
 func stage_smoke() -> void:
@@ -1131,7 +1209,7 @@ func stage_smoke() -> void:
 	player.testing = true
 	for i in range(180):
 		await get_tree().physics_frame
-	var grounded: bool = player.is_on_floor()
+	var grounded: bool = player.get_grounded() if player.has_method("get_grounded") else player.is_on_floor()
 	var start: Vector3 = player.global_position
 	player.test_input = Vector2(1, 0)
 	for i in range(30):
@@ -1243,6 +1321,29 @@ func write_evidence(value: Dictionary) -> void:
 		file.store_line(JSON.stringify(value))
 		file.close()
 
+func apply_native_appearance(value: Dictionary) -> void:
+	if not is_instance_valid(avatar) or value.is_empty():return
+	var current:Dictionary=avatar.appearance
+	var hair:Dictionary=value.get("hair",{}) if value.get("hair") is Dictionary else {}
+	var incoming:Array=[value.get("customization",{}),float(value.get("height",1.0)),hair.get("template",""),hair.get("customization",{})]
+	var previous:Array=[current.get("customization",{}),float(current.get("height",1.0)),current.get("hair_template",""),current.get("hair_customization",{})]
+	# Inventory owns equipment updates; only changed body/hair data rebuilds the rig.
+	if incoming==previous:return
+	var appearance:Dictionary=value.duplicate(true)
+	appearance.hair_template=hair.get("template","");appearance.hair_customization=hair.get("customization",{})
+	var hidden_ids:Array=avatar.hidden_equipment_ids.duplicate()
+	var hidden_templates:Array=avatar.hidden_equipment_templates.duplicate()
+	var result:Dictionary=avatar.configure(str(value.get("race",avatar.race_id)),appearance,value.get("equipment",[]))
+	if not str(result.get("error","")).is_empty():
+		asset_status.text="Avatar appearance: "+str(result.error);return
+	avatar.set_equipment_visual_hidden(hidden_ids,hidden_templates)
+	if is_instance_valid(tracked_avatar):
+		var original_mask:int=tracked_avatar.original_cull_mask
+		tracked_avatar.configure(avatar,xr_origin)
+		tracked_avatar.original_cull_mask=original_mask
+		if vr_settings.standing_eye_height>=.8:tracked_avatar.set_standing_eye_height(vr_settings.standing_eye_height)
+	elif player.has_method("set_avatar_height"):player.set_avatar_height(avatar.height_meters)
+
 func configure_player_avatar(entry: Dictionary) -> void:
 	if tracked_avatar != null:
 		tracked_avatar.free()
@@ -1344,6 +1445,7 @@ func initialize_xr() -> bool:
 	add_child(datapad)
 	datapad.configure(xr_origin,player,vr_settings.offhand)
 	player.dominant_hand = "right" if vr_settings.offhand == "left" else "left"
+	player.interface_button_handler=interface_button
 	if vr_settings.standing_eye_height >= 0.8:
 		player.feedback.stance.set_standing_eye_height(vr_settings.standing_eye_height)
 	datapad.radar_contacts_provider = get_radar_contacts
@@ -1353,7 +1455,7 @@ func initialize_xr() -> bool:
 	inventory = load("res://scripts/xr_inventory.gd").new()
 	add_child(inventory)
 	inventory.configure(xr_origin,player,vr_settings.offhand)
-	inventory.external_grab_blocker=func()->bool:return is_instance_valid(services) and services.blocks_combat()
+	inventory.external_grab_blocker=func()->bool:return is_instance_valid(services) and services.blocks_inventory()
 	inventory_drops = load("res://scripts/local_inventory_drops.gd").new()
 	add_child(inventory_drops)
 	inventory_drops.configure(inventory.assets)
@@ -1376,6 +1478,8 @@ func initialize_xr() -> bool:
 	crafting=load("res://scripts/crafting_controller.gd").new()
 	add_child(crafting)
 	crafting.setup(self,inventory)
+	housing=load("res://housing/controller.gd").new();add_child(housing);housing.setup(self,inventory)
+	fishing=load("res://fishing/controller.gd").new();add_child(fishing);fishing.setup(self,inventory)
 	scout=load("res://scout/controller.gd").new();add_child(scout);scout.setup(self,inventory)
 	medic=load("res://medic/controller.gd").new();add_child(medic);medic.setup(self,inventory)
 	vehicles=load("res://vehicles/controller.gd").new();add_child(vehicles);vehicles.setup(self,inventory)
@@ -1513,7 +1617,8 @@ func reconcile_inventory_presentations() -> void:
 			if owned_inventory_item(str(id)).is_empty(): inventory_drops.remove(str(id))
 	if is_instance_valid(inventory) and not inventory.held_item.is_empty():
 		var current:=owned_inventory_item(str(inventory.held_item.get("id","")))
-		if current.is_empty() or current.get("equipped",false): inventory.clear_held()
+		if current.is_empty() and is_instance_valid(housing):current=housing.owned_blueprint(str(inventory.held_item.get("id","")))
+		if current.is_empty() or (current.get("equipped",false) and not (is_instance_valid(fishing) and fishing.owns(str(current.id)))): inventory.clear_held()
 		else: inventory.held_item=current.duplicate(true)
 
 func update_inventory_presentation() -> void:
@@ -1599,7 +1704,7 @@ func activate_inventory_vehicle_deed(item: Dictionary) -> void:
 	# the same semantic request even if the player has moved since sending it.
 	payload=vehicle_activation_requests[key].payload.duplicate(true)
 	if is_instance_valid(live_combat) and live_combat.live:payload.live_session_id=live_combat.session_id
-	inventory_request_pending=true;inventory.begin_mutation("Registering vehicle in Core3…")
+	inventory_request_pending=true;inventory.begin_mutation("Registering deed in Core3…")
 	var result: Dictionary=await api(HTTPClient.METHOD_POST,"/vehicles/activate",payload)
 	inventory_request_pending=false
 	if epoch!=datapad_epoch or not is_instance_valid(inventory):return
@@ -1611,7 +1716,7 @@ func activate_inventory_vehicle_deed(item: Dictionary) -> void:
 		reconcile_inventory_presentations();update_inventory_presentation()
 		if is_instance_valid(live_combat) and live_combat.live and is_instance_valid(vehicles):vehicles.observe(result.get("state",{}))
 		else:await refresh_datapad()
-		if epoch==datapad_epoch:inventory.set_busy(false,"Vehicle added to datapad.")
+		if epoch==datapad_epoch:inventory.set_busy(false,"Deed registered in datapad.")
 	else:
 		inventory.finish_consumable_action({},false)
 		# Retain the request ID after ambiguous failure; never blindly repeat a mutation.
@@ -1620,7 +1725,7 @@ func activate_inventory_vehicle_deed(item: Dictionary) -> void:
 		elif result.get("mutation_started",true)==false:
 			if not vehicle_activation_requests[key].uncertain:vehicle_activation_requests.erase(key)
 		else:vehicle_activation_requests[key].uncertain=true
-		inventory.set_busy(false,str(result.get("error","Vehicle registration was not confirmed. Refresh inventory before retrying.")))
+		inventory.set_busy(false,str(result.get("error","Deed registration was not confirmed. Refresh inventory before retrying.")))
 
 func inventory_held_changed(_item: Dictionary) -> void:
 	if is_instance_valid(combat_rig): combat_rig.stop_inventory_item()
@@ -1628,6 +1733,8 @@ func inventory_held_changed(_item: Dictionary) -> void:
 	update_inventory_presentation()
 
 func drop_inventory_item(item: Dictionary, pose: Transform3D) -> void:
+	if is_instance_valid(vendor_commerce) and vendor_commerce.try_drop(item,pose):return
+	if is_instance_valid(fishing) and fishing.try_drop(item):return
 	if is_instance_valid(scout) and scout.try_throw(item): return
 	# A drawn hip tool still owns its escrow slot; releasing it restores that
 	# presentation. It must not become a second session-local inventory drop.
@@ -1635,6 +1742,7 @@ func drop_inventory_item(item: Dictionary, pose: Transform3D) -> void:
 		inventory.finish_item_action(true)
 		update_inventory_presentation()
 		return
+	if is_instance_valid(housing) and housing.try_drop(item,pose):return
 	if not world_ready or not is_instance_valid(inventory_drops) or owned_inventory_item(str(item.get("id",""))).is_empty():
 		inventory.finish_item_action(false)
 		return
@@ -1726,7 +1834,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 		if rendered.get("ok",false): inventory_equipment_revision=revision
 	var weapon_ids: Array=[]
 	for entry: Dictionary in equipment:
-		if entry.get("equip_slots",[]).has("hold_r") or entry.get("equipped_slots",[]).has("hold_r") or str(entry.get("template","")).begins_with("object/weapon/"):
+		if entry.get("tool_kind","")!="fishing" and (entry.get("equip_slots",[]).has("hold_r") or entry.get("equipped_slots",[]).has("hold_r") or str(entry.get("template","")).begins_with("object/weapon/")):
 			weapon_ids.append(str(entry.get("id","")))
 	var weapon_revision:=JSON.stringify(weapon_ids)
 	if force_statistics or weapon_revision!=inventory_weapon_revision:
@@ -1765,6 +1873,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 		if is_instance_valid(combat_rig):
 			for weapon in combat_rig.weapons:
 				if not weapon.get("inventory_only",false): rendered_ids.append(str(weapon.state.profile.get("item_id","")))
+		if is_instance_valid(fishing) and not fishing.rod.is_empty():rendered_ids.append(str(fishing.rod.id))
 		avatar.set_equipment_visual_hidden(rendered_ids)
 
 func show_equipped_backpack(hidden: bool, template: String) -> void:
@@ -1829,7 +1938,7 @@ func create_datapad_waypoint(point: Vector3, label: String) -> void:
 	var epoch := datapad_epoch
 	datapad_request_pending = true
 	datapad.ui.set_busy(true,"Saving waypoint…")
-	var result := await api(HTTPClient.METHOD_POST,"/waypoints",{"account":datapad_account,"character_id":datapad_character_id,"name":label,"planet":"tatooine","position":{"x":point.x,"y":point.y,"z":point.z}})
+	var result := await api(HTTPClient.METHOD_POST,"/waypoints",{"account":datapad_account,"character_id":datapad_character_id,"name":label,"planet":active_planet,"position":{"x":point.x,"y":point.y,"z":point.z}})
 	datapad_request_pending = false
 	if epoch != datapad_epoch:
 		refresh_datapad()
@@ -1925,7 +2034,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 	combat_target.global_position = (floor_hit.position if not floor_hit.is_empty() else target_point) + Vector3.UP*0.65
 	combat_target.look_at(combat_target.global_position-forward)
 	session_mode += " · CORE3 WEAPONS · LOCAL COMBAT" if args.has("combat-items") else " · LOCAL COMBAT LAB · NON-PERSISTENT"
-	mode_label.text = "TATOOINE / " + session_mode
+	mode_label.text = active_planet.to_upper()+" / " + session_mode
 	asset_status.text = "Combat: dominant grip at hip / over shoulder to draw; keep grip held.
 Melee/unarmed: hold trigger for combat ready; release for peace. Swing and recover distance to attack.
 Ranged: trigger fires; support steadies; B/Y changes mode; empty capacity starts cooling.
@@ -2016,16 +2125,16 @@ func start_live_combat() -> bool:
 		var transport: Dictionary=live_combat.pending_transport
 		if not transport.is_empty():
 			started=await perform_live_transport(transport,true)
-		elif native.get("position") is Array and native.get("zone", "tatooine")=="tatooine":
-			var destination:=native.duplicate(true);destination["zone"]="tatooine"
-			if live_combat.world(native.position).distance_to(player.global_position)>0.05 or int(native.get("cell_index",0))>0:
+		elif native.get("position") is Array:
+			var destination:=native.duplicate(true)
+			if str(native.get("zone",active_planet))!=active_planet or live_combat.world(native.position).distance_to(player.global_position)>0.05 or int(native.get("cell_index",0))>0:
 				var placed: Dictionary=await medical_placement.place(self,destination)
 				started=bool(placed.get("ok",false))
 				if not started:live_combat.last_error=str(placed.get("error","Native character placement failed."))
 	if started:
 		if is_instance_valid(gathering):gathering.process_mode=Node.PROCESS_MODE_INHERIT
 		session_mode = "LIVE CORE3 · RANGED COMBAT TEST"
-		mode_label.text = "TATOOINE / " + session_mode
+		mode_label.text = active_planet.to_upper()+" / " + session_mode
 		asset_status.text = "Live Core3 creatures, HAM, retaliation and deaths. Grip at dominant hip to draw; trigger fires.
 Terminals, wallet, gathering and crafting use the live Core3 session. Legacy inventory RPCs remain suspended during this ranged test. Core3 stays running after exit."
 	return started
@@ -2062,17 +2171,21 @@ func handle_live_transport(transport: Dictionary) -> void:
 func perform_service_transport(transport: Dictionary) -> bool:
 	# A non-combat client still travels only to a destination returned by Core3.
 	if loading_stage or not transport.get("destination") is Dictionary: return false
-	var epoch := datapad_epoch
+	retry_transport=transport.duplicate(true);retry_transport_service=true
+	var epoch := live_transport_epoch
 	loading_stage=true; world_ready=false; player.active=false
 	player.set_physics_process(false)
 	if is_instance_valid(services): services.set_allowed(false)
 	ensure_loading_screen()
+	if loading_screen.has_method("set_failure_hint"):loading_screen.set_failure_hint("Press Menu / Esc to retry loading this destination.")
 	loading_screen.begin("Travelling to the Core3 shuttle destination…")
 	var placed: Dictionary = await medical_placement.place(self,transport.destination)
-	if epoch != datapad_epoch: return false
+	if epoch != live_transport_epoch: return false
 	if not placed.get("ok",false):
 		loading_screen.fail(str(placed.get("error","The destination could not be loaded.")))
 		return false
+	await complete_planet_arrival()
+	retry_transport={}
 	loading_stage=false; world_ready=true
 	player.set_physics_process(true)
 	loading_screen.finish()
@@ -2085,12 +2198,14 @@ func perform_live_transport(transport: Dictionary, initial: bool) -> bool:
 	if live_transport_busy or not is_instance_valid(session): return false
 	var id:=str(transport.get("id",""))
 	if id.is_empty() or not transport.get("destination") is Dictionary: return false
+	retry_transport=transport.duplicate(true);retry_transport_service=false
 	live_transport_busy=true;live_transport_epoch+=1
 	var epoch:=live_transport_epoch
 	session.notified_transport_id=id
 	loading_stage=true;world_ready=false;player.active=false
 	player.set_physics_process(false)
 	if is_instance_valid(combat_rig):combat_rig.set_allowed(false)
+	if loading_screen.has_method("set_failure_hint"):loading_screen.set_failure_hint("Press Menu / Esc to retry loading this destination.")
 	loading_screen.begin("Travelling to the Core3 destination…" if str(transport.get("kind", ""))=="shuttle" else "Transporting to the Core3 medical bay…")
 	var placed: Dictionary=await medical_placement.place(self,transport.destination)
 	if epoch!=live_transport_epoch or not is_instance_valid(session) or session!=(live_combat if live_combat_reserved else gameplay_session):return false
@@ -2108,6 +2223,8 @@ func perform_live_transport(transport: Dictionary, initial: bool) -> bool:
 		await get_tree().process_frame
 	if not session.live:
 		live_transport_busy=false;loading_screen.fail("Core3 disconnected during medical transport.");return false
+	await complete_planet_arrival()
+	retry_transport={}
 	live_transport_busy=false
 	if not initial:
 		loading_stage=false;world_ready=true
@@ -2115,6 +2232,28 @@ func perform_live_transport(transport: Dictionary, initial: bool) -> bool:
 		loading_screen.finish()
 		close_menu()
 	return true
+
+func complete_planet_arrival()->void:
+	# A failed initial transport can be retried after its entry coroutine ended.
+	# Complete the same service ownership setup before exposing the destination.
+	if not is_instance_valid(stage) or not stage.has_meta("manifest"):return
+	if not is_instance_valid(services):
+		services=preload("res://scripts/services_controller.gd").new();add_child(services);services.setup(self)
+	if is_instance_valid(gameplay_session) and gameplay_session.live:
+		if not is_instance_valid(multiplayer_sync):
+			multiplayer_sync=preload("res://multiplayer/client_sync.gd").new();add_child(multiplayer_sync);multiplayer_sync.setup(self)
+		if not is_instance_valid(mission_parcels):
+			mission_parcels=preload("res://scripts/mission_parcels.gd").new();add_child(mission_parcels);mission_parcels.setup(self)
+		if not is_instance_valid(vendor_placement):
+			vendor_placement=preload("res://scripts/vendor_placement.gd").new();add_child(vendor_placement);vendor_placement.setup(self)
+		if not is_instance_valid(vendor_commerce):
+			vendor_commerce=preload("res://scripts/vendor_commerce.gd").new();add_child(vendor_commerce);vendor_commerce.setup(self)
+	if is_instance_valid(datapad):
+		datapad.ui.set_planet(active_planet)
+		await refresh_datapad()
+	if is_instance_valid(services):services.have_previous=false;services.poll_clock=0
+	if is_instance_valid(multiplayer_sync):await multiplayer_sync.prime()
+	if is_instance_valid(mode_label):mode_label.text=active_planet.to_upper()+" / "+session_mode
 
 func live_combat_state_changed(connected: bool, message: String) -> void:
 	if not connected and is_instance_valid(player) and player.feedback.has_method("resolve_life_action"):
@@ -2125,6 +2264,7 @@ func live_combat_state_changed(connected: bool, message: String) -> void:
 	if is_instance_valid(asset_status): asset_status.text = message
 
 func stop_live_combat() -> void:
+	retry_transport={}
 	live_transport_epoch+=1;live_transport_busy=false;medical_placement.cancel()
 	live_combat_epoch += 1
 	var epoch := live_combat_epoch
@@ -2154,7 +2294,7 @@ func leave_character(quit_after: bool=false) -> void:
 	update_buttons()
 	status.text="Saving your location and logging off…"
 	var paused: Dictionary={}
-	for node in [services,gathering,crafting,medic,vehicles,pets,scout,entertainer,corpse_gathering,live_combat,gameplay_session,multiplayer_sync,gameplay_combat,mission_parcels]:
+	for node in [services,gathering,crafting,fishing,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering,live_combat,gameplay_session,multiplayer_sync,gameplay_combat,mission_parcels,vendor_placement,vendor_commerce]:
 		if is_instance_valid(node):paused[node]=node.process_mode;node.process_mode=Node.PROCESS_MODE_DISABLED
 	if is_instance_valid(voice_chat):voice_chat.set_allowed(false)
 	# Freeze new work, then let already-sent transactions settle before the save.
@@ -2206,8 +2346,11 @@ func retire_world_node(node:Node)->void:
 	node.queue_free()
 
 func clear_character_world() -> void:
+	planet_transition.cancel()
 	world_ready=false;datapad_epoch+=1
 	if is_instance_valid(mission_parcels):mission_parcels.reset();mission_parcels.queue_free();mission_parcels=null
+	if is_instance_valid(vendor_commerce):vendor_commerce.reset();vendor_commerce.queue_free();vendor_commerce=null
+	if is_instance_valid(vendor_placement):vendor_placement.reset();vendor_placement.queue_free();vendor_placement=null
 	if is_instance_valid(gameplay_combat):gameplay_combat.reset();gameplay_combat.queue_free();gameplay_combat=null
 	if is_instance_valid(multiplayer_sync):multiplayer_sync.reset();multiplayer_sync.queue_free();multiplayer_sync=null
 	native_poll_budget.reset()
@@ -2217,7 +2360,7 @@ func clear_character_world() -> void:
 	if is_instance_valid(environment_presentation):environment_presentation.set_active(false)
 	if is_instance_valid(inventory):inventory.set_allowed(false);inventory.clear_held();inventory.set_snapshot({})
 	if is_instance_valid(inventory_drops):inventory_drops.clear()
-	for controller in [services,gathering,crafting,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
+	for controller in [services,gathering,crafting,fishing,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
 		if is_instance_valid(controller) and controller.has_method("reset"):controller.reset()
 	if is_instance_valid(datapad):datapad.set_allowed(false);datapad.ui.set_entries([]);datapad.ui.set_skills([],false);datapad.ui.set_experience({},false)
 	player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false);player.ground_provider=null

@@ -13,7 +13,8 @@ class RadarCanvas extends Control:
 	var heading_degrees := 0.0
 	func _draw() -> void:
 		var center:=Vector2(128,128)
-		var cyan:=Color(0.30,0.92,1.0,0.9)
+		var cyan:=preload("res://scripts/datapad_theme.gd").ACCENT
+		draw_style_box(preload("res://scripts/datapad_theme.gd").frame(12),Rect2(4,4,248,248))
 		draw_circle(center,119,Color(0.015,0.08,0.105,0.83))
 		draw_arc(center,118,0,TAU,96,cyan,2,true)
 		for radius in [39.0,78.0]: draw_arc(center,radius,0,TAU,64,Color(0.3,0.92,1.0,0.23),1,true)
@@ -31,7 +32,7 @@ class RadarCanvas extends Control:
 				var y: float=-7 if contact.height_sign>0 else 7
 				var sign_value: float=-1 if contact.height_sign>0 else 1
 				draw_polyline(PackedVector2Array([p+Vector2(-2,y-sign_value*2),p+Vector2(0,y),p+Vector2(2,y-sign_value*2)]),color,1.2,true)
-		draw_colored_polygon(PackedVector2Array([center+Vector2(0,-9),center+Vector2(6,6),center+Vector2(0,3),center+Vector2(-6,6)]),Color("00ccdd"))
+		draw_colored_polygon(PackedVector2Array([center+Vector2(0,-9),center+Vector2(6,6),center+Vector2(0,3),center+Vector2(-6,6)]),cyan)
 		draw_string(LABEL_FONT,Vector2(108,230),"64m",HORIZONTAL_ALIGNMENT_LEFT,-1,16,cyan)
 		draw_string(LABEL_FONT,Vector2(94,38),"%03d°"%(int(round(heading_degrees))%360),HORIZONTAL_ALIGNMENT_CENTER,68,15,cyan)
 var viewport: SubViewport

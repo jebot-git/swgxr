@@ -4,6 +4,7 @@ const HandInput = preload("res://scripts/tracked_hand_input.gd")
 const MAX_VISIBLE_PEERS := 8
 var app: Node
 var ui: Node3D
+var gcw:Node3D
 var scenery: Node3D
 var state: Dictionary = {}
 var busy := false
@@ -35,14 +36,17 @@ func setup(host: Node) -> void:
 		ui.configure(app.xr_origin, app.player, app.vr_settings.offhand)
 		ui.terminal_provider = terminal_records
 		ui.remote_hands_provider = remote_hands
+		ui.inventory_focus_provider=func()->bool:return is_instance_valid(app.inventory) and app.inventory.has_method("blocks_services") and app.inventory.blocks_services()
 		ui.action_requested.connect(request)
 		ui.opened.connect(interface_opened)
 	scenery = preload("res://scripts/service_world.gd").new()
 	add_child(scenery)
+	gcw=preload("res://gcw/controller.gd").new();add_child(gcw);gcw.setup(self)
 	reset()
 
 func reset() -> void:
 	generation += 1
+	if is_instance_valid(gcw):gcw.reset()
 	busy = false; presence_busy = false; state = {}; peers = []
 	presence_token = ""; presence_sequence = 0; presence_age = 100.0
 	state_age = 100.0
@@ -56,7 +60,7 @@ func reset() -> void:
 	if is_instance_valid(scenery):
 		scenery.reset()
 		var origin: Array = app.loader.report.get("origin", [0,0,0])
-		scenery.configure(Vector3(float(origin[0]),float(origin[1]),float(origin[2])))
+		scenery.configure(Vector3(float(origin[0]),float(origin[1]),float(origin[2])),preload("res://scripts/planet_catalog.gd").context_path(app,"services","res://../runtime/assets/services/catalog.json"))
 	for marker: Node3D in peer_markers.values(): marker.queue_free()
 	peer_markers.clear()
 
@@ -68,6 +72,12 @@ func set_allowed(value: bool) -> void:
 
 func blocks_combat() -> bool:
 	return is_instance_valid(ui) and ui.blocks_combat()
+
+func inventory_accessible() -> bool:
+	return is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor"] and not ui.wallet_held
+
+func blocks_inventory() -> bool:
+	return blocks_combat() and not inventory_accessible()
 
 func interface_opened() -> void:
 	if is_instance_valid(app.datapad): app.datapad.set_open(false)
@@ -85,7 +95,7 @@ func world(point: Array) -> Vector3:
 
 func identity_payload() -> Dictionary:
 	var payload: Dictionary = {"account":app.datapad_account,"character_id":app.datapad_character_id,
-		"position":source(app.player.global_position),"building_id":"0","cell_index":0}
+		"zone":preload("res://scripts/planet_catalog.gd").current(app),"position":source(app.player.global_position),"building_id":"0","cell_index":0}
 	if is_instance_valid(app.stage) and app.stage.get("current_cell") is Dictionary:
 		var cell: Dictionary = app.stage.current_cell
 		var key := str(cell.get("cell_id", ""))
@@ -103,6 +113,12 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 	if not allowed or app.datapad_character_id.is_empty():
 		if is_instance_valid(ui): ui.set_pending(false)
 		return {}
+	if action in ["travel_purchase","travel_board"]:
+		var ready:=travel_assets_ready(action,detail)
+		if not ready.get("ok",false):
+			last_error=str(ready.error)
+			if is_instance_valid(ui):ui.set_pending(false);ui.panel.message=last_error;ui.panel.queue_redraw()
+			return ready
 	busy = true
 	var version := generation
 	var character_epoch: int = app.datapad_epoch
@@ -114,11 +130,15 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 	if version != generation or character_epoch != app.datapad_epoch: return {}
 	busy = false
 	if not accept_response(response, action != "status"):
+		if is_instance_valid(gcw) and action.begins_with("recruiter_"):gcw.outcome(last_error)
 		if is_instance_valid(ui):
 			ui.set_pending(false); ui.panel.message = last_error; ui.panel.queue_redraw()
 		poll_clock = 5.0
 		queued_action = {} # A failed read must not launch a pending economic mutation.
 		return response
+	if action=="house_permission_arm" and bool(response.get("mutation",{}).get("success",false)):
+		# Release the terminal interaction gate so the owner can shake hands.
+		if is_instance_valid(ui):ui.close_interface()
 	if action in ["delivery_pickup","delivery_complete"] and bool(response.get("mutation",{}).get("success",false)):
 		if is_instance_valid(ui):ui.close_interface()
 		if is_instance_valid(app.datapad):
@@ -143,6 +163,21 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 		call_deferred("request", str(next.action), next.detail)
 	return response
 
+func travel_assets_ready(action:String,detail:Dictionary)->Dictionary:
+	var planet:=str(detail.get("destination_planet",""))
+	if action=="travel_board":
+		var choices:Array=state.get("tickets",[]).duplicate()
+		for shuttle:Dictionary in state.get("shuttles",[]):choices.append_array(shuttle.get("tickets",[]))
+		var found:=false
+		for ticket:Dictionary in choices:
+			if str(ticket.get("id",""))==str(detail.get("ticket_id","")):
+				planet=str(ticket.get("destination_planet",ticket.get("planet",ticket.get("zone",""))));found=true;break
+		if not found:return {"ok":false,"error":"Refresh the available shuttle tickets before boarding."}
+	if planet.is_empty():planet=preload("res://scripts/planet_catalog.gd").current(app)
+	var resolver:=preload("res://scripts/planet_catalog.gd").new()
+	resolver.configure(str(app.planet_catalog.path) if app.get("planet_catalog")!=null else preload("res://scripts/planet_catalog.gd").DEFAULT_PATH)
+	return resolver.readiness(planet)
+
 func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	if not response.get("ok",false) or response.get("source_kind","") != "core3_services" or str(response.get("character_id","")) != str(app.datapad_character_id):
 		last_error = str(response.get("error", "Core3 did not confirm this interaction. Refresh before retrying."))
@@ -154,6 +189,12 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	var live: Variant = response.get("live_response")
 	var normal: Variant=app.get("gameplay_session")
 	var session: Variant=app.live_combat if is_instance_valid(app.live_combat) and app.live_combat.live else normal if is_instance_valid(normal) and normal.live else null
+	if str(incoming.get("zone",preload("res://scripts/planet_catalog.gd").current(app)))!=preload("res://scripts/planet_catalog.gd").current(app):
+		# Only an owned, newer native transport can replace the current zone.
+		if live is Dictionary and is_instance_valid(session) and str(live.get("session_id",""))==str(session.session_id) and int(live.get("sequence",-1))>int(session.sequence) and live.get("snapshot") is Dictionary and live.snapshot.get("transport") is Dictionary and not live.snapshot.transport.is_empty():
+			return session.accept_native_response(live) if session==normal else session.accept_response(live)
+		last_error="Discarded services from a previous planet.";return false
+	var accepted_epoch:=generation
 	var progress_current: bool=not (is_instance_valid(normal) and normal.live and session==normal)
 	if is_instance_valid(session) and response.has("live_response"):
 		progress_current=live is Dictionary and str(live.get("session_id",""))==str(session.session_id) and int(live.get("sequence",-1))>=int(session.sequence)
@@ -163,6 +204,10 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 		state_age = 0.0
 	var parcels:Variant=app.get("mission_parcels")
 	if progress_current and is_instance_valid(parcels):parcels.observe(response)
+	var housing_controller:Variant=app.get("housing")
+	if progress_current and is_instance_valid(housing_controller):housing_controller.observe(response)
+	var vendors:Variant=app.get("vendor_placement")
+	if progress_current and is_instance_valid(vendors):vendors.observe(response)
 	if is_instance_valid(app.get("datapad")) and is_instance_valid(app.datapad.get("ui")) and app.datapad.ui.has_method("set_service_points"):
 		app.datapad.ui.set_service_points(state.get("terminals",[]))
 	last_error = ""
@@ -172,9 +217,11 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	var display := state.duplicate(true)
 	display.mutation = response.get("mutation",{})
 	if is_instance_valid(ui): ui.apply_response(display, resolve_pending)
+	if progress_current and is_instance_valid(gcw):gcw.observe(response)
 	if live is Dictionary and is_instance_valid(normal) and normal.live and session==normal and str(live.get("session_id",""))==str(normal.session_id) and int(live.get("sequence",-1))>int(normal.sequence):
 		if not normal.accept_native_response(live):
 			last_error=normal.last_error;return false
+	if generation!=accepted_epoch:return true
 	# Economic receipts remain visible, but older live envelopes cannot roll back XP/skills.
 	if progress_current:
 		apply_skill_snapshot(state)
@@ -227,7 +274,7 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
 		value.position = world(record.position)
-		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery"]:
+		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter"]:
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis
 			var object_pose:=Transform3D(basis,value.position)
@@ -322,7 +369,7 @@ func _process(delta: float) -> void:
 	if presence_age > 0.8 and not peer_markers.is_empty(): update_peer_markers()
 	if is_instance_valid(scenery): scenery.advance(delta)
 	if not allowed: have_previous=false; return
-	if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding"]:
+	if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding","contraband"]:
 		# A background scheduler delay cannot close an otherwise static panel.
 		# New discovery still requires fresh records; every mutation revalidates natively.
 		if not terminal_records(false).any(func(record): return str(record.id)==str(ui.terminal.id)):
@@ -331,8 +378,8 @@ func _process(delta: float) -> void:
 	if poll_clock <= 0 and not busy and not (is_instance_valid(ui) and ui.pointer_pressed) and (not app.has_method("try_background_poll") or app.try_background_poll("services")):
 		poll_clock=5.0
 		var detail: Dictionary={}
-		if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding"]: detail.terminal_id=str(ui.terminal.id)
-		if is_instance_valid(ui) and ui.terminal.get("kind","")=="bazaar": detail.merge(ui.panel.browse_payload(),true)
+		if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding","contraband"]: detail.terminal_id=str(ui.terminal.id)
+		if is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor"]: detail.merge(ui.panel.browse_payload(),true)
 		if is_instance_valid(ui) and ui.terminal.get("kind","")=="delivery":
 			detail={"npc_id":str(ui.terminal.id),"mission_id":str(ui.terminal.get("mission_id",""))}
 			request("delivery_open",detail)

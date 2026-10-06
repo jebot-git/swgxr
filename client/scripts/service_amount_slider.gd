@@ -7,6 +7,8 @@ var maximum := 0
 var amount := 0
 var dragging := false
 var enabled := true
+const Holo=preload("res://scripts/datapad_theme.gd")
+const HANDLE_SIZE:=Vector2(32,40)
 const TRACK := Rect2(24,36,512,12)
 
 func _ready() -> void:
@@ -51,10 +53,25 @@ func _gui_input(event: InputEvent) -> void:
 
 func _draw() -> void:
 	var font:=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
-	draw_rect(TRACK,Color("1b4654"))
+	draw_track()
+	draw_string(font,Vector2(24,81),str(minimum),HORIZONTAL_ALIGNMENT_LEFT,140,16,Color("9ac7da"))
+	draw_string(font,Vector2(200,81),"%d credits"%amount,HORIZONTAL_ALIGNMENT_CENTER,160,19,Color("d2f6ff"))
+	draw_string(font,Vector2(396,81),str(maximum),HORIZONTAL_ALIGNMENT_RIGHT,140,16,Color("9ac7da"))
+
+func handle_rect() -> Rect2:
 	var fraction:=float(amount-minimum)/(maximum-minimum) if maximum>minimum else 0.0
-	draw_rect(Rect2(TRACK.position,Vector2(TRACK.size.x*fraction,TRACK.size.y)),Color("55b8c5"))
-	draw_circle(Vector2(TRACK.position.x+fraction*TRACK.size.x,42),15,Color("c1ffff") if enabled else Color("597580"))
-	draw_string(font,Vector2(24,81),str(minimum),HORIZONTAL_ALIGNMENT_LEFT,140,16,Color("9ececf"))
-	draw_string(font,Vector2(200,81),"%d credits"%amount,HORIZONTAL_ALIGNMENT_CENTER,160,19,Color("d2ffff"))
-	draw_string(font,Vector2(396,81),str(maximum),HORIZONTAL_ALIGNMENT_RIGHT,140,16,Color("9ececf"))
+	return Rect2(Vector2(TRACK.position.x+fraction*TRACK.size.x,TRACK.get_center().y)-HANDLE_SIZE*.5,HANDLE_SIZE)
+
+func draw_track() -> void:
+	var handle:=handle_rect()
+	draw_style_box(Holo.box("0b2638","285369",1,0),TRACK)
+	draw_style_box(Holo.box("3e9fba","67dcff",0,0),Rect2(TRACK.position,Vector2(handle.get_center().x-TRACK.position.x,TRACK.size.y)))
+	# Extended square grip is visible above and below the track; normal clicks
+	# and the service surface's captured grip drag use the same value mapping.
+	var grip:=Holo.cell(dragging,0)
+	grip.set_corner_radius_all(1)
+	grip.bg_color=Color("12384b") if enabled else Color("142b38")
+	grip.border_color=Holo.ACCENT if enabled else Holo.MUTED
+	grip.set_border_width_all(2)
+	draw_style_box(grip,handle)
+	for x in [-4,4]:draw_line(handle.get_center()+Vector2(x,-8),handle.get_center()+Vector2(x,8),Holo.INK if enabled else Holo.MUTED,2)

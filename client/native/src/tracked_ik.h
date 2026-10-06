@@ -14,12 +14,14 @@ class SwgTrackedIK : public RefCounted {
         double first_length = 0, second_length = 0;
         Vector3 bend;
         bool have_bend = false;
+        bool attached = false;
+        Vector3 free_hand_position;
     };
     uint64_t skeleton_id = 0;
     int head = -1;
     Arm left, right;
     Dictionary solve_arm(Skeleton3D *skeleton, Arm &arm, const Transform3D &target,
-                         const Vector3 &pole, double delta);
+                         const Vector3 &pole, double delta, bool attached = false);
 protected:
     static void _bind_methods();
 public:

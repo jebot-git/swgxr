@@ -49,6 +49,8 @@ func run() -> void:
 	check(app.ambient_npcs.report.get("ready",false),"Initial NPC publication finishes behind the loading screen")
 	check(app.loading_frames>=4 and not app.exposed,"Blocking load phases yield while the screen covers disabled locomotion")
 	check(app.collision_status_seen,"Collision synchronization is represented by a real loading status")
+	app.clear_character_world()
+	await process_frame
 	app.args = {"desktop":true,"no-terrain":true,"world-manifest":"res://../runtime/does-not-exist-world.json"}
 	await app.enter_stage(true)
 	check(not app.world_ready and app.loading_screen.active and app.loading_screen.failed,"Required world failure cannot silently enter a partial scene")

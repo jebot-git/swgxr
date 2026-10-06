@@ -13,7 +13,7 @@ func tracker(side: String) -> XRControllerTracker:
 	item.type = XRServer.TRACKER_CONTROLLER
 	item.name = side + "_hand"
 	item.hand = XRPositionalTracker.TRACKER_HAND_LEFT if side == "left" else XRPositionalTracker.TRACKER_HAND_RIGHT
-	for action in ["ax_button", "by_button", "primary_click"]: item.set_input(action, false)
+	for action in ["ax_button", "by_button", "primary_click", "menu_button"]: item.set_input(action, false)
 	item.set_input("primary", Vector2.ZERO)
 	item.set_input("grip", 0.9)
 	item.set_input("trigger", 0.0)
@@ -77,14 +77,15 @@ func run() -> void:
 		await process_frame
 		rig._physics_process(0.01)
 		check(rig.weapons[0].state.fired == 1 and not rig.abilities.primed and rig.abilities.cooldowns.has("lethal_shot"), "Actual trigger consumes exactly one ability")
-		left.set_input("ax_button", true)
+		left.set_input("menu_button", true)
 		await process_frame
-		check(menu_signals == before + 1, "X retains system menu access")
+		check(menu_signals == before + 1, "Dedicated menu button retains system menu access")
 		rig.set_allowed(false)
 		check(body.combat_stick_side.is_empty() and not body.combat_prime_active, "Focus gate releases ability capture immediately")
 		origin.free()
 		for controller in [left, right]:
 			controller.set_input("ax_button", false)
+			controller.set_input("menu_button", false)
 			controller.set_input("trigger", 0.0)
 		await process_frame
 	for item in [left, right, head]: XRServer.remove_tracker(item)

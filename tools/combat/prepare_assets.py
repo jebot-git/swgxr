@@ -33,12 +33,14 @@ def curve(node):
 
 
 class Assets(StaticAssets):
-    def __init__(self, tre, out):
+    def __init__(self, tre, out, *, bounded_particle_graphs=False):
         super().__init__(tre, out)
         self.audio_importer = EnvironmentImporter(tre, out)
         # Preserve original WAV samples or losslessly decode compressed originals.
         self.audio_importer.audio = self.audio
         self.effects, self.particles = {}, {}
+        self.bounded_particle_graphs = bounded_particle_graphs
+        self._particle_stack = set()
 
     def audio(self, source):
         raw = self.read(source)
@@ -64,11 +66,22 @@ class Assets(StaticAssets):
     def particle(self, path):
         path = path.lower().replace('\\','/')
         if path in self.particles: return path
+        if path in self._particle_stack: raise ValueError('Cyclic particle attachment '+path)
+        self._particle_stack.add(path)
+        try:
+            return self._particle(path)
+        finally:
+            self._particle_stack.remove(path)
+
+    def _particle(self, path):
         root = parse_iff(self.read(path)); emitters = []
+        omissions = []
         if root.tag != 'PEFT': raise ValueError('Unsupported particle appearance '+root.tag)
         for emitter in root.walk('EMTR'):
             version = emitter.children[0]
-            if version.tag != '0011': raise ValueError('Unsupported EMTR '+version.tag)
+            # 0009 and 0011 share the entire decoded prefix; the later ground
+            # collision/LOD extension stays opaque in remaining_source_hex.
+            if version.tag not in ('0009', '0011'): raise ValueError('Unsupported EMTR '+version.tag)
             waves = [curve(n) for n in version.children if n.tag=='WVFM']
             if len(waves)!=16: raise ValueError('Unexpected emitter curves')
             data = next(n.data for n in version.children if n.tag=='0000')
@@ -90,7 +103,10 @@ class Assets(StaticAssets):
             timing = version.first('PTIM').children[0]
             info['timing'] = list(struct.unpack('<4f2i',timing.data))
             quad = next((n for n in version.children if n.tag=='PTQD'),None)
-            if quad is None: raise ValueError('Unsupported non-quad particle')
+            if quad is None:
+                if not self.bounded_particle_graphs: raise ValueError('Unsupported non-quad particle')
+                omissions.append({'emitter':name,'reason':'non_quad_particle'})
+                continue
             base = quad.first('PTCL').children[0]
             qv = next(n for n in quad.children if n.tag=='0001')
             info['color'] = curve(base.first('CLRR'))
@@ -100,6 +116,20 @@ class Assets(StaticAssets):
             info['linked_size'] = bool(next(n.data[0] for n in qv.children if n.tag=='0000'))
             tex = qv.first('PTEX').first('0000').data
             shader, tp = cstring(tex)
+            if self.bounded_particle_graphs:
+                for attachment in base.walk('PATT'):
+                    source = cstring(attachment.children[0].first('0000').data)[0]
+                    if not source.lower().endswith('.prt'):
+                        omissions.append({'emitter':name,'reason':'non_particle_attachment','source':source})
+                        continue
+                    child = self.particle(source)
+                    # Original child emitter curves/textures are retained. The
+                    # bounded runtime does not simulate nested moving emitters.
+                    emitters.extend(self.particles[child]['emitters'])
+                    omissions.append({'emitter':name,'reason':'attachment_motion_flattened','source':source})
+                if not shader:
+                    omissions.append({'emitter':name,'reason':'untextured_attachment_carrier'})
+                    continue
             info['material'] = dict(self.material(shader))
             shader_root = parse_iff(self.read(shader))
             effects = [cstring(n.data)[0].lower().replace('\\','/') for n in shader_root.walk('NAME') if b'.eft' in n.data]
@@ -108,6 +138,7 @@ class Assets(StaticAssets):
             info['texture_animation'] = list(struct.unpack_from('<iiififB',tex,tp))
             emitters.append(info)
         self.particles[path] = {'source':path,'emitters':emitters}
+        if omissions: self.particles[path]['bounded_omissions'] = omissions
         return path
 
     def effect(self, path):

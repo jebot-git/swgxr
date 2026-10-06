@@ -154,5 +154,10 @@ func apply_authoritative(context: Dictionary) -> bool:
 		ham[index * 3] = current[index]
 		max_ham[index * 3] = maximum[index]
 		wounds[index * 3] = blocked[index]
-	pools_valid = true; vitals_valid = true; primed = false
+	pools_valid = true; vitals_valid = true
+	# A native contact command is consumed by its gesture/receipt, not by routine
+	# HAM replication while the player reaches towards the creature.
+	# The entertainer owns its multi-frame gesture and consumes it on dispatch.
+	# Routine HAM replication must not cancel that noncombat selection.
+	if selection_owner != "entertainer" and (selected.is_empty() or selection.get("activation","")!="native_contact"): primed = false
 	return true

@@ -712,3 +712,84 @@ existing ambient or original Tatooine entity catalogs. Native trainer IDs,
 eligibility and transactions remain authoritative. Source placement matching
 allows only documented same-trainer variants within 25cm in the same native
 building and cell; the service renderer never adds a second trainer actor.
+
+## Original ground planets and travel destinations
+
+`python3 tools/assets/prepare_planets.py` prepares the ten original ground worlds:
+Corellia, Dantooine, Dathomir, Endor, Lok, Naboo, Rori, Talus, Tatooine and
+Yavin IV. It runs converters serially to bound memory use. Resume with the same
+command; `--planets naboo corellia` selects a subset. Existing Tatooine paths and
+its verified Mos Eisley origin remain unchanged. New worlds use SWG origin zero
+and stream their complete snapshots, including original POB interiors, portal
+ownership, FLR floors, authored collision declarations and ILF decorations.
+
+The local `runtime/assets/planets/catalog.json` contains a `planets` dictionary.
+Each descriptor exposes `planet`, `origin`, `ready`, `failures`, absolute local
+`terrain`, `terrain_context`, `world`, `environment`, `services`, `trainers`,
+`ambient_npcs`, `ambient_placements`, `entities`, `entity_catalogs`, `inventory`,
+`corpses`, `datapad` and `stage` paths. Empty `stage` means the world streamer
+owns all geometry; it never means substitute terrain or a proxy building.
+`travel_points` and `default_entry` come directly from Core3's planet manager.
+They are reference positions, not authorization to board or travel.
+
+Shared datapad export now includes all ten original map rasters, source POIs,
+cities and service buildings. `complete_planet_features.py` prepares original
+lair models in the shared inventory catalog, harvestable corpse poses, trainer
+references and the explicit appearance-catalog union. Exact source models may
+be reused across worlds; clients must consult `entity_catalogs` rather than
+assuming every reused model is copied into the current planet's directory.
+No local ambient placement, source travel point or model cache is live state.
+Native Core3 still controls spawns, tickets, schedules, prices and transactions.
+
+Cache state records converter hashes. Existing outputs are adopted only after
+recorded source dependencies validate; later converter or source changes trigger
+reconstruction. `--force` explicitly rebuilds selected components. A diagnostic
+`--skip-entities` pass does not claim full supported-feature readiness.
+Run `python3 tools/assets/validate_planets.py` to audit coordinate agreement,
+original travel positions, map availability, every exported mesh/cell/portal and
+source dependency hashes. Render/headset validation is separate.
+
+Readiness means the supported component manifests exist, not that every original
+renderer effect has been reproduced. `source_asset_limitations`,
+`terrain_rule_limitations`, `architecture_omissions` and `collision_coverage`
+retain exact missing/partial conversion counts and source records. Original
+procedural detail flora/weather and multipass shaders retain the prototype's
+existing limitations. NULL collision declarations deliberately produce no
+blocking shape. Kashyyyk and Mustafar are outside the pinned pre-CU planet set
+and lack terrain/snapshot records in active media; the catalog reports them as
+unsupported, with no fabricated environments or travel destinations.
+
+## Factory references
+
+After `python3 tools/assets/prepare_housing.py`, run
+`python3 tools/assets/prepare_factories.py` to prepare all four native factory
+deed previews and nine output-crate appearances, and audit the matching clothing, food, structure and item factory
+geometry. The ignored `runtime/assets/factories/catalog.json` records Core3 deed
+definition hashes, preview descriptors, housing geometry hashes and exact
+manufacturing-schematic source provenance. These references grant no objects.
+
+The original `object/manufacture_schematic/shared_generic_schematic.iff` and its
+inherited templates supply no world or inventory appearance. This is a source
+limitation, not a missing conversion or permission to substitute an original item
+mesh. The client uses a labeled holographic blueprint UI card for native datapad
+manufacturing schematics. Factory deeds retain their original datapad mesh.
+
+## Moving vehicle and droid audio
+
+`python3 tools/assets/prepare_mobile_audio.py --ensure` exports the original
+vehicle saddle CDF `VTHR`/`VSND` damage bands and droid inherited client-data
+`ASND`/`CSND` bindings. The launcher prepares it after the vehicle catalog.
+All converted recordings, source hashes and failures stay under ignored
+`runtime/assets/mobile_audio/`. Current media yield 55 templates, 40 bindings
+and 86 sound definitions. No replacement recordings are downloaded or synthesized.
+
+Vehicles use original idle/run loops and start/stop effects. Live player droids
+use original ambient variants/repeat delays, movement and observed damage sounds.
+Motion transitions use prototype thresholds; this is not original animation-event
+timing. Attack, vocalization and fall slots are exported but await authoritative
+runtime event wiring. Sources follow entity poses, expire with stale native state,
+and share the bounded HMD spatial mixer and asynchronous Ogg cache.
+
+Three referenced source files are absent from the active TREs:
+`sound/dro_remote_fire.snd`, `sound/dro_remote_get_hit.snd`, and
+`voice/sound/dro_protocol_m_hello.snd`. The catalog records these as missing assets.

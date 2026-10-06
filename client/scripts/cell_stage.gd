@@ -256,7 +256,7 @@ func update_cell(force := false) -> void:
 		seed_pending = true
 	if seed_pending:
 		current_cell = classify_world(position)
-		if not current_cell.is_empty() or (observer is CharacterBody3D and observer.is_on_floor()):
+		if not current_cell.is_empty() or (observer is CharacterBody3D and (observer.get_grounded() if observer.has_method("get_grounded") else observer.is_on_floor())):
 			seed_pending = false
 	elif have_previous:
 		current_cell = advance_world(previous_position + Vector3.UP * 0.5, position + Vector3.UP * 0.5, current_cell)

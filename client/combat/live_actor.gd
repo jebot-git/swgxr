@@ -2,6 +2,7 @@ extends StaticBody3D
 ## Render/collision projection of one real Core3 identity. Never owns health or AI.
 const NPCEquipment=preload("res://scripts/npc_equipment.gd")
 const Avatar=preload("res://scripts/avatar.gd")
+var catalog_candidates:Array=[]
 var record:Dictionary={}
 var session_id:=""
 var visual:Node3D
@@ -13,8 +14,10 @@ var last_snapshot_position:=Vector3.ZERO
 var report:Dictionary={}
 var equipment:=NPCEquipment.new()
 var rigid_equipment:Array=[]
+var carrier:RefCounted
 var presentation_floor_offset:=Vector3.ZERO
 var presentation_floor_height:=0.0
+var mobile_sound:Node3D
 
 func original_catalog(template:String,primary:String)->String:
 	# Match the complete source appearance ID. Never substitute a same-race body
@@ -24,6 +27,15 @@ func original_catalog(template:String,primary:String)->String:
 		ProjectSettings.globalize_path("res://../runtime/assets/combat_population/tatooine/catalog.json"),
 		ProjectSettings.globalize_path("res://../runtime/assets/ambient_npcs/catalog.json"),
 		ProjectSettings.globalize_path("res://../runtime/assets/combat_population/tatooine_entities/catalog.json")]
+	# Crafted creatures can accompany players on any enabled world. This index
+	# resolves their original art only; it does not load another planet or spawn mobs.
+	var pets_index:=ProjectSettings.globalize_path("res://../runtime/assets/bioengineer/appearance_catalogs.json")
+	if FileAccess.file_exists(pets_index):
+		if not Avatar.catalog_cache.has(pets_index):Avatar.catalog_cache[pets_index]=Avatar.read_json(pets_index)
+		var pet_catalog:=str(Avatar.catalog_cache[pets_index].get("catalogs",{}).get(template,""))
+		if not pet_catalog.is_empty():candidates.append(ProjectSettings.globalize_path("res://../"+pet_catalog))
+	for extra in catalog_candidates:
+		if not str(extra).is_empty() and not candidates.has(str(extra)):candidates.append(str(extra))
 	for path:String in candidates:
 		if not FileAccess.file_exists(path):continue
 		if not Avatar.catalog_cache.has(path):Avatar.catalog_cache[path]=Avatar.read_json(path)
@@ -84,10 +96,19 @@ func configure(value:Dictionary,session:String,assets:RefCounted,dead_assets:Ref
 		mesh.scale=Vector3.ONE*float(record.get("scale",1))
 		if record.kind=="creature":mesh.position.y=-(mesh.transform*model.get_aabb()).position.y
 		# Lair origin is authored: underground roots/log must not be lifted to bounds.
+	if template==preload("res://gcw/carrier_animation.gd").TEMPLATE and visual is Avatar:
+		carrier=preload("res://gcw/carrier_animation.gd").new()
+		report["carrier_animation_ready"]=carrier.configure(visual)
+		carrier.apply(int(record.get("posture",0)))
+		report["carrier_phase_policy"]="Original loops on first snapshot; original transitions on observed posture change."
+	if bool(record.get("droid",false)) and source_visual.is_empty():
+		mobile_sound=preload("res://audio/mobile_emitter.gd").new();add_child(mobile_sound)
 	var bounds:=visual_bounds()
 	collider=CollisionShape3D.new();var box:=BoxShape3D.new();box.size=bounds.size.max(Vector3.ONE*0.05);collider.shape=box;collider.position=bounds.get_center();add_child(collider)
-	collision_layer=0 if record.dead else 8
+	collision_layer=0 if record.dead or carrier!=null else 8
+	if carrier!=null:collider.disabled=true
 	make_label(Vector3(bounds.get_center().x,bounds.end.y+0.18,bounds.get_center().z))
+	if carrier!=null:label.hide()
 	return true
 
 func unavailable(reason:String)->bool:
@@ -103,7 +124,7 @@ func make_label(position_value:Vector3)->void:
 	refresh_label()
 
 func is_targetable()->bool:
-	return not bool(record.dead) and report.get("appearance_status","")!="unavailable" and is_instance_valid(visual) and collider!=null
+	return carrier==null and not bool(record.dead) and report.get("appearance_status","")!="unavailable" and is_instance_valid(visual) and collider!=null
 
 func visual_bounds()->AABB:
 	if not is_instance_valid(visual):return AABB()
@@ -117,8 +138,12 @@ func visual_bounds()->AABB:
 	return bounds
 
 func apply_record(value:Dictionary,pose:Transform3D,seconds:float,initial:=false)->void:
+	if not initial and is_instance_valid(mobile_sound) and not value.dead and float(value.health)<float(record.get("health",value.health)):
+		mobile_sound.queue_event("hitlight")
 	record=value.duplicate(true)
+	if carrier!=null:carrier.apply(int(record.get("posture",0)))
 	speed=last_snapshot_position.distance_to(pose.origin)/maxf(seconds,0.05) if not initial else 0.0
+	if is_instance_valid(mobile_sound):mobile_sound.observe(str(record.template),speed,not bool(record.dead))
 	last_snapshot_position=pose.origin;goal=pose
 	if initial or global_position.distance_to(goal.origin)>8:global_transform=goal
 	collision_layer=8 if is_targetable() else 0
@@ -148,7 +173,7 @@ func get_radar_contact()->Dictionary:
 
 func _process(delta:float)->void:
 	global_transform=global_transform.interpolate_with(goal,1.0-exp(-delta*14.0))
-	if is_instance_valid(visual) and visual.has_method("update_motion") and not record.dead:visual.update_motion(delta,speed,{"grounded":true,"velocity":Vector3(0,0,-speed)})
+	if carrier==null and is_instance_valid(visual) and visual.has_method("update_motion") and not record.dead:visual.update_motion(delta,speed,{"grounded":true,"velocity":Vector3(0,0,-speed)})
 
 func _exit_tree()->void:
 	equipment.release(rigid_equipment)

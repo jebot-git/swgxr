@@ -1,0 +1,242 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCreatureHandler.h
+@@ -0,0 +1,89 @@
++#ifndef SWGXR_CREATURE_HANDLER_H
++#define SWGXR_CREATURE_HANDLER_H
++#include "SwgxrPets.h"
++#include "SwgxrTrainers.h"
++#include "server/zone/objects/creature/ai/Creature.h"
++#include "server/zone/managers/creature/CreatureManager.h"
++#include <chrono>
++// Native commands and original PetMenu/PetManager rules remain authoritative.
++// Gestures are an input method; no gesture duration grants skills or pets.
++class SwgxrCreatureHandler {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static std::string str(const String& s){return s.toCharArray();}
++ static double now(){return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static Json position(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static bool near(CreatureObject* c,CreatureObject* p,double range){return p && p->getZone()==c->getZone() && p->getParentID()==c->getParentID() && c->isInRange(p,range) && CollisionManager::checkLineOfSight(c,p);}
++ static std::string tameReason(CreatureObject* c,Creature* p){
++  if(!c->hasSkill("outdoors_creaturehandler_novice"))return "creature_handler_novice_required";
++  if(!p || !p->canTameMe(c) || !p->isAttackableBy(c))return "eligible_wild_baby_required";
++  if(!near(c,p,8))return "tame_range_or_line_of_sight";
++  if(c->getPendingTask("tame_pet")!=nullptr || c->getPendingTask("call_pet")!=nullptr)return "pet_task_pending";
++  auto source=p->getCreatureTemplate();if(!source || source->getLevel()>c->getSkillMod("tame_level") || (p->isVicious() && c->getSkillMod("tame_aggro")<1) || p->getChanceToTame(c)<=0)return "original_taming_skill_required";
++  auto pad=c->getSlottedObject("datapad");if(!pad || pad->getContainerObjectsSize()>=pad->getContainerVolumeLimit())return "datapad_full";
++  int stored=0,maxStored=c->getZoneServer()->getPlayerManager()->getBaseStoredCreaturePets()+c->getSkillMod("stored_pets");
++  for(int i=0;i<pad->getContainerObjectsSize();++i){auto d=pad->getContainerObject(i).castTo<PetControlDevice*>();if(d && d->getPetType()==PetManager::CREATUREPET)++stored;}
++  if(stored>=maxStored)return "stored_pet_capacity";
++  auto ghost=c->getPlayerObject();int active=0,levels=0;
++  for(int i=0;i<ghost->getActivePetsSize();++i){auto pet=ghost->getActivePet(i);if(!pet)continue;auto d=pet->getControlDevice().get().castTo<PetControlDevice*>();if(!d || d->getPetType()!=PetManager::CREATUREPET)continue;++active;levels+=pet->getLevel();}
++  if(active>=c->getSkillMod("keep_creature") || (active>0 && levels+p->getLevel()>=c->getSkillMod("tame_level")))return "active_pet_control_capacity";
++  return "";
++ }
++ static const char* trainingSkill(int n){switch(n){case 1:case 2:case 3:return "novice";case 16:return "training_01";case 4:return "training_02";case 9:case 22:case 23:return "training_03";case 10:case 11:return "training_04";case 7:return "healing_01";case 8:return "healing_03";case 15:return "support_01";case 6:return "support_02";case 5:return "support_03";case 12:return "taming_03";case 13:return "taming_04";case 14:case 18:return "master";default:return "";}}
++ static bool trainable(CreatureObject* c,AiAgent* p,int n){auto suffix=trainingSkill(n);if(!*suffix || !c->hasSkill(String((std::string("outdoors_creaturehandler_")+suffix).c_str())))return false;return (n!=12 || p->hasSpecialAttack(1)) && (n!=13 || p->hasSpecialAttack(2)) && (n!=14 || p->hasRangedWeapon());}
++ static bool buffable(CreatureObject* c,AiAgent* p,const char* name){auto ghost=c->getPlayerObject();bool emb=std::string(name)=="emboldenpets";return ghost->hasAbility(name) && !p->isDead() && !p->isIncapacitated() && p->getZone()==c->getZone() && c->isInRange(p,50) && !p->hasBuff(emb?STRING_HASHCODE("emboldenPet"):STRING_HASHCODE("enragePet")) && p->getCooldownTimerMap()!=nullptr && p->getCooldownTimerMap()->isPast(emb?"emboldenPetsCooldown":"enragePetsCooldown") && c->getHAM(CreatureAttribute::MIND)>c->calculateCostAdjustment(CreatureAttribute::FOCUS,100);}
++ static ManagedReference<PetControlDevice*> owned(CreatureObject* c,const Json& q){auto d=c->getZoneServer()->getObject(std::stoull(q.at("device_id").get<std::string>())).castTo<PetControlDevice*>();if(!d || d->getPetType()!=PetManager::CREATUREPET || d->getParent().get()!=c->getSlottedObject("datapad") || !d->getControlledObject() || !d->getControlledObject()->isAiAgent())throw std::runtime_error("owned_creature_pet_required");return d;}
++ static void invoke(CreatureObject* c,const char* name,uint64 target=0){auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name);if(!cmd || cmd->doQueueCommand(c,target,UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("native_creature_handler_command_rejected");}
++public:
++ static Json petState(CreatureObject* c,PetControlDevice* d){
++  Json out={{"embolden",false},{"enrage",false},{"train_mount",false},{"trained_as_mount",d->isTrainedAsMount()},{"train_commands",Json::array()}};
++  if(d->getPetType()!=PetManager::CREATUREPET || !d->getControlledObject() || !d->getControlledObject()->isAiAgent())return out;auto p=d->getControlledObject()->asAiAgent();
++  out["body_bounds"]=SwgxrPets::bodyBounds(p);
++  bool ready=!c->isDead() && !c->isIncapacitated() && !p->isDead() && !p->isIncapacitated() && p->getLinkedCreature().get()==c;
++  out["emboldened"]=p->hasBuff(STRING_HASHCODE("emboldenPet"));out["enraged"]=p->hasBuff(STRING_HASHCODE("enragePet"));
++  out["embolden"]=ready && buffable(c,p,"emboldenpets");out["enrage"]=ready && buffable(c,p,"enragepets");
++  int eligibility=c->getZoneServer()->getPetManager()->checkMountEligibility(d);out["mount_scale_status"]=eligibility;
++  out["train_mount"]=ready && !c->isInCombat() && !p->isInCombat() && near(c,p,8) && c->hasSkill("outdoors_creaturehandler_support_04") && !d->isTrainedAsMount() && eligibility==PetManager::CANBEMOUNTTRAINED;
++  const char* labels[]={"","Follow me","Store","Attack","Guard","Friend","Follow target","Trick 1","Trick 2","Patrol","Wedge formation","Column formation","Special attack 1","Special attack 2","Ranged attacks","Group","Stay","","Transfer","","","","Mark patrol point","Clear patrol points"};
++  if(ready && !c->isInCombat() && !p->isInCombat() && near(c,p,8))for(int n=1;n<=23;++n)if(!d->hasTrainedCommand(n) && trainable(c,p,n))out["train_commands"].push_back({{"command_id",n},{"label",labels[n]}});
++  return out;
++ }
++ static Json snapshot(CreatureObject* c){
++  Json out={{"skills",SwgxrTrainers::skills(c)},{"experience",SwgxrTrainers::experience(c)},{"commands",Json::array()},{"candidates",Json::array()},{"taming",Json::object()}};auto ghost=c->getPlayerObject();for(auto name:{"tame","emboldenpets","enragepets","trainmount"})if(ghost->hasAbility(name))out["commands"].push_back(name);
++  auto saved=ghost->getScreenPlayData("swgxr_ch","taming");if(!saved.isEmpty()){
++   auto progress=Json::parse(saved.toCharArray());auto terminal=progress.value("state",std::string());
++   if(terminal!="succeeded" && terminal!="failed"){
++    // Native storage clears the creature link. The real owned control device,
++    // not active world presence, establishes successful persistent taming.
++    ManagedReference<PetControlDevice*> confirmed;auto pad=c->getSlottedObject("datapad");auto target=std::stoull(progress.at("target_id").get<std::string>());
++    if(pad)for(int i=0;i<pad->getContainerObjectsSize();++i){auto d=pad->getContainerObject(i).castTo<PetControlDevice*>();if(d && d->getPetType()==PetManager::CREATUREPET && d->getControlledObject() && d->getControlledObject()->getObjectID()==target){confirmed=d;break;}}
++    bool pending=c->getPendingTask("tame_pet")!=nullptr;progress["state"]=confirmed?"succeeded":pending?"pending":"failed";progress["device_id"]=confirmed?id(confirmed):"0";
++    if(confirmed || !pending){progress["completed_at"]=now();ghost->setScreenPlayData("swgxr_ch","taming",String(progress.dump().c_str()));}
++   }
++   progress["elapsed_seconds"]=std::max(0.0,progress.value("completed_at",now())-progress.value("started",now()));progress["duration_seconds"]=30;out["taming"]=progress;
++  }
++  if(!c->hasSkill("outdoors_creaturehandler_novice"))return out;
++  SortedVector<TreeEntry*> objects(32,32);auto origin=c->getWorldPosition();c->getZone()->getInRangeObjects(origin.getX(),origin.getZ(),origin.getY(),8,&objects,true);
++  for(int i=0;i<objects.size() && out["candidates"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isCreature())continue;auto p=static_cast<Creature*>(o);if(p->isPet() || p->isDead() || !p->isBaby() || p->getParentID()!=c->getParentID())continue;Locker lock(p,c);auto reason=tameReason(c,p);Json row={{"id",id(p)},{"name",str(p->getDisplayedName())},{"template",str(p->getObjectTemplate()->getFullTemplateString())},{"position",position(p)},{"baby",p->isBaby()},{"level",p->getCreatureTemplate()?p->getCreatureTemplate()->getLevel():p->getLevel()},{"eligible",reason.empty()},{"can_tame",reason.empty()},{"reason",reason},{"height",p->getHeight(false)},{"radius",p->getTemplateRadius()}};
++   auto appearance=p->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;if(volume){auto sphere=volume->getBoundingSphere();auto center=sphere.getCenter();row["bounds_center"]=Json::array({center.getX(),center.getY(),center.getZ()});row["bounds_radius"]=sphere.getRadius();row["bounds_source"]="original_appearance_sphere";}else{auto bounds=SwgxrPets::bodyBounds(p);if(!bounds.empty()){row["bounds_center"]=bounds["center"];row["bounds_radius"]=bounds["radius"];row["bounds_source"]=bounds["source"];row["body_bounds"]=bounds;}}out["candidates"].push_back(row);
++  }return out;
++ }
++ static void execute(CreatureObject* c,const Json& q,Json& mutation){
++  auto action=q.at("action").get<std::string>();if(action=="ch_status")return;auto ghost=c->getPlayerObject();auto key=q.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("creature_handler_request_id_required");auto proposal=q;for(auto field:{"position","building_id","cell_index","zone","planet","hand"})proposal.erase(field);auto saved=ghost->getScreenPlayData("swgxr_ch","receipts");auto receipts=saved.isEmpty()?Json::array():Json::parse(saved.toCharArray());for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=proposal)throw std::runtime_error("creature_handler_request_id_reused");mutation=receipt["mutation"];mutation["replayed"]=true;return;}
++  if(c->isDead() || c->isIncapacitated())throw std::runtime_error("living_handler_required");
++  if(action=="ch_tame"){
++   auto p=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>())).castTo<Creature*>();if(!p)throw std::runtime_error("wild_creature_required");Locker lock(p,c);auto reason=tameReason(c,p);if(!reason.empty())throw std::runtime_error(reason);invoke(c,"tame",p->getObjectID());if(c->getPendingTask("tame_pet")==nullptr)throw std::runtime_error("native_taming_not_started");Json progress={{"target_id",id(p)},{"request_id",key},{"started",now()}};ghost->setScreenPlayData("swgxr_ch","taming",String(progress.dump().c_str()));mutation["pending"]=true;mutation["target_id"]=id(p);
++  }else if(action=="ch_embolden" || action=="ch_enrage"){
++   const char* cmd=action=="ch_embolden"?"emboldenpets":"enragepets";if(!ghost->hasAbility(cmd))throw std::runtime_error("learned_pet_buff_required");std::vector<ManagedReference<AiAgent*>> eligible;
++   for(int i=0;i<ghost->getActivePetsSize();++i){auto p=ghost->getActivePet(i);if(!p)continue;auto d=p->getControlDevice().get().castTo<PetControlDevice*>();if(d && d->getPetType()==PetManager::CREATUREPET && p->getLinkedCreature().get()==c && buffable(c,p,cmd))eligible.push_back(p);}
++   if(eligible.empty())throw std::runtime_error("no_pet_eligible_for_native_buff");invoke(c,cmd);Json applied=Json::array();for(auto& p:eligible)if(p->hasBuff(action=="ch_embolden"?STRING_HASHCODE("emboldenPet"):STRING_HASHCODE("enragePet")))applied.push_back(id(p));if(applied.empty())throw std::runtime_error("native_pet_buff_not_applied");mutation["pet_ids"]=applied;
++  }else if(action=="ch_train_mount" || action=="ch_train_command"){
++   auto d=owned(c,q);auto p=d->getControlledObject()->asAiAgent();Locker lock(p,c);if(c->isInCombat() || p->isDead() || p->isIncapacitated() || p->isInCombat() || p->getLinkedCreature().get()!=c || !near(c,p,8))throw std::runtime_error("nearby_living_owned_pet_required");auto state=petState(c,d);
++   if(action=="ch_train_mount"){if(!state["train_mount"].get<bool>())throw std::runtime_error("native_mount_training_requirements");auto hand=q.at("hand");Vector3 point(hand.at(0).get<float>(),hand.at(2).get<float>(),hand.at(1).get<float>());if(!SwgxrPets::touches(c,p,point))throw std::runtime_error("touch_owned_pet_to_train_mount");Locker dl(d,p);d->trainAsMount(c);if(!d->isTrainedAsMount())throw std::runtime_error("native_mount_training_failed");mutation["trained_as_mount"]=true;
++   }else{int n=q.at("command_id").get<int>();if(!trainable(c,p,n) || d->hasTrainedCommand(n))throw std::runtime_error("unlearned_pet_training_or_already_trained");{Locker dl(d,p);d->setTrainingCommand(n);}c->getZoneServer()->getPetManager()->handleChat(c,p,String(("swgxr command "+std::to_string(n)).c_str()));mutation["learned"]=d->hasTrainedCommand(n);mutation["command_id"]=n;}
++   d->updateToDatabase();p->updateToDatabase();mutation["device_id"]=id(d);mutation["pet_id"]=id(p);
++  }else throw std::runtime_error("unsupported_creature_handler_action");
++  mutation["request_id"]=key;receipts.push_back({{"id",key},{"request",proposal},{"mutation",mutation}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_ch","receipts",String(receipts.dump().c_str()));
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPets.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPets.h
+@@ -4,6 +4,11 @@
+ #include "server/zone/objects/creature/ai/AiAgent.h"
+ #include "server/zone/managers/creature/PetManager.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
++#include "templates/creature/SharedCreatureObjectTemplate.h"
++#include <fstream>
++#include <chrono>
++#include <cstdlib>
++#include <sys/stat.h>
+ 
+ // Only trained source commands are exposed. Their native handlers retain all
+ // power, module, combat, group, transfer and creature-handler restrictions.
+@@ -48,12 +53,40 @@
+  static bool supported(PetControlDevice* device){
+   auto pet=device->getControlledObject();return pet && pet->isAiAgent() && (pet->asCreatureObject()->isDroidObject() || device->getPetType()==PetManager::CREATUREPET);
+  }
++ static Json sourceBodyBounds(CreatureObject* pet){
++  // This is a server-owned, hash-proven conversion catalogue, never client data.
++  // Vehicle RPC serialization also serializes this bounded/reloadable cache.
++  static Json catalog=Json::object();static std::string loaded;static time_t modified=0;static double checked=0;
++  double stamp=std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
++  if(stamp-checked>2){checked=stamp;const char* env=std::getenv("SWGXR_PET_BOUNDS_CATALOG_PATH");std::vector<std::string> paths=env && *env?std::vector<std::string>{env}:std::vector<std::string>{"../../../../runtime/assets/pets/body_bounds.json","runtime/assets/pets/body_bounds.json","/workspace/runtime/assets/pets/body_bounds.json"};
++   for(auto& path:paths){struct stat info;if(::stat(path.c_str(),&info)!=0 || info.st_size<=0 || info.st_size>2097152)continue;if(path==loaded && info.st_mtime==modified)break;
++    try{std::ifstream file(path);Json data;file>>data;if(data.value("coordinate_system",std::string())!="original_x_y_up_z" || !data.contains("templates") || !data["templates"].is_object() || data["templates"].size()>1024)continue;catalog=std::move(data["templates"]);loaded=path;modified=info.st_mtime;}catch(...){catalog=Json::object();}break;
++   }
++  }
++  std::string key=pet->getObjectTemplate()->getFullTemplateString().toCharArray();auto found=catalog.find(key);if(found==catalog.end())return Json::object();auto row=*found;
++  if(!row.is_object() || row.value("model_sha256",std::string()).size()!=64)return Json::object();
++  for(auto key:{"bounds_min","bounds_max","head_position"}){if(!row.contains(key) || !row[key].is_array() || row[key].size()!=3)return Json::object();for(auto& n:row[key])if(!n.is_number() || !std::isfinite(n.get<double>()) || std::abs(n.get<double>())>128)return Json::object();}
++  Json center=Json::array();double radius2=0;for(int i=0;i<3;++i){double a=row["bounds_min"][i].get<double>(),b=row["bounds_max"][i].get<double>();if(a>=b)return Json::object();center.push_back((a+b)*.5);radius2+=(b-a)*(b-a)*.25;}
++  return {{"source","original_converted_creature_mesh"},{"min",row["bounds_min"]},{"max",row["bounds_max"]},{"center",center},{"radius",std::sqrt(radius2)},{"head_position",row["head_position"]},{"head_bone",row.value("head_bone",std::string())},{"model_sha256",row["model_sha256"]},{"scale",pet->getHeight(false)}};
++ }
++ static Json bodyBounds(CreatureObject* pet){
++  auto source=sourceBodyBounds(pet);if(!source.empty())return source;
++  // Core3 does not decode skeletal SAT appearance bounds. The original shared
++  // creature template still supplies its authored collision dimensions/offsets.
++  auto t=dynamic_cast<const SharedCreatureObjectTemplate*>(pet->getObjectTemplate());if(!t)return Json::object();
++  double r=t->getCollisionRadius(),h=t->getCollisionHeight(),length=t->getCollisionLength(),x=t->getCollisionOffsetX(),z=t->getCollisionOffsetZ();
++  if(!std::isfinite(r) || !std::isfinite(h) || !std::isfinite(length) || !std::isfinite(x) || !std::isfinite(z) || r<=0 || h<=0 || r>64 || h>128 || std::abs(x)>128 || std::abs(z)>128 || length>128)return Json::object();
++  // Source zero/negative length denotes the circular horizontal footprint.
++  double depth=length>0?std::max(r,length*.5):r;
++  return {{"source","original_creature_collision_template"},{"min",Json::array({x-r,0,z-depth})},{"max",Json::array({x+r,h,z+depth})},{"center",Json::array({x,h*.5,z})},{"radius",std::sqrt(r*r+h*h*.25+depth*depth)},{"scale",pet->getHeight(false)}};
++ }
++ static double worldHeading(CreatureObject* pet){double angle=pet->getDirection()->getRadians();auto parent=pet->getParent().get();auto root=pet->getRootParent();if(parent && parent->isCellObject() && root)angle+=root->getDirection()->getRadians();return angle;}
+  static bool touches(CreatureObject* owner,CreatureObject* pet,const Vector3& hand){
+   if(hand.distanceTo(owner->getWorldPosition())>3.5)return false;
+   auto appearance=pet->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
+-  if(!volume)return false;
++  if(!volume){auto bounds=bodyBounds(pet);if(bounds.empty())return false;double scale=bounds["scale"].get<double>();if(!std::isfinite(scale) || scale<=0 || scale>16)return false;auto delta=hand-pet->getWorldPosition();double a=worldHeading(pet);double local[]={(delta.getX()*cos(a)-delta.getY()*sin(a))/scale,delta.getZ()/scale,(delta.getX()*sin(a)+delta.getY()*cos(a))/scale};for(int i=0;i<3;++i)if(local[i]<bounds["min"][i].get<double>()-.2/scale || local[i]>bounds["max"][i].get<double>()+.2/scale)return false;return true;}
+   const auto& sphere=volume->getBoundingSphere();const auto& p=sphere.getCenter();
+-  double scale=pet->getHeight(false),a=pet->getDirection()->getRadians(),x=p.getX()*scale,z=p.getZ()*scale,r=sphere.getRadius()*scale;
++  double scale=pet->getHeight(false),a=worldHeading(pet),x=p.getX()*scale,z=p.getZ()*scale,r=sphere.getRadius()*scale;
+   auto center=pet->getWorldPosition()+Vector3(x*cos(a)+z*sin(a),-x*sin(a)+z*cos(a),p.getY()*scale);
+   return std::isfinite(r) && r>0 && r<128 && hand.distanceTo(center)<=r+.2;
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -9,6 +9,7 @@
+ #include "server/zone/objects/tangible/deed/vehicle/VehicleDeed.h"
+ #include "SwgxrInventory.h"
+ #include "SwgxrPets.h"
++#include "SwgxrCreatureHandler.h"
+ #include <set>
+ #include <fstream>
+ #include <mutex>
+@@ -184,18 +185,19 @@
+   }
+   if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["pet_datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isPetControlDevice())continue;
+    auto device=static_cast<PetControlDevice*>(item.get());auto object=device->getControlledObject();if(!object || !object->isCreatureObject() || !SwgxrPets::supported(device))continue;
+-   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
++   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);row["creature_handler"]=SwgxrCreatureHandler::petState(c,device);auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
+    if(pet->getZone()==c->getZone() && c->isInRange(pet,128))out["pets"].push_back(row);
+   }
+   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);
+   for(int i=0;i<objects.size() && out["vehicles"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isVehicleObject())continue;auto v=o->asCreatureObject();Locker vl(v,c);try{descriptor(v);tick(c,v);out["vehicles"].push_back(describe(c,v));}catch(const std::exception&){} }
+-  out["position"]=wire(c->getWorldPosition());return out;
++  out["position"]=wire(c->getWorldPosition());out["creature_handler"]=SwgxrCreatureHandler::snapshot(c);return out;
+  }
+  static Json run(CreatureObject* c,const Json& q){
+   SwgxrPlanets::require(c,q);
+   std::lock_guard<std::recursive_mutex> lock(mutex());if(!c || !c->getZone() || !c->getPlayerObject())throw std::runtime_error("Native player required");cleanup(c);
+   auto action=q.value("action",std::string("status"));Json mutation={{"success",true},{"action",action}};
+-  if(action=="activate"){
++  if(action.rfind("ch_",0)==0){SwgxrCreatureHandler::execute(c,q,mutation);
++  }else if(action=="activate"){
+    auto key=q.value("request_id",std::string());if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable activation request_id required");
+    auto ghost=c->getPlayerObject();auto saved=ghost->getScreenPlayData("swgxr_vehicles","activation_receipts");Json receipts=saved.isEmpty()?Json::array():Json::parse(saved.toCharArray());
+    for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=q)throw std::runtime_error("Activation request_id reused");auto prior=receipt["mutation"];prior["replayed"]=true;return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",prior},{"inventory",SwgxrInventory::snapshot(c)}};}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
+@@ -24,6 +24,7 @@
+   {"trainer_dancer", {"social_dancer_novice", "social_dancer_master", "social_dancer_ability_01", "social_dancer_ability_02", "social_dancer_ability_03", "social_dancer_ability_04", "social_dancer_wound_01", "social_dancer_wound_02", "social_dancer_wound_03", "social_dancer_wound_04", "social_dancer_knowledge_01", "social_dancer_knowledge_02", "social_dancer_knowledge_03", "social_dancer_knowledge_04", "social_dancer_shock_01", "social_dancer_shock_02", "social_dancer_shock_03", "social_dancer_shock_04"}},
+   {"trainer_musician", {"social_musician_novice", "social_musician_master", "social_musician_ability_01", "social_musician_ability_02", "social_musician_ability_03", "social_musician_ability_04", "social_musician_wound_01", "social_musician_wound_02", "social_musician_wound_03", "social_musician_wound_04", "social_musician_knowledge_01", "social_musician_knowledge_02", "social_musician_knowledge_03", "social_musician_knowledge_04", "social_musician_shock_01", "social_musician_shock_02", "social_musician_shock_03", "social_musician_shock_04"}},
+   {"trainer_imagedesigner", {"social_imagedesigner_novice", "social_imagedesigner_master", "social_imagedesigner_hairstyle_01", "social_imagedesigner_hairstyle_02", "social_imagedesigner_hairstyle_03", "social_imagedesigner_hairstyle_04", "social_imagedesigner_exotic_01", "social_imagedesigner_exotic_02", "social_imagedesigner_exotic_03", "social_imagedesigner_exotic_04", "social_imagedesigner_bodyform_01", "social_imagedesigner_bodyform_02", "social_imagedesigner_bodyform_03", "social_imagedesigner_bodyform_04", "social_imagedesigner_markings_01", "social_imagedesigner_markings_02", "social_imagedesigner_markings_03", "social_imagedesigner_markings_04"}},
++  {"trainer_creaturehandler", {"outdoors_creaturehandler_novice", "outdoors_creaturehandler_master", "outdoors_creaturehandler_taming_01", "outdoors_creaturehandler_taming_02", "outdoors_creaturehandler_taming_03", "outdoors_creaturehandler_taming_04", "outdoors_creaturehandler_training_01", "outdoors_creaturehandler_training_02", "outdoors_creaturehandler_training_03", "outdoors_creaturehandler_training_04", "outdoors_creaturehandler_healing_01", "outdoors_creaturehandler_healing_02", "outdoors_creaturehandler_healing_03", "outdoors_creaturehandler_healing_04", "outdoors_creaturehandler_support_01", "outdoors_creaturehandler_support_02", "outdoors_creaturehandler_support_03", "outdoors_creaturehandler_support_04"}},
+  };return catalog;
+ }
+ #endif
+--- a/MMOCoreORB/src/server/zone/managers/director/DirectorManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/director/DirectorManager.cpp
+@@ -443,6 +443,8 @@
+ 	luaEngine->registerFunction("hasObserver", hasObserver);
+ 	luaEngine->registerFunction("hasObserverType", hasObserverType);
+ 	luaEngine->registerFunction("spawnMobile", spawnMobile);
++	luaEngine->registerFunction("spawnBabyMobile", spawnBabyMobile);
++	luaEngine->registerFunction("growCreaturePet", growCreaturePet);
+ 	luaEngine->registerFunction("spawnEventMobile", spawnEventMobile);
+ 	luaEngine->registerFunction("spawnShipAgent", spawnShipAgent);
+ 	luaEngine->registerFunction("spatialChat", spatialChat);
+@@ -2651,6 +2653,27 @@
+ 	return 0;
+ }
+ 
++// Trusted server screenplay helpers; never exposed as player/HTTP commands.
++// Baby creation and pet maturation use the original source implementations.
++int DirectorManager::spawnBabyMobile(lua_State* L) {
++ if(lua_gettop(L)!=8 || !lua_isstring(L,1) || !lua_isstring(L,2)){lua_pushnil(L);return 1;}
++ for(int i=3;i<=8;++i)if(!lua_isnumber(L,i) || !std::isfinite(lua_tonumber(L,i))){lua_pushnil(L);return 1;}
++ String zoneName=lua_tostring(L,1),name=lua_tostring(L,2);auto zone=ServerCore::getZoneServer()->getZone(zoneName);
++ if(!zone){lua_pushnil(L);return 1;}auto manager=zone->getCreatureManager();
++ auto p=manager->spawnCreatureAsBaby(name.hashCode(),lua_tonumber(L,4),lua_tonumber(L,5),lua_tonumber(L,6),lua_tointeger(L,8));
++ if(!p){lua_pushnil(L);return 1;}Locker lock(p);p->updateDirection(Math::deg2rad(lua_tonumber(L,7)));
++ if(p->isAiAgent())p->asAiAgent()->setRespawnTimer(lua_tointeger(L,3));p->_setUpdated(true);lua_pushlightuserdata(L,p);return 1;
++}
++int DirectorManager::growCreaturePet(lua_State* L) {
++ if(lua_gettop(L)!=2 || !lua_islightuserdata(L,1) || !lua_islightuserdata(L,2)){lua_pushboolean(L,false);return 1;}
++ auto owner=static_cast<SceneObject*>(lua_touserdata(L,1)),object=static_cast<SceneObject*>(lua_touserdata(L,2));
++ if(!owner || !owner->isPlayerCreature() || !object || !object->isCreature()){lua_pushboolean(L,false);return 1;}
++ auto player=owner->asCreatureObject();auto pet=object->asAiAgent();Locker lock(player);Locker petLock(pet,player);
++ auto device=pet->getControlDevice().get().castTo<PetControlDevice*>();
++ if(player->isDead() || pet->isDead() || !device || device->getPetType()!=PetManager::CREATUREPET || device->getParent().get()!=player->getSlottedObject("datapad") || pet->getLinkedCreature().get()!=player){lua_pushboolean(L,false);return 1;}
++ Locker deviceLock(device,pet);bool result=device->growPet(player,true,true);device->updateToDatabase();pet->updateToDatabase();lua_pushboolean(L,result);return 1;
++}
++
+ int DirectorManager::spawnMobile(lua_State* L) {
+ 	int numberOfArguments = lua_gettop(L);
+ 	if (numberOfArguments != 8 && numberOfArguments != 9) {
+--- a/MMOCoreORB/src/server/zone/managers/director/DirectorManager.h
++++ b/MMOCoreORB/src/server/zone/managers/director/DirectorManager.h
+@@ -127,6 +127,8 @@
+ 		static int hasObserver(lua_State* L);
+ 		static int hasObserverType(lua_State* L);
+ 		static int spawnMobile(lua_State* L);
++		static int spawnBabyMobile(lua_State* L);
++		static int growCreaturePet(lua_State* L);
+ 		static int spawnEventMobile(lua_State* L);
+ 		static int spawnShipAgent(lua_State* L);
+ 		static int spawnSceneObject(lua_State* L);

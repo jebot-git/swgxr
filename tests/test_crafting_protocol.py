@@ -17,6 +17,14 @@ class CraftingValidation(unittest.TestCase):
   self.assertEqual(command('finish',dict(self.base,points=[0,2],colors=[17]))['points'],[0,2])
   for key,values in [('points',[True]),('points',[-1]),('points',[11]),('colors',[256]),('colors',[1.5])]:
    with self.assertRaises(ValueError):command('finish',dict(self.base,**{key:values}))
+ def test_blueprint_output_and_limit(self):
+  self.assertEqual(command('finish',self.base)['output'],'prototype')
+  result=command('finish',dict(self.base,output='blueprint'))
+  self.assertEqual(result['manufacture_limit'],1000)
+  for value in (None,False,0,-1,1001,1.5,'10'):
+   with self.subTest(value=value),self.assertRaises(ValueError):command('finish',dict(self.base,output='blueprint',manufacture_limit=value))
+  for value in (None,True,'grant'):
+   with self.assertRaises(ValueError):command('finish',dict(self.base,output=value))
  def test_unknown_and_indices(self):
   for action in ['grant','spawn','experiment','delete']:
    with self.assertRaises(ValueError):command(action,self.base)

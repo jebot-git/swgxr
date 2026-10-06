@@ -6,6 +6,7 @@
 #include "server/zone/objects/player/sessions/crafting/CraftingSession.h"
 #include "server/zone/objects/player/sessions/crafting/events/CreateObjectTask.h"
 #include "server/zone/objects/tangible/tool/CraftingStation.h"
+#include "server/zone/objects/tangible/component/dna/DnaComponent.h"
 #include <map>
 #include <cmath>
 class SwgxrCrafting : public SwgxrCraftingView {
@@ -46,12 +47,25 @@ class SwgxrCrafting : public SwgxrCraftingView {
   for(auto& o:items){Json slots=Json::array();for(int i=0;i<d->getDraftSlotCount();++i)if(fits(o,d->getDraftSlot(i)))slots.push_back(i);if(slots.empty())continue;
    auto row=SwgxrInventory::describe(o,c);row["quantity"]=quantity(o);row["slots"]=slots;row["quality"]=Json::array();
    if(o->isResourceContainer()){auto spawn=o.castTo<ResourceContainer*>()->getSpawnObject();for(int i=0;i<d->getResourceWeightCount();++i){auto weight=d->getResourceWeight(i);if(weight->isFiller())continue;float value=0;for(int j=0;j<weight->getPropertyListSize();++j)value+=spawn->getValueOf(weight->getTypeAndWeight(j)>>4)*weight->getPropertyPercentage(j);row["quality"].push_back({{"name",text(weight->getExperimentalTitle())},{"value",value/1000.f}});}}
+   // Original DNA attributes are not resource spawn properties. Show the two
+   // attributes associated with each genetic profile, preserving native values.
+   TangibleObject* component=o.get();if(o->isFactoryCrate())component=o.castTo<FactoryCrate*>()->getPrototype();
+   DnaComponent* dna=dynamic_cast<DnaComponent*>(component);
+   if(dna){
+    row["dna"]={{"quality",dna->getQuality()},{"level",dna->getLevel()}};
+    const char* profiles[]={"physique_profile","prowess_profile","mental_profile","psychological_profile","aggression_profile"};
+    const char* names[]={"Hardiness","Fortitude","Dexterity","Endurance","Intellect","Cleverness","Dependability","Courage","Fierceness","Power"};
+    float values[]={dna->getHardiness(),dna->getFortitude(),dna->getDexterity(),dna->getEndurance(),dna->getIntellect(),dna->getCleverness(),dna->getDependability(),dna->getCourage(),dna->getFierceness(),dna->getPower()};
+    for(int i=0;i<d->getDraftSlotCount();++i){if(!fits(o,d->getDraftSlot(i)))continue;auto name=text(d->getDraftSlot(i)->getStringIdName());
+     for(int group=0;group<5;++group)if(name==profiles[group])for(int n=group*2;n<group*2+2;++n)row["quality"].push_back({{"name",names[n]},{"value",values[n]/1000.f},{"raw",values[n]},{"slot",i}});
+    }
+   }
    result.push_back(row);
   }return result;
  }
  static Json view(CreatureObject* c,Json& s){
-  Json out={{"source_kind","core3_crafting"},{"character_id",id(c)},{"stage",0},{"jobs",s["jobs"]},{"server_time",std::time(nullptr)},{"session_id",""},{"inventory",Json::array()}};
-  auto cs=session(c,s["draft"]);if(cs!=nullptr){auto v=Json::parse(cs->swgxrSnapshot().toCharArray());out.update(v);out["session_id"]=s["draft"]["session_id"];out["tool_id"]=s["draft"]["tool_id"];auto m=cs->getSchematic().get();if(m!=nullptr && cs->getState()==2)out["inventory"]=inventory(c,m->getDraftSchematic());}
+  Json out={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_crafting"},{"character_id",id(c)},{"stage",0},{"jobs",s["jobs"]},{"server_time",std::time(nullptr)},{"session_id",""},{"inventory",Json::array()}};
+  auto cs=session(c,s["draft"]);if(cs!=nullptr){auto v=Json::parse(cs->swgxrSnapshot().toCharArray());out.update(v);out["can_create_blueprint"]=cs->getSchematic().get()!=nullptr && cs->getSchematic().get()->allowFactoryRun() && v.value("station_id",std::string("0"))!="0";out["session_id"]=s["draft"]["session_id"];out["tool_id"]=s["draft"]["tool_id"];auto m=cs->getSchematic().get();if(m!=nullptr && cs->getState()==2)out["inventory"]=inventory(c,m->getDraftSchematic());}
   return out;
  }
  static void assemble(CreatureObject* c,Json& s,CraftingSession* cs,CraftingTool* tool,const Json& request){
@@ -80,7 +94,10 @@ class SwgxrCrafting : public SwgxrCraftingView {
   if(cs->getState()!=3 && cs->getState()!=4)throw std::runtime_error("Assembly required before crafting");auto root=c->getInventory();
   // Escrow reservations are still counted: never promise a slot released by
   // consuming ingredients until the recipe has actually committed.
-  if(root==nullptr || root->getCountableObjectsRecursive()>=root->getContainerVolumeLimit())throw std::runtime_error("No inventory slot available for crafted output");
+  bool blueprint=request.value("output",std::string("prototype"))=="blueprint";int limit=request.value("manufacture_limit",1000);
+  ManagedReference<ManufactureSchematic*> schematic=cs->getSchematic().get();auto datapad=c->getSlottedObject("datapad");
+  if(blueprint){if(limit<1 || limit>1000 || !schematic || !schematic->allowFactoryRun() || Json::parse(cs->swgxrSnapshot().toCharArray()).value("station_id",std::string("0"))=="0")throw std::runtime_error("Factory blueprint requires an eligible recipe and crafting station");if(!datapad || datapad->getContainerObjectsSize()+schematic->getDraftSchematic()->getSize()>datapad->getContainerVolumeLimit())throw std::runtime_error("Datapad space required for blueprint");}
+  else if(root==nullptr || root->getCountableObjectsRecursive()>=root->getContainerVolumeLimit())throw std::runtime_error("No inventory slot available for crafted output");
   auto view=Json::parse(cs->swgxrSnapshot().toCharArray());auto points=request.value("points",Json::array());int total=0,rows=0;std::string exp;
   if(!points.is_array() || points.size()>view["rows"].size())throw std::runtime_error("Invalid experimentation allocation");
   for(size_t i=0;i<points.size();++i){if(!points[i].is_number_integer())throw std::runtime_error("Experimentation points must be integers");int n=points[i];if(n<0 || n>view["rows"][i]["point_limit"].get<int>())throw std::runtime_error("Experimentation row limit exceeded");total+=n;if(n){++rows;exp+=std::to_string(i)+" "+std::to_string(n)+" ";}}
@@ -89,8 +106,18 @@ class SwgxrCrafting : public SwgxrCraftingView {
   for(size_t i=0;i<colors.size();++i){if(!colors[i].is_number_integer())throw std::runtime_error("Invalid palette index");int n=colors[i];auto v=view["colors"][i];if(n<v["minimum"].get<int>() || n>v["maximum"].get<int>())throw std::runtime_error("Color is outside learned allowance");customization+=std::to_string(v["index"].get<int>())+" "+std::to_string(n)+" ";}
   if(rows)cs->experiment(rows,String(exp.c_str()),0);
   if(cs->getState()==3)cs->nextCraftingStage(0);
-  cs->customization("",0xFF,1,String(customization.c_str()));cs->nextCraftingStage(0);
+  cs->customization("",0xFF,blueprint?limit:1,String(customization.c_str()));cs->nextCraftingStage(0);
   auto m=cs->getSchematic().get();auto proto=tool->getPrototype();if(proto==nullptr || m==nullptr)throw std::runtime_error("Crafting prototype lost");
+  if(blueprint){
+   // Native creation records exact resource spawns and component serials and
+   // places the finished schematic in the real datapad, without a prototype job.
+   restore(c,s,true);auto store=object(c,s["draft"].value("store",std::string()));erase(store);
+   cs->createManufactureSchematic(0);
+   if(schematic->getParent()!=datapad || schematic->getPrototype()==nullptr)throw std::runtime_error("Native blueprint creation rejected");
+   ObjectManager::instance()->persistSceneObjectsRecursively(schematic,2);
+   ObjectManager::instance()->persistSceneObjectsRecursively(schematic->getPrototype(),2);
+   schematic->updateToDatabaseAllObjects(false);s["draft"]=nullptr;save(c,s);return;
+  }
   // Persist the finished result before the ordinary timer, so restart can resume.
   ObjectManager::instance()->persistSceneObjectsRecursively(proto,1);
   auto due=std::time(nullptr)+int(m->getComplexity()*2)+1;
@@ -101,6 +128,7 @@ class SwgxrCrafting : public SwgxrCraftingView {
  }
 public:
  static Json run(CreatureObject* c,const Json& request){
+  SwgxrPlanets::require(c,request);
   Json s=load(c);settle(c,s);auto action=request.value("action",std::string("status"));auto key=request.value("request_id",std::string());Json mutation={{"success",true},{"operation",action}};
   if(action!="status" && (key.size()<8 || key.size()>64))throw std::runtime_error("Invalid request identifier");
   if(action!="status")for(auto& receipt:s["receipts"])if(receipt["id"]==key){if(receipt["request"]!=request)throw std::runtime_error("Request identifier reused");return {{"character_id",id(c)},{"state",view(c,s)},{"mutation",receipt["mutation"]}};}

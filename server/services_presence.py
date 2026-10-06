@@ -25,6 +25,8 @@ class PresenceHub:
         self.actors = {}
         self.contacts = {}
         self.proofs = {}
+        self.house_arms = {}
+        self.house_proofs = {}
 
     @staticmethod
     def point(value):
@@ -39,6 +41,10 @@ class PresenceHub:
         return math.dist(a, b)
 
     def _prune(self, now):
+        for oid, arm in list(self.house_arms.items()):
+            if now - arm["created"] > 60: del self.house_arms[oid]
+        for pair, proof in list(self.house_proofs.items()):
+            if pair[0] not in self.house_arms or proof["arm_id"] != self.house_arms[pair[0]]["arm_id"]: del self.house_proofs[pair]
         for oid, actor in list(self.actors.items()):
             if now - actor['authenticated'] > self.AUTH_TTL:
                 del self.actors[oid]
@@ -87,7 +93,9 @@ class PresenceHub:
         actor = self.actors.get(oid)
         if actor:
             actor.update(tracked=False, wallet_held=False, grip=False)
-        for mapping in (self.contacts, self.proofs):
+        # Moving cells discards contacts, not the owner's still-timed selection.
+        # The owner may leave a private house to meet the intended recipient.
+        for mapping in (self.contacts, self.proofs, self.house_proofs):
             for pair in list(mapping):
                 if oid in pair: del mapping[pair]
 
@@ -132,6 +140,9 @@ class PresenceHub:
                     contact = self.contacts.setdefault(pair, {'start': now, 'issued': False})
                     if not contact['issued'] and now - contact['start'] >= self.CONTACT_TIME:
                         for sender, receiver in ((actor, peer), (peer, actor)):
+                            arm = self.house_arms.get(sender['id'])
+                            if arm and contact['start'] >= arm['created']:
+                                self.house_proofs[(sender['id'], receiver['id'])] = {'arm_id':arm['arm_id'], 'request_id':''}
                             if sender['wallet_held']:
                                 self.proofs[(sender['id'], receiver['id'])] = {'created': now, 'request_id': '', 'amount': None}
                         contact['issued'] = True
@@ -145,9 +156,35 @@ class PresenceHub:
                                   'appearance': peer['appearance'],
                                   'main_hand_side': peer.get('main_hand_side', 'right'),
                                   'heading_radians': peer.get('heading', 0),
+                                  'house_permission_ready': bool(self.house_proofs.get((oid, peer['id']),{}).get('arm_id') and not self.house_proofs[(oid,peer['id'])]['request_id']),
                                   'handshake_authorized': bool(proof and not proof['request_id'])})
             return {'ok': True, 'source_kind': 'authenticated_hand_presence', 'character_id': oid,
                     'peers': peers[:31], 'pose_ttl': self.POSE_TTL}
+
+    def arm_house_permission(self, account, character_id, arm):
+        """Call only with the result of a successful native owner/terminal check."""
+        with self.lock:
+            oid=str(character_id);actor=self.actors.get(oid)
+            if not actor or actor['account']!=account.lower():raise ValueError('Native owner presence required')
+            # Replaying a lost arm reply must not renew the one-minute deadline.
+            if self.house_arms.get(oid,{}).get('arm_id')==arm['arm_id']:return
+            self.house_arms[oid]=dict(arm,created=self.clock())
+            for pair in list(self.contacts):
+                if oid in pair:del self.contacts[pair]
+            for pair in list(self.house_proofs):
+                if oid in pair:del self.house_proofs[pair]
+
+    def authorize_house_permission(self, account, character_id, target_id, request_id, arm_id):
+        with self.lock:
+            now=self.clock();self._prune(now)
+            sender=self.actors.get(str(character_id));target=self.actors.get(str(target_id))
+            arm=self.house_arms.get(str(character_id));proof=self.house_proofs.get((str(character_id),str(target_id)))
+            if not sender or not target or sender is target or sender['account']!=account.lower() or not arm or arm['arm_id']!=arm_id or not proof or proof['arm_id']!=arm_id:raise ValueError('Select a permission, then shake hands within one minute')
+            if not self._near(sender,target) or any(now-a['seen']>self.POSE_TTL or not a['tracked'] for a in (sender,target)):raise ValueError('Remain near the tracked handshake target')
+            if proof['request_id'] and proof['request_id']!=request_id:raise ValueError('Permission gesture already consumed')
+            if not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',request_id or ''):raise ValueError('Stable permission request ID required')
+            proof['request_id']=request_id
+            return {'target_account':target['account'],'target_position':list(target['position']),'target_zone':target['zone'],'target_building_id':target['building_id'],'target_cell_index':target['cell_index']}
 
     def authorize_payment(self, account, character_id, target_id, request_id, amount=None):
         with self.lock:

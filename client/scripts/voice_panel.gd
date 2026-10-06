@@ -15,7 +15,7 @@ var blocked_reason := "Voice unavailable outside the world"
 var hovered := ""
 func _ready() -> void:
 	theme=preload("res://scripts/datapad_theme.gd").build()
-	add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,12))
+	add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").frame(28,"wide"))
 	custom_minimum_size=Vector2(640,320);size=custom_minimum_size
 	var rows:=VBoxContainer.new();rows.add_theme_constant_override("separation",8);add_child(rows)
 	status=Label.new();status.add_theme_font_size_override("font_size",24);rows.add_child(status)
@@ -27,7 +27,7 @@ func _ready() -> void:
 	var modes:=HBoxContainer.new();rows.add_child(modes)
 	for mode in ["muted","vox","ptt"]:
 		var button:=Button.new();button.text={"muted":"MIC OFF","vox":"VOICE ACTIVITY","ptt":"PUSH TO TALK"}[mode]
-		button.add_theme_font_size_override("font_size",19);button.toggle_mode=true;button.custom_minimum_size.y=44
+		button.add_theme_font_size_override("font_size",18);button.toggle_mode=true;button.custom_minimum_size.y=44
 		button.size_flags_horizontal=Control.SIZE_EXPAND_FILL;button.focus_mode=Control.FOCUS_NONE
 		button.pressed.connect(func():activate("mode:"+mode));modes.add_child(button);mode_buttons[mode]=button
 	talk=Button.new();talk.text="HOLD TO TALK";talk.custom_minimum_size.y=46;talk.focus_mode=Control.FOCUS_NONE

@@ -1,5 +1,8 @@
 extends Node3D
 ## Wrist UI orchestration; native math owns constrained follow and finger hit tests.
+signal factory_blueprint_draw_requested(entry:Dictionary, hand_pose:Transform3D)
+signal harvester_draw_requested(entry:Dictionary, hand_pose:Transform3D)
+signal vendor_draw_requested(entry:Dictionary, hand_pose:Transform3D)
 signal parcel_draw_requested(entry:Dictionary, hand_pose:Transform3D)
 signal opened
 signal new_waypoint_requested(position: Vector3, label: String)
@@ -18,6 +21,8 @@ var offhand := "left"
 var allowed := false
 var is_open := false
 var hold_time := 0.0
+var gesture_reserved := false
+var gesture_release_required := false
 var released_trigger := false
 var pressed := false
 var capture: Dictionary = {}
@@ -32,6 +37,8 @@ var dot: MeshInstance3D
 var last_pixel := Vector2.ZERO
 var parcel_drag:Dictionary={}
 var parcel_grip_armed:=false
+var navigation_repeat:=0.0
+var slider_dragger=preload("res://scripts/xr_slider_drag.gd").new()
 
 func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> void:
 	rig = origin
@@ -104,6 +111,13 @@ func resize_map(expanded: bool) -> void:
 	surfaces[0].mesh.position.y = meters.y * 0.5
 	surfaces[1].mesh.position = Vector3(meters.x*0.5+0.12, meters.y*0.5, 0.025)
 	surfaces[1].mesh.rotation.y = deg_to_rad(-25)
+
+func set_gesture_reserved(value: bool) -> void:
+	gesture_reserved = value
+	if value:
+		gesture_release_required = true
+		hold_time = 0.0
+		set_open(false)
 
 func set_allowed(value: bool) -> void:
 	if allowed == value: return
@@ -178,6 +192,7 @@ func _process(delta: float) -> void:
 		return
 	var finger := pointing_pose(hand)
 	var hit := find_hit(finger)
+	if slider_frame(hit,hand.global_transform,hand.get_float("grip"),hand.get_float("trigger"),tracked):return
 	update_parcel_drag(hit,hand.global_transform,hand.get_float("grip"),tracked)
 	if not is_open:return
 	update_pointer(hit,hand.get_float("trigger"))
@@ -191,7 +206,10 @@ func update_parcel_drag(hit:Dictionary,hand_pose:Transform3D,grip:float,tracked:
 	if not parcel_drag.is_empty():
 		if hand_pose.origin.distance_to(parcel_drag.anchor)>=.06:
 			var entry:Dictionary=parcel_drag.entry;parcel_drag={}
-			parcel_draw_requested.emit(entry,hand_pose)
+			if entry.get("type","") in ["harvesting_deed","factory_deed"]:harvester_draw_requested.emit(entry,hand_pose)
+			elif entry.get("type","")=="manufacturing_blueprint":factory_blueprint_draw_requested.emit(entry,hand_pose)
+			elif entry.get("type","")=="vendor":vendor_draw_requested.emit(entry,hand_pose)
+			else:parcel_draw_requested.emit(entry,hand_pose)
 		return
 	if not parcel_grip_armed or grip<.65:return
 	parcel_grip_armed=false
@@ -201,16 +219,28 @@ func update_parcel_drag(hit:Dictionary,hand_pose:Transform3D,grip:float,tracked:
 	if not entry.is_empty():parcel_drag={"entry":entry,"anchor":hand_pose.origin}
 
 func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void:
-	if stick.length() < 0.15: stick_captured = false
+	if not slider_dragger.capture.is_empty():
+		stick_captured=stick.length()>.15;apply_capture();return
+	navigation_repeat=maxf(0,navigation_repeat-delta)
+	if stick.length() < 0.15: stick_captured = false;navigation_repeat=0
 	if is_open and not hit.is_empty() and stick.length() > 0.2:
 		stick_captured = true
 		if int(hit.surface) == 0:
-			ui.scroll_at(hit.pixel,Vector2(stick.x,-stick.y)*delta*650.0)
+			var steps:=(-1 if stick.y>0 else 1) if absf(stick.y)>.5 and navigation_repeat<=0 else 0
+			if ui.navigate_at(hit.pixel,steps):
+				if steps!=0:navigation_repeat=.18
+			else:ui.scroll_at(hit.pixel,Vector2(stick.x,-stick.y)*delta*650.0)
 		else:
 			ui.detail_description.get_v_scroll_bar().value -= stick.y*delta*650.0
 	apply_capture()
 
 func update_activation(tracked_allowed: bool, grip: float, trigger: float, delta: float) -> void:
+	if grip < 0.45 or trigger < 0.45:
+		gesture_release_required = false
+	if gesture_reserved or gesture_release_required:
+		hold_time = 0.0
+		set_open(false)
+		return
 	if not tracked_allowed or grip < 0.45 or trigger < 0.45:
 		hold_time = 0.0
 		set_open(false)
@@ -253,6 +283,14 @@ func find_hit(finger: Dictionary) -> Dictionary:
 			best = hit
 	return best
 
+func slider_frame(hit:Dictionary,pose:Transform3D,grip:float,trigger:float,tracked:bool)->bool:
+	var consumed:bool=slider_dragger.frame(surfaces,hit,pose,grip,trigger,tracked and allowed and is_open and not pressed)
+	slider_dragger.sync_handles(surfaces)
+	if consumed:
+		released_trigger=false;aim_latch={};last_hover={};parcel_drag={};parcel_grip_armed=false
+		if is_instance_valid(dot):dot.hide()
+	return consumed
+
 func update_pointer(hit: Dictionary, trigger: float) -> void:
 	if trigger < 0.1:
 		aim_latch = {}
@@ -288,6 +326,7 @@ func update_pointer(hit: Dictionary, trigger: float) -> void:
 	dot.global_position = hit.world+surfaces[index].mesh.global_basis.z*0.001
 	if released_trigger and trigger >= 0.55:
 		capture = hit.duplicate()
+		if int(capture.surface)==0 and ui.has_method("navigation_target"):capture.pixel=ui.navigation_target(capture.pixel)
 		pressed = true
 		released_trigger = false
 		send_button(capture,true)
@@ -308,6 +347,7 @@ func clear_hover() -> void:
 		hover_surface = -1
 
 func cancel_press() -> void:
+	slider_dragger.cancel()
 	if pressed:
 		# A close/tracking loss cancels the click rather than activating on release.
 		var hit := capture.duplicate()

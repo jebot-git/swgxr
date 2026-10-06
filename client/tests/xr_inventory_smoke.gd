@@ -91,7 +91,7 @@ func run() -> void:
 	bag.update_pointer(actual,0.0); await process_frame
 	check(bag.ui.selected_id=="item1","Fresh trigger dispatch selects actual slot through SubViewport")
 	bag.update_stick_capture(Vector2(0,-1),actual,0.016)
-	check(bag.ui.first_row==1 and not player.move_captured and player.turn_captured,"Pointed joystick scroll captures only pointing-hand stick like datapad map")
+	check(bag.ui.selected_id=="item2" and bag.ui.first_row==0 and not player.move_captured and player.turn_captured,"Pointed joystick highlights next item and captures only pointing-hand stick")
 	bag.update_stick_capture(Vector2.ZERO,{},0.016)
 	check(not player.move_captured and not player.turn_captured,"Neutral stick releases input capture")
 	var source_mesh:=bag.assets.model(template)
@@ -168,6 +168,13 @@ func run() -> void:
 	bag.set_busy(false);bag.held_item={"id":"recipe","template":"object/tangible/loot/loot_schematic/vehicle_schematic.iff"}
 	bag.update_held_trigger(0,head.global_transform);bag.update_held_trigger(0.9,head.global_transform)
 	check(deed_calls.size()==1 and not bag.action_pending,"Recipe loot schematics cannot be mistaken for vehicle deeds")
+	var camo_calls:Array=[];var consume_calls:Array=[]
+	bag.scout_requested.connect(func(value):camo_calls.append(value));bag.consume_requested.connect(func(value):consume_calls.append(value))
+	bag.held_item={"id":"kit","template":"object/tangible/scout/camokit/camokit_tatooine.iff","tool_kind":"camouflage","consumable":true,"consume_available":true}
+	bag.update_held_trigger(0,head.global_transform);bag.update_held_trigger(.9,head.global_transform);bag.update_held_trigger(.9,head.global_transform)
+	check(camo_calls.size()==1 and consume_calls.is_empty() and bag.action_pending,"Kit trigger enters only native conceal route and cannot double-consume")
+	bag.set_busy(false,"Rejected native use");bag.update_held_trigger(.9,head.global_transform)
+	check(camo_calls.size()==1 and bag.held_item.id=="kit","Rejected kit use retains held item and requires fresh trigger release")
 	bag.held_item={};bag.cancel_interaction()
 	if "--capture" in OS.get_cmdline_user_args():
 		check(RenderingServer.get_current_rendering_method()=="forward_plus" and DisplayServer.get_name()!="headless","Inventory preview uses Forward+ Vulkan")

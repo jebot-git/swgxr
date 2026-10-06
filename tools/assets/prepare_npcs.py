@@ -7,7 +7,30 @@ from character_formats import child
 from character_animations import export_character_animations,load_lat,resolve,decode_clip,version
 from swg_formats import parse_iff,cstring
 from npc_outfits import apply_outfit_variants,refresh_outfits
+from static_assets import StaticAssets
 ROOT=Path(__file__).resolve().parents[2]
+
+def cdf_attachments(imp,static,cdf,source_cdf,bones,template):
+ """Original CDF rigid children follow named source skeleton joints."""
+ attachments=[];names={bone['name'] for bone in bones}
+ if source_cdf is None:return attachments
+ for hobj in source_cdf.walk('HOBJ'):
+  source,pos=cstring(hobj.data);bone,_=cstring(hobj.data,pos)
+  try:
+   if bone not in names:raise ValueError('Missing original CDF attachment bone '+bone)
+   prior_failures=len(static.failures)
+   pieces=static.resolve(source)
+   if not pieces:raise ValueError('Original CDF attachment contains no meshes')
+   visual_errors=[f for f in static.failures[prior_failures:] if f.get('phase') in ('material','component_child')]
+   if visual_errors:raise ValueError('Incomplete original CDF attachment: '+repr(visual_errors))
+   for piece in pieces:
+    info=static.meshes[piece['mesh']]
+    attachments.append({'template':source,'appearance':source,'bone':bone,'model':info['path'],
+      'local_transform':[1,0,0,0,0,1,0,0,0,0,1,0],'local_transform_layout':'row_major_3x4',
+      'source_cdf':cdf,'source_kind':'cdf_hobj','bounds_min':info['bounds_min'],'bounds_max':info['bounds_max']})
+  except Exception as exc:imp.failures.append({'resource':source,'template':template,'phase':'cdf_attachment','error':str(exc)})
+ imp.dependencies.update(static.dependencies)
+ return attachments
 
 def customization(root,tag):
  result={}
@@ -35,10 +58,13 @@ def main():
  if args.limit:templates=dict(list(templates.items())[:args.limit])
  previous=json.loads((args.out/'catalog.json').read_text()) if args.merge and (args.out/'catalog.json').exists() else None
  catalog={'schema_version':1,'races':{},'failures':imp.failures,'warnings':['Exact source NPC SAT/CDF definitions, not player-race stand-ins.','Placement selection is the supplied Core3 export; NPCs are visual noninteractive presentation.','Source root motion is not applied. Unsupported wearables/appearance references are reported.']};body_cache={};clothing_cache={}
+ static=StaticAssets(args.tre_dir,args.out);static.t=imp.t
  for template,moods in templates.items():
   shared=str(Path(template).parent/('shared_'+Path(template).name))
   try:
    props=imp.properties(shared);appearance=cstring(props['appearanceFilename'],1)[0];cdf=cstring(props['clientDataFile'],1)[0] if props.get('clientDataFile',b'')[:1]==b'\1' else '';source_cdf=None
+   if previous:
+    moods=moods|{mood for row in previous['races'].values() if row.get('appearance')==appearance for mood in row.get('mood_animations',{})}
    if cdf:
     try:source_cdf=parse_iff(imp.read(cdf))
     except KeyError as exc:imp.failures.append({'resource':cdf,'template':template,'phase':'client_data','error':str(exc)})
@@ -61,6 +87,12 @@ def main():
      leaves=resolve(table['loop_standing'],{'gender':'f' if sex=='female' else 'm','mood':mood});leaf=next(x for x in leaves if '_loc_' not in x['source'])
      clip=decode_clip(imp,leaf['source'],bones,names);clip.update(loop=True,logical='loop_standing',source_speed_scale=leaf.get('speed_scale',1));model['animations']['mood_'+mood]=clip
     except Exception as exc:imp.failures.append({'resource':appearance,'phase':'mood','mood':mood,'error':str(exc)})
+   if previous and (args.out/model_path).exists():
+    # Incremental source batches can share a body with existing NPCs whose
+    # selected moods are absent from this batch. Retain their original clips.
+    prior_body=json.loads((args.out/model_path).read_text())
+    for field in ('animations','animation_library'):
+     model[field]={**prior_body.get(field,{}),**model.get(field,{})}
    imp.write(model_path,model)
    skin=next((sf for part in model['parts'] for sf in part['mesh']['surfaces'] if '_body' in sf['shader'] and sf.get('palettes')),next(sf for part in model['parts'] for sf in part['mesh']['surfaces']))
    imp.skin_material={k:v for k,v in skin.items() if k not in ('vertices','normals','uv','indices','bones','weights','triangle_zones','blend_shapes')}
@@ -79,7 +111,8 @@ def main():
    body_customization=customization(source_cdf,'CSSI') if source_cdf else {}
    palettes={p['variable']:p for part in model['parts'] for sf in part['mesh']['surfaces'] for p in sf.get('palettes',[])}
    catalog['races'][template]={'template':template,'shared_template':shared,'appearance':appearance,'body':model_path,'source_cdf':cdf,'height_min':0.25,'height_max':3.0,'customizations':[],'palette_variables':palettes,'blend_shapes':sorted({b for part in model['parts'] for b in part['mesh'].get('blend_shapes',[])}),'hair':[],'default_hair':'','default_outfit':outfit,'profession_outfits':{},'bone_count':len(bones),'default_appearance':{'height':1.0,'customization':body_customization},'animation_states':sorted(model['animations']),'default_animation':'idle','mood_animations':{m:'mood_'+m for m in moods if m in available and 'mood_'+m in model['animations']},'unsupported_moods':sorted(m for m in moods if m and m not in available and m!='neutral')}
-   appearance_failures=[f for f in imp.failures if f.get('template')==template and f.get('phase') in ('wearable','client_data')]
+   catalog['races'][template]['rigid_equipment']=cdf_attachments(imp,static,cdf,source_cdf,bones,template)
+   appearance_failures=[f for f in imp.failures if f.get('template')==template and f.get('phase') in ('wearable','client_data','cdf_attachment')]
    catalog['races'][template]['appearance_complete']=not appearance_failures
    if appearance_failures:catalog['races'][template]['appearance_failures']=appearance_failures
    print(template,len(bones),'bones',len(outfit),'wearables',flush=True)

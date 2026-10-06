@@ -48,6 +48,7 @@ var ability_ui: Node3D
 var ability_click_down := false
 var ability_prime_down := false
 var ability_stick_latched := false
+var dna_input_captured := false
 
 func configure_player_combat(context: Dictionary) -> void:
 	if is_instance_valid(body) and body.has_method("configure_player_combat"): body.configure_player_combat(context)
@@ -58,15 +59,26 @@ func combat_actions_allowed() -> bool:
 	return not is_instance_valid(body) or not body.has_method("combat_actions_allowed") or body.combat_actions_allowed()
 
 func active_profile() -> Dictionary:
-	if selected >= 0:
-		return weapons[selected].state.profile if weapons[selected].state.certified() else {}
-	var profile: Dictionary=unarmed[dominant].profile.duplicate(true) if unarmed.has(dominant) else {}
+	var profile: Dictionary={}
+	if selected>=0:
+		if weapons[selected].state.certified(): profile=weapons[selected].state.profile.duplicate(true)
+	elif unarmed.has(dominant): profile=unarmed[dominant].profile.duplicate(true)
 	if is_instance_valid(scout):
-		var entry: Dictionary=scout.mask_entry()
-		if not entry.is_empty():
+		for entry: Dictionary in [scout.mask_entry(),scout.dna_entry()]:
+			if entry.is_empty(): continue
 			if not profile.has("abilities"): profile["abilities"]=[]
 			profile.abilities.append(entry)
 	return profile
+
+func sample_dna_inputs(main_pose: Transform3D, support_pose: Transform3D, main_trigger: float, support_trigger: float, main_tracked: bool, support_tracked: bool) -> void:
+	dna_input_captured=false
+	if not is_instance_valid(scout): return
+	var permitted: bool=allowed and combat_actions_allowed() and inventory_allows_combat() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	var offhand:="left" if dominant=="right" else "right"
+	# Both edges are sampled before any gun or fist can consume these triggers.
+	var main_capture: bool=scout.sample_dna_hand(dominant,main_pose,main_trigger,main_tracked,permitted and not pet_trigger_reserved(dominant) and not vehicle_hand_busy(dominant))
+	var off_capture: bool=scout.sample_dna_hand(offhand,support_pose,support_trigger,support_tracked,permitted and not offhand_occupied and not pet_trigger_reserved(offhand) and not vehicle_hand_busy(offhand))
+	dna_input_captured=main_capture or off_capture
 
 func close_ability_menu() -> void:
 	if is_instance_valid(ability_ui): ability_ui.close()
@@ -80,6 +92,7 @@ func sample_ability_input(click: bool, stick: Vector2, prime: bool, tracked: boo
 	var profile := active_profile()
 	abilities.reconcile(profile)
 	if not permitted:
+		if not tracked: abilities.primed=false
 		close_ability_menu()
 		ability_stick_latched = false
 	else:
@@ -174,12 +187,15 @@ func configure_unarmed(profile: Dictionary) -> bool:
 func unarmed_engaged(side: String) -> bool:
 	return allowed and selected<0 and unarmed.has(side) and unarmed[side].swing_feedback.get("engaged",false)
 
+func pet_trigger_reserved(side: String)->bool:
+	return is_instance_valid(body) and is_instance_valid(body.get("pet_controls")) and body.pet_controls.blocks_trigger(side)
+
 func vehicle_hand_busy(side: String)->bool:
 	return is_instance_valid(body) and is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)
 
 func sample_unarmed(delta: float, side: String, pose: Transform3D, tracked: bool, posture: String, trigger := 0.0) -> void:
 	if not unarmed.has(side): return
-	var permitted: bool = allowed and selected<0 and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
+	var permitted: bool = allowed and not dna_input_captured and not pet_trigger_reserved(side) and selected<0 and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
 	var shot: Dictionary=unarmed[side].sample_swing(delta,permitted,false,posture,swing_position(pose.origin),is_finite(trigger) and trigger>=0.5)
 	if not shot.is_empty():
 		dispatch_shot(shot,pose,pose.origin,unarmed[side].profile,true)
@@ -418,7 +434,7 @@ func current_firing_posture() -> String:
 		var context: Dictionary = body.combat_tracking_context() if body.has_method("combat_tracking_context") else {}
 		return posture_tracker.update_tracked(context)
 	var posture: int = body.get_posture() if body.has_method("get_posture") else 0
-	return posture_tracker.update_desktop(posture,body.is_on_floor())
+	return posture_tracker.update_desktop(posture,body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor())
 
 func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, grip: float, support_grip: float, trigger: float, tracked: bool, support_tracked: bool, action := false) -> void:
 	var previous_grip := main_grip_down
@@ -458,7 +474,7 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 	var posture := current_firing_posture()
 	for i in range(weapons.size()):
 		var state = weapons[i].state
-		var shot: Dictionary = state.sample_swing(delta,permitted and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture,swing_position(main_pose.origin),is_finite(trigger) and trigger>=0.5) if state.is_melee() else state.tick(delta,trigger,permitted and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture)
+		var shot: Dictionary = state.sample_swing(delta,permitted and not dna_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture,swing_position(main_pose.origin),is_finite(trigger) and trigger>=0.5) if state.is_melee() else state.tick(delta,trigger,permitted and not dna_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture)
 		if not shot.is_empty():
 			var pose := muzzle_pose(i)
 			dispatch_shot(shot,pose,weapons[i].visual.global_position,state.profile,state.is_melee())
@@ -492,10 +508,13 @@ func update_visuals() -> void:
 		var profile := active_profile()
 		abilities.reconcile(profile)
 		var point: Vector3 = weapons[selected].visual.global_position if selected >= 0 else head.global_position - head.global_basis.z * 0.35 - Vector3.UP * 0.2
-		if selected < 0 and is_instance_valid(origin):
+		var badge_tracked := true
+		if is_instance_valid(origin):
 			var hand: XRController3D = origin.get_node("LeftHand" if dominant == "left" else "RightHand")
-			if HandInput.controller_tracked(hand): point = hand.global_position
-		ability_ui.update_badge(abilities.definition(profile), abilities.primed, float(abilities.cooldowns.get(abilities.selected, 0)), point + Vector3.UP * 0.23, allowed and inventory_allows_combat(), abilities.reason)
+			badge_tracked = HandInput.controller_tracked(hand)
+			if selected < 0 and badge_tracked: point = hand.global_position
+		# Never substitute a head-locked icon when a tracked hand disappears.
+		ability_ui.update_badge(abilities.definition(profile), abilities.primed, float(abilities.cooldowns.get(abilities.selected, 0)), point + Vector3.UP * 0.23, allowed and inventory_allows_combat() and badge_tracked, abilities.reason)
 	if reticle != null:
 		var aim := Transform3D.IDENTITY
 		if selected>=0: aim = head.global_transform if weapons[selected].state.is_melee() else muzzle_pose(selected)
@@ -607,6 +626,7 @@ func _physics_process(delta: float) -> void:
 	var tracked := head_pose != null and head_pose.has_tracking_data and HandInput.controller_tracked(main)
 	var right: XRController3D = origin.get_node("RightHand")
 	sample_ability_input(main.is_button_pressed("primary_click"), main.get_vector2("primary"), right.is_button_pressed("ax_button") and HandInput.controller_tracked(right), tracked)
+	sample_dna_inputs(main.global_transform,support.global_transform,main.get_float("trigger"),support.get_float("trigger"),tracked,head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(support))
 	sample(delta,controller_weapon_pose(main),support.global_transform,0.0 if vehicle_hand_busy(dominant) else main.get_float("grip"),0.0 if offhand_occupied or vehicle_hand_busy("left" if dominant=="right" else "right") else support.get_float("grip"),0.0 if vehicle_hand_busy(dominant) else main.get_float("trigger"),tracked and not vehicle_hand_busy(dominant),HandInput.controller_tracked(support),main.is_button_pressed("by_button"))
 	var posture := current_firing_posture()
 	sample_unarmed(delta,dominant,main.global_transform,tracked,posture,main.get_float("trigger"))

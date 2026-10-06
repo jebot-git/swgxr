@@ -33,6 +33,7 @@ func run() -> void:
 	ui.show_map(true)
 	await process_frame
 	await process_frame
+	assert(ui.size.y<=625 and ui.waypoint_button.get_global_rect().end.y<=625)
 	var target := Vector3(1500,0,-2200)
 	var screen: Vector2 = ui.map.world_to_screen(target)
 	assert(ui.map.screen_to_world(screen).distance_to(target) < 0.01)
@@ -40,7 +41,7 @@ func run() -> void:
 	ui.map.change_zoom(2.0,screen)
 	assert(ui.map.screen_to_world(screen).distance_to(before)<0.02)
 	var old_center: Vector2 = ui.map.center
-	ui.scroll_at(ui.map.position+ui.map.size*0.5,Vector2(20,35))
+	ui.scroll_at(ui.map.get_global_rect().get_center()-ui.global_position,Vector2(20,35))
 	assert(ui.map.center != old_center)
 	var click := InputEventMouseButton.new()
 	click.button_index=MOUSE_BUTTON_LEFT

@@ -11,6 +11,7 @@ var player := Vector3.ZERO
 var cursor := Vector3.ZERO
 var has_cursor := false
 var landmarks: Array = []
+var registered_locations:Array=[]
 var waypoints: Array = []
 var source_services: Array = []
 var native_services: Array = []
@@ -48,7 +49,7 @@ func configure(data: Dictionary, directory: String) -> void:
 		if FileAccess.file_exists(icon_path):
 			var icon_image := Image.load_from_file(icon_path)
 			if icon_image != null: icon_textures[key] = ImageTexture.create_from_image(icon_image)
-	load_service_references()
+	load_service_references(str(data.get("service_directory","res://../runtime/assets/services")))
 	queue_redraw()
 
 func set_player_position(value: Vector3) -> void:
@@ -104,16 +105,20 @@ static func position_of(value: Variant) -> Vector3:
 	return Vector3.ZERO
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO,size),Color("061621"))
+	var interior:=Rect2(Vector2(18,18),(size-Vector2(36,36)).max(Vector2.ONE))
+	draw_style_box(preload("res://scripts/datapad_theme.gd").frame(12),Rect2(Vector2.ZERO,size))
 	var low := world_to_screen(Vector3(world_bounds.position.x,0,world_bounds.position.y))
 	var high := world_to_screen(Vector3(world_bounds.end.x,0,world_bounds.end.y))
 	var rect := Rect2(low,high-low).abs()
-	if texture != null: draw_texture_rect(texture,rect,false,Color(0.68,0.9,0.95))
+	if texture != null and rect.intersects(interior):
+		var clipped:=rect.intersection(interior)
+		var source:=Rect2((clipped.position-rect.position)/rect.size*texture.get_size(),clipped.size/rect.size*texture.get_size())
+		draw_texture_rect_region(texture,clipped,source,Color(0.43,0.67,0.78))
 	for i in range(1,8):
 		var x := size.x*i/8.0
 		var y := size.y*i/8.0
-		draw_line(Vector2(x,0),Vector2(x,size.y),Color(0.3,0.8,0.9,0.12))
-		draw_line(Vector2(0,y),Vector2(size.x,y),Color(0.3,0.8,0.9,0.12))
+		draw_line(Vector2(x,interior.position.y),Vector2(x,interior.end.y),Color(0.3,0.8,0.9,0.12))
+		draw_line(Vector2(interior.position.x,y),Vector2(interior.end.x,y),Color(0.3,0.8,0.9,0.12))
 	var font := get_theme_default_font()
 	# Preserve all source markers, but prioritize readable navigation labels.
 	var markers: Array = waypoints.duplicate()
@@ -121,13 +126,14 @@ func _draw() -> void:
 		for landmark in landmarks:
 			if str(landmark.get("type","")) == kind: markers.append(landmark)
 	markers.append_array(service_points)
+	markers.append_array(registered_locations)
 	for landmark in landmarks:
 		if str(landmark.get("type","")) not in ["city", "poi"]: markers.append(landmark)
-	var occupied: Array[Rect2] = [Rect2(8,4,180,30)]
+	var occupied: Array[Rect2] = [Rect2(20,20,190,30)]
 	for landmark in markers:
 		if not marker_visible(landmark):continue
 		var p := world_to_screen(position_of(landmark.get("position",[])))
-		if not Rect2(Vector2.ZERO,size).has_point(p): continue
+		if not interior.grow(-10).has_point(p): continue
 		var kind := str(landmark.get("type","waypoint"))
 		var icon_key := str(landmark.get("icon","waypoint"))
 		var major := kind in ["city", "poi", "waypoint"]
@@ -147,7 +153,7 @@ func _draw() -> void:
 		for offset in [Vector2(12,-7),Vector2(12,20),Vector2(-width-12,-7),Vector2(-width-12,20)]:
 			var baseline: Vector2 = p + offset
 			var box := Rect2(baseline-Vector2(3,18),Vector2(width+6,23))
-			if not Rect2(Vector2.ZERO,size).encloses(box): continue
+			if not interior.encloses(box): continue
 			var blocked := false
 			for previous in occupied:
 				if previous.intersects(box): blocked = true; break
@@ -157,16 +163,20 @@ func _draw() -> void:
 			draw_string(font,baseline,label,HORIZONTAL_ALIGNMENT_LEFT,190,17,Color("c6f5fa"))
 			break
 	var pp := world_to_screen(player)
-	draw_colored_polygon(PackedVector2Array([pp+Vector2(0,-10),pp+Vector2(-7,7),pp+Vector2(7,7)]),Color("ffda83"))
-	if has_cursor:
+	if interior.grow(-10).has_point(pp):draw_colored_polygon(PackedVector2Array([pp+Vector2(0,-10),pp+Vector2(-7,7),pp+Vector2(7,7)]),Color("ffda83"))
+	if has_cursor and interior.grow(-15).has_point(world_to_screen(cursor)):
 		var p := world_to_screen(cursor)
 		draw_arc(p,10,0,TAU,28,Color.WHITE,2)
 		draw_line(p-Vector2(15,0),p+Vector2(15,0),Color.WHITE)
 		draw_line(p-Vector2(0,15),p+Vector2(0,15),Color.WHITE)
-	draw_string(font,Vector2(14,26),"N     TATOOINE",HORIZONTAL_ALIGNMENT_LEFT,-1,18,Color("d2faff"))
-	draw_line(Vector2(43,27),Vector2(43,12),Color("d2faff"),1.5)
-	draw_polyline(PackedVector2Array([Vector2(38,17),Vector2(43,12),Vector2(48,17)]),Color("d2faff"),1.5)
-	if texture == null: draw_string(font,Vector2(14,size.y-14),"Map image unavailable • coordinate view",HORIZONTAL_ALIGNMENT_LEFT,-1,17,Color("8cbdcb"))
+	draw_string(font,Vector2(28,42),"N     TATOOINE",HORIZONTAL_ALIGNMENT_LEFT,-1,18,Color("d2faff"))
+	draw_line(Vector2(57,43),Vector2(57,28),Color("d2faff"),1.5)
+	draw_polyline(PackedVector2Array([Vector2(52,33),Vector2(57,28),Vector2(62,33)]),Color("d2faff"),1.5)
+	if texture == null: draw_string(font,Vector2(28,size.y-28),"Map image unavailable • coordinate view",HORIZONTAL_ALIGNMENT_LEFT,-1,17,Color("8cbdcb"))
+
+	var border:=preload("res://scripts/datapad_theme.gd").frame(12)
+	border.draw_center=false
+	draw_style_box(border,Rect2(Vector2.ZERO,size))
 
 func marker_visible(marker: Dictionary) -> bool:
 	var kind:=str(marker.get("type","waypoint"))

@@ -17,9 +17,13 @@ except ImportError:
 
 ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_ASSET_CATALOGS = (
+    'runtime/assets/chatter/catalog.json',
+    'runtime/assets/gcw/catalog.json',
     'runtime/assets/characters/catalog.json',
+    'runtime/assets/image_design/policy.json',
     'runtime/assets/services/bazaar_categories.json',
     'runtime/assets/vehicles/catalog.json',
+    'runtime/assets/pets/body_bounds.json',
 )
 
 

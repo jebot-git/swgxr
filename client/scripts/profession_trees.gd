@@ -191,3 +191,15 @@ func select_skill(node: Dictionary) -> void:
 	if node.id == "combat_marksman_master": description += "\n\nAbility: Lethal Shot"
 	if node.id == "combat_brawler_master": description += "\n\nAbility: Melee Assault"
 	skill_selected.emit({"name":node.label, "description":description, "state":state(node)})
+
+func navigate(steps:int)->void:
+	if steps==0 or buttons.is_empty():return
+	var ids:=buttons.keys()
+	var current:=ids.find(selected_skill_id)
+	var index:=clampi(0 if current<0 else current+steps,0,ids.size()-1)
+	for node:Dictionary in catalog.professions[profession_index].nodes:
+		if str(node.id)==str(ids[index]):
+			select_skill(node)
+			buttons[ids[index]].grab_focus()
+			scroll.ensure_control_visible(buttons[ids[index]])
+			break

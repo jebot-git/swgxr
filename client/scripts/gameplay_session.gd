@@ -27,7 +27,7 @@ func reset() -> void:
 	sequence=-1;player_state={};weapon_state={};pending_transport={};notified_transport_id="";pending_ack="";life_action_pending=""
 func identity() -> Dictionary:
 	var point: Vector3=app.source_position_at(app.player.global_position)
-	var payload: Dictionary={"account":app.datapad_account,"character_id":app.datapad_character_id,"position":[point.x,point.y,point.z],"heading_radians":-app.player.global_rotation.y,"building_id":"0","cell_index":0}
+	var payload: Dictionary={"zone":preload("res://scripts/planet_catalog.gd").current(app),"account":app.datapad_account,"character_id":app.datapad_character_id,"position":[point.x,point.y,point.z],"heading_radians":-app.player.global_rotation.y,"building_id":"0","cell_index":0}
 	if is_instance_valid(app.stage) and app.stage.get("current_cell") is Dictionary:
 		var cell: Dictionary=app.stage.current_cell
 		var key:=str(cell.get("cell_id",""))
@@ -69,6 +69,7 @@ func accept_native_response(result: Dictionary) -> bool:
 	if not snapshot is Dictionary or not snapshot.get("player") is Dictionary:
 		last_error="Missing native gameplay player state.";return false
 	var lightweight:=result.duplicate(false)
+	lightweight.ok=bool(result.get("ok",result.get("session_live",false)))
 	lightweight.source_kind="core3_gameplay_session"
 	lightweight.snapshot={"player":snapshot.player,"transport":snapshot.get("transport",{}),"vehicles":snapshot.player.get("vehicles",{}),"weapon":snapshot.get("weapon",{})}
 	return accept(lightweight)
@@ -156,6 +157,15 @@ func update_pose() -> void:
 	if epoch!=generation:return
 	busy=false
 	if accept(result):last_position=sent_position
-	elif result.get("error_code","") not in ["backend_busy"] and Time.get_ticks_msec()-last_confirmed_ms>15000:
+	elif result.get("error_code","") not in ["backend_busy"]:
+		# A boarding reply can be lost after Core3 has switched zones. Discover
+		# transport through the read-only native snapshot; never omit the zone
+		# fence from a pose update or resend an old source-world position.
+		busy=true
+		var discovered:Dictionary=await app.api(HTTPClient.METHOD_GET,"/combat/session?account="+str(app.datapad_account).uri_encode()+"&character_id="+str(app.datapad_character_id).uri_encode()+"&session_id="+session_id.uri_encode())
+		if epoch!=generation:return
+		busy=false
+		if accept_native_response(discovered):return
+		if Time.get_ticks_msec()-last_confirmed_ms<=15000:return
 		live=false
 		if is_instance_valid(app.asset_status):app.asset_status.text=last_error

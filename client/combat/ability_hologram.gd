@@ -103,7 +103,9 @@ func show_page(pose: Transform3D) -> void:
 		var angle := TAU * index / entries.size()
 		var point := Vector3(sin(angle), cos(angle), 0) * 0.075
 		var icon := Sprite3D.new()
-		icon.texture = texture(str(entries[index].source_command))
+		# Some native options (notably pet command training) have text but no
+		# original command icon. Keep the complete selectable page in that case.
+		icon.texture = texture(str(entries[index].get("source_command", "")))
 		icon.pixel_size = 0.0025
 		icon.position = point
 		icon.modulate = Color(0.59, 0.96, 0.99, 0.8)
@@ -133,7 +135,7 @@ func update_badge(ability: Dictionary, primed: bool, remaining: float, position:
 	halo.visible = badge.visible and primed
 	status.visible = badge.visible
 	if not badge.visible: return
-	badge.texture = texture(str(ability.source_command))
+	badge.texture = texture(str(ability.get("source_command", "")))
 	halo.texture = badge.texture
 	badge.global_position = position
 	halo.global_position = position

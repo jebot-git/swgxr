@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import http.server
 import io
+import importlib
 import json
 import socket
 import ssl
@@ -123,18 +124,19 @@ class Tests(unittest.TestCase):
 
     def test_action_allowlist_matches_adapter_protocols(self):
         root=Path(__file__).resolve().parents[1]
-        for family in ('vehicles','medic','scout','crafting','services'):
-            tree=ast.parse((root/'server'/f'{family}_protocol.py').read_text())
-            actions=None
-            for node in tree.body:
-                if isinstance(node,ast.Assign) and any(isinstance(t,ast.Name) and t.id=='ACTIONS' for t in node.targets):
-                    actions=ast.literal_eval(node.value)
+        for family in ('vehicles','medic','scout','crafting','services','entertainer'):
+            module=importlib.import_module('server.'+family+'_protocol')
+            actions=getattr(module,'ACTIONS',None)
             if actions is None:
+                tree=ast.parse((root/'server'/f'{family}_protocol.py').read_text())
                 function=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='command')
                 condition=next(n for n in function.body if isinstance(n,ast.If)).test
                 self.assertIsInstance(condition,ast.Compare)
                 self.assertIsInstance(condition.ops[0],ast.NotIn)
                 actions=ast.literal_eval(condition.comparators[0])
+            if family=='entertainer':
+                from server.image_design_protocol import ACTIONS as image_actions
+                actions=tuple(actions)+image_actions
             actual={p.rsplit('/',1)[1] for p in gateway.POST if p.startswith('/'+family+'/')}
             if family=='services':actual.remove('presence')
             self.assertEqual(actual,set(actions),family+' action allowlist needs review')

@@ -35,9 +35,11 @@ var icon_catalog: Dictionary = {}
 var drag_visual: Node3D
 var scroll_delay := 0.0
 var main_stick_captured := false
+var navigation_surface:=-1
 var hip_timer: Label3D
 var ingredient_viewport: SubViewport
 var ingredient_images: TextureRect
+var blueprint_output: CheckButton
 const KNOB_GRAB_RADIUS := 0.024
 
 func setup(host: Node, inventory: Node3D) -> void:
@@ -63,6 +65,7 @@ func setup(host: Node, inventory: Node3D) -> void:
 	var icon_path: String="res://../runtime/assets/crafting/catalog.json"
 	if FileAccess.file_exists(icon_path): icon_catalog=JSON.parse_string(FileAccess.get_file_as_string(icon_path))
 	var holster:=Button.new();ui.add_child(holster);holster.position=Vector2(540,8);holster.size=Vector2(105,38);holster.text="Tool slot"
+	blueprint_output=CheckButton.new();ui.add_child(blueprint_output);blueprint_output.position=Vector2(20,540);blueprint_output.size=Vector2(610,42);blueprint_output.text="Create factory blueprint · 1000 runs";blueprint_output.hide()
 	holster.pressed.connect(func():
 		cancel_draft()
 		bag.show_equipment_hologram(rig.get_node("XRCamera3D").global_transform))
@@ -78,7 +81,7 @@ func set_visible_ui(value: bool) -> void:
 	for surface: Dictionary in surfaces:
 		surface.mesh.visible=value;surface.viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE if value else SubViewport.UPDATE_DISABLED
 	if not value:
-		cancel_press();clear_hover();cancel_grab();stick_captured=false;main_stick_captured=false
+		cancel_press();clear_hover();cancel_grab();stick_captured=false;main_stick_captured=false;navigation_surface=-1
 		if is_instance_valid(body): body.set_interface_capture(false,false)
 func reset() -> void:
 	if not str(state.get("session_id","")).is_empty(): cancel_draft()
@@ -138,7 +141,7 @@ func activate(tool: Dictionary) -> void:
 			var result:=await request("assemble",{"allocations":allocations})
 			if result.is_empty(): bag.set_busy(false,last_error);return
 		elif int(state.get("stage",0)) in [3,4]:
-			var result:=await request("finish",{"points":points,"colors":colors})
+			var result:=await request("finish",{"points":points,"colors":colors,"output":"blueprint" if blueprint_output.button_pressed and state.get("can_create_blueprint",false) else "prototype"})
 			if result.is_empty(): bag.set_busy(false,last_error);return
 		rebuild()
 	bag.set_busy(false,last_error)
@@ -224,10 +227,12 @@ func rebuild() -> void:
 	if is_instance_valid(preview): preview.queue_free()
 	preview=null;preview_missing.visible=false
 	var stage:=int(state.get("stage",0))
+	blueprint_output.visible=stage in [3,4] and state.get("can_create_blueprint",false)
+	if stage<=2 or not blueprint_output.visible:blueprint_output.button_pressed=false
 	if stage==0: set_visible_ui(false);return
 	ui.enabled=stage<=2;materials.enabled=stage==2
 	if stage<=2:
-		ui.configure("USABLE SCHEMATICS",state.get("schematics",[]),"Main-hand stick Y: scroll · select a recipe · trigger assembles")
+		ui.configure("USABLE SCHEMATICS",state.get("schematics",[]),"Stick: highlight · stick click: select · trigger assembles")
 		materials.layout(true)
 		materials.configure("INGREDIENTS",state.get("inventory",[]),"Finger selects quality · grip drags to cube")
 		for i in range(state.get("schematic",{}).get("slots",[]).size()):
@@ -290,7 +295,8 @@ func refresh_experiment() -> void:
 	refresh_material_page()
 	var stats: Array=[]
 	for value: Dictionary in state.get("statistics",[]): stats.append({"label":"%s: %.2f"%[str(value.name),float(value.value)]})
-	ui.configure("POINTS: %d / %d"%[int(state.get("points",0))-used,int(state.get("points",0))],stats,"Trigger starts crafting · stow refunds ingredients")
+	ui.page_size=10 if blueprint_output.visible else 11
+	ui.configure("POINTS: %d / %d"%[int(state.get("points",0))-used,int(state.get("points",0))],stats,"Trigger creates selected output · stow refunds ingredients")
 func refresh_material_page() -> void:
 	ingredient_images.visible=materials.grid_mode
 	var models:=ingredient_viewport.get_node("Models")
@@ -330,6 +336,8 @@ func update_slots() -> void:
 			var bar_index:=0
 			var quality_names: Array=[]
 			for q: Dictionary in items[selected_resource].get("quality",[]):
+				if int(q.get("slot",i))!=i: continue
+				if q.has("raw"): quality+="\n%s %.0f"%[str(q.name),float(q.raw)]
 				if str(q.name) in quality_names: continue
 				quality_names.append(str(q.name))
 				var bar:=MeshInstance3D.new();bar.set_meta("quality_bar",true);var shape:=BoxMesh.new();var fraction:=clampf(float(q.value),0,1);shape.size=Vector3(maxf(0.001,0.068*fraction),0.006,0.002);bar.mesh=shape;bar.material_override=holo(Color("7ce3ba"));bar.position=Vector3(-0.034+shape.size.x/2,-0.048-bar_index*0.009,0.042);slots[i].add_child(bar);bar_index+=1
@@ -450,21 +458,32 @@ func _process(delta: float) -> void:
 		if hand_tracker!=null and hand_tracker.has_tracking_data: press=1.0 if not hit.is_empty() and float(hit.get("distance",1))<0.015 else 0.0
 		update_pointer(hit,press)
 	update_hand(off.get_float("grip"),off.global_transform,hit)
-	update_scroll_inputs(bag.controller_for(bag.main_side()).get_vector2("primary"),bag.controller_for(bag.offhand).get_vector2("primary"),hit,delta)
+	update_scroll_inputs(main.get_vector2("primary"),off.get_vector2("primary"),hit,delta)
+
+func confirm_button(side: String) -> bool:
+	if not is_open:return false
+	# The free hand confirms the last highlighted pane even after aim moves away.
+	if side==bag.held_hand_side():return false
+	if not gripping and navigation_surface>=0:
+		var panel:Control=ui if navigation_surface==0 else materials
+		panel.confirm_navigation()
+	return true
 
 func update_scroll_inputs(main_stick: Vector2, off_stick: Vector2, hit: Dictionary, delta: float) -> void:
 	scroll_delay-=delta
 	if not gripping and scroll_delay<=0:
 		if int(state.get("stage",0))<=2 and absf(main_stick.y)>0.5:
-			ui.scroll(-main_stick.y); main_stick_captured=true; scroll_delay=0.18
-		elif not hit.is_empty() and absf(off_stick.y)>0.5:
-			if int(hit.surface)==0: ui.scroll(-off_stick.y)
+			ui.scroll(-main_stick.y); navigation_surface=0; main_stick_captured=true; scroll_delay=0.18
+		elif absf(off_stick.y)>0.5 and (not hit.is_empty() or int(state.get("stage",0))<=2):
+			navigation_surface=int(hit.get("surface",0))
+			if navigation_surface==0: ui.scroll(-off_stick.y)
 			else: materials.scroll(-off_stick.y)
 			stick_captured=true; scroll_delay=0.18
 	if main_stick.length()<0.15: main_stick_captured=false
 	if off_stick.length()<0.15: stick_captured=false
-	var left_capture := stick_captured if offhand=="left" else main_stick_captured
-	var right_capture := main_stick_captured if offhand=="left" else stick_captured
+	var free_left:bool=bag.held_hand_side()=="right"
+	var left_capture := stick_captured if free_left else main_stick_captured
+	var right_capture := main_stick_captured if free_left else stick_captured
 	body.set_interface_capture(left_capture,right_capture)
 
 func _exit_tree() -> void:

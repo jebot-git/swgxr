@@ -1,7 +1,7 @@
 # SWGXR rough prototype
 
-VR-first Godot/OpenXR client, chunk-streamed Tatooine and Mos Eisley starport, and a local
-Core3/Engine3 character backend. Original SWG media and converted game assets stay
+VR-first Godot/OpenXR client with all ten original ground planets streamed in
+chunks and a persistent Core3/Engine3 character backend. Original SWG media and converted game assets stay
 on this machine in ignored directories.
 
 The client creates and selects persistent Core3 characters, then retains a native
@@ -253,8 +253,127 @@ In desktop inspection mode, move with **WASD**, look with the **mouse**, run wit
 **Space** for a cosmetic jump or knockdown recovery. Jump raises the view without lifting the
 collision body. Open the menu with **Esc**, and reset to the entry point with **R**.
 In VR, click the **offhand stick** to jump/recover; the weapon-hand stick selects abilities.
+With empty hands, choose a learned dance from the weapon-hand stick radial. Spread
+both arms at chest height with open palms facing down, then make repeated circular
+or wavy motions with both hands. Dancing uses no ribbon or other prop. Holding fists,
+raising hands overhead, standing still, or moving only one hand does not start a dance.
+For music, hold an owned instrument, select a learned song, then bring a wind
+instrument to your mouth, strum strings, alternate keyboard taps, or strike a percussion
+instrument with the other hand. These primed gestures take priority over the wrist
+datapad chord; release the chord before opening the datapad again.
 During an entertainer performance, press **A** to request a random learned flourish.
+Dancer, Musician and Image Designer profession boxes use the existing native trainer
+and skill-tree interfaces. The flourish pool includes learned original special effects;
+Core3 checks the performance mode, skill modifiers, HAM and cooldown before accepting.
+Music stops retain the original 15-second outro; dance/song switches use the original
+change-performance commands. Large instruments require native deployed placement and
+are explicitly rejected until that separate interaction is available.
+Original performance sessions own XP; the presentation bus never grants skills or XP.
+Audience presence still reports `buff_applied: false`: native watch/listen audience
+buff integration is outside this unlock-and-options milestone.
+
+To register a performance location on the planetary map, stand with both arms raised
+outward in a “praise the sun” V for **10 uninterrupted seconds**. A progress label appears
+when eligible. Tracking loss, lowering an arm or opening another interface cancels the
+hold. Core3 requires the original qualifying profession and building; this cannot
+create arbitrary outdoor POIs. Registration disappears when the original venue no
+longer has registered professionals.
+
+The entertainer radial offers **Image design**, nearby native group invitations,
+accepting an invitation and leaving the group. Self-design is allowed; another
+recipient must share the original Core3 group and be within 8 m in the same cell.
+The holographic designer panel exposes learned body, face, hair, marking and
+holoemote options with an original-model preview and price. Both players consent to
+the exact revision before Core3 commits appearance, payment and XP. A revision clears
+both approvals. Stat migration is outside this appearance-options milestone.
+
+Local asset preparation includes `tools/entertainment/prepare_assets.py` and
+`tools/entertainment/prepare_image_design.py --ensure`. The latter hashes original
+source tables and the character catalogue to regenerate native option bounds.
+Original special effects share the existing 32-program/48-style particle cache and
+LOD budgets; idle entries can be replaced, active particles and pinned combat styles
+cannot. Nested emitter motion is flattened and mesh particles are recorded as omitted;
+CEF dynamic lights and camera shake remain disabled for XR.
 Jump remains available for its normal cosmetic jump and knockdown recovery.
+
+Creature Handler uses the original trainer, skill-tree and pet-control systems.
+Look directly at an eligible wild baby within **8 metres** to target the nearest
+creature under your gaze with clear line of sight. Repeatedly **clap or beckon for
+10 continuous seconds** to start Core3's taming attempt. Changing targets, losing
+tracking or stopping the motion cancels the gesture. The native attempt then takes
+about **30 seconds** and can fail under the original skill and creature rules;
+completing the gesture alone does not award a pet.
+
+With empty hands, hold **both fists forward for one second** to embolden your
+called pets, or **both fists above your head for one second** to enrage them.
+Lower and open your hands before repeating. Core3 applies learned-skill checks,
+pet range, HAM costs and cooldowns. When finger tracking is unavailable, holding
+both grip and trigger represents a closed fist. To train a suitable owned creature as a mount,
+**stroke its animated head for five continuous seconds** with an open hand.
+The original mount-training skill, species and growth requirements still apply.
+Use **Train** in the existing pet command menu to teach available original
+commands; training rolls and XP are decided by Core3. Pets remain persistent
+datapad objects and use the existing call, command and recall interactions.
+`tools/pets/prepare_bounds.py --ensure` prepares the small source-derived contact
+catalog used by Core3 for skeletal creatures; the launcher refreshes it as needed.
+Server runtime packages include this metadata without copying creature meshes.
+
+Ranger training uses the original trainer and 18-box skill tree. To apply
+**Conceal**, hold a camouflage kit and press its hand's trigger. Hold the kit
+against another player's visible avatar when triggering to apply it to them.
+Each accepted use consumes one charge from that exact kit. The kit must match
+the current planet; existing valid concealment, Mask Scent, recovery and nearby hostile
+NPCs can prevent application. Rejected uses keep the charge. Kits work for every
+profession: an untrained user gets a weaker **200-second** baseline, while
+camouflage skill improves power and duration. Conceal affects native NPC/creature
+detection, with Core3's original robot immunity and combat restrictions.
+After interplanetary travel, a kit for the destination can replace an old
+planet's inactive concealment effect.
+
+For **Rescue**, point both index fingers at the same eligible creature or NPC
+for **one second**. It must be attacking a groupmate within 32 m and clear line
+of sight; Core3 decides the rescue roll and temporary taunt. With controllers,
+hold grip while leaving trigger released to represent an extended index finger.
+For **Area Track**, hold an empty hand just above your eyes and sweep your head
+left and right for at least **two seconds**. This starts the original six-second
+scan using the last available category. Stay in place while it completes. The
+holographic panel offers learned animal, NPC and player filters; direction and
+distance appear only when the corresponding Ranger skills are learned.
+
+Nearby NPC speech appears in a small, depth-tested bubble whose tail sits just
+above the NPC's animated head crown. Bubbles face the viewer, expire after six
+seconds and share an eight-bubble pool. Original SWG language tables determine
+names and unfamiliar-language text. Actual Core3 speech heard within 32 m, in the
+same room with clear line of sight, adds **2.5 percentage points** of comprehension
+per event: forty exposures from zero unlock the original comprehension skill.
+Progress persists on the character; repeated client updates do not add progress.
+Listening does not teach speaking or nonverbal Lekku. Existing language skills
+remain effective immediately. Peaceful town NPCs can use original ambient greeting
+lines, with restrained per-player and per-NPC cooldowns. See
+[the NPC chatter protocol](server/CHATTER_PROTOCOL.md) for delivery and persistence.
+
+Faction recruiters use the same holographic conversation interface as trainers.
+Select **Join** to enlist immediately as a Rebel or Imperial combatant. The current
+GCW scope is PvE: original faction mission terminals and faction NPC combatants;
+player-versus-player combat is disabled, including attacks through owned pets.
+Reward requisitions show the original item model in a separate preview panel
+before purchase. Core3 determines faction-point prices, discounts, the original
+standing reserve and inventory capacity. Equipment, uniforms and furniture are
+available. Use **Request promotion** to spend the original rank cost and increase
+your standing cap as you progress; no rank or faction points are granted by the
+client. Base installations, hirelings and campaign schematics are outside this
+milestone.
+
+To change duty status, face your own faction's recruiter within **3 metres** and
+hold your empty dominant hand beside your temple in a steady salute for **one
+second**. Lower the hand before repeating. The interface shows Core3's pending
+change: **30 seconds** to return to combatant duty or **five minutes** to go on
+leave. Imperial searches and crackdown patrols use the native scan rules,
+smuggling checks and cooldowns. When a scan issues a fine, choose **Pay fine** or
+**Refuse** in its holographic prompt; Core3 decides the resulting credit/faction
+penalty and patrol response. This Core3 version counts contraband but does not
+confiscate it. No client action starts a search or grants faction points. See
+[the faction protocol](server/GCW_PROTOCOL.md) for native rules and validation.
 
 Artisan crafting uses the owned tool from the bag or tool hip slot. Trigger opens
 usable schematics and a filtered grid of original 3D ingredient models. The
@@ -501,10 +620,15 @@ Vehicles can be called from the datapad’s Vehicles tab. Touch the driver or
 passenger seat and squeeze that hand’s trigger to board; the jump control
 (offhand stick click) dismounts. Grip either bike handle and twist forward/back
 for throttle/brake/reverse, moving the handlebars to steer. Landspeeders use
-main-hand joystick forward/back for throttle, braking and reverse while gripping
-the yoke. Steering follows hand movement around the wheel. Avatar hands stay on
-the grabbed yoke; original X31, X34 and AV21 yoke geometry rotates locally. The
-Flash steering mesh remains static because it is joined to the dashboard stem.
+physical yoke push/pull for throttle, braking and reverse; the joystick does not
+drive. Steering follows hand movement around the wheel, independently of depth.
+The vehicle model defines the steering and forward/back axes, regardless of
+headset facing. Seated driver grips attach the corresponding left/right avatar
+hand to its control even when the real controller is elsewhere or beyond reach.
+Control positions persist while either hand holds on, including hand transfers;
+releasing both grips restores neutral. Original X31, X34, AV21 and Flash yokes
+move locally, and the original swoop/speederbike bars pivot with fore/aft grip
+motion. Steering components retain their original triangles and materials.
 Tracked controller poses remain unchanged. One free hand remains usable by the driver; both
 passenger hands remain free. Both-hand contact/grip stores a parked, empty owned
 vehicle. The datapad also offers **Recall** for a nearby parked, empty vehicle.
@@ -515,6 +639,44 @@ Dead and incapacitated occupants are ejected; losing the driver stops
 motion. Details and reproduction commands are in `server/README.md` under
 “VR vehicles”. Vehicle-frame smoothing preserves direct head tracking; completed
 Vulkan frame tests and native Core3 checks are distinct from live headset testing.
+
+## Ground planets and starport travel
+
+The prepared client covers Tatooine, Naboo, Corellia, Rori, Talus, Dantooine,
+Dathomir, Endor, Lok and Yavin IV. Each world uses its original terrain, static
+buildings and interiors, floor/collision data, environment/audio, NPC appearances,
+services, map and POIs. Existing presentation budgets and conversion limitations
+apply. Per-planet provenance, missing appearances and unsupported terrain visuals
+are recorded in `runtime/assets/planets/catalog.json` and its component manifests.
+Kashyyyk and Mustafar are outside the pinned pre-CU ground set and lack the required
+terrain/snapshot datasets in the active supplied media.
+
+Buy tickets at original travel terminals and board through the existing open-door
+shuttle interaction. Core3 supplies destinations, schedules, prices and ticket
+rules. One eligible ticket boards directly; several open the ticket chooser.
+Destination assets are checked before purchase and boarding. During travel a loading
+screen covers world replacement, old collisions and actors are removed, and the
+owned server session remains connected. Movement resumes only after the exact
+server-selected destination and its supporting floor are ready. Failed loading
+stays covered with a retry option; stale source-world updates cannot undo travel.
+
+Local Core3 is configured for all ten worlds. Use `./run.sh --local` to test the
+local realm; the default remote profile still uses the existing Tatooine VPS.
+By user direction, planet restoration stays out of the live test server until
+the player test server is ready; unrelated deployments must retain Tatooine-only
+scope. That 2 GiB host has not been expanded: all ten zones measured approximately
+4.14 GiB of Core3 RSS locally, excluding database and operating-system overhead.
+Eight GiB RAM is a sensible starting capacity for deployment, not a validated
+16-player performance guarantee. Live VR tests remain suspended.
+
+Rebuild original local world data with `python3 tools/assets/prepare_planets.py`.
+The exporter is resumable and checks source/converter hashes. To select local
+server zones explicitly, use `python3 tools/configure_core3.py --planets all`
+before a graceful restart; ordinary builds preserve the current selection.
+`tools/deploy/prepare_planet_profile.py` stages a private remote overlay without
+changing the live realm. Real Tatooine–Naboo roundtrip, destination persistence,
+Naboo surveying and ticket replay checks passed; client source-world transitions
+and desktop Vulkan captures are recorded under `runtime/evidence/planet*`.
 
 ## Recording follow-up: core1.mp4
 

@@ -10,11 +10,15 @@ signal cancel_mission_requested(entry: Dictionary)
 signal map_expansion_requested(expanded: bool)
 const MapControl = preload("res://scripts/datapad_map.gd")
 const DatapadTheme = preload("res://scripts/datapad_theme.gd")
+var planet:="tatooine"
 var manifest: Dictionary = {}
 var catalog_directory := ""
 var entries: Array = []
 var filtered_entries: Array = []
 var mission_parcels: Array = []
+var harvesting_deeds:Array=[]
+var factory_blueprints:Array=[]
+var vendors: Array = []
 var owned_missions: Dictionary = {}
 var parcel_assets=preload("res://scripts/inventory_assets.gd").new()
 var parcel_previews:Dictionary={}
@@ -43,6 +47,7 @@ var map_tools: HBoxContainer
 var map_visible := false
 var ready_built := false
 var selected_entry: Dictionary = {}
+var navigation_anchor:=Vector2.INF
 var cancel_mission_button: Button
 var delete_button: Button
 var vehicle_button: Button
@@ -86,12 +91,22 @@ func set_mission_parcels(values:Array)->void:
 	mission_parcels=values.duplicate(true)
 	set_entries(entries.filter(func(entry):return not entry.get("reference_only",false) and entry.get("type","")!="mission_parcel"))
 
+func set_harvesting_deeds(values:Array)->void:
+	if values==harvesting_deeds:return
+	harvesting_deeds=values.duplicate(true)
+	set_entries(entries)
+
+func set_vendors(values:Array)->void:
+	if values==vendors:return
+	vendors=values.duplicate(true)
+	set_entries(entries.filter(func(entry):return not entry.get("reference_only",false)))
+
 func draggable_entry_at(pixel:Vector2)->Dictionary:
 	if busy or not list.visible or not list.get_global_rect().has_point(pixel):return {}
 	var index:=list.get_item_at_position(pixel-list.global_position,true)
 	if index<0 or index>=filtered_entries.size():return {}
 	var entry:Dictionary=filtered_entries[index]
-	return entry.duplicate(true) if entry.get("type","")=="mission_parcel" else {}
+	return entry.duplicate(true) if entry.get("type","") in ["mission_parcel","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] else {}
 
 func _ready() -> void:
 	build_ui()
@@ -100,6 +115,7 @@ func build_ui() -> void:
 	if ready_built: return
 	ready_built = true
 	theme = DatapadTheme.build()
+	add_theme_stylebox_override("panel",DatapadTheme.frame(28,"wide"))
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var column := VBoxContainer.new()
 	add_child(column)
@@ -115,7 +131,7 @@ func build_ui() -> void:
 	header.add_child(connection_status)
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
-	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["pets","Pets"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
+	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
 		var button := make_button(descriptor[1])
 		button.toggle_mode = true
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -144,6 +160,7 @@ func build_ui() -> void:
 	map.visible = false
 	map.cursor_selected.connect(func(_position: Vector3): update_coordinates())
 	content.add_child(map)
+	map.custom_minimum_size.y=232 # Leave room for the frame, filters and action rows in the wrist viewport.
 	map_filters=HFlowContainer.new();map_filters.visible=false;content.add_child(map_filters)
 	for descriptor in [["city","Cities"],["poi","POI"],["bazaar","Bazaar"],["mission","Missions"],["bank","Bank"],["crafting","Crafting"],["travel","Travel"],["trainer","Trainers"]]:
 		var button:=make_button(descriptor[1]);button.toggle_mode=true;button.button_pressed=true
@@ -194,6 +211,7 @@ func build_ui() -> void:
 
 func build_detail() -> void:
 	detail_panel = PanelContainer.new()
+	detail_panel.add_theme_stylebox_override("panel",DatapadTheme.frame(28,"tall"))
 	detail_panel.name = "DatapadDetails"
 	detail_panel.theme = theme
 	detail_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -268,17 +286,27 @@ func configure(data: Dictionary, directory := "") -> void:
 	build_ui()
 	manifest = data
 	catalog_directory = directory
-	var map_descriptor: Dictionary = data.get("maps",{}).get("tatooine",{}).duplicate(true)
+	var map_descriptor: Dictionary = data.get("maps",{}).get(planet,{}).duplicate(true)
 	map_descriptor["icons"] = data.get("icons",{})
+	var planet_descriptor:Dictionary=preload("res://scripts/planet_catalog.gd").new().descriptor(planet)
+	map_descriptor["service_directory"]=str(planet_descriptor.get("services","res://../runtime/assets/services/catalog.json")).get_base_dir()
 	map.configure(map_descriptor,directory)
 	var ui: Dictionary = data.get("ui",{})
 	for descriptor in ui.get("categories",[]):
 		if descriptor is Dictionary and category_buttons.has(str(descriptor.get("id",""))):
 			category_buttons[str(descriptor.id)].text = str(descriptor.get("label",category_buttons[str(descriptor.id)].text))
 
+func set_planet(value:String)->void:
+	build_ui()
+	if value==planet:return
+	planet=value
+	map.source_services=[];map.native_services=[];map.service_points=[];map.registered_locations=[];map.has_cursor=false;map.zoom=1.0
+	if not manifest.is_empty():configure(manifest,catalog_directory)
+	set_entries(entries.filter(func(entry):return not entry.get("reference_only",false)))
+
 func set_entries(values: Array) -> void:
 	build_ui()
-	entries = values.filter(func(entry):return entry.get("type","")!="mission_parcel").duplicate(true)
+	entries = values.filter(func(entry):return entry.get("type","") not in ["mission_parcel","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
 	# PLAY baselines identify the control device; vehicle snapshots identify its
 	# actual mobile. Retain that authoritative association across waypoint and
 	# datapad refreshes, without guessing a hull from the device filename.
@@ -293,9 +321,12 @@ func set_entries(values: Array) -> void:
 		if vehicle_details.has(id):retained[id]=vehicle_details[id]
 	vehicle_details=retained
 	entries.append_array(mission_parcels.duplicate(true))
+	entries.append_array(vendors.duplicate(true))
+	entries.append_array(harvesting_deeds.duplicate(true))
+	entries.append_array(factory_blueprints.duplicate(true))
 	# Shared original client POIs are reference information, not granted objects.
 	for source in manifest.get("points_of_interest",[]):
-		if str(source.get("planet", "")).to_lower() != "tatooine": continue
+		if str(source.get("planet", "")).to_lower() != planet: continue
 		var reference: Dictionary = source.duplicate(true)
 		reference["id"] = "reference:" + str(source.get("id",source.get("name","")))
 		reference["category"] = "poi"
@@ -303,7 +334,7 @@ func set_entries(values: Array) -> void:
 		reference["attributes"] = {"Source":"Original client points of interest", "Datapad space":"None"}
 		entries.append(reference)
 	connection_status.text = "Character datapad"
-	map.waypoints = entries.filter(func(entry): return str(entry.get("category","")) == "waypoints" and str(entry.get("planet","tatooine")).to_lower() == "tatooine")
+	map.waypoints = entries.filter(func(entry): return str(entry.get("category","")) == "waypoints" and str(entry.get("planet",planet)).to_lower() == planet)
 	map.queue_redraw()
 	select_category(category)
 
@@ -384,8 +415,8 @@ func select_entry(index: int) -> void:
 	if index < 0 or index >= filtered_entries.size(): return
 	var entry: Dictionary = filtered_entries[index]
 	selected_entry = entry
-	vehicle_button.visible=entry.get("category","")=="vehicles" or (entry.get("category","")=="pets" and entry.get("native_droid",false))
-	vehicle_button.text=("Recall " if entry.get("spawned",false) else "Call ")+("droid" if entry.get("category","")=="pets" else "vehicle")
+	vehicle_button.visible=entry.get("category","")=="vehicles" or (entry.get("category","")=="pets" and (entry.get("native_droid",false) or entry.get("native_pet",false)))
+	vehicle_button.text=("Recall " if entry.get("spawned",false) else "Call ")+(("droid" if entry.get("pet_kind","droid")=="droid" else "pet") if entry.get("category","")=="pets" else "vehicle")
 	vehicle_button.disabled=busy
 	delete_button.disabled = busy or not can_delete(entry)
 	cancel_mission_button.visible=not cancellable_mission_id(entry).is_empty()
@@ -464,6 +495,27 @@ func scroll_at(pixel: Vector2, delta: Vector2) -> void:
 	elif list.get_global_rect().has_point(global_position+pixel):
 		list.get_v_scroll_bar().value += delta.y
 
+func navigate_at(pixel: Vector2, steps: int) -> bool:
+	if category=="skills" and professions.visible:
+		if not busy and steps!=0:professions.navigate(steps);navigation_anchor=pixel
+		return true
+	if map_visible or not list.get_global_rect().has_point(global_position+pixel):return false
+	if busy or list.item_count==0 or steps==0:return true
+	var selected:=list.get_selected_items()
+	var index:=clampi(0 if selected.is_empty() else selected[0]+steps,0,list.item_count-1)
+	list.select(index);list.ensure_current_is_visible();select_entry(index)
+	navigation_anchor=pixel
+	return true
+
+func navigation_target(pixel:Vector2)->Vector2:
+	if category=="skills" and professions.visible and pixel.distance_to(navigation_anchor)<=12:
+		var button:Button=professions.buttons.get(professions.selected_skill_id)
+		if button!=null:return button.get_global_rect().get_center()-global_position
+	if map_visible or not list.visible or pixel.distance_to(navigation_anchor)>12:return pixel
+	var selected:=list.get_selected_items()
+	if selected.is_empty():return pixel
+	return list.global_position-global_position+list.get_item_rect(selected[0]).get_center()
+
 func make_label(text: String, font_size: int) -> Label:
 	var label := Label.new()
 	label.text = text
@@ -481,3 +533,21 @@ func _exit_tree() -> void:
 
 func set_service_points(values: Array) -> void:
 	build_ui();map.set_service_points(values)
+
+func set_registered_locations(values:Array)->void:
+	build_ui()
+	var points:Array=[]
+	for row in values.slice(0,256):
+		if not row is Dictionary or not row.get("registered",false) or str(row.get("zone",""))!=planet:continue
+		var point:Variant=row.get("position")
+		if not point is Array or point.size()!=3:continue
+		if not Vector3(float(point[0]),float(point[1]),float(point[2])).is_finite():continue
+		var id:=str(row.get("building_id",row.get("id","")))
+		if id.is_empty():continue
+		points.append({"id":id,"type":"poi","name":str(row.get("name","Registered performance venue"))+" · "+str(row.get("category","entertainer")),"position":point.duplicate(),"source":"Core3 registered venue","native_icon":row.get("native_icon",2)})
+	if map.registered_locations==points:return
+	map.registered_locations=points;map.queue_redraw()
+
+func set_factory_blueprints(values:Array)->void:
+	if values==factory_blueprints:return
+	factory_blueprints=values.duplicate(true);set_entries(entries)

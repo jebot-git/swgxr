@@ -28,7 +28,7 @@ class Scenery extends Node3D:
 	var rows: Array=[]
 	func advance(_delta: float) -> void: pass
 	func reset() -> void: rows=[]
-	func configure(_origin: Vector3) -> void: pass
+	func configure(_origin: Vector3,_catalog_path: String="") -> void: pass
 	func apply_snapshot(_state: Dictionary,_position: Vector3) -> void: pass
 	func boarding_rows() -> Array:
 		return rows.filter(func(row): return bool(row.get("boarding",false)))
@@ -146,6 +146,7 @@ func run() -> void:
 	check(ui.panel.message=="Core3 unavailable" and not ui.pending,"Native failure is visible and does not hang UI")
 	var reply:=host.response();reply.transport={"id":"travel-1","destination":{"zone":"tatooine","position":[3600,5,-4700],"building_id":"0","cell_index":0}}
 	host.next_response=reply
+	coordinator.state.tickets=[{"id":"700","destination_planet":"tatooine","usable":true}]
 	await coordinator.request("travel_board",{"terminal_id":"600","ticket_id":"700"})
 	check(host.transports.size()==1 and host.transports[0].id=="travel-1","Confirmed native travel uses source destination placement")
 	check(host.calls.back().payload.ticket_id=="700","Travel retains actual native ticket identity")
@@ -154,6 +155,7 @@ func run() -> void:
 	reply=host.response();reply.transport={"id":"travel-2","destination":{"zone":"tatooine","position":[3700,5,-4650]}}
 	reply.live_response={"session_id":"session-1","sequence":2}
 	host.next_response=reply
+	coordinator.state.tickets=[{"id":"701","destination_planet":"tatooine","usable":true}]
 	await coordinator.request("travel_board",{"terminal_id":"600","ticket_id":"701"})
 	check(host.transports.size()==1 and host.live_combat.accepted==1,"Live travel delegates newer authoritative envelope to existing transport flow without duplicate placement")
 	reply=host.response();reply.live_response={"session_id":"stale","sequence":100}
@@ -269,6 +271,11 @@ func run() -> void:
 	host.background_allowed=false;before_calls=host.calls.size()
 	await coordinator.request("open",{"terminal_id":"10"})
 	check(host.calls.size()==before_calls+1 and host.calls.back().path=="/services/open","Explicit terminal interaction bypasses background admission")
+	var house_terminal:Dictionary={"id":"55","kind":"house","name":"House","options":[]}
+	ui.terminal=house_terminal.duplicate(true);ui.panel.configure(house_terminal,{"cash":800,"bank":1200})
+	reply=host.response();reply.state.terminal=house_terminal;reply.mutation.arm={"arm_id":"house-arm-001","structure_id":"50","permission_list":"ENTRY","permission_action":"add"};host.next_response=reply
+	await coordinator.request("house_permission_arm",{"terminal_id":"55","permission_list":"ENTRY","permission_action":"add"})
+	check(ui.terminal.is_empty() and not ui.blocks_combat(),"Successful house permission selection releases terminal gate for the handshake")
 	host.queue_free();await process_frame
 	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"backend":"async mocked Core3 envelopes","renderer":"headless dummy","tracking":"mocked; not live XR"}
 	var file:=FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/services-controller-smoke.json"),FileAccess.WRITE)

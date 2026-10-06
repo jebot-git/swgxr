@@ -17,7 +17,7 @@ from character_animations import load_lat,resolve,decode_clip
 from swg_formats import parse_iff,cstring
 NAMES=('speederbike','speederbike_swoop','speederbike_flash','landspeeder_x34','landspeeder_x31','landspeeder_av21')
 from yoke_geometry import steering_component
-EXPORT_VERSION=3
+EXPORT_VERSION=4
 def source_signature():
  paths=[Path(__file__),Path(__file__).with_name("yoke_geometry.py"),ROOT/'tools/assets/static_assets.py',ROOT/'tools/assets/shader_alpha.py',ROOT/'runtime/assets/characters/catalog.json']+sorted((ROOT/'runtime/assets/active_tre').glob('*.tre'))
  return hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)),p.stat().st_size,p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
@@ -29,7 +29,7 @@ def prepared(out,signature,required):
    descriptor=catalog['items'][template];model=json.loads((out/descriptor['model']).read_text())
    shared=template.rsplit('/',1)[0]+'/shared_'+template.rsplit('/',1)[1]
    if catalog.get('aliases',{}).get(shared)!=template:return False
-   if descriptor.get('status')!='ready' or not descriptor.get('seats') or not descriptor.get('controls') or not model.get('surfaces'):return False
+   if descriptor.get('status')!='ready' or descriptor.get('steering_geometry',{}).get('status')!='ready' or not descriptor.get('seats') or not descriptor.get('controls') or not model.get('surfaces'):return False
    if any(not surface.get('vertices') or not surface.get('indices') or not (out/surface['texture']).is_file() for surface in model['surfaces']):return False
   return True
  except (OSError,ValueError,KeyError,TypeError):return False
@@ -97,10 +97,9 @@ def main():
   d['controls']=[[float(posed[next(i for i,b in enumerate(model['bones']) if b['name']==name)][j,3])+offset[j] for j in range(3)] for name in ('hold_l','hold_r')]
   d['control_source']='Original human loop_riding hold_l/hold_r transforms, translated from source root to model driver hardpoint'
   d['control_bases']=[[[float(posed[next(i for i,b in enumerate(model['bones']) if b['name']==name)][row,col]) for row in range(3)] for col in range(3)] for name in ('hold_l','hold_r')]
-  if d['kind']=='landspeeder':
-   source_model=json.loads((out/d['model']).read_text())
-   d['steering_geometry']=steering_component(source_model,d['controls'])
-   d['steering_geometry']['model_sha256']=hashlib.sha256((out/d['model']).read_bytes()).hexdigest()
+  source_model=json.loads((out/d['model']).read_text())
+  d['steering_geometry']=steering_component(source_model,d['controls'])
+  d['steering_geometry']['model_sha256']=hashlib.sha256((out/d['model']).read_bytes()).hexdigest()
  catalog['dependencies']=imp.dependencies;catalog['conversion_failures']=static.failures
  imp.write('catalog.json',catalog)
  print(json.dumps({'vehicles':len(catalog['items']),'failures':catalog['failures']}))

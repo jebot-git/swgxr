@@ -31,7 +31,11 @@ var wrist_ham: Node3D
 var medic: Node3D
 var vehicles: Node3D
 var medical_stick_side := ""
+var fishing_stick_side := ""
+var pet_stick_side := ""
+var pet_controls: Node3D
 var combat_rig: Node3D
+var interface_button_handler: Callable
 
 func configure_player_combat(context: Dictionary) -> void:
 	combat_pools.refresh_context(context)
@@ -79,14 +83,16 @@ func _update_locomotion() -> void:
 		var provider := get_node_or_null(path)
 		if provider != null:
 			var moving: bool = path.contains("MovementDirect")
-			provider.enabled = active and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right")
+			provider.enabled = active and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right") and pet_stick_side != ("left" if moving else "right") and fishing_stick_side != ("left" if moving else "right")
 
 func _on_controller_button(button: String, side := "left") -> void:
 	if button == "menu_button":
 		menu_requested.emit()
 		return
+	if interface_button_handler.is_valid() and interface_button_handler.call(button,side):return
 	if is_instance_valid(vehicles) and vehicles.button(button,side):return
 	if is_instance_valid(medic) and medic.button(button,side):return
+	if is_instance_valid(pet_controls) and pet_controls.button(button,side):return
 	if feedback.life_locked:
 		if button == "ax_button" and side == "right":
 			feedback.request_life_action("medical_transport", preload("res://scripts/tracked_hand_input.gd").controller_tracked(right_hand_node) and bool(combat_tracking_context().tracked))
@@ -137,18 +143,19 @@ func prepare_tracked_body() -> void:
 	feedback.advance(0)
 
 func _source_support(point: Vector3, max_up: float, max_down: float) -> Dictionary:
-	if not is_instance_valid(ground_provider):
-		return {"valid": false}
-	var context: Dictionary = ground_provider.collision_context(point)
+	var context: Dictionary = ground_provider.collision_context(point) if is_instance_valid(ground_provider) else {}
 	var allowed: Array = context.get("allowed_cell_ids", [])
-	# Empty membership must not turn into unrestricted cross-storey lookup.
-	if allowed.is_empty():
-		return {"valid": false}
-	var found: Dictionary = ground_provider.ground_support.sample_support(point, allowed, max_up, max_down, support_state)
-	if bool(found.get("valid", false)):
-		var capsule: Dictionary = ground_provider.ground_support.capsule_support(point, player_radius * XRServer.world_scale, allowed, max_up, max_down)
-		found["body_height"] = float(capsule.get("body_height", found.height))
-	return found
+	if not allowed.is_empty():
+		var found: Dictionary = ground_provider.ground_support.sample_support(point, allowed, max_up, max_down, support_state)
+		if bool(found.get("valid", false)):
+			var capsule: Dictionary = ground_provider.ground_support.capsule_support(point, player_radius * XRServer.world_scale, allowed, max_up, max_down)
+			found["body_height"] = float(capsule.get("body_height", found.height))
+			return found
+	# Imported terrain supplies exterior support only. Interior ground never
+	# queries through its authored floors to exterior terrain below/above it.
+	if int(context.get("building_object_id",0)) == 0 and collision_mask & 2:
+		return step_solver.terrain_support(self,point,max_up,max_down)
+	return {"valid":false}
 
 func _update_ground_information(delta: float) -> void:
 	super(delta)
@@ -169,6 +176,12 @@ func _update_ground_information(delta: float) -> void:
 func _attach_source_floor() -> bool:
 	var found := _source_support(global_position, support_snap_distance, support_snap_distance + player_radius)
 	if not bool(found.get("valid", false)):
+		return false
+	if bool(found.get("terrain",false)):
+		var attached: Dictionary = step_solver.move_on_terrain(self,Vector3.ZERO,support_snap_distance)
+		if attached.get("handled",false):
+			support_state = attached.support
+			return absf(global_position.y-float(support_state.get("body_height",global_position.y+1.0))) < support_contact_distance
 		return false
 	var difference := float(found.body_height) - global_position.y
 	if absf(difference) > support_snap_distance:
@@ -196,7 +209,21 @@ func _update_body_under_camera(delta: float) -> void:
 	var before := global_position
 	var previous := _source_support(before, support_contact_distance, support_contact_distance + player_radius)
 	var supported: bool = (bool(previous.get("valid", false)) and absf(float(previous.body_height) - before.y) <= support_contact_distance) or step_solver.has_support(self, support_contact_distance)
+	var terrain_tracking := bool(previous.get("terrain",false)) and supported and not jump_in_progress
+	var saved_mask := collision_mask
+	if terrain_tracking: collision_mask &= ~2
 	super(delta)
+	collision_mask = saved_mask
+	if terrain_tracking and _in_physics_movement:
+		var tracked_motion := global_position-before
+		var tracked_height := global_position.y
+		global_position = before
+		var followed: Dictionary = step_solver.move_on_terrain(self,tracked_motion,support_snap_distance)
+		if followed.get("handled",false):
+			support_state = followed.support
+			origin_node.global_position.y += global_position.y-tracked_height
+			return
+		global_position = before+tracked_motion
 	if not supported or jump_in_progress or not _in_physics_movement:
 		return
 	var after_tracking := global_position
@@ -241,6 +268,17 @@ func move_player(requested_velocity: Vector3) -> Vector3:
 		# addon gravity impulse into tangential downhill motion when resting.
 		step_velocity = Vector3.ZERO
 	var horizontal := step_velocity * delta
+	var exterior_context: Dictionary = ground_provider.collision_context(before) if is_instance_valid(ground_provider) else {}
+	var can_follow_terrain: bool = supported and not jump_in_progress and collision_mask & 2 and int(exterior_context.get("building_object_id",0)) == 0 and (not support_state.get("valid",false) or support_state.get("terrain",false))
+	if can_follow_terrain:
+		var followed: Dictionary = step_solver.move_on_terrain(self,horizontal,support_snap_distance)
+		if followed.get("handled",false):
+			support_state = followed.support
+			on_ground = bool(support_state.get("valid",false))
+			near_ground = on_ground
+			if not _in_physics_movement: origin_node.global_position += global_position-before
+			velocity = Vector3(followed.motion.x/delta,0,followed.motion.z/delta)
+			return velocity
 	if bool(support_state.get("valid", false)) and not jump_in_progress:
 		horizontal = _constrain_source_motion(before, horizontal)
 		step_velocity = horizontal / delta

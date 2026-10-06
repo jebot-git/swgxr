@@ -1,5 +1,5 @@
 extends SceneTree
-## Original six-profession catalog labels and costs; mocked authoritative training envelopes.
+## Original basic and artisan-specialist catalog labels and costs; mocked authoritative training envelopes.
 const ServicePanel=preload("res://scripts/service_panel.gd")
 const Coordinator=preload("res://scripts/services_controller.gd")
 const Fixtures=preload("res://tests/services_controller_smoke.gd")
@@ -20,7 +20,7 @@ class Datapad extends Node3D:
 	var ui: Control
 	func _init() -> void: ui=SkillPresentation.new();add_child(ui)
 	func set_open(_value: bool) -> void: pass
-const PROFESSIONS=["crafting_artisan","combat_brawler","social_entertainer","combat_marksman","science_medic","outdoors_scout"]
+const PROFESSIONS=["crafting_artisan","combat_brawler","social_entertainer","combat_marksman","science_medic","outdoors_scout","crafting_armorsmith","crafting_weaponsmith","crafting_chef","crafting_tailor","crafting_architect","crafting_droidengineer","crafting_merchant","crafting_shipwright"]
 var failures: Array[String]=[]
 var checks:=0
 var requests: Array=[]
@@ -137,7 +137,7 @@ func run() -> void:
 	await coordinator.request("trainer_train",{"terminal_id":"actual-native-trainer-id","skill_id":"combat_marksman_pistol_03"})
 	check(host.weapon_refreshes==1,"Disconnected but reserved persistent session cannot fall back to legacy weapon endpoint")
 	host.queue_free();await process_frame
-	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"skills":"six original user-media profession graphs","authority":"mocked Core3 envelopes only; native server tested separately","renderer":"headless dummy; XR disabled"}
+	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"skills":"fourteen original user-media profession graphs","authority":"mocked Core3 envelopes only; native server tested separately","renderer":"headless dummy; XR disabled"}
 	var file:=FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/trainer-services-smoke.json"),FileAccess.WRITE)
 	if file!=null: file.store_string(JSON.stringify(result,"\t"))
 	print(JSON.stringify(result));quit(0 if failures.is_empty() else 1)

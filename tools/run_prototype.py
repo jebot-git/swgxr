@@ -39,14 +39,31 @@ def load_json(path):
 
 def inventory_assets(snapshot=None, snapshot_path=None):
     """Prepare missing item appearances; never infer or grant possessions."""
+    if load_json(ROOT / 'runtime/assets/chatter/catalog.json').get('schema') != 1:
+        subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_chatter.py')], check=True, cwd=ROOT)
+    gcw_catalog = load_json(ROOT / 'runtime/assets/gcw/catalog.json')
+    if (gcw_catalog.get('schema') != 1
+            or any(row.get('preview_status') == 'unprepared' for row in gcw_catalog.get('rewards', []))
+            or any(not row.get('ready') for row in gcw_catalog.get('npc_appearances', {}).values())):
+        subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_gcw.py'),
+                        '--prepare-previews', '--prepare-npcs'], check=True, cwd=ROOT)
     if any(not (ROOT / 'runtime/assets/services' / name).exists() for name in ('catalog.json', 'trainers.json')):
         subprocess.run([sys.executable,str(ROOT / 'tools/assets/prepare_services.py')],check=True,cwd=ROOT)
+    trainer_scope = ROOT / 'server/profession_scope.py'
+    trainer_sources = load_json(ROOT / 'runtime/assets/services/trainers.json').get('provenance', {}).get('files_sha256', {})
+    if trainer_sources.get(str(trainer_scope.resolve())) != hashlib.sha256(trainer_scope.read_bytes()).hexdigest():
+        subprocess.run([sys.executable, str(ROOT / 'tools/assets/audit_trainers.py')], check=True, cwd=ROOT)
     if not (ROOT / 'runtime/assets/services/bazaar_categories.json').exists():
         subprocess.run([sys.executable,str(ROOT / 'tools/assets/prepare_bazaar_categories.py')],check=True,cwd=ROOT)
-    if not (ROOT / 'runtime/assets/scout/catalog.json').exists():
+    scout_catalog = load_json(ROOT / 'runtime/assets/scout/catalog.json')
+    if scout_catalog.get('schema') != 2 or not scout_catalog.get('camouflage_kits') or not scout_catalog.get('ranger_skills'):
         subprocess.run([sys.executable,str(ROOT / 'tools/scout/prepare_assets.py')],check=True,cwd=ROOT)
     if not (ROOT / 'runtime/assets/crafting/catalog.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/crafting/prepare_assets.py')],check=True,cwd=ROOT)
+    if not (ROOT/'runtime/assets/housing/catalog.json').exists():
+        subprocess.run([sys.executable,str(ROOT/'tools/assets/prepare_housing.py')],check=True,cwd=ROOT)
+    if not (ROOT/'runtime/assets/factories/catalog.json').exists():
+        subprocess.run([sys.executable,str(ROOT/'tools/assets/prepare_factories.py')],check=True,cwd=ROOT)
     directory = ROOT / 'runtime/assets/inventory'
     catalog = load_json(directory / 'catalog.json')
     command = [sys.executable, str(ROOT / 'tools/assets/prepare_inventory.py')]
@@ -66,6 +83,13 @@ def inventory_assets(snapshot=None, snapshot_path=None):
         for template in gathering)
     if prepare_gathering:
         command.append('--gathering-assets')
+    fishing_templates = ['object/tangible/terminal/terminal_player_structure.iff', 'object/tangible/fishing/fishing_pole.iff', 'object/tangible/fishing/marker.iff'] + [
+        'object/tangible/fishing/bait/bait_'+name+'.iff' for name in ('worm','grub','insect','chum')]
+    prepare_fishing = False
+    for template in fishing_templates:
+        item = catalog.get('items', {}).get(template, {})
+        if item.get('status') != 'ready' or not (directory / item.get('model', '')).is_file():
+            command.extend(['--template', template]); prepare_fishing = True
     missing = []
     requested = {}
     if snapshot is not None:
@@ -87,7 +111,7 @@ def inventory_assets(snapshot=None, snapshot_path=None):
                     if template not in missing: missing.append(template)
     if missing:
         command.extend(['--snapshot', str(snapshot_path)])
-    if prepare_starters or prepare_gathering or missing:
+    if prepare_starters or prepare_gathering or prepare_fishing or missing:
         print('Preparing original inventory appearances for this launch…', flush=True)
         subprocess.run(command, check=True, cwd=ROOT)
         catalog = load_json(directory / 'catalog.json')
@@ -97,7 +121,7 @@ def inventory_assets(snapshot=None, snapshot_path=None):
     unsupported = [template for template in requested if catalog.get('items', {}).get(template, {}).get('status') != 'ready']
     if unsupported:
         print('Original item previews unavailable (explicit UI entries, no replacement models): ' + ', '.join(unsupported), flush=True)
-    if not (ROOT/'runtime/assets/services/screens.json').exists() and (ROOT/'runtime/assets/tatooine_world/world.json').exists():
+    if (prepare_fishing or not (ROOT/'runtime/assets/services/screens.json').exists()) and (ROOT/'runtime/assets/tatooine_world/world.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/client/build_terminal_screens.py')],check=True,cwd=ROOT)
     return {'requested': len(requested), 'prepared': bool(prepare_starters or prepare_gathering or missing), 'unsupported': unsupported}
 
@@ -186,14 +210,15 @@ def combat_assets():
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/export_catalog.py')], check=True, cwd=ROOT)
     if not (ROOT / 'runtime/assets/combat/assets.json').is_file():
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_assets.py')], check=True, cwd=ROOT)
-    if not (ROOT / 'runtime/combat/abilities/catalog.json').is_file():
+    if not (ROOT / 'runtime/combat/abilities/catalog.json').is_file() or any(not (ROOT / 'runtime/combat/abilities' / (name + '.png')).is_file() for name in ('sampledna','animalattack','tame','emboldenpets','enragepets','mount','dismount','pethigh','petlow','trainmount','conceal','rescue','areatrack')):
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_abilities.py')], check=True, cwd=ROOT)
     if not (ROOT / 'runtime/assets/professions/catalog.json').is_file():
         subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_professions.py')], check=True, cwd=ROOT)
     if not (ROOT / 'runtime/combat/player_postures/catalog.json').is_file():
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_player_feedback.py')], check=True, cwd=ROOT)
-    if not (ROOT / 'runtime/entertainment/catalog.json').is_file():
+    if len(load_json(ROOT / 'runtime/entertainment/catalog.json').get('effects', [])) < 21:
         subprocess.run([sys.executable, str(ROOT / 'tools/entertainment/prepare_assets.py')], check=True, cwd=ROOT)
+    subprocess.run([sys.executable, str(ROOT / 'tools/entertainment/prepare_image_design.py'), '--ensure'], check=True, cwd=ROOT)
 
 def rendering_args(args):
     """Reject unsupported explicit overrides before starting any services."""
@@ -231,7 +256,35 @@ def mission_assets():
 
 def cached_world_assets():
     subprocess.run([sys.executable, str(ROOT / 'tools/vehicles/prepare_assets.py'), '--ensure'], check=True, cwd=ROOT)
+    subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_mobile_audio.py'), '--ensure'], check=True, cwd=ROOT)
+    subprocess.run([sys.executable, str(ROOT / 'tools/pets/prepare_bounds.py'), '--ensure'], check=True, cwd=ROOT)
     subprocess.run([sys.executable, str(ROOT / 'tools/assets/refresh_static_materials.py'), '--ensure'], check=True, cwd=ROOT)
+
+
+def planet_assets(args):
+    """Validate prepared descriptors without rebuilding worlds during login."""
+    path = ROOT / 'runtime/assets/planets/catalog.json'
+    requested = option(args, 'planet', 'tatooine')
+    if not path.exists():
+        if requested != 'tatooine':
+            raise ValueError('Planet catalog unavailable. Run python3 tools/assets/prepare_planets.py first.')
+        return ['tatooine']  # Existing single-planet workspaces remain inspectable.
+    catalog = load_json(path)
+    if catalog.get('schema_version') != 1 or not isinstance(catalog.get('planets'), dict):
+        raise ValueError('Invalid prepared planet catalog: '+str(path))
+    ready = []
+    required = ('terrain', 'terrain_context', 'world', 'environment', 'services',
+                'ambient_npcs', 'ambient_placements', 'entities')
+    for name, row in catalog['planets'].items():
+        if not isinstance(row, dict) or not row.get('ready'):
+            continue
+        if row.get('planet') != name or any(not isinstance(row.get(key), str) or not Path(row[key]).is_file() for key in required):
+            raise ValueError('Prepared planet manifests are missing or inconsistent: '+name+'. Run tools/assets/prepare_planets.py.')
+        ready.append(name)
+    if requested not in ready:
+        raise ValueError('Planet is not prepared: '+requested+'. Inspect '+str(path))
+    print('Prepared ground planets: '+', '.join(sorted(ready))+'. Travel also requires an available Core3 route.', flush=True)
+    return ready
 
 
 def live_entity_assets(args):
@@ -296,6 +349,7 @@ def run():
             raise SystemExit('--combat-profession-lab requires the explicit --combat-lab mode.')
         subprocess.run([sys.executable, str(ROOT / 'tools/server/profession_smoke.py')], check=True, cwd=ROOT)
     try:
+        planet_assets(args)
         inventory_assets()
         corpse_assets()
         combat_assets()

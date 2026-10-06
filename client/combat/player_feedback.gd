@@ -64,7 +64,7 @@ func physical() -> Dictionary:
 		context["posture"] = 2 if pose == "prone" else 1 if pose == "crouched" else 0
 		return context
 	return {"posture":body.get_posture(), "eye_height":camera.position.y - applied_offset,
-		"grounded":body.is_on_floor(), "tracked":true}
+		"grounded":body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor(), "tracked":true}
 
 func reset() -> void:
 	vital.reset()

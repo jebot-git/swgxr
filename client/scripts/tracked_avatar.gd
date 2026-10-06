@@ -161,7 +161,7 @@ func sample_body_velocity(delta: float) -> void:
 func sample_body_context(_delta: float) -> Dictionary:
 	var ground := foot_ground(body.global_position, body.global_position.y)
 	var floor_y := body.global_position.y
-	var grounded := body.is_on_floor()
+	var grounded: bool = body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor()
 	if body.has_method("prepare_tracked_body"):
 		grounded = bool(body.get("on_ground"))
 	if not ground.is_empty():
@@ -332,6 +332,7 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 			local.basis = local.basis.orthonormalized()
 			var attached := vehicle_target is Transform3D or prop_attached or (is_instance_valid(combat_rig) and combat_rig.hand_target(side) is Transform3D)
 			targets[side + "_hand"] = local * (weapon_hand_offsets[side] if attached else grip_offsets[side])
+			targets[side + "_hand_attached"] = vehicle_target is Transform3D
 		else:
 			# Safe shoulder-relative resting target, rather than stale world poses
 			# or a stretch to the untracked controller's origin.
@@ -340,8 +341,8 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 			rest.origin = shoulder + Vector3(-0.12 if side == "left" else 0.12, -0.46, -0.08)
 			targets[side + "_hand"] = rest
 	last_report = solver.solve(targets, delta)
-	# Keep source hand sockets rigid; the bounded IK endpoint owns the wrist.
-	# Never move the wrist to an unreachable controller/weapon after solving.
+	# Keep source hand sockets rigid. Mounted controls allow visual arm extension;
+	# ordinary controllers and held weapons retain anatomical reach constraints.
 	for side in ["left","right"]:
 		var hold := skeleton.find_bone("hold_l" if side=="left" else "hold_r")
 		if hold >= 0:

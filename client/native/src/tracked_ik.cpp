@@ -54,6 +54,7 @@ bool SwgTrackedIK::configure(Skeleton3D *skeleton, const Dictionary &mapping) {
         arm->second_length = skeleton->get_bone_global_rest(arm->lower).origin.distance_to(skeleton->get_bone_global_rest(arm->hand).origin);
         arm->upper_pose = skeleton->get_bone_pose_rotation(arm->upper);
         arm->lower_pose = skeleton->get_bone_pose_rotation(arm->lower);
+        arm->attached = false;
     }
     skeleton_id = skeleton->get_instance_id();
     return true;
@@ -93,8 +94,12 @@ void SwgTrackedIK::reset_smoothing() {
     left.have_bend = right.have_bend = false;
 }
 Dictionary SwgTrackedIK::solve_arm(Skeleton3D *skeleton, Arm &arm, const Transform3D &target,
-                                 const Vector3 &pole, double delta) {
+                                 const Vector3 &pole, double delta, bool attached) {
     Dictionary result;
+    if (arm.attached) {
+        skeleton->set_bone_pose_position(arm.hand, arm.free_hand_position);
+        arm.attached = false;
+    }
     if (!valid_target(target) || !pole.is_finite()) { result["valid"] = false; return result; }
     // Start from the calibrated neutral arm every time: accumulated shortest
     // arc rotations otherwise introduce axial twist when targets circle around.
@@ -138,11 +143,23 @@ Dictionary SwgTrackedIK::solve_arm(Skeleton3D *skeleton, Arm &arm, const Transfo
     const Quaternion rotate_lower((hand.origin - lower.origin).normalized(), (endpoint - lower.origin).normalized());
     global_rotation(skeleton, arm.lower, Basis(rotate_lower) * lower.basis);
     global_rotation(skeleton, arm.hand, target.basis.orthonormalized());
+    const double solver_error = skeleton->get_bone_global_pose(arm.hand).origin.distance_to(endpoint);
+    if (attached) {
+        // A mounted vehicle cannot move into the avatar's reach volume like a
+        // held weapon. Preserve the solved elbow, but let the visual forearm
+        // extend to its rigid grip. This never writes tracking or body physics.
+        arm.free_hand_position = skeleton->get_bone_pose_position(arm.hand);
+        const int parent = skeleton->get_bone_parent(arm.hand);
+        const Transform3D parent_pose = parent >= 0 ? skeleton->get_bone_global_pose(parent) : Transform3D();
+        skeleton->set_bone_pose_position(arm.hand, parent_pose.affine_inverse().xform(target.origin));
+        arm.attached = true;
+    }
     const Transform3D actual = skeleton->get_bone_global_pose(arm.hand);
     result["valid"] = true;
     result["clamped"] = Math::abs(reach - requested) > 0.00001;
     result["error"] = actual.origin.distance_to(target.origin);
-    result["solver_error"] = actual.origin.distance_to(endpoint);
+    result["solver_error"] = solver_error;
+    result["attached"] = attached;
     result["upper_length"] = first;
     result["lower_length"] = second;
     result["elbow"] = skeleton->get_bone_global_pose(arm.lower).origin;
@@ -161,11 +178,11 @@ Dictionary SwgTrackedIK::solve(const Dictionary &targets, double delta) {
     }
     if (bool(targets.get("left_tracked", true)) && targets.has("left_hand")) {
         const Vector3 shoulder = skeleton->get_bone_global_pose(left.upper).origin;
-        result["left"] = solve_arm(skeleton, left, targets["left_hand"], targets.get("left_pole", shoulder + Vector3(-0.35, -0.5, 0.1)), delta);
+        result["left"] = solve_arm(skeleton, left, targets["left_hand"], targets.get("left_pole", shoulder + Vector3(-0.35, -0.5, 0.1)), delta, bool(targets.get("left_hand_attached", false)));
     }
     if (bool(targets.get("right_tracked", true)) && targets.has("right_hand")) {
         const Vector3 shoulder = skeleton->get_bone_global_pose(right.upper).origin;
-        result["right"] = solve_arm(skeleton, right, targets["right_hand"], targets.get("right_pole", shoulder + Vector3(0.35, -0.5, 0.1)), delta);
+        result["right"] = solve_arm(skeleton, right, targets["right_hand"], targets.get("right_pole", shoulder + Vector3(0.35, -0.5, 0.1)), delta, bool(targets.get("right_hand_attached", false)));
     }
     return result;
 }

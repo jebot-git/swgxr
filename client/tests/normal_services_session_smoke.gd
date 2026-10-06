@@ -29,6 +29,7 @@ func run()->void:
 	response.state.skills=["combat_marksman_novice"];response.state.skills_complete=true
 	response.state.experience={"pistol":75};response.state.experience_complete=true
 	app.next_response=response
+	coordinator.state.tickets=[{"id":"native-ticket","destination_planet":"tatooine","usable":true}]
 	await coordinator.request("travel_board",{"terminal_id":"native-shuttle","ticket_id":"native-ticket"})
 	check(app.calls.back().payload.session_id=="normal","Service request retains existing lightweight persistent identity")
 	check(notifications.size()==1 and notifications[0].id==transport.id and app.transports.is_empty(),"Confirmed normal travel routes only through session transport+ack, never old direct placement")

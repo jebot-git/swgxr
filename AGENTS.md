@@ -12,6 +12,12 @@ Build a VR-first Godot client using standard OpenXR, Godot XR Tools, user-provid
 
 Agree on scene manifest and backend API before implementing consumers. Send interface changes to affected agents immediately. Avoid edits in another agent's owned directories without coordination.
 
+## Live test deployment scope
+
+- User direction (2026-10-05): keep the live test server and its testing environment Tatooine-only until the player test server is ready.
+- Keep restored planets and interplanetary expansion in local development. Do not deploy or enable planet restoration on the live test VPS as part of unrelated updates.
+- More RAM or successful local validation does not lift this hold; wait for the user's direction that the player test server is ready before expanding live planet scope.
+
 ## Data and truthfulness
 
 Original media and extracted/converted game assets must remain in ignored local directories. Do not fetch replacement proprietary assets or commit user media. Record source hashes and conversion failures. Never describe a placeholder scene or local JSON character store as a real Core3 integration. An offline asset viewer must be clearly labeled.

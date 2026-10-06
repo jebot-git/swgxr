@@ -2,6 +2,7 @@ extends Node3D
 ## Shared adapter presence + original playback. Persistent buffs stay Core3-owned.
 const HandInput = preload("res://scripts/tracked_hand_input.gd")
 var assets = preload("res://entertainment/assets.gd").new()
+var native:Node
 var gestures = preload("res://entertainment/gestures.gd").new()
 var motion := SwgPerformanceGesture.new()
 var models = preload("res://scripts/inventory_assets.gd").new()
@@ -47,6 +48,7 @@ var generation := 0
 var keyboard_pose := Transform3D.IDENTITY
 
 func _ready() -> void:
+	native=preload("res://entertainment/native_controller.gd").new();add_child(native)
 	assets.load_catalog()
 	models.configure(assets.directory.path_join("items/catalog.json"))
 	ui = preload("res://combat/ability_hologram.gd").new()
@@ -64,9 +66,11 @@ func configure(owner_node: Node, player: CharacterBody3D, xr: XROrigin3D, sessio
 	token = str(session.get("token",""))
 	account = login
 	body.feedback.performer = self
+	native.setup(self)
 
 func reset() -> void:
 	generation += 1
+	if is_instance_valid(native):native.reset()
 	token = ""; state = {}; context = {}; actions.clear(); selected = {}; primed = false
 	active_performance = {}; clip_key = ""; pending = false; item = {}
 	clear_presentation()
@@ -86,18 +90,27 @@ func dominant() -> String:
 	return body.dominant_hand if is_instance_valid(origin) else "right"
 
 func owns_controls() -> bool:
-	if token.is_empty() or not context.get("entertainer",false) or not body.active: return false
+	if not body.active or not (context.get("entertainer",false) or (is_instance_valid(native) and (native.image_eligible() or native.group_available()))): return false
+	if is_instance_valid(native) and is_instance_valid(native.design_ui) and not native.design_ui.terminal.is_empty():return false
 	if is_instance_valid(host.inventory) and host.inventory.is_open: return false
 	if is_instance_valid(host.datapad) and host.datapad.is_open: return false
 	if is_instance_valid(host.inventory) and not host.inventory.held_item.is_empty() and item.is_empty(): return false
 	return not is_instance_valid(host.combat_rig) or host.combat_rig.selected < 0
+
+func reserves_datapad() -> bool:
+	# Priming a learned performance explicitly reserves its gesture. Inventory
+	# remains available for switching props; an already-open datapad keeps focus.
+	return owns_controls() and not body.feedback.combat_blocked() and (primed or ui.menu_open or gestures.join_time > 0.0 or is_performing() or (is_instance_valid(native) and native.get("pending_actions") is Array and not native.get("pending_actions").is_empty()))
+
+func blocks_interactions()->bool:
+	return is_instance_valid(native) and is_instance_valid(native.design_ui) and not native.design_ui.terminal.is_empty()
 
 func is_performing() -> bool:
 	return not active_performance.is_empty() and since_reply < 3 and body.active and not body.feedback.combat_blocked()
 
 func set_item(value: Dictionary) -> void:
 	var template := str(value.get("template","")).replace("/shared_","/")
-	var supported: bool = assets.catalog.get("items",{}).has(template)
+	var supported: bool = assets.catalog.get("items",{}).has(template) and template != "object/static/item/item_ribbon.iff"
 	item = value.duplicate(true) if supported else {}
 	selected = {}; primed = false; motion.reset()
 	if is_instance_valid(ui): ui.close()
@@ -118,6 +131,11 @@ func set_item(value: Dictionary) -> void:
 
 func eligible_menu() -> Array:
 	var entries: Array = []
+	if is_instance_valid(native) and native.image_eligible():entries.append({"id":"image_design","label":"Image Design","source_command":"imagedesign"})
+	if is_instance_valid(native) and native.has_method("group_available"):
+		if native.group_available():entries.append({"id":"group_join","label":"Accept Group Invite","source_command":"join"})
+		if native.image_eligible() or context.get("entertainer",false):entries.append({"id":"group_invite","label":"Invite to Group","source_command":"invite"})
+		if str(native.state.get("group_id","0")) not in ["","0"]:entries.append({"id":"group_leave","label":"Leave Group","source_command":"leavegroup"})
 	if not context.get("entertainer",false): return entries
 	var band := str(state.get("band_id",""))
 	if band.is_empty(): entries.append({"id":"start_band","label":"Start Band","source_command":"startband"})
@@ -130,7 +148,19 @@ func eligible_menu() -> Array:
 		if not entry.is_empty(): entries.append(entry)
 	return entries
 
+func apply_native_context(value:Dictionary)->void:
+	if value==context:return
+	context=value.duplicate(true)
+	var permitted:Array=assets.performances(context,item)
+	if not selected.is_empty() and not permitted.any(func(row):return row.id==selected.get("id","")):
+		selected={};primed=false;motion.reset()
+	if is_instance_valid(ui):ui.close()
+
 func queue_action(action: String, detail: Dictionary = {}) -> void:
+	if action in ["perform","stop","flourish","group_join","group_leave"]:
+		if is_instance_valid(native):native.request(action,detail)
+		else:message="Waiting for the native entertainer session."
+		return
 	if token.is_empty() or actions.size() >= 4: return
 	var entry := detail.duplicate(true)
 	entry["action"] = action
@@ -153,7 +183,9 @@ func sample_menu(click: bool, stick: Vector2, a_pressed: bool, tracked: bool) ->
 			stick_latched = true
 		if ui.menu_open:
 			var choice: String = ui.sample_stick(stick)
-			if choice in ["start_band","leave","stop"]: queue_action(choice); selected={}; primed=false
+			if choice=="image_design" and is_instance_valid(native):native.image_open_selector()
+			elif choice=="group_invite" and is_instance_valid(native):native.group_selector()
+			elif choice in ["start_band","leave","stop","group_join","group_leave"]: queue_action(choice); selected={}; primed=false
 			elif choice=="mask_scent" and is_instance_valid(host.get("scout")): host.scout.select_mask()
 			elif not choice.is_empty():
 				selected = assets.catalog.performances.get(choice,{})
@@ -169,7 +201,7 @@ func sample_menu(click: bool, stick: Vector2, a_pressed: bool, tracked: bool) ->
 		body.set_combat_capture(dominant() if ui.menu_open or stick_latched else "",true)
 
 func _physics_process(delta: float) -> void:
-	if not is_instance_valid(body) or token.is_empty(): return
+	if not is_instance_valid(body) or not body.active:return
 	server_clock += delta; since_reply += delta; poll_time += delta
 	if since_reply > 3:
 		active_performance = {}; clip_key = ""; clear_presentation()
@@ -185,8 +217,8 @@ func _physics_process(delta: float) -> void:
 		var permitted: bool = owns_controls() and tracked and not body.feedback.combat_blocked()
 		if primed and permitted and not ui.menu_open:
 			var descriptor: Dictionary = assets.catalog.items.get(str(item.get("template","")).replace("/shared_","/"),{})
-			var kind := str(descriptor.get("gesture",""))
-			if motion.sample(delta,kind,head.global_transform,main.global_transform,off.global_transform,HandInput.controller_tracked(off) or kind=="wind"):
+			var kind := "dance" if item.is_empty() else str(descriptor.get("gesture",""))
+			if motion.sample(delta,kind,head.global_transform,main.global_transform,off.global_transform,HandInput.controller_tracked(off) or kind=="wind",gestures.dance_hands(main,off) if kind=="dance" else {}):
 				queue_action("perform",{"performance_id":selected.id}); primed=false
 		var near := nearest_band()
 		var left: XRController3D = origin.get_node("LeftHand")
@@ -194,7 +226,7 @@ func _physics_process(delta: float) -> void:
 			gestures.thumbs_up(left,"left"),gestures.thumbs_up(right,"right"),tracked and HandInput.controller_tracked(off)):
 			queue_action("join",{"band_id":near.id})
 	else: tracked = body.active # Desktop debug input never fabricates a physical gesture.
-	if poll_time >= 0.2 and not pending:
+	if not token.is_empty() and poll_time >= 0.2 and not pending:
 		poll_time = 0
 		send_update(tracked and body.active and not body.feedback.combat_blocked())
 	update_playback()
@@ -206,7 +238,7 @@ func send_update(enabled: bool) -> void:
 	var payload: Dictionary = actions.pop_front() if not actions.is_empty() else {}
 	sequence += 1
 	payload.merge({"account":account,"token":token,"seq":sequence,"position":[body.global_position.x,body.global_position.y,body.global_position.z],
-		"area":"tatooine","item_id":str(item.get("id","")),"enabled":enabled})
+		"area":preload("res://scripts/planet_catalog.gd").current(host),"item_id":str(item.get("id","")),"enabled":enabled})
 	var reply: Dictionary = await host.api(HTTPClient.METHOD_POST,"/performance",payload)
 	if epoch != generation: return
 	pending = false
@@ -216,6 +248,7 @@ func send_update(enabled: bool) -> void:
 	apply_snapshot(reply)
 
 func apply_snapshot(reply: Dictionary) -> void:
+	if is_instance_valid(native):native.observe_bus(reply)
 	state = reply.duplicate(true)
 	server_clock = float(reply.get("server_time",0)); since_reply=0
 	active_performance = assets.catalog.get("performances",{}).get(str(reply.get("performance_id","")),{})
@@ -247,14 +280,14 @@ func _process(_delta: float) -> void:
 		held_model.visible=body.active and owns_controls()
 		if is_instance_valid(host.inventory): host.inventory.set_held_visual_enabled(false)
 	var point := held_pose.origin if is_instance_valid(held_model) else head.global_position-head.global_basis.z*0.4
-	var badge_selection: Dictionary=body.combat_pools.selection if body.combat_pools.selected=="mask_scent" else selected
+	var badge_selection: Dictionary=selected
 	ui.update_badge(badge_selection,body.combat_pools.primed,float(body.combat_pools.cooldowns.get(body.combat_pools.selected,0)),point+Vector3.UP*0.20,owns_controls(),message)
 
 func hand_target(side: String) -> Variant:
 	return held_pose if item_gesture()!="keyboard" and side==dominant() and is_instance_valid(held_model) and held_model.visible else null
 
 func item_gesture() -> String:
-	return str(assets.catalog.get("items",{}).get(str(item.get("template","")).replace("/shared_","/"),{}).get("gesture",""))
+	return "dance" if item.is_empty() else str(assets.catalog.get("items",{}).get(str(item.get("template","")).replace("/shared_","/"),{}).get("gesture",""))
 
 func constrain_prop() -> void:
 	if item_gesture()!="keyboard" and is_instance_valid(held_model) and is_instance_valid(host.tracked_avatar):
@@ -298,7 +331,7 @@ func update_playback() -> void:
 			var sound_key := "mainloop"
 			var time := elapsed
 			var serial := str(band.revision)
-			if flourish.get("actor","")==member.id:
+			if flourish.get("actor","")==member.id and int(flourish.get("index",0)) in range(1,9):
 				var flourish_elapsed := maxf(0,server_clock-float(flourish.time))
 				var candidate := key+"_"+str(int(flourish.index))
 				var rig: Dictionary = assets.catalog.rigs.get(str(host.avatar.race_id) if is_instance_valid(host.avatar) else "human_male",{})

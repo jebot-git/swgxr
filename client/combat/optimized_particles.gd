@@ -11,6 +11,11 @@ var compiled_style_count := 0
 var disabled_lights := 0
 var rejected_sources := 0
 var view_pose := Transform3D.IDENTITY
+var program_ages: Dictionary = {}
+var transient_programs: Dictionary = {}
+var free_style_ids: Array[int] = []
+var program_clock := 0
+var evicted_programs := 0
 
 static func shared(owner_node: Node, resources: RefCounted, eye: Camera3D) -> Node3D:
 	# The headset and desktop mirror can share World3D across different viewports.
@@ -56,29 +61,34 @@ static func value(curve: Dictionary, t: float, channel := 1) -> float:
 static func tint(d: Dictionary, t: float) -> Color:
 	return Color(value(d.color,t,1),value(d.color,t,2),value(d.color,t,3),clampf(value(d.alpha,t),0,1))
 
-func compile_source(path: String, kind := "impact") -> Array:
-	if kind not in ["tracer","muzzle","impact"] or not assets.catalog.get("particles",{}).has(path):
+func compile_source(path: String, kind := "impact", resources: RefCounted = null) -> Array:
+	if resources == null: resources = assets
+	if kind not in ["tracer","muzzle","impact"] or not resources.catalog.get("particles",{}).has(path):
 		rejected_sources += 1
 		return []
 	var key := path+":"+kind
-	if styles.has(key): return styles[key]
-	if styles.size()>=MAX_SOURCE_PROGRAMS or compiled_style_count>=MAX_COMPILED_STYLES:
-		rejected_sources += 1
-		return []
+	if resources != assets: key = str(resources.get_instance_id())+":"+key
+	program_clock += 1
+	if styles.has(key):
+		program_ages[key] = program_clock
+		return styles[key]
 	var selected: Array = []
-	for d in assets.catalog.get("particles",{}).get(path,{}).get("emitters",[]):
+	for d in resources.catalog.get("particles",{}).get(path,{}).get("emitters",[]):
 		if d.get("visible",false): selected.append(d)
 	# Keep the recognizable luminous flash/bolt, then at most one secondary layer.
 	selected.sort_custom(func(a,b): return emitter_score(a,kind)>emitter_score(b,kind))
 	var compiled: Array = []
-	for i in range(mini(1 if kind=="tracer" else 2,selected.size())):
-		if compiled_style_count>=MAX_COMPILED_STYLES: break
+	var requested := mini(1 if kind=="tracer" else 2,selected.size())
+	if requested == 0 or not reserve_program(requested):
+		rejected_sources += 1
+		return []
+	for i in range(requested):
 		var d: Dictionary = selected[i]
 		var c: Dictionary = d.curves
 		var smoke := "smoke" in str(d.name) or "dust" in str(d.name)
 		var secondary := i>0
 		var width_curve: Dictionary = d.length if d.linked_size else d.width
-		var source_texture: Texture2D = assets.texture(str(d.material.texture))
+		var source_texture: Texture2D = resources.texture(str(d.material.texture))
 		if source_texture==null:
 			rejected_sources += 1
 			continue
@@ -98,26 +108,57 @@ func compile_source(path: String, kind := "impact") -> Array:
 				if str(layer.name)=="bolt center":
 					definition["core_color"] = tint(layer,0.05)
 					definition["core_ratio"] = clampf(value(layer.width,0.05)/maxf(float(definition.width),0.001),0.05,1.0)
-		var style_id: int = batch.register_style(definition)
+		var style_id: int
+		if free_style_ids.is_empty():
+			style_id = batch.register_style(definition)
+			if style_id >= 0: compiled_style_count += 1
+		else:
+			var reusable: int = free_style_ids.pop_back()
+			style_id = batch.replace_style(reusable,definition)
+			if style_id < 0: free_style_ids.append(reusable)
 		if style_id<0: continue
-		compiled_style_count += 1
 		var rotation := Basis.from_euler(Vector3(-value(c.rotation_x,0),-value(c.rotation_y,0),value(c.rotation_z,0))*TAU)
 		var offset := Vector3(value(c.translation_x,0),value(c.translation_y,0),-value(c.translation_z,0))
 		var count := int(d.count_max) if d.one_shot else ceili(value(c.rate,0)*minf(float(d.emitter_life_max),0.18))
 		compiled.append({"id":style_id,"count":clampi(count,1,8 if secondary else 12),"pose":Transform3D(rotation,offset),"definition":definition,"source_emitter":d.name})
-	styles[key] = compiled
-	if compiled.is_empty(): rejected_sources += 1
+	if compiled.is_empty():
+		rejected_sources += 1
+	else:
+		styles[key] = compiled
+		program_ages[key] = program_clock
+		if resources != assets: transient_programs[key] = true
 	return compiled
+
+func reserve_program(required: int) -> bool:
+	# Combat programs are pinned. Source-derived cosmetics reuse only idle styles;
+	# a running particle or tracer can never silently change material/behavior.
+	while styles.size() >= MAX_SOURCE_PROGRAMS or MAX_COMPILED_STYLES-compiled_style_count+free_style_ids.size() < required:
+		var oldest := ""
+		var age := 9223372036854775807
+		for key: String in transient_programs:
+			var idle := true
+			for style: Dictionary in styles[key]:
+				if not batch.can_replace_style(int(style.id)): idle = false; break
+			if idle and int(program_ages.get(key,0)) < age:
+				oldest = key
+				age = int(program_ages.get(key,0))
+		if oldest.is_empty(): return false
+		for style: Dictionary in styles[oldest]: free_style_ids.append(int(style.id))
+		styles.erase(oldest)
+		program_ages.erase(oldest)
+		transient_programs.erase(oldest)
+		evicted_programs += 1
+	return true
 
 static func emitter_score(d: Dictionary, kind: String) -> int:
 	var name := str(d.name)
 	if kind=="tracer": return 100 if name=="bolt" else (80 if int(d.orientation)==2 else 0)
 	return (100 if name=="flash" else 0)+(50 if "spark" in name else 0)+(20 if d.material.get("additive",false) else 0)
 
-func burst(path: String, pose: Transform3D, _duration := 1.0, kind := "") -> bool:
+func burst(path: String, pose: Transform3D, _duration := 1.0, kind := "", resources: RefCounted = null) -> bool:
 	if kind.is_empty(): kind = "muzzle" if "muz" in path else "impact"
 	var accepted := false
-	for style in compile_source(path,kind):
+	for style in compile_source(path,kind,resources):
 		accepted = batch.emit_burst(style.id,pose*style.pose,style.count) or accepted
 	return accepted
 
@@ -152,7 +193,7 @@ func _process(delta: float) -> void:
 
 func statistics() -> Dictionary:
 	var result: Dictionary = batch.statistics()
-	result.merge({"source_programs":styles.size(),"dynamic_lights":0,"omitted_source_lights":disabled_lights,"rejected_sources":rejected_sources,"source_graph_approximation":true,"culling_counter_semantics":"Visibility decisions, including repeated tracer checks; not unique effects"})
+	result.merge({"source_programs":styles.size(),"dynamic_lights":0,"omitted_source_lights":disabled_lights,"rejected_sources":rejected_sources,"evicted_programs":evicted_programs,"source_graph_approximation":true,"culling_counter_semantics":"Visibility decisions, including repeated tracer checks; not unique effects"})
 	return result
 
 func clear() -> void:

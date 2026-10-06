@@ -23,7 +23,10 @@ func load_stage(path: String) -> Node3D:
 	if not parsed is Dictionary:
 		report.error = "Invalid stage JSON: " + path
 		return null
-	var data: Dictionary = parsed
+	return load_data(parsed,path)
+
+func load_data(data:Dictionary,path:String="") -> Node3D:
+	report={"error":"","meshes":0,"instances":0,"triangles":0,"collision_bodies":0,"path":path}
 	var stage := CellStage.new()
 	stage.classifier.configure(data.get("cells", {}))
 	stage.name = "MosEisleyImportedStage"
@@ -90,6 +93,12 @@ func load_stage(path: String) -> Node3D:
 	report["spawn_yaw"] = data.get("spawn_yaw", 0.0)
 	report["warnings"] = data.get("warnings", [])
 	report["provenance"] = data.get("provenance", {})
+	return stage
+
+func empty_stream_stage(descriptor:Dictionary,spawn:Vector3)->Node3D:
+	var data:Dictionary={"planet":str(descriptor.planet),"origin":descriptor.get("origin",[0,0,0]),"cells":{},"instances":[],"portals":[],"meshes":{},"spawn":[spawn.x,spawn.y,spawn.z]}
+	var stage:=CellStage.new();stage.name=str(descriptor.planet).capitalize()+"StreamedStage";stage.classifier.configure({});stage.set_meta("manifest",data)
+	report={"error":"","meshes":0,"instances":0,"triangles":0,"collision_bodies":0,"origin":data.origin,"spawn":data.spawn,"spawn_yaw":0.0,"path":"streamed:"+str(descriptor.planet)}
 	return stage
 
 func install_floors(parent: Node3D, cells: Dictionary, collect_bodies: Variant = null) -> int:

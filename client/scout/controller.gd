@@ -1,8 +1,10 @@
 extends "res://scripts/xr_datapad.gd"
 ## VR scout orchestration around authoritative native commands and camp objects.
+var ranger:Node3D
 var app: Node
 var bag: Node3D
 var state: Dictionary={}
+var dna_input=preload("res://bioengineer/sampling.gd").new()
 var gestures=preload("res://scout/gestures.gd").new()
 var movement: Node3D
 var busy:=false
@@ -21,28 +23,70 @@ func setup(host: Node, inventory: Node3D) -> void:
 	if FileAccess.file_exists("res://../runtime/assets/scout/catalog.json"):camp_catalog=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/scout/catalog.json"))
 	movement=rig.get_node("ScoutMovement")
 	ui=Control.new();ui.theme=preload("res://scripts/datapad_theme.gd").build();ui.custom_minimum_size=Vector2(560,340);ui.size=Vector2(560,340)
-	var panel:=Panel.new();panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);panel.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").box("071c29","3ea8b9",2,14));ui.add_child(panel)
+	var panel:=Panel.new();panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT);panel.add_theme_stylebox_override("panel",preload("res://scripts/datapad_theme.gd").frame(14,"wide"));ui.add_child(panel)
 	camp_text=Label.new();camp_text.position=Vector2(24,20);camp_text.size=Vector2(512,230);camp_text.add_theme_font_size_override("font_size",24);ui.add_child(camp_text)
 	disband=Button.new();disband.text="Disband camp";disband.position=Vector2(24,268);disband.size=Vector2(512,48);ui.add_child(disband);disband.pressed.connect(disband_camp)
 	add_surface(ui,Vector2i(560,340),Vector2(0.55,0.334));surfaces[0].mesh.visible=false;visible=true;surfaces[0].viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE
 	dot=MeshInstance3D.new();var sphere:=SphereMesh.new();sphere.radius=0.003;sphere.height=0.006;dot.mesh=sphere;add_child(dot);dot.visible=false
 	bag.scout_requested.connect(use_item)
+	ranger=preload("res://scout/ranger.gd").new();add_child(ranger);ranger.setup(self)
 	body.combat_pools.selection_replaced.connect(selection_replaced)
 	RenderingServer.frame_pre_draw.connect(update_reticle)
 func reset() -> void:
-	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();camp_id="";cooldown_queue.clear()
+	if is_instance_valid(ranger):ranger.reset()
+	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();dna_input.reset();camp_id="";cooldown_queue.clear()
 	for node in models.values():node.queue_free()
 	models.clear();surfaces[0].mesh.visible=false;movement.state={}
 func mask_entry() -> Dictionary:
 	if last_reply>12 or not state.get("mask_scent_available",false): return {}
 	if is_instance_valid(app.combat_rig) and app.combat_rig.selected>=0: return {}
 	return {"id":"mask_scent","label":"Mask Scent","source_command":"maskscent","cooldown_seconds":float(state.get("mask_scent_duration",0)),"base_sac":{"health":0,"action":0,"mind":0}}
+func dna_entry() -> Dictionary:
+	if last_reply>12 or not state.get("sample_dna_available",false): return {}
+	return {"id":"sample_dna","label":"Sample DNA","source_command":"sampledna","activation":"native_contact","cooldown_seconds":float(state.get("sample_dna_recovery",11)),"base_sac":{"health":0,"action":0,"mind":200}}
+
+func dna_target_at(hand: Vector3) -> String:
+	var target_id:="";var nearest:=INF
+	for target: Dictionary in state.get("targets",[]):
+		if not target.get("dna_eligible",false): continue
+		var actor:=live_actor(target)
+		# Physical contact must be with a visible original creature, never a stale
+		# remote sphere or the combat reticle. Current actor pose follows movement.
+		if actor==null or not dna_input.touches(actor.global_transform,actor.visual_bounds(),hand): continue
+		var distance:=hand.distance_squared_to(actor.global_position)
+		if distance>=nearest: continue
+		var query:=PhysicsRayQueryParameters3D.create(rig.get_node("XRCamera3D").global_position,hand,7)
+		if not get_world_3d().direct_space_state.intersect_ray(query).is_empty(): continue
+		nearest=distance;target_id=str(target.id)
+	return target_id
+
+func sample_dna_hand(side: String, pose: Transform3D, trigger: float, tracked: bool, permitted: bool) -> bool:
+	var pools=body.combat_pools
+	var armed: bool=pools.selected=="sample_dna" and pools.primed
+	var result: Dictionary=dna_input.sample(side,trigger,tracked,permitted,armed)
+	if not result.attempt or busy or not cooldown_queue.is_empty() or dna_entry().is_empty() or state.get("sample_dna_pending",false) or float(pools.cooldowns.get("sample_dna",0))>0: return result.capture
+	var target:=dna_target_at(pose.origin)
+	if target.is_empty(): pools.reason="Hold hand over an eligible creature";return result.capture
+	var source: Vector3=app.source_position_at(pose.origin)
+	pools.primed=false;pools.reason="Sampling requested"
+	# No deferred click and no automatic retry after an uncertain mutation.
+	request_dna({"target_id":target,"hand_position":[source.x,source.y,source.z]})
+	return true
+
+func request_dna(detail: Dictionary) -> void:
+	var version: int=app.datapad_epoch
+	var result:=await request("sample_dna",detail)
+	if version!=app.datapad_epoch: return
+	if body.combat_pools.selected=="sample_dna":
+		body.combat_pools.reason="Sampling…" if result.get("mutation",{}).get("sampling_started",false) else message
+
 func select_mask() -> void:
 	var entry:=mask_entry()
 	if entry.is_empty(): return
 	body.combat_pools.replace_selection(entry,"scout");body.combat_pools.primed=true
 func selection_replaced(previous: Dictionary, was_primed: bool) -> void:
 	if was_primed and previous.get("id","")=="mask_scent": cooldown_queue.append("discard_mask_scent")
+	if was_primed and previous.get("id","")=="sample_dna": cooldown_queue.append("discard_sample_dna")
 func activate_mask() -> void:
 	if busy or mask_entry().is_empty() or body.combat_pools.selected!="mask_scent" or not body.combat_pools.primed: return
 	if float(body.combat_pools.cooldowns.get("mask_scent",0))>0: return
@@ -65,11 +109,14 @@ func request(action: String, detail: Dictionary={}) -> Dictionary:
 	busy=false
 	if version!=app.datapad_epoch:return {}
 	if result.get("ok",false) and result.get("state",{}).get("character_id","")==app.datapad_character_id:
-		state=result.state;last_reply=0;movement.observe(state);next_poll=2.0 if state.get("foraging",false) or state.get("trap_pending",false) else 5.0
+		state=result.state;last_reply=0;movement.observe(state);next_poll=2.0 if state.get("foraging",false) or state.get("trap_pending",false) or state.get("sample_dna_pending",false) or state.get("ranger",{}).get("tracking",{}).get("state","")=="pending" else 5.0
 		body.combat_pools.cooldowns.mask_scent=maxf(float(body.combat_pools.cooldowns.get("mask_scent",0)),float(state.get("mask_scent_cooldown",0)))
+		body.combat_pools.cooldowns.sample_dna=maxf(float(body.combat_pools.cooldowns.get("sample_dna",0)),float(state.get("sample_dna_cooldown",0)))
+		if body.combat_pools.selected=="sample_dna" and action=="status": body.combat_pools.reason="Sampling…" if state.get("sample_dna_pending",false) else ""
 		if body.combat_pools.ham.size()==9 and state.get("ham",[]).size()==9: body.combat_pools.ham=state.ham.duplicate()
 		sync_items();sync_camps();message="Searching…" if state.get("foraging",false) else ""
 	else:message=str(result.get("error","Scout action not confirmed"))
+	if is_instance_valid(ranger):ranger.observe(result)
 	return result
 func sync_items() -> void:
 	if not app.inventory_snapshot.get("source_kind","")=="core3_inventory":return
@@ -88,7 +135,11 @@ func belt_action(action: String, item: Dictionary) -> void:
 	bag.finish_item_action(result.get("ok",false))
 	if not result.get("ok",false):bag.set_busy(false,message)
 
+func blocks_interactions()->bool:return is_instance_valid(ranger) and ranger.blocks_interactions()
 func use_item(item: Dictionary) -> void:
+	if preload("res://scout/ranger_input.gd").is_kit(item):
+		if is_instance_valid(ranger):ranger.conceal(item)
+		return
 	if item.get("tool_kind","")=="camp":
 		var result:=await request("camp",{"item_id":str(item.id)})
 		if result.get("ok",false):bag.finish_item_action(true)
@@ -120,8 +171,9 @@ static func ray_entry(pose: Transform3D, center: Vector3, radius: float) -> floa
 	if along+half<=0:return INF
 	return maxf(0.001,along-half)
 func live_actor(target: Dictionary) -> Node3D:
-	if not is_instance_valid(app.live_combat):return null
-	var actor: Node3D=app.live_combat.actors.get(str(target.id))
+	var actor:Node3D
+	if is_instance_valid(app.live_combat) and app.live_combat.live:actor=app.live_combat.actors.get(str(target.id))
+	elif is_instance_valid(app.get("multiplayer_sync")) and is_instance_valid(app.multiplayer_sync.entities):actor=app.multiplayer_sync.entities.actors.get(str(target.id))
 	return actor if is_instance_valid(actor) and actor.is_targetable() else null
 func target_center(target: Dictionary) -> Vector3:
 	var actor:=live_actor(target)
@@ -221,7 +273,7 @@ func _process(delta: float) -> void:
 	if is_instance_valid(app.combat_rig):app.combat_rig.scout=self
 	if not busy and not app.inventory_request_pending and not bag.action_pending:
 		if not cooldown_queue.is_empty():request(cooldown_queue.pop_front())
-		elif next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("scout")):next_poll=5;request("status")
+		elif next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("scout")):next_poll=5;request("ranger_status")
 	var head: Node3D=rig.get_node("XRCamera3D");var left: XRController3D=rig.get_node("LeftHand");var right: XRController3D=rig.get_node("RightHand")
 	var tracked: bool=bag.allowed and HandInput.controller_tracked(left) and HandInput.controller_tracked(right)
 	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)

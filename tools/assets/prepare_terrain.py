@@ -5,13 +5,15 @@ from pathlib import Path
 from PIL import Image
 from swg_formats import TreSet,parse_iff,cstring,refs
 from terrain_formats import terrain
+from planet_config import PLANETS, origin_for, path_for
 ROOT=Path(__file__).resolve().parents[2]
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/terrain');args=ap.parse_args();args.out.mkdir(parents=True,exist_ok=True)
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"terrain");args.out.mkdir(parents=True,exist_ok=True)
  tre=TreSet(args.tre_dir);deps={};failures=[]
  def read(name):
   raw=tre.read(name);deps[name]={'archive':tre.entries[name][0].name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()};return raw
- raw=read('terrain/tatooine.trn');data=terrain(raw);(args.out/'tatooine.trn').write_bytes(raw)
+ raw=read(f'terrain/{args.planet}.trn');data=terrain(raw);(args.out/f'{args.planet}.trn').write_bytes(raw)
+ data['planet']=args.planet
  data['water_regions']=[]
  def collect_water(layer):
   for boundary in layer['boundaries']:
@@ -19,6 +21,7 @@ def main():
   for child in layer['children']:collect_water(child)
  for layer in data['layers']:collect_water(layer)
  data['water_shaders']={r['water_shader']:{'name':r['water_shader']} for r in data['water_regions']}
+ if data.get('global_water_enabled') and data.get('global_water_shader'):data['water_shaders'][data['global_water_shader']]={'name':data['global_water_shader']}
  for family in data['shader_families']+[{'shaders':list(data['water_shaders'].values())}]:
   for shader in family['shaders']:
    name=shader['name'];name=name if name.startswith('shader/') else 'shader/'+name;name=name if name.endswith('.sht') else name+'.sht';shader['path']=name
@@ -53,6 +56,6 @@ def main():
  data['material_limitations']=['Material family blends reconstructed from original layer rules; original shader renderer and detail flora affectors are not fully reproduced.']
  data['unsupported_visual_rules']=dict(collections.Counter(n.tag for n in parse_iff(raw).walk() if n.tag in ['AFDN','AFDF','AFSC','AFSN','AFCN','ARCN']))
  data['provenance']={'source_revision':'Core3 403893d9b9f8e6fa712fbb3cb1fcd8f0fe45bb79','dependencies':deps};data['failures']=failures
- (args.out/'tatooine.json').write_text(json.dumps(data,separators=(',',':')))
- print(json.dumps({'manifest':str(args.out/'tatooine.json'),'extent':data['extent'],'fractals':len(data['fractals']),'shader_families':len(data['shader_families']),'root_layers':len(data['layers']),'failures':failures},indent=2))
+ (args.out/f'{args.planet}.json').write_text(json.dumps(data,separators=(',',':')))
+ print(json.dumps({'manifest':str(args.out/f'{args.planet}.json'),'extent':data['extent'],'fractals':len(data['fractals']),'shader_families':len(data['shader_families']),'root_layers':len(data['layers']),'failures':failures},indent=2))
 if __name__=='__main__':main()

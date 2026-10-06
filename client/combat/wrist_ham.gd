@@ -27,6 +27,9 @@ func panel(size: Vector2, color: Color) -> MeshInstance3D:
 	return mesh
 
 func _ready() -> void:
+	var backing:=panel(Vector2(.17,.065),Color(.72,.78,1.12,1))
+	backing.position.z=-.001
+	backing.material_override.albedo_texture=preload("res://resources/ui/wenrexa_hologram/panel_wide.png")
 	for index in range(3):
 		var y := (1 - index) * 0.015
 		var background := panel(Vector2(0.10, 0.01), Color(0.04, 0.1, 0.13, 0.65))

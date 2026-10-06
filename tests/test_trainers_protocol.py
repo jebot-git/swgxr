@@ -24,12 +24,15 @@ class TrainerProtocolTests(unittest.TestCase):
   data={'variables':{'replication':{'objects':{'o12':ghost,'o13':{'parentId':'11','templateCrc':1},'o11':{}}}}}
   with patch('server.datapad_protocol.template_names',return_value={1:'object/tangible/datapad/shared_character_datapad.iff'}):value=datapad(data,'11')
   self.assertEqual(value['experience'],{'medical':124,'crafting_general':0});self.assertTrue(value['experience_complete'])
- def test_exact_six_original_catalogues(self):
+ def test_exact_supported_original_catalogues(self):
   import re
   from pathlib import Path
   root=Path(__file__).resolve().parents[1];source=(root/'vendor/Core3/MMOCoreORB/bin/scripts/screenplays/trainers/trainerData.lua').read_text();header=(root/'server/services/SwgxrTrainerCatalog.h').read_text()
-  for profession in ('artisan','brawler','entertainer','marksman','medic','scout'):
+  from server.profession_scope import TRAINERS
+  self.assertEqual(set(re.findall(r'\{"(trainer_[a-z0-9]+)",',header)),{'trainer_'+p for p in TRAINERS})
+  for profession in TRAINERS:
    skills=re.findall(r'"([a-z0-9_]+)"',re.search(r'\btrainer_'+profession+r'\s*=\s*\{([^}]+)\}',source).group(1))
    self.assertEqual(len(skills),18)
-   for skill in skills:self.assertIn('"'+skill+'"',header)
+   compiled=re.findall(r'"([a-z0-9_]+)"',re.search(r'\{"trainer_'+profession+r'",\s*\{([^}]+)\}',header).group(1))
+   self.assertEqual(skills,compiled)
 if __name__=='__main__':unittest.main()

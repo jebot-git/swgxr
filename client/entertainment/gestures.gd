@@ -30,3 +30,26 @@ func join_sample(delta: float, inside: bool, left: bool, right: bool, tracked: b
 		join_latched = true
 		return true
 	return false
+
+func dance_hands(main: XRController3D, off: XRController3D) -> Dictionary:
+	var result := {}
+	for pair in [["main",main],["off",off]]:
+		var controller: XRController3D = pair[1]
+		var side := "left" if str(controller.tracker).contains("left") else "right"
+		var optical := Hands.tracked_joints(side)
+		var opened := false
+		var basis := controller.global_basis
+		if not optical.is_empty():
+			opened = true
+			for finger in ["index","ring"]:
+				var joints: Dictionary = optical.joints
+				var chain: float = joints[finger+"_proximal"].distance_to(joints[finger+"_intermediate"]) + joints[finger+"_intermediate"].distance_to(joints[finger+"_distal"]) + joints[finger+"_distal"].distance_to(joints[finger+"_tip"])
+				opened = opened and chain > 0.01 and joints[finger+"_proximal"].distance_to(joints[finger+"_tip"]) / chain > 0.85
+			basis = controller.get_parent().global_basis * optical.grip.basis
+		else:
+			var state := Hands.controller_state(controller)
+			opened = Hands.controller_tracked(controller) and state.grip < 0.25 and state.trigger < 0.25
+		var palm := basis.x * (1.0 if side == "left" else -1.0)
+		result[str(pair[0])+"_open"] = opened
+		result[str(pair[0])+"_down"] = palm.normalized().dot(Vector3.DOWN) > 0.55
+	return result

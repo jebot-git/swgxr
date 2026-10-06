@@ -1,0 +1,97 @@
+--- a/MMOCoreORB/src/server/zone/objects/player/LuaPlayerObject.h
++++ b/MMOCoreORB/src/server/zone/objects/player/LuaPlayerObject.h
+@@ -29,6 +29,7 @@
+ 
+ 		int _setObject(lua_State* L);
+ 		// Methods we will need to use
++		int setSkillPoints(lua_State* L);
+ 		int getFactionStanding(lua_State* L);
+ 		int increaseFactionStanding(lua_State* L);
+ 		int decreaseFactionStanding(lua_State* L);
+--- a/MMOCoreORB/src/server/zone/objects/player/LuaPlayerObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/LuaPlayerObject.cpp
+@@ -25,6 +25,7 @@
+ Luna<LuaPlayerObject>::RegType LuaPlayerObject::Register[] = {
+ 		{ "_setObject", &LuaPlayerObject::_setObject },
+ 		{ "_getObject", &LuaSceneObject::_getObject },
++		{ "setSkillPoints", &LuaPlayerObject::setSkillPoints },
+ 		{ "getFactionStanding", &LuaPlayerObject::getFactionStanding },
+ 		{ "increaseFactionStanding", &LuaPlayerObject::increaseFactionStanding },
+ 		{ "decreaseFactionStanding", &LuaPlayerObject::decreaseFactionStanding },
+@@ -1067,3 +1068,11 @@
+ 
+ 	return 1;
+ }
++
++// Trusted server screenplay only. Normal training checks and global cap remain unchanged.
++int LuaPlayerObject::setSkillPoints(lua_State* L) {
++ if(lua_gettop(L)!=2 || !lua_isnumber(L,-1)){lua_pushboolean(L,false);return 1;}
++ double points=lua_tonumber(L,-1);
++ if(!std::isfinite(points) || points<0 || points>10000 || points!=std::floor(points) || !realObject){lua_pushboolean(L,false);return 1;}
++ Locker lock(realObject);realObject->setSkillPoints(static_cast<int>(points));realObject->updateToDatabase();lua_pushboolean(L,true);return 1;
++}
+--- a/MMOCoreORB/src/server/zone/managers/director/DirectorManager.h
++++ b/MMOCoreORB/src/server/zone/managers/director/DirectorManager.h
+@@ -129,6 +129,8 @@
+ 		static int spawnMobile(lua_State* L);
+ 		static int spawnBabyMobile(lua_State* L);
+ 		static int growCreaturePet(lua_State* L);
++		static int grantCreaturePet(lua_State* L);
++		static int activateOwnedDroidDeed(lua_State* L);
+ 		static int spawnEventMobile(lua_State* L);
+ 		static int spawnShipAgent(lua_State* L);
+ 		static int spawnSceneObject(lua_State* L);
+--- a/MMOCoreORB/src/server/zone/managers/director/DirectorManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/director/DirectorManager.cpp
+@@ -15,6 +15,7 @@
+ #include "server/zone/objects/mission/LuaMissionObject.h"
+ #include "server/zone/objects/intangible/ControlDevice.h"
+ #include "server/zone/objects/intangible/PetControlDevice.h"
++#include "server/zone/objects/tangible/deed/droid/DroidDeed.h"
+ #include "server/zone/objects/player/LuaPlayerObject.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/tangible/LuaTangibleObject.h"
+@@ -111,6 +112,9 @@
+ #include "server/zone/objects/area/areashapes/SphereAreaShape.h"
+ #include "server/zone/packets/ui/CreateClientPathMessage.h"
+ #include "server/zone/objects/ship/squadron/ShipSquadronFormation.h"
++#include "server/zone/objects/creature/ai/Creature.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/creature/events/TameCreatureTask.h"
+ 
+ int DirectorManager::DEBUG_MODE = 0;
+ int DirectorManager::ERROR_CODE = NO_ERROR;
+@@ -445,6 +449,8 @@
+ 	luaEngine->registerFunction("spawnMobile", spawnMobile);
+ 	luaEngine->registerFunction("spawnBabyMobile", spawnBabyMobile);
+ 	luaEngine->registerFunction("growCreaturePet", growCreaturePet);
++	luaEngine->registerFunction("grantCreaturePet", grantCreaturePet);
++	luaEngine->registerFunction("activateOwnedDroidDeed", activateOwnedDroidDeed);
+ 	luaEngine->registerFunction("spawnEventMobile", spawnEventMobile);
+ 	luaEngine->registerFunction("spawnShipAgent", spawnShipAgent);
+ 	luaEngine->registerFunction("spatialChat", spatialChat);
+@@ -5261,3 +5267,24 @@
+ 
+ 	return 0;
+ }
++
++// Administrative test provisioning only; these bindings are absent from player RPC/commands.
++int DirectorManager::grantCreaturePet(lua_State* L) {
++ if(lua_gettop(L)!=2 || !lua_islightuserdata(L,1) || !lua_islightuserdata(L,2)){lua_pushboolean(L,false);return 1;}
++ auto owner=static_cast<SceneObject*>(lua_touserdata(L,1)),object=static_cast<SceneObject*>(lua_touserdata(L,2));
++ if(!owner || !owner->isPlayerCreature() || !object || !object->isCreature()){lua_pushboolean(L,false);return 1;}
++ auto player=owner->asCreatureObject();auto pet=cast<Creature*>(object);Locker lock(player);Locker petLock(pet,player);
++ auto datapad=player->getSlottedObject("datapad");
++ if(!player->getZone() || player->getZone()!=pet->getZone() || player->getParent()!=pet->getParent() || !player->isInRange(pet,8) || player->isDead() || pet->isDead() || !pet->isBaby() || pet->getControlDevice().get()!=nullptr || pet->getLinkedCreature().get()!=nullptr || !pet->getCreatureTemplate() || !pet->canTameMe(player) || pet->getChanceToTame(player)<=0 || !player->hasSkill("outdoors_creaturehandler_novice") || !datapad || datapad->getContainerObjectsSize()>=datapad->getContainerVolumeLimit()){lua_pushboolean(L,false);return 1;}
++ Reference<TameCreatureTask*> task=new TameCreatureTask(pet,player,pet->getPvpStatusBitmask(),true,true);task->success(true);
++ auto device=pet->getControlDevice().get().castTo<PetControlDevice*>();bool okay=device && device->getParent().get()==datapad && device->getPetType()==PetManager::CREATUREPET && pet->getLinkedCreature().get()==player;
++ if(okay){device->updateToDatabase();pet->updateToDatabase();}lua_pushboolean(L,okay);return 1;
++}
++int DirectorManager::activateOwnedDroidDeed(lua_State* L) {
++ if(lua_gettop(L)!=2 || !lua_islightuserdata(L,1) || !lua_islightuserdata(L,2)){lua_pushboolean(L,false);return 1;}
++ ManagedReference<SceneObject*> owner=static_cast<SceneObject*>(lua_touserdata(L,1)),item=static_cast<SceneObject*>(lua_touserdata(L,2));
++ if(!owner || !owner->isPlayerCreature() || !item || !item->isDroidDeedObject()){lua_pushboolean(L,false);return 1;}
++ auto player=owner->asCreatureObject();Locker lock(player);Locker itemLock(item,player);
++ auto inventory=player->getSlottedObject("inventory");if(!inventory || !item->isASubChildOf(inventory) || !player->getZone() || player->isDead() || player->isIncapacitated() || player->isInCombat()){lua_pushboolean(L,false);return 1;}
++ int result=item->handleObjectMenuSelect(player,20);lua_pushboolean(L,result==0 && !item->isASubChildOf(inventory));return 1;
++}

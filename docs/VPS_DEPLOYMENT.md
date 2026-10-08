@@ -1,5 +1,33 @@
 # CoreCU remote test realm
 
+## Movement, player summary and party update — 8 October 2026
+
+Source release `9c709fd` was pushed to `origin/main`. Its server delta was
+installed through SSH on `blux@87.106.27.237` after native save-and-exit,
+SQL export and private persistent-state/runtime backups. The verified bundle
+contains 21 files, with 20 changed on the server. It adds the native movement
+budget, owned player summaries and authenticated fist-bump parties, including
+Squad Leader priority and receipt-only retries after a consumed gesture.
+
+The running CoreCU binary matches SHA-256
+`abb54caf2ba4ee1bc90183a1a05442d9f41b1d30354afb6f259f42692410d4f7`.
+All managed services and native readiness passed the post-update audit. The
+50 native accounts, 47 characters, schema 1008, private configuration and ten
+original ground planets were preserved. The daily restart remains enabled at
+05:00 UTC; the verified next run is 2026-10-09 05:00 UTC.
+
+Release validation passed 397 Python tests, a clean headless Godot import,
+47 local native party checks and 154 focused client checks. Seven authenticated
+HTTPS checks on the deployed server used an existing dedicated test character
+to verify entry, owned player summaries, movement revisions, a stationary
+heartbeat, native party state and saved logout. No character was created or
+granted skills during deployment verification. No VR client was launched;
+client gesture checks use mocked tracking and the dummy renderer.
+
+Remote rollback state: `runtime/deploy/pre-galaxy-update-20261008T051402Z`.
+Local receipts: `runtime/deploy/galaxy-update-live/{release-proof,applied,audit-after,tls-health-after}.json`.
+The old test environment was not accessed or restarted.
+
 ## Core5 interaction update — 8 October 2026
 
 The verified 14-file delta was installed over SSH on `blux@87.106.27.237` after

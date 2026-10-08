@@ -84,11 +84,13 @@ class RateLimits:
 
 
 class AccountAuth:
-    def __init__(self, database, *, reserved=(), registration_enabled=False, clock=time.time):
+    def __init__(self, database, *, reserved=(), registration_enabled=False, invites_required=False, clock=time.time):
         if not isinstance(registration_enabled, bool): raise ValueError('registration_enabled must be boolean')
         self.database = str(Path(database).absolute())
         self.reserved = frozenset(reserved) | {'health'}
         self.registration_enabled, self.clock = registration_enabled, clock
+        if not isinstance(invites_required, bool): raise ValueError("invites_required must be boolean")
+        self.invites_required = invites_required
         self.limits = RateLimits()
         Path(self.database).parent.mkdir(parents=True, exist_ok=True)
         # Create privately before SQLite opens it; preserve existing database contents.
@@ -108,6 +110,11 @@ class AccountAuth:
               CREATE TABLE IF NOT EXISTS remembered_logins (
                 token_hash TEXT PRIMARY KEY, account TEXT NOT NULL REFERENCES credentials(account),
                 expires_at INTEGER NOT NULL);
+              CREATE TABLE IF NOT EXISTS invitations (
+                code_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL,
+                uses_left INTEGER NOT NULL CHECK(uses_left>=0));
+              CREATE TABLE IF NOT EXISTS client_access (
+                account TEXT PRIMARY KEY REFERENCES credentials(account));
               CREATE INDEX IF NOT EXISTS remembered_logins_expiry ON remembered_logins(expires_at);
             ''')
         self.dummy_salt = secrets.token_bytes(16)
@@ -135,16 +142,52 @@ class AccountAuth:
         db.execute('INSERT INTO sessions VALUES (?,?,?)', (hashlib.sha256(token.encode()).hexdigest(), account, expires))
         return {'account': account, 'token': token, 'expires_at': expires, 'expires_in': SESSION_SECONDS}
 
-    def register(self, account, password, ip):
+    def issue_invite(self, *, uses=1, hours=168):
+        if type(uses) is not int or not 1 <= uses <= 10000: raise ValueError('Invalid invitation use count')
+        if type(hours) is not int or not 1 <= hours <= 8760: raise ValueError('Invalid invitation lifetime')
+        code = 'swgi_' + secrets.token_urlsafe(24)
+        with self.connection() as db:
+            db.execute('INSERT INTO invitations VALUES (?,?,?)',
+                       (self.invite_digest(code), int(self.clock()) + hours * 3600, uses))
+        return code
+
+    @staticmethod
+    def invite_digest(code):
+        if not isinstance(code, str) or not re.fullmatch(r'swgi_[A-Za-z0-9_-]{32}', code):
+            raise AuthError(403, 'Invitation is invalid, expired or exhausted')
+        return hashlib.sha256(code.encode('ascii')).hexdigest()
+
+    def revoke_invite(self, code):
+        with self.connection() as db:
+            db.execute('UPDATE invitations SET uses_left=0 WHERE code_hash=?', (self.invite_digest(code),))
+
+    def has_client_access(self, account):
+        with self.connection() as db:
+            return db.execute('SELECT 1 FROM client_access WHERE account=?', (account,)).fetchone() is not None
+
+    def register(self, account, password, ip, invite_code=None):
         account, password = account_name(account), password_bytes(password)
         self.limits.check('register', ip, account)
         if not self.registration_enabled: raise AuthError(403, 'Registration is disabled')
         if account in self.reserved: raise AuthError(409, 'Account is unavailable')
+        invitation = self.invite_digest(invite_code) if self.invites_required or invite_code is not None else None
+        if invitation:
+            with self.connection() as db:
+                if not db.execute('SELECT 1 FROM invitations WHERE code_hash=? AND expires_at>? AND uses_left>0',
+                                  (invitation, int(self.clock()))).fetchone():
+                    raise AuthError(403, 'Invitation is invalid, expired or exhausted')
         salt = secrets.token_bytes(16)
         digest = derive(password, salt)
         try:
             with self.connection() as db:
+                # Redemption and account creation commit together; concurrent uses cannot overspend.
+                db.execute('BEGIN IMMEDIATE')
+                if invitation:
+                    changed = db.execute('UPDATE invitations SET uses_left=uses_left-1 WHERE code_hash=? AND expires_at>? AND uses_left>0',
+                                         (invitation, int(self.clock()))).rowcount
+                    if changed != 1: raise AuthError(403, 'Invitation is invalid, expired or exhausted')
                 db.execute('INSERT INTO credentials VALUES (?,?,?,?,0)', (account, salt, digest, int(self.clock())))
+                if invitation: db.execute('INSERT INTO client_access VALUES (?)', (account,))
                 return self._session(db, account)
         except sqlite3.IntegrityError:
             raise AuthError(409, 'Account is unavailable') from None

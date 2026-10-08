@@ -98,8 +98,15 @@ func costs(ability: Dictionary) -> Array:
 	for pool in ["health", "action", "mind"]:
 		var base := float(ability.get("base_sac", {}).get(pool, NAN))
 		if not is_finite(base) or base < 0: return []
-		# Core3 calculateCostAdjustment uses current STR/QUI/FOC.
-		result.append(maxf(0, base * (1.0 - (float(ham[index + 1]) - 300.0) / 1200.0)))
+		# Versioned native SAC policy; old/offline profiles retain their source formula.
+		var reduction:float=(float(ham[index+1])-300.0)/1200.0
+		if ability.get("sac_policy","")=="corecu_cu_v1":reduction=.25*clampf(reduction,0,1)
+		elif ability.get("sac_policy","")=="corecu_cu_v2":
+			reduction=.25*clampf((float(ham[index+1])-300.0)/300.0,0,1)
+			if pool=="action":
+				var share:float=clampf(float(ability.get("sac_action_strength_share",0)),0,1)
+				reduction=lerpf(reduction,.25*clampf((float(ham[1])-300.0)/300.0,0,1),share)
+		result.append(maxf(0,base*(1.0-reduction)))
 		index += 3
 	return result
 
@@ -109,6 +116,8 @@ func available(profile: Dictionary) -> bool:
 	if float(cooldowns.get(selected, 0)) > 0: reason = "Recovering"; return false
 	var cost := costs(ability)
 	if cost.size() != 3: reason = "Combat pools unavailable"; return false
+	if ability.get("id","")=="last_ditch" and ability.get("sac_policy","") in ["corecu_cu_v1","corecu_cu_v2"] and (float(ham[3])<=1 or float(ham[6])<=1):
+		reason="Insufficient resources";return false
 	for index in range(3):
 		if float(ham[index * 3]) <= float(cost[index]): reason = "Insufficient HAM"; return false
 	reason = ""
@@ -135,7 +144,10 @@ func apply_to_attack(shot: Dictionary, profile: Dictionary) -> void:
 		var multiplier:=2.0
 		for index in range(3):
 			var before:=float(ham[index*3])+int(cost[index])
-			multiplier+=1.0-clampf(before/maxf(1,float(max_ham[index*3])),0,1)
+			var cu:bool=ability.get("sac_policy","") in ["corecu_cu_v1","corecu_cu_v2"]
+			var weight:float=(2.0 if index==0 else .5) if cu else 1.0
+			var maximum:float=float(max_ham[index*3])-(float(wounds[index*3]) if cu else 0.0)
+			multiplier+=weight*(1.0-clampf(before/maxf(1,maximum),0,1))
 		shot.ability.damage_multiplier=multiplier
 	shot["sac_spent"] = cost.map(func(value): return int(value))
 	primed = false
@@ -155,6 +167,9 @@ func apply_authoritative(context: Dictionary) -> bool:
 		if float(maximum[index]) <= 0 or float(blocked[index]) > float(maximum[index]) or float(current[index]) > float(maximum[index]):
 			pools_valid = false; vitals_valid = false; return false
 	if ham.size() != 9: ham.resize(9); ham.fill(0)
+	var full:Variant=context.get("full_ham",[])
+	if full is Array and full.size()==9 and full.all(func(value):return (value is int or value is float) and is_finite(float(value)) and float(value)>=0):
+		for i in [1,2,4,5,7,8]:ham[i]=full[i]
 	if max_ham.size() != 9: max_ham.resize(9); max_ham.fill(0)
 	if wounds.size() != 9: wounds.resize(9); wounds.fill(0)
 	for index in range(3):

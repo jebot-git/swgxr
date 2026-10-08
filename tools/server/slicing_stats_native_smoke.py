@@ -101,6 +101,9 @@ end
             # A real launch executes original Special Attack Cost, with no fabricated hit.
             before=call('/combat/session/update',session_id=session,ready=True,**pose(loc))
             before_ham=before['snapshot']['player']['raw_ham'];weapon=before['snapshot']['weapon']
+            loadout=dict(weapon['ability_loadout'],slots=['lethal_shot','','',''],ultimate='')
+            equipped=call('/combat/session/loadout',session_id=session,item_id=ranged['id'],loadout=loadout)
+            check(equipped.get('mutation',{}).get('success'),'Fixture explicitly equips Lethal Shot')
             origin=before['snapshot']['player']['position'].copy();origin[1]+=1
             time.sleep(max(0.05,weapon['fire_interval_seconds']+.05))
             lua('swgxrSliceStatsPrepare')

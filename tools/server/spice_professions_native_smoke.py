@@ -46,6 +46,9 @@ def main():
   return out
  def clear(f,name):expire(f,name,'up');expire(f,name,'down')
  def treat(name,selfheal=False):
+  state=call(actor,'/medic/status',live_session_id=sessions[actor['id']])['state']
+  remaining=state.get('medical_item_cooldowns',{}).get(name,0) if name in ('healwound','healdamage') else next(a['cooldown_seconds'] for a in state['abilities']if a['id']==name)
+  if remaining>0:time.sleep(remaining+.2)
   fields=lua('swgxrSpiceTreat:'+name+(','+'self' if selfheal else ',other')).split(',')
   return [int(float(x)) for x in fields]
  def performance(f,action,**kw):return call(f,'/entertainer/'+action,live_session_id=sessions[f['id']],request_id=key(),zone='tatooine',**kw)
@@ -72,8 +75,15 @@ function Tests:swgxrSpiceSetup()
  for _,name in ipairs({{"crash_n_burn","neutron_pixey","grey_gabaki"}}) do giveItem(ai,"object/tangible/food/spice/spice_"..name..".iff",-1) end
  for _,name in ipairs({{"yarrock","muon_gold"}}) do giveItem(ci,"object/tangible/food/spice/spice_"..name..".iff",-1) end
  local pack=giveItem(ai,"object/tangible/medicine/stimpack_sm_s1.iff",-1);TangibleObject(pack):setUseCount(50)
+ local wound=giveItem(ai,"object/tangible/medicine/medpack_wound_health.iff",-1);TangibleObject(wound):setUseCount(50)
+ writeData("swgxrSpiceWoundPack",SceneObject(wound):getObjectID())
  for i=1,6 do giveItem(ci,"object/tangible/crafting/station/weapon_tool.iff",-1) end
  for i=1,18 do givePlayerResource(c,"mineral",500);givePlayerResource(c,"chemical",500) end
+ return "ready"
+end
+function Tests:swgxrSpiceVenue()
+ local a=getSceneObject({actor['id']});local b=getSceneObject({patient['id']})
+ SceneObject(a):teleport(10.65,-0.894992,1.91,1082877);SceneObject(b):teleport(11.15,-0.894992,1.91,1082877)
  return "ready"
 end
 function Tests:swgxrSpiceCommand(arg)
@@ -87,7 +97,11 @@ function Tests:swgxrSpiceTreat(arg)
  local name,kind=string.match(arg,"([^,]+),([^,]+)");local a=getSceneObject({actor['id']});local p=getSceneObject({patient['id']});if kind=="self" then p=a end
  CreatureObject(a):setPosture(0);CreatureObject(a):forcePeace();CreatureObject(a):setHAM(6,CreatureObject(a):getMaxHAM(6));CreatureObject(a):setWounds(6,0)
  for _,n in ipairs({{0,3}}) do CreatureObject(p):setHAM(n,4000) end
- CreatureObject(p):setWounds(0,name=="tendwound" and 500 or 0)
+ CreatureObject(p):setWounds(0,name=="healwound" and 500 or 0)
+ if name=="healwound" then
+ local cell=BuildingObject(getSceneObject(4005381)):getCell(2);local cellId=SceneObject(cell):getObjectID()
+ SceneObject(a):teleport(1,0,0,cellId);SceneObject(p):teleport(2,0,0,cellId)
+ end
  local h=CreatureObject(p):getHAM(0);local w=CreatureObject(p):getWounds(0)
  local result=CreatureObject(a):executeCommand(name,{patient['id']},"");if kind=="self" then -- the explicit target below is replaced before use
  end
@@ -100,46 +114,48 @@ function Tests:swgxrSpiceUnavailablePerformance()
 end
 function Tests:swgxrSpiceHealingSkill() return tostring(CreatureObject(getSceneObject({actor['id']})):getSkillMod("healing_dance_mind")) end
 function Tests:swgxrSpiceWounds()
- local p=getSceneObject({patient['id']});for _,n in ipairs({{6,7,8}}) do CreatureObject(p):setWounds(n,1000) end
+ local p=getSceneObject({patient['id']});for _,n in ipairs({{0}}) do CreatureObject(p):setWounds(n,1000) end
  return "ready"
 end
 function Tests:swgxrSpicePatron()
  local a=getSceneObject({actor['id']});local b=getSceneObject({patient['id']});local data=CreatureObject(a):getEntertainerPatronData(b)
- return string.sub(data,1,-2)..',"wounds":'..tostring(CreatureObject(b):getWounds(6))..',"max_mind":'..tostring(CreatureObject(b):getMaxHAM(6))..',"base_mind":'..tostring(CreatureObject(b):getBaseHAM(6))..'}}'
+ return string.sub(data,1,-2)..',"wounds":'..tostring(CreatureObject(b):getWounds(0))..',"max_mind":'..tostring(CreatureObject(b):getMaxHAM(6))..',"base_mind":'..tostring(CreatureObject(b):getBaseHAM(6))..'}}'
 end
 -- END SWGXR SPICE PROFESSION FIXTURE
 '''
   added=added.replace('local result=CreatureObject(a):executeCommand(name,'+patient['id']+',"");if kind=="self" then -- the explicit target below is replaced before use\n end','local result=CreatureObject(a):executeCommand(name,SceneObject(p):getObjectID(),"")')
+  added=added.replace('executeCommand(name,SceneObject(p):getObjectID(),"")','executeCommand(name,SceneObject(p):getObjectID(),name=="healwound" and ("health|"..tostring(readData("swgxrSpiceWoundPack"))) or "")')
   script.write_text(script.read_text()+added);console('reloadscreenplays');time.sleep(.3);check(lua('swgxrSpiceSetup')=='ready','Isolated native fixtures receive documented skill, resource and HAM setup')
   # Use real movement endpoint to put physician and patient within native range.
   loc=actor['pose'];patient['pose']=dict(loc)
   moved=call(patient,'/services/status',session_id=sessions[patient['id']],zone='tatooine',**loc);status(patient)
   if args.only in ('all','medicine'):
    baseline=treat('tenddamage');check(baseline[0]==0 and baseline[1]>0,'Original Tend Damage provides measurable unmodified healing')
-   wb=treat('tendwound');check(wb[0]==0 and wb[2]>0,'Original Tend Wound provides measurable unmodified healing')
+   wb=treat('healwound');check(wb[0]==0 and wb[2]>0,'Health Wound Medpack provides measurable unmodified healing')
    ib=treat('healdamage');check(ib[0]==0 and ib[1]>0,'Original stim item provides measurable unmodified healing')
    consume(actor,'crash_n_burn');time.sleep(3.2)
-   active=treat('tenddamage');check(active[0]==0 and active[1]==3*baseline[1],'Crash active multiplies actual ability restoration exactly threefold')
-   wa=treat('tendwound');check(wa[0]==0 and wa[2]==3*wb[2],'Crash active multiplies actual wound restoration exactly threefold')
-   ia=treat('healdamage');check(ia[0]==0 and ia[1]==3*ib[1],'Crash active multiplies actual stim restoration exactly threefold')
+   active=treat('tenddamage');check(active[0]==0 and active[1]==math.floor(1.5*baseline[1]+.5),'Crash active multiplies actual ability restoration by the CU 1.5x multiplier')
+   wa=treat('healwound');check(wa[0]==0 and wa[2]==math.floor(1.5*wb[2]+.5),'Crash active multiplies actual wound restoration by the CU 1.5x multiplier')
+   ia=treat('healdamage');check(ia[0]==0 and ia[1]==math.floor(1.5*ib[1]+.5),'Crash active multiplies actual stim restoration by the CU 1.5x multiplier')
    expire(actor,'crash_n_burn','up')
    withdrawn=treat('tenddamage');check(withdrawn[0]==0 and withdrawn[1]==-baseline[1],'Crash withdrawal turns actual outgoing ability healing into equal damage')
-   ww=treat('tendwound');check(ww[0]==0 and ww[1]==-wb[2] and ww[2]==0,'Withdrawal wound treatment damages corresponding HAM and leaves wounds untouched')
+   ww=treat('healwound');check(ww[0]==0 and ww[1]==-wb[2] and ww[2]==0,'Withdrawal wound treatment damages corresponding HAM and leaves wounds untouched')
    self_heal=treat('tenddamage',True);check(self_heal[0]==0 and self_heal[1]==-baseline[1],'Withdrawal self-healing lowers authoritative own HAM')
    feedback=call(actor,'/medic/status',live_session_id=sessions[actor['id']])['state']['vital_feedback'];check(feedback['heal']>feedback['damage'],'Self-treatment actor illusion is newest native healing feedback event')
    time.sleep(3.2);iw=treat('healdamage');check(iw[0]==0 and iw[1]==-ib[1],'Withdrawal reverses actual healing item output as well')
    recipient_feedback=call(patient,'/medic/status',live_session_id=sessions[patient['id']])['state']['vital_feedback'];check(recipient_feedback['damage']>recipient_feedback['heal'],'Recipient receives newest authoritative damage feedback while actor sees healing')
    expire(actor,'crash_n_burn','down')
-   time.sleep(3.2);base_cd=treat('healdamage');m=call(actor,'/medic/status',live_session_id=sessions[actor['id']]);normal=next(a['cooldown_seconds'] for a in m['state']['abilities'] if a['id']=='healdamage')
-   time.sleep(3.2);consume(actor,'grey_gabaki');grey=treat('healdamage');m=call(actor,'/medic/status',live_session_id=sessions[actor['id']]);reduced=next(a['cooldown_seconds'] for a in m['state']['abilities'] if a['id']=='healdamage')
+   time.sleep(3.2);base_cd=treat('healdamage');m=call(actor,'/medic/status',live_session_id=sessions[actor['id']]);normal=m['state']['medical_item_cooldowns']['healdamage']
+   time.sleep(3.2);consume(actor,'grey_gabaki');grey=treat('healdamage');m=call(actor,'/medic/status',live_session_id=sessions[actor['id']]);reduced=m['state']['medical_item_cooldowns']['healdamage']
    report['medical_cooldown_samples']={'baseline_seconds':normal,'grey_seconds':reduced};check(base_cd[0]==0 and grey[0]==0 and 0<reduced<normal and abs(normal-reduced-round(normal)*.1)<.2,'Grey reduces the actual native medical recovery duration by ten percent')
    expire(actor,'grey_gabaki','up')
   if args.only in ('all','entertainer'):
    venue=next(r for r in json.loads((ROOT/'runtime/assets/ambient_npcs/placements.json').read_text())['instances'] if r['source_cell_id']=='1082877')
    inside=dict(position=venue['source_world_xyz'],building_id=venue['building_object_id'],cell_index=int(venue['cell_id'].split(':')[1]))
+   check(lua('swgxrSpiceVenue')=='ready','Privileged fixture teleport enters original cantina')
    for f in [actor,patient]:
-    f['pose']=inside.copy();check(performance(f,'status',**inside).get('ok'),'Fixture enters original native cantina with entertainment healing modifiers');status(f)
-   performance(actor,'stop');check(performance(actor,'perform',kind='dance',name='basic').get('ok'),'Original dancer starts baseline performance')
+    f['pose']=pose(call(f,'/services/status')['state']['player']);check(performance(f,'status').get('source_kind')=='core3_entertainer','Fixture enters original native cantina with entertainment healing modifiers');status(f)
+   performance(actor,'stop');check(performance(actor,'perform',kind='dance',name='basic').get('mutation',{}).get('success'),'Original dancer starts baseline performance')
    check(command(actor,'setperformancebufftarget',patient['id'])==0 and command(patient,'watch',actor['id'])==0,'Native performer target and patron watch commands establish actual patron')
    lua('swgxrSpiceWounds');before=patron();deadline=time.monotonic()+14
    while time.monotonic()<deadline:

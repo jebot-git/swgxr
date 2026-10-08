@@ -15,6 +15,29 @@ func run() -> void:
 	check(targeting.first(Transform3D.IDENTITY,Vector3.ZERO,ability,candidates,2).is_empty(),"World obstruction blocks healing reticle")
 	check(targeting.first(Transform3D.IDENTITY,Vector3.ZERO,{"range_m":2},candidates).is_empty(),"Native healing range filters recipient")
 	check(targeting.first(Transform3D(Basis(Vector3.UP,PI),Vector3.ZERO),Vector3.ZERO,ability,candidates).is_empty(),"No self-heal fallback when reticle misses")
+	var items=preload("res://medic/item_targeting.gd")
+	var patient={"healable":true,"dead":false,"needs":{"healdamage":true},"states":8388608,"wounds":[50,0,0,0,0,0,0,0,0]}
+	check(items.eligible({"medical_command":"healdamage"},patient),"Held stim selects injured patient")
+	check(items.eligible({"medical_command":"curepoison","medical_state":8388608},patient),"Antidote requires matching native state")
+	check(not items.eligible({"medical_command":"curedisease","medical_state":33554432},patient),"Wrong antidote is not consumed")
+	check(items.eligible({"medical_command":"healwound","wound_attribute":0},patient),"Health wound supply matches patient")
+	check(not items.eligible({"medical_command":"reviveplayer"},patient),"Resuscitation rejects living patient")
+	patient.dead=true
+	check(items.eligible({"medical_command":"reviveplayer"},patient),"Resuscitation can select dead patient")
+	check(not items.eligible({"medical_command":"healdamage"},patient),"Stim does not select dead patient")
+	patient.healable=false
+	check(not items.eligible({"medical_command":"reviveplayer"},patient),"Hostile recipient excluded")
+	var pet={"healable":true,"companion":true,"droid":false,"dead":false,"needs":{"healdamage":true},"wounds":[50,0,0,0,0,0,0,0,0]}
+	check(items.eligible({"medical_command":"healpet"},pet),"Pet stim selects an injured creature companion")
+	check(not items.eligible({"medical_command":"healpet"},{"healable":true,"needs":{"healdamage":true}}),"Pet stim cannot target a player")
+	check(not items.eligible({"medical_command":"healdroiddamage"},pet),"Repair kit cannot target an organic pet")
+	pet.droid=true
+	check(items.eligible({"medical_command":"healdroiddamage"},pet),"Repair kit selects an injured droid")
+	check(items.eligible({"medical_command":"healdroidwound"},pet),"Reconstruction kit selects Health wounds")
+	check(not items.eligible({"medical_command":"healdamage"},pet),"Organic stim cannot target a droid")
+	pet.dead=true
+	check(not items.eligible({"medical_command":"reviveplayer"},pet),"Player resuscitation cannot resurrect a companion")
+
 	var effect=preload("res://combat/vital_feedback.gd").new()
 	effect.observe({"damage":1,"heal":2,"age_seconds":0})
 	check(effect.strength("damage")==0 and effect.strength("heal")==0,"Initial snapshot does not replay old feedback")

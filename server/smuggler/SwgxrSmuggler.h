@@ -41,7 +41,8 @@ public:
   if(ability=="concussion_shot_improved")return c->hasSkill("combat_smuggler_master");
   auto cmd=command(c,ability);return c->hasSkill("combat_smuggler_novice") && !cmd->getCharacterAbility().isEmpty() && c->getPlayerObject()->hasAbility(cmd->getCharacterAbility());
  }
- static double multiplier(CreatureObject* c){return SwgxrSmugglerPolicy::lastDitch(c->getHAM(0),c->getMaxHAM(0),c->getHAM(3),c->getMaxHAM(3),c->getHAM(6),c->getMaxHAM(6));}
+ static double range(CreatureObject* c,const CombatQueueCommand* cmd){auto w=c->getWeapon();return w?std::min(double(w->getMaxRange()),cmd->getRange()<0?double(w->getMaxRange()):double(cmd->getRange())):0;}
+ static double multiplier(CreatureObject* c){return SwgxrSmugglerPolicy::lastDitch(c->getHAM(0),c->getMaxHAM(0)-c->getWounds(0),c->getHAM(3),c->getMaxHAM(3)-c->getWounds(3),c->getHAM(6),c->getMaxHAM(6)-c->getWounds(6));}
  static double cooldown(CreatureObject* c,const std::string& ability){auto t=c->getCooldownTime(String(("swgxr_smuggler_"+ability).c_str()));return t?std::max(0.0,-t->miliDifference()/1000.0):0;}
  static void effects(CreatureObject* attacker,CreatureObject* target,const std::string& ability){
   if(!target || target->isDead() || target->isIncapacitated())return;
@@ -66,7 +67,8 @@ public:
   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
-   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0)},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3)},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6)}}},{"cooldown_seconds",30.0*SwgxrSpice::cooldownScale(c)},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
+   float h=w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0),a=w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3),m=w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6);
+   out.push_back({{"max_range_m",range(c,cmd)},{"min_range_m",0},{"conditions_met",cmd->checkStateMask(c) && cmd->checkInvalidLocomotions(c)},{"ultimate",last},{"sac_action_strength_share",a+h>0?h/(a+h):0},{"sac_policy","corecu_cu_v2"},{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",0},{"action",last?0:a+h},{"mind",last?0:m*.5f}}},{"cooldown_seconds",30.0*SwgxrSpice::cooldownScale(c)},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
   }return out;
  }
 };

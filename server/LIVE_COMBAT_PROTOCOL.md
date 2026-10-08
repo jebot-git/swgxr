@@ -205,3 +205,63 @@ Rows carry their actual cell/heading, `outline_only: true` and
 list feeds noncolliding visual proxies; it never enters ordinary targeting,
 physics or radar registries. Normal actor rows expose `aggressive` separately
 from `attackable`, so a target's hostility is not inferred from attack permission.
+
+## Target-bound ranged abilities (patch 0085)
+
+The client submits `ability_id` plus `target_id` in `/combat/session/fire` when
+shooting a local anatomical marker or using the two-trigger ultimate chord.
+`target_id` is an optional additive field for legacy launch compatibility; the
+current target-marker client always supplies it for specials. The adapter validates
+the decimal source-object ID. Core3 validates the target's current zone, AI type,
+attackability, living/active state, range and LOS before committing SAC and cooldown.
+The immutable shot stores that target; impact against a different ID is rejected.
+Actual projectile collision and existing impact proofs still apply: no guaranteed
+hit, no damage supplied by the marker, and no target UI replication.
+
+Native ability descriptors now include `conditions_met`, `max_range_m`,
+`min_range_m` (currently zero), and `ultimate`. Skill and weapon restrictions still
+filter the native list; the client additionally checks current pools, cooldown,
+weapon condition, reload/capacity, target range and scenery before showing markers.
+Last Ditch is currently the only exposed ultimate. The former primed-ability
+lookup is removed from native ranged launch routing.
+
+## Weapon-family combat loadouts
+
+Patch 0086 adds `POST /combat/session/loadout` through the existing authenticated,
+owned live session. The request carries the normal `character_id`, `session_id`
+and optional movement revision plus:
+
+```json
+{
+  "item_id": "99",
+  "loadout": {
+    "family": "pistols",
+    "slots": ["concussion_shot_improved", "lethal_shot", "low_blow", "restraining_shot"],
+    "ultimate": "last_ditch",
+    "revision": 0
+  }
+}
+```
+
+Exactly four regular slots are required; an empty string means an empty slot.
+There is one separate ultimate ID (also clearable with an empty string). Duplicate
+IDs, unknown/unlearned abilities, wrong-family abilities and ultimate/regular slot
+mixing are rejected. Core3 derives the family from the actual equipped weapon and
+checks both its item ID and the saved family revision before writing. A stale
+proposal never overwrites a newer saved selection. Editing does not reset ability
+cooldowns or costs. New family loadouts start empty.
+
+The owned `snapshot.weapon` now carries `ability_catalog` (learned, weapon-compatible
+choices), `ability_loadout` (family, four slots, ultimate, revision) and `abilities`
+(only equipped eligible choices). Cooldown and temporary state prerequisites do
+not remove choices from the editor; they still gate use. Lost skill grants remove
+usable selections from the snapshot. Preferences persist on the Core3 PlayerObject
+under screenplay namespace `swgxr_combat_loadout`, keyed by weapon family, so
+changing items within a family retains the same slots while another family has
+its own selection. The client does not save these RPG choices in local JSON.
+
+Native fire additionally rejects a learned but unequipped special before resource
+spending. An already accepted projectile keeps its original ability through
+impact. The currently implemented native catalog contains ranged specials and
+Last Ditch; melee families expose empty grids until native specials are supplied.
+The protocol/editor already represent those families without inventing abilities.

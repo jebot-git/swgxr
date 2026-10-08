@@ -28,6 +28,11 @@ func run() -> void:
 		if parts.size()==2:options[parts[0]]=parts[1]
 	var connection:=Connection.new()
 	var source: Dictionary={"base_url":"https://127.0.0.1:18443","ca_certificate":ProjectSettings.globalize_path("res://../runtime/deploy/credentials/ca.pem")}
+	var launcher_source:=source.duplicate(true)
+	launcher_source["launcher_session"]=session()
+	check(connection.configure(launcher_source) and connection.authenticated and not connection.legacy_profile,"Launcher session loads without a legacy-account claim")
+	launcher_source.launcher_session["expires_at"]=1
+	check(not connection.configure(launcher_source),"Expired launcher session is rejected")
 	check(connection.configure(source),"Endpoint-only profile loads trusted CA")
 	check(connection.configured and not connection.authenticated,"Server configuration is distinct from account authentication")
 	check(not connection.validate_request(connection.base_url,"/health").is_empty(),"Gameplay requests need authenticated account")

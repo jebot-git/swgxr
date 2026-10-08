@@ -132,6 +132,8 @@ func count_text(state: Dictionary, now: float=-1.0) -> String:
 	var total:=0
 	for entry: Dictionary in state.get("buffer",[]): total+=maxi(0,int(entry.get("quantity",0)))
 	var text := "%d units · %s"%[total,str(state.get("resource_name","Resource sample")).left(30)]
+	var capacity := int(state.get("capacity",0))
+	if capacity>0: text="%d / %d units · %s"%[total,capacity,str(state.get("resource_name","Resource sample")).left(30)]
 	var outcome := str(state.get("sample_status",""))
 	var message := str(state.get("sample_message",""))
 	if not message.is_empty(): text+="\n"+message.left(120)
@@ -139,7 +141,7 @@ func count_text(state: Dictionary, now: float=-1.0) -> String:
 	else: text+="\nAwaiting Core3 sample status"
 	var current := now if now>=0 else Time.get_unix_time_from_system()+server_clock_offset
 	var due := float(state.get("next_sample_at_unix",0))
-	if due>0 and outcome!="expired":
+	if due>0 and outcome not in ["expired","full","duplicate_type"]:
 		var seconds := maxi(0,ceili(due-current))
 		text+="\nNext sample: %ds"%seconds if seconds>0 else "\nWaiting for Core3 sample result"
 	var density := float(state.get("recommended_density",state.get("minimum_productive_density",0)))

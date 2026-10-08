@@ -6,6 +6,6 @@ struct SwgxrSmugglerPolicy {
  static constexpr int snarePercent=25, snareSeconds=20, concussionSeconds=40;
  static constexpr double concussionDamage=.25;
  static double deficit(int current,int maximum){return 1.0-std::max(0.0,std::min(1.0,double(current)/std::max(1,maximum)));}
- static double lastDitch(int h,int mh,int a,int ma,int m,int mm){return 2.0+deficit(h,mh)+deficit(a,ma)+deficit(m,mm);}
+ static double lastDitch(int h,int mh,int a,int ma,int m,int mm){return 2.0+2.0*deficit(h,mh)+.5*deficit(a,ma)+.5*deficit(m,mm);}
 };
 #endif

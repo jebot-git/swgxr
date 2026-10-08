@@ -89,7 +89,9 @@ end
   check(reloaded['ready'] and reloaded['player']['on_load_screen'],'Actual native zone transfer restores load protection in an already-ready session')
   unchanged=t.request('update',{'position':reloaded['player']['position'],'ready':False})['snapshot'];check(unchanged['player']['on_load_screen'],'Unready update does not clear native scene-loading protection')
   acknowledged=t.request('update',{'position':reloaded['player']['position'],'ready':True})['snapshot'];check(acknowledged['ready'] and not acknowledged['player']['on_load_screen'],'Explicit ready update reconciles native load state without restarting session')
-  available={a['id']for a in t.last['snapshot']['weapon']['abilities']};check({'lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved'}<=available,'Learned native skill boxes expose all five ranged abilities')
+  available={a['id']for a in t.last['snapshot']['weapon']['ability_catalog']};check({'lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved'}<=available,'Learned native skill boxes expose all five ranged abilities')
+  loadout=dict(t.last['snapshot']['weapon']['ability_loadout'],slots=['lethal_shot','low_blow','restraining_shot','concussion_shot_improved'],ultimate='last_ditch')
+  equipped=t.request('loadout',{'item_id':gun['id'],'loadout':loadout});check(equipped.get('mutation',{}).get('success'),'Fixture explicitly equips four combat abilities and Last Ditch')
   check(t.last['snapshot']['player']['feign_death_available'],'Native Smuggler has Feign Death ability')
   fixture('swgxrSmugglerSpawn');t.poll();target=next(a for a in t.last['snapshot']['actors']if a['name'].startswith('SWGXR Smuggler fixture'))
   fixture('swgxrSmugglerLowPools');t.poll();p=t.last['snapshot']['player'];expected=2+sum(1-v/m for v,m in zip(p['ham'],p['max_ham']));origin=p['position'].copy();origin[1]+=1;hit=target['position'].copy();hit[1]+=.2;delta=[hit[i]-origin[i]for i in range(3)];length=math.sqrt(sum(v*v for v in delta));direction=[v/length for v in delta]

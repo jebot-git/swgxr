@@ -1035,13 +1035,16 @@ six-sided cyan unshaded beam joins it to that position, without lights, particle
 shadows or locomotion collision. Pickup uses the floating model's bounds. Confirmed
 counts appear above it. Missing/unloaded support hides the presentation while
 retaining server ownership/state. At most32 nearby tools within64m render; labels
-end at8m. These are rendering budgets; Core3 separately limits16 concurrent
-placements, with no gameplay capacity limit on their collected resource buffer.
+end at8m. These are rendering budgets; Core3 separately allows one deployment per
+native survey tool type per character, across planets, with a defensive16-record
+protocol bound. Patch0087 caps each new buffer at one native100000-unit resource
+stack. Full/expired tools reserve their type until recovered. Old duplicate tools
+pause safely and old excess output remains recoverable.
 
 Sampling copies the pinned Core3 baseline density/skill/sample-rate/sample-size
 and XP formulas: first result after3s, then25s cycles. Persistence uses lazy
 settlement on reads/actions, including elapsed offline/restart time, stopping at
-resource expiry. Each request processes at most1024 cycles; excess work remains
+resource expiry or full storage. Each request processes at most1024 cycles; excess work remains
 pending instead of being discarded. This custom unattended sampler intentionally
 omits the original kneeling/mind-cost, gambling/rich-node and radioactive-wound
 mechanics. Skill modifiers are checkpointed between settled intervals. Recovery
@@ -1432,3 +1435,212 @@ source hashes and 115 converted Ogg files. Editor import was clean. Tests used
 `--xr-mode off` with dummy rendering; UI tracking and commerce responses were
 mocked. Audio capture verifies mixed output, not headset listening. No live VR
 test or server deployment was performed for these client corrections.
+
+## Image framing and medical focus controls — 2026-10-08
+
+Image Design now accepts a held two-hand thumb/index frame near eye level (0.8 s),
+using optical joint geometry or a controller grip/index/thumb approximation.
+It opens the existing recipient selector; native skill checks and recipient
+consent remain in the established flow. Pet and droid command menus intentionally
+remain unchanged, as requested.
+
+The medical focus uses tap/release for Tend Damage and a 0.65 s trigger hold for
+Quick Heal, without requiring circle selection. Holding never fires Tend Damage
+first. Explicit First Aid selection retains its short-trigger fallback. Treatment
+selects the native ability and rechecks the same aimed recipient after the reply;
+focus loss, stowing, session/world changes and changed aim cancel pending use.
+Medical supplies continue through their existing item-specific treatment path.
+
+Validation: 951 checks passed across image_frame_smoke (40),
+medical_focus_trigger_smoke (27), medic_smoke (35), bandage_gesture_smoke (14),
+gesture_arbitration_smoke (30), entertainer_smoke (749),
+entertainer_extension_smoke (32), and flourish_clap_smoke (24).
+All used `godot --headless --xr-mode off --audio-driver Dummy --path client
+--script res://tests/<name>.gd` with mocked tracking/native transport and the dummy
+renderer. No GPU/headset validation or live VR launch was performed. Evidence is
+in ignored `runtime/evidence/*_smoke-current.log`, `image-frame.json`, and
+`medical-focus-trigger.json`. Native code and backend balance were unchanged.
+
+## Local target-point combat abilities — 2026-10-08
+
+Ranged ability activation now uses a real-time, player-local anatomical overlay:
+weapon-hand stick click acquires the aimed native creature, and firing at a point
+requests that point's ability on the same actor. Head/Concussion, heart/Lethal,
+pelvis/Low Blow and knees/Restraining points follow posed source bones or source
+bounds on one target-depth plane. Scenery and shot-path checks hide obstructed
+points; materials retain depth testing. Eligibility checks cover native grants,
+state, SAC, cooldown, certification, weapon condition, capacity/reload and range.
+The overlay neither changes time nor replicates to other clients.
+
+Last Ditch uses a physical two-hand weapon hold and a fresh both-trigger chord.
+A 120 ms tolerance accommodates uneven trigger edges without a preceding ordinary
+shot. Held triggers cannot repeat the ultimate; separating the support hand after
+activation cannot fabricate an ordinary trigger edge. No native advanced melee
+specials were introduced; the existing explicit melee profession lab remains.
+
+Patch 0085 adds native range/state/ultimate metadata and optional target binding
+on ranged fire. The current client always binds specials. Core3 checks the chosen
+actor before spending resources, stores it on the shot, and rejects another actor
+at impact. The normal projectile, LOS, cadence, ownership and damage path remains.
+The adapter validates/forwards the source target ID; client launch routing no
+longer reads a selected/primed ranged ability. Confirmed rejected launches release
+the local cooldown reservation from the current native snapshot.
+
+Validation: 320 checks passed across target_abilities_smoke (84),
+gameplay_combat_smoke (53), profession_combat_smoke (29), ranged_combat_smoke (62),
+xr_combat_input_smoke (50), world_combat_coverage_smoke (12), and live_combat_smoke
+(30). combat_collision_smoke also passed. These used the dummy renderer,
+`--headless --xr-mode off --audio-driver Dummy`, mocked tracking/native transport,
+and local original assets. Three Python Smuggler transport tests passed. The
+complete patch stack applied, and the local Core3 executable linked successfully
+in the existing build container; a fresh build receipt was recorded.
+
+Desktop Forward+ Vulkan rendering on Intel Arc A770 was inspected in
+`runtime/evidence/target-abilities-vulkan.png` (original avatar, mocked combat
+state, XR disabled). No live server encounter or headset launch was performed;
+this is not live VR validation, and the update has not been deployed.
+
+Separate existing regression: xr_main_smoke passed its ordinary stage entry,
+collision, movement, tracking and bounds checks, but failed its two missing-floor
+assertions. The same two failures reproduced in an isolated client using the
+pre-change ranged rig and combat bridges. See `target-xr_main_smoke.log` and
+`target-xr-main-baseline.log`; this is not a passing full-stage regression claim.
+
+
+## 2026-10-08 — Linux and Windows testing launcher preparation
+
+Prepared Python 3.10+/Tk source bootstraps for Linux x86_64 and Windows x86_64
+under `runtime/releases/testing-launcher/`, with SHA256SUMS. Linux uses launch.sh;
+Windows uses launch.cmd. Both contain only launcher code, public origin/CA and
+instructions. The client build remains a subsequent task; no client payload or
+live server update was published, and no VR client was started.
+
+Launcher host checks, user installation defaults, file locking and atomic writes
+now support both systems. Releases declare their platform and require the
+appropriate engine/godot or engine/godot.exe. New bootstraps use independent
+`testing-linux-x86-64` / `testing-windows-x86-64` channels, compatible with the
+existing gateway route validator. The legacy Linux `testing` channel remains
+supported. A missing channel explains that its client build is not published yet.
+The Linux publisher accepts prepared Windows payloads; Windows engine/native
+extension assembly and native validation remain part of the later client build.
+
+Validation: 75 tests passed across test_launcher_platform, test_client_launcher,
+test_account_auth, test_remote_gateway and test_remote_auth. These include local
+TLS, invitation/account flows, both target manifests, archive isolation,
+independent publication sequences, platform mismatch rejection, interrupted
+updates, cross-process installation locks and session-file cleanup. Child game
+processes were mocked. Evidence: runtime/evidence/testing-launcher-tests.log.
+The packaged Linux launcher window was opened, inspected and closed without
+logging in or starting a download/game; screenshot:
+runtime/evidence/testing-launcher-linux.png. Native Windows startup, Windows
+locking and headset behavior have not been exercised on Windows hardware.
+
+## 2026-10-08 — Weapon-family combat loadouts
+
+Implemented four combat slots plus one ultimate per weapon family. Physical
+right-stick click while the equipment hologram is active switches to an ability
+grid on the left, details on the right, and four slots above the original avatar.
+Grip-drag equips, swaps, or clears regular slots; trigger-click selects/clears the
+separate ultimate row. Confirmed slots connect to original body anchors. The
+pointing hand follows weapon-handedness; the opening click remains physical right.
+The editor consumes equipment/combat inputs, requires fresh input edges, cancels
+on tracking loss and weapon changes, and retains drags through changing cooldown,
+state and Last Ditch multiplier observations. Dropped-outside drags do not save.
+
+Patch 0086 stores per-character/per-family selections on the Core3 PlayerObject.
+The existing authenticated live session accepts bounded revision-checked loadout
+proposals for the actual equipped item. The native catalog separates all learned
+compatible choices from equipped abilities; both native fire and client targeting
+reject unequipped abilities. Ultimates cannot occupy regular slots, duplicates
+are rejected, and editing never resets cooldowns or spends SAC. Initial family
+loadouts are empty. Melee families have slots but no invented native specials.
+UI confirmation is driven by the native snapshot, not local preference files.
+
+Validation: 400 client checks passed: combat_loadout 27, equipment_hologram 48,
+target_abilities 86, gameplay_combat 58, xr_inventory 49, inventory_hand_pose 50,
+profession_combat 29, equipment_actions_main 23, live_combat 30. These ran with
+`--headless --xr-mode off --audio-driver Dummy`; combat transport and tracking
+were mocked. 46 Python protocol/account/TLS tests passed. The shared native
+loadout policy passed 15 C++ assertions; the full patch stack applies, Core3
+linked successfully, and the native build receipt was recorded and verified.
+The existing live Smuggler/slicing test fixtures now explicitly equip abilities;
+those live combat fixtures were not run.
+
+Desktop Forward+ Vulkan output using original avatar assets and mocked native
+loadout state was visually inspected at
+`runtime/evidence/combat-loadout-vulkan.png` (Intel Arc A770). The capture uses
+`--xr-mode off`. No headset or live combat launch, client release publication, or
+server deployment occurred. Native persistence and gestures still require a live
+validation pass after the launch hold is lifted.
+
+Separate broader-check limitation: inventory_main_smoke made read-only local
+Core3 inventory/weapon requests and its 27 assertions reported success, but an
+asynchronous script error called missing Player.get_camera() in that test's
+mock player during main.sync_inventory_equipment. It is excluded from the 400
+passing checks. Evidence: runtime/evidence/loadout-inventory_main_smoke.log.
+
+## 2026-10-08 — Live deployment and outdated-client launcher smoke
+
+Deployed the prepared current native build and gateway to `87.106.27.237` after
+graceful save, consistent persistent-state backups and verified delta transfer.
+The 35-file package changed 34 files. Post-deployment checks confirmed native
+readiness, unchanged account/character counts and private configuration, ten
+original ground planets and the 05:00 UTC restart timer. See VPS_DEPLOYMENT.md
+and `runtime/deploy/combat-loadouts-live/` for hashes, backup path and receipts.
+
+Added explicit `--desktop` mode to both launcher bootstraps. Its button reads
+Play desktop (test), and it starts the client with `--xr-mode off --desktop`.
+The default remains Play VR. Rebuilt both platform archives and SHA256SUMS;
+24 launcher unit tests pass (`runtime/evidence/launcher-smoke-preflight-tests.log`).
+
+The extracted Linux bootstrap passed 19 end-to-end checks against an isolated
+local TLS gateway using the deployed gateway implementation. A real outdated
+smoke-v1 installation updated to smoke-v2, fetching only 3,684 bytes in three
+blobs while reusing the unchanged 131 MiB Godot engine. The update added and
+removed files, retained the old release, and launched the real updated Godot
+client with an authenticated temporary connection profile. Forward+ Vulkan ran
+on Intel Arc A770, OpenXR stayed off, the process exited successfully and its
+session profile was deleted. Evidence and inspected screenshot:
+`runtime/deploy/launcher-local-smoke/{result.json,launcher-after-update.png}`.
+This tiny smoke project does not enter a character or validate headset gameplay.
+
+Two attempts against the live gateway failed at sign-in before any download;
+their temporary accounts, patch channel and gateway configuration were cleaned
+up successfully. A subsequent harness adds a verified TLS readiness check after
+the gateway restart and safe exception diagnostics. Local success does not
+establish a passing live launcher test. That retry was stopped at the unanswered
+secure sudo credential prompt, before temporary setup began. A final authenticated
+TLS health check confirmed native readiness, and the daily restart timer remained
+active/enabled for 05:00 UTC. Native Windows execution remains
+unvalidated; the production client payload is still a separate pending build.
+
+## Survey tool persistence and storage limit — 2026-10-08
+
+Patch0087 enforces one placed native survey tool category per character across
+planets. Different item IDs, resource selections and tool variants cannot bypass
+that reservation. A recovered tool frees its category. Native escrow, spawn
+anchors and screenplay checkpoints continue to account for offline time; output
+now stops at `ResourceContainer::MAXSIZE` (100000 units), with the final sample,
+resource depletion and XP limited to accepted units. The client shows capacity
+and a full-storage state without a misleading sample countdown.
+
+Validation: linked CoreCU build and matching native receipt; complete patch-stack
+reconstruction; deterministic C++ settlement tests (offline serialized state,
+cadence, expiry, bounded catch-up, exact final unit, XP, full-storage no-op and
+legacy excess preservation); ten Python policy/transport/inventory tests; Godot
+headless deployed-tool presentation, actual-stage source locomotion (29 checks)
+and actual Tatooine terrain-follow regression. These use the dummy renderer with
+OpenXR disabled and do not validate GPU or headset rendering.
+
+`runtime/evidence/survey-limits-native.json` records actual local native duplicate
+rejection, independent tool types, logout persistence, offline cycles, controlled
+near-full buffers, capped output/XP, recovery and redeployment. Near-full quantities
+and productive sampling checkpoints are deliberately seeded on a disposable test
+character, not represented as days of natural production.
+`runtime/evidence/survey-restart-persistence.json` confirms the original tool IDs,
+resource anchors and coordinates survive graceful server restart, offline cycles
+accrue and both tools remain recoverable. The initial90-second shutdown wait
+expired while the native process was still closing after its shutdown-complete
+log; it subsequently exited without force, and readback passed after restart.
+The optional restart smoke now permits240 seconds for full process exit before
+starting another database writer. This update has not been deployed to the VPS.

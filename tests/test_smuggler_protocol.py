@@ -26,4 +26,12 @@ class SmugglerProtocol(unittest.TestCase):
         for ability in ('adminKill',None,42):
             with self.assertRaises(ValueError): self.request('fire',ability_id=ability,**fields)
 
+    def test_targeted_special_preserves_owned_target_identity(self):
+        fields=dict(shot_id='targeted_shot',item_id='55',origin=[1,2,3],direction=[1,0,0],ability_id='low_blow')
+        self.request('fire',target_id='991',**fields)
+        self.assertEqual(self.hub._exchange.call_args.args[1]['target_id'],'991')
+        for target in (None, 991, '-1', 'other', str(2**64), ''):
+            with self.subTest(target=target), self.assertRaises(ValueError):
+                self.request('fire',target_id=target,**fields)
+
 if __name__=='__main__':unittest.main()

@@ -849,3 +849,27 @@ ten ground planets, unchanged private configuration, and the active/enabled
 05:00 UTC restart timer. Receipts:
 `runtime/deploy/instrument-live/{applied,audit-after}.json`. No VR client was
 launched after the user’s request to prompt first.
+
+## Combat loadouts and launcher gateway — 2026-10-08
+
+Deployed the current prepared native build and gateway to `87.106.27.237`.
+The delta contains 35 files, with 34 changed, including native patches through
+0086, combat loadout persistence and authenticated client patch distribution.
+The package includes current working-tree changes; per-file SHA256 values in
+`runtime/deploy/combat-loadouts-live/package-manifest.json` identify its contents.
+Native executable SHA256:
+`357f983ffb4a8faa42b176430f0d61e79682f94f299dd94ca42a64fabf94da83`.
+
+Core3 saved and stopped before consistent SQL, BerkeleyDB, authentication,
+private configuration and runtime backups were taken at
+`/home/blux/swgxr/runtime/deploy/pre-combat-loadouts-20261008T174627Z` on the VPS.
+The post-deployment audit confirmed active services, native readiness, unchanged
+account/character counts and private configuration, all ten original ground
+planets and the enabled daily restart at 05:00 UTC. The old VPS remains offline.
+Authenticated, certificate-verified HTTPS health also passed. Receipts are in
+`runtime/deploy/combat-loadouts-live/{applied,audit-after,tls-health-after}.json`.
+
+Validation before deployment included 111 Python tests, the verified native
+build receipt and the previously recorded 400 client checks and 15 native
+loadout policy assertions. No production client payload was published and the
+VR client remained closed.

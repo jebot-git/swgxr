@@ -50,6 +50,7 @@ var unarmed: Dictionary = {}
 var unarmed_gloves: Dictionary = {}
 var abilities = preload("res://combat/ability_state.gd").new()
 var ability_ui: Node3D
+var target_abilities: Node3D
 var ability_click_down := false
 var ability_prime_down := false
 var ability_stick_latched := false
@@ -99,7 +100,7 @@ func party_menu_controller()->Node:
 	return performer.native if is_instance_valid(performer) and is_instance_valid(performer.get("native")) and performer.native.has_method("party_menu_entries") else null
 
 func circle_entries(profile:Dictionary)->Array:
-	var entries:Array=profile.get("abilities",[]).duplicate(true)
+	var entries:Array=profile.get("abilities",[]).filter(func(entry):return entry.get("activation","")!="native_ranged").duplicate(true)
 	var party:=party_menu_controller()
 	if party!=null:entries.append_array(party.party_menu_entries())
 	return entries
@@ -118,6 +119,16 @@ func sample_ability_input(click: bool, stick: Vector2, prime: bool, tracked: boo
 	var permitted: bool = allowed and tracked and combat_actions_allowed() and inventory_allows_combat() and not (is_instance_valid(datapad) and datapad.is_open)
 	var profile := active_profile()
 	abilities.reconcile(profile)
+	if selected>=0 and not weapons[selected].state.is_melee() and is_instance_valid(target_abilities):
+		# Ranged combat never needs a circle selection or primed ability.
+		if abilities.selection.get("activation","")=="native_ranged":
+			abilities.primed=false;abilities.replace_selection({})
+		close_ability_menu();ability_stick_latched=false
+		if not permitted:target_abilities.reset()
+		elif click and not ability_click_down:target_abilities.toggle(muzzle_pose(selected))
+		ability_click_down=click;ability_prime_down=prime
+		if is_instance_valid(body) and body.has_method("set_combat_capture"):body.set_combat_capture("",false)
+		return
 	if not permitted:
 		if not tracked: abilities.primed=false
 		close_ability_menu()
@@ -158,6 +169,7 @@ func configure(camera: Camera3D, player: CharacterBody3D, profiles: Array, side 
 		body.combat_rig = self
 	ability_ui = preload("res://combat/ability_hologram.gd").new()
 	add_child(ability_ui)
+	target_abilities=preload("res://combat/target_abilities.gd").new();add_child(target_abilities);target_abilities.setup(self)
 	if not assets.load_catalog():
 		last_error = "Original weapon assets missing. Run python3 tools/combat/prepare_assets.py."
 		return false
@@ -433,6 +445,7 @@ func set_allowed(value: bool) -> void:
 		stow()
 
 func stow() -> void:
+	if is_instance_valid(target_abilities):target_abilities.reset()
 	physical_guard.clear()
 	spice_gunhand.suspend()
 	close_ability_menu()
@@ -485,7 +498,7 @@ func current_firing_posture() -> String:
 	var posture: int = body.get_posture() if body.has_method("get_posture") else 0
 	return posture_tracker.update_desktop(posture,body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor())
 
-func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, grip: float, support_grip: float, trigger: float, tracked: bool, support_tracked: bool, action := false) -> void:
+func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, grip: float, support_grip: float, trigger: float, tracked: bool, support_tracked: bool, action := false, support_trigger := 0.0) -> void:
 	var previous_grip := main_grip_down
 	var previous_support := support_grip_down
 	if grip < 0.25: main_grip_down = false
@@ -521,10 +534,21 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 			if action and not action_down: weapon.state.cycle_mode()
 	action_down = action
 	var posture := current_firing_posture()
+	var special:Dictionary={};var special_reserved:=false
+	if is_instance_valid(target_abilities) and selected>=0 and not weapons[selected].state.is_melee():
+		target_abilities.refresh()
+		var contact:bool=selected>=0 and two_hands and support_tracked and support_grip_down and not offhand_occupied and support_pose.origin.distance_to(support_point(selected) if int(weapons[selected].state.profile.hands)==2 else main_pose.origin)<.23
+		var input:Dictionary=target_abilities.ultimate_input.sample(delta,trigger,support_trigger,contact,permitted and combat_actions_allowed() and not dna_input_captured and not taunt_input_captured and not ability_ui.menu_open)
+		trigger=float(input.trigger);special_reserved=bool(input.reserved)
+		if input.ultimate and selected>=0:
+			special=target_abilities.attack(muzzle_pose(selected),true)
+			if not special.is_empty():trigger=1.0;special_reserved=false
+		elif selected>=0 and trigger>=.75 and not special_reserved:special=target_abilities.attack(muzzle_pose(selected))
 	for i in range(weapons.size()):
 		var state = weapons[i].state
 		var shot: Dictionary = state.sample_swing(delta,permitted and not dna_input_captured and not taunt_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture,swing_position(main_pose.origin),is_finite(trigger) and trigger>=0.5) if state.is_melee() else state.tick(delta,trigger,permitted and not dna_input_captured and not taunt_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture)
 		if not shot.is_empty():
+			if not special.is_empty() and not state.is_melee():shot.merge(special,true)
 			var pose := muzzle_pose(i)
 			if not dispatch_shot(shot,pose,weapons[i].visual.global_position,state.profile,state.is_melee()):continue
 			if is_instance_valid(origin):
@@ -535,6 +559,10 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 func dispatch_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, profile: Dictionary, melee: bool) -> bool:
 	var immutable: Dictionary=shot.duplicate(true)
 	immutable["item_id"]=str(profile.get("item_id",""))
+	if not melee and immutable.get("aim_point") is Vector3:
+		var direction:Vector3=immutable.aim_point-pose.origin
+		if direction.length_squared()<.001:return false
+		pose.basis=Basis.looking_at(direction.normalized())
 	if shot_authority.is_valid():
 		var authorized: Variant=shot_authority.call(immutable,head.global_transform if melee else pose,grip)
 		if not authorized is Dictionary or authorized.is_empty(): return false
@@ -661,6 +689,7 @@ func refresh_render_pose() -> void:
 	if not HandInput.controller_tracked(main): return
 	pose_weapon(controller_weapon_pose(main),support.global_transform)
 	update_visuals()
+	if is_instance_valid(target_abilities):target_abilities.refresh()
 
 
 func configure_taunt(context:Dictionary,callback:Callable)->void:
@@ -756,7 +785,7 @@ func _physics_process(delta: float) -> void:
 	sample_ability_input(main.is_button_pressed("primary_click"), main.get_vector2("primary"), right.is_button_pressed("ax_button") and HandInput.controller_tracked(right), tracked)
 	sample_dna_inputs(main.global_transform,support.global_transform,main.get_float("trigger"),support.get_float("trigger"),tracked,head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(support))
 	sample_chest_taunt(delta,head_pose!=null and head_pose.has_tracking_data)
-	sample(delta,controller_weapon_pose(main),support.global_transform,0.0 if vehicle_hand_busy(dominant) else main.get_float("grip"),0.0 if offhand_occupied or vehicle_hand_busy("left" if dominant=="right" else "right") else support.get_float("grip"),0.0 if vehicle_hand_busy(dominant) else main.get_float("trigger"),tracked and not vehicle_hand_busy(dominant),HandInput.controller_tracked(support),main.is_button_pressed("by_button"))
+	sample(delta,controller_weapon_pose(main),support.global_transform,0.0 if vehicle_hand_busy(dominant) else main.get_float("grip"),0.0 if offhand_occupied or vehicle_hand_busy("left" if dominant=="right" else "right") else support.get_float("grip"),0.0 if vehicle_hand_busy(dominant) else main.get_float("trigger"),tracked and not vehicle_hand_busy(dominant),HandInput.controller_tracked(support),main.is_button_pressed("by_button"),support.get_float("trigger"))
 	var posture := current_firing_posture()
 	sample_unarmed(delta,dominant,main.global_transform,tracked,posture,main.get_float("trigger"))
 	var offhand := "left" if dominant=="right" else "right"

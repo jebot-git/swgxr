@@ -66,6 +66,7 @@ func pump()->void:
 	refresh_authority()
 	var mutation:Dictionary=response.get("mutation",{})
 	if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
+		if request.kind=="fire":rejected_fire(id)
 		rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","Core3 rejected the shot.")));return
 	if request.kind=="fire" and shots.has(id):shots[id].accepted=true
 	elif request.kind=="impact":
@@ -97,3 +98,7 @@ func _exit_tree()->void:
 		# Fail closed while a still-visible rig is being torn down.
 		rig.authority_gate=func():return false
 		rig.shot_authority=Callable()
+
+func apply_loadout_response(response:Dictionary)->bool:
+	if not is_instance_valid(session) or not session.accept_native_response(response):return false
+	refresh_authority();return true

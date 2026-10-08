@@ -29,6 +29,9 @@ var world_pickup_provider: Callable
 var external_grab_blocker: Callable
 var external_use_active := false
 var hologram: Node3D
+var loadout_request:Callable
+var loadout_pending:=false
+var ability_stick_down:=true
 var equipment_avatar: Node3D
 var current_equipment: Array = []
 var held_trigger_armed := false
@@ -82,6 +85,7 @@ func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> v
 	assets.configure()
 	RenderingServer.frame_pre_draw.connect(refresh_hand_presentations)
 	hologram=EquipmentHologram.new(); add_child(hologram); hologram.top_level=true; hologram.visible=false
+	hologram.loadout_proposed.connect(request_loadout)
 	held_status=Label3D.new(); add_child(held_status); held_status.top_level=true; held_status.font=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 	held_status.font_size=24; held_status.pixel_size=0.00035; held_status.width=620; held_status.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART
 	held_status.billboard=BaseMaterial3D.BILLBOARD_ENABLED; held_status.modulate=Color("c9fbff"); held_status.outline_size=3; held_status.visible=false
@@ -209,6 +213,7 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 		cancel_interaction(); return
 	var main_hand:=controller_for(main_side())
 	var current_main_pose: Transform3D=main_pose if main_pose is Transform3D else main_hand.global_transform
+	if is_instance_valid(hologram.ability_editor) and hologram.ability_editor.active:return
 	if update_equipment_drag(head,hand,current_main_pose,off_grip,main_grip):return
 	if main_grip<.35:cross_shoulder_armed=true
 	elif main_grip>=.65 and cross_shoulder_armed:
@@ -455,6 +460,8 @@ func _process(delta: float) -> void:
 	var camera: Camera3D=rig.get_node("XRCamera3D")
 	var bag_pointer:XRController3D=controller_for("right" if bag_hand_side()=="left" else "left")
 	var hit:=find_hit(tool_pointer_pose(bag_pointer)) if is_open and tracked and not hologram.active else {}
+	var right:XRController3D=controller_for("right")
+	sample_ability_editor(right.is_button_pressed("primary_click"),main.global_transform,main.get_float("grip"),main.get_float("trigger"),tracked and allowed)
 	var slider_consumed:=slider_frame(hit,bag_pointer.global_transform,bag_pointer.get_float("grip"),bag_pointer.get_float("trigger"),tracked and not action_pending and held_item.is_empty())
 	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,{} if slider_consumed else hit,main.global_transform)
 	if is_open:
@@ -549,6 +556,7 @@ func set_equipment_context(source: Node3D, equipment: Array) -> void:
 	if key==hologram_context_key: return
 	var pose: Transform3D=hologram.global_transform
 	var prior_page: int=hologram.page
+	var was_abilities:bool=is_instance_valid(hologram.ability_editor) and hologram.ability_editor.active
 	var was_browsing:bool=hologram.browsing
 	hologram.configure(equipment_avatar,current_equipment+([hip_tool] if not hip_tool.is_empty() else []))
 	hologram.offhand=offhand
@@ -557,6 +565,8 @@ func set_equipment_context(source: Node3D, equipment: Array) -> void:
 	if not shown:close_equipment_hologram();return
 	hologram.global_transform=pose
 	hologram.page=prior_page
+	if was_abilities:hologram.ability_editor.toggle()
+	hologram.ability_editor.pending=loadout_pending
 	hologram_context_key=key
 	# Fresh candidate and comparison are recomputed from current hand next sample.
 
@@ -630,12 +640,15 @@ func close_equipment_hologram() -> void:
 	sync_presentation()
 
 func update_held_trigger(trigger: float, head: Transform3D) -> void:
+	if is_instance_valid(hologram.ability_editor) and hologram.ability_editor.active:return
 	if held_item.is_empty() or not allowed or is_open or held_item.get("tool_kind","") in ["fishing","slicing"] or not str(held_item.get("structure_template","")).is_empty(): return
 	if trigger<0.35: held_trigger_armed=true; return
 	if trigger<0.55 or not held_trigger_armed or action_pending: return
 	held_trigger_armed=false
 	if is_vehicle_deed(held_item) or is_pet_deed(held_item):
 		begin_mutation("Registering deed in datapad…"); vehicle_deed_requested.emit(held_item.duplicate(true))
+	elif bool(held_item.get("medical_item",false)) or bool(held_item.get("wound_medpack",false)):
+		begin_mutation("Applying medical supply…");consume_requested.emit(held_item.duplicate(true))
 	elif preload("res://scout/ranger_input.gd").is_kit(held_item):
 		begin_mutation("Applying camouflage…");scout_requested.emit(held_item.duplicate(true))
 	elif not str(held_item.get("tool_kind","")).is_empty():
@@ -730,3 +743,26 @@ func tool_pointer_pose(controller: XRController3D) -> Dictionary:
 
 func vehicle_hand_busy(side: String)->bool:
 	return is_instance_valid(body) and is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)
+
+func set_combat_loadout_context(value:Dictionary,callback:Callable)->void:
+	loadout_request=callback
+	if is_instance_valid(hologram):hologram.set_ability_context(value)
+
+func sample_ability_editor(click:bool,pose:Transform3D,grip:float,trigger:float,tracked:bool)->void:
+	var edge:=click and not ability_stick_down
+	ability_stick_down=click
+	if not is_instance_valid(hologram) or not hologram.active:return
+	if not is_instance_valid(hologram.ability_editor):return
+	if edge and tracked and not action_pending and equipment_drag.is_empty():hologram.ability_editor.toggle()
+	hologram.ability_editor.sample(pose,grip,trigger,tracked and not action_pending)
+	if hologram.ability_editor.active:
+		held_trigger_armed=false;equipment_grip_armed=false;main_grip_armed=false;grip_armed=false
+
+func request_loadout(proposal:Dictionary)->void:
+	if loadout_pending:return
+	if not loadout_request.is_valid():
+		hologram.ability_editor.finish(false,"A live Core3 weapon snapshot is required.");return
+	loadout_pending=true
+	var result:Dictionary=await loadout_request.call(proposal)
+	loadout_pending=false
+	if is_instance_valid(hologram) and is_instance_valid(hologram.ability_editor):hologram.ability_editor.finish(result.get("success",false),str(result.get("error","Core3 rejected the loadout.")))

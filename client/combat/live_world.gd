@@ -260,13 +260,17 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 	write_status();return live and session_id==incoming
 
 func sync_native_abilities() -> void:
+	if is_instance_valid(rig.get("inventory")) and rig.inventory.has_method("set_combat_loadout_context"):
+		rig.inventory.set_combat_loadout_context(weapon if live else {},request_loadout)
 	if rig.has_method("configure_taunt"):rig.configure_taunt(player_state.get("taunt",{}),register_taunt)
 	var entries:Array=weapon.get("abilities",[])
 	if str(weapon.get("kind",""))=="melee":entries=[]
 	if rig.get("unarmed") is Dictionary:
 		for state in rig.unarmed.values():state.profile["abilities"]=[]
 	for entry:Dictionary in rig.weapons:
-		entry.state.profile["abilities"]=entries.duplicate(true) if str(entry.state.profile.get("item_id",""))==str(weapon.get("item_id","")) else []
+		var matching:bool=str(entry.state.profile.get("item_id",""))==str(weapon.get("item_id",""))
+		entry.state.profile["abilities"]=entries.duplicate(true) if matching else []
+		entry.state.profile["ability_loadout"]=weapon.get("ability_loadout",{}).duplicate(true) if matching else {}
 	if abilities_revision!=sequence:
 		abilities_revision=sequence
 		for ability:Dictionary in entries:
@@ -316,8 +320,23 @@ func melee_receipt(id:String,mutation:Dictionary)->void:
 func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
 	if str(shot.get("kind",""))=="melee":return register_melee(shot,pose)
 	if not is_ready() or str(shot.get("item_id",""))!=str(weapon.item_id) or shots.size()>=MAX_SHOTS or queue.size()>=MAX_QUEUE:return {}
-	var profile:Dictionary=rig.active_profile()
-	if rig.abilities.primed and not rig.abilities.available(profile):return {}
+	var ability:Dictionary={}
+	var requested:=str(shot.get("ability_id",""));var target_id:=str(shot.get("target_id",""))
+	if not requested.is_empty():
+		for entry:Dictionary in weapon.get("abilities",[]):
+			if str(entry.get("id",""))==requested:ability=entry;break
+		if not preload("res://combat/loadout.gd").equipped(ability,weapon.get("ability_loadout",{})):return {}
+		if ability.is_empty() or not actors.has(target_id) or not actors[target_id].is_targetable() or not ability.get("conditions_met",true):return {}
+		var record:Dictionary=actors[target_id].record
+		if record.get("relation","") not in ["hostile","attackable"] or record.get("dead",false) or record.get("incapacitated",false):return {}
+		if float(rig.abilities.cooldowns.get(requested,0))>0:return {}
+		var cost:Array=rig.abilities.costs(ability)
+		if cost.size()!=3:return {}
+		for index in range(3):
+			if float(rig.abilities.ham[index*3])<=float(cost[index]):return {}
+		if requested=="last_ditch" and (rig.abilities.ham[3]<=1 or rig.abilities.ham[6]<=1):return {}
+		var distance:float=player.global_position.distance_to(actors[target_id].global_position)
+		if distance>minf(float(weapon.max_range_m),float(ability.get("max_range_m",weapon.max_range_m))) or distance<float(ability.get("min_range_m",0)):return {}
 	var now:=Time.get_ticks_usec()
 	if now<next_launch_usec:return {}
 	next_launch_usec=now+int(float(weapon.fire_interval_seconds)*1000000)
@@ -325,24 +344,35 @@ func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
 	var id:="%s-%d"%[session_id,serial]
 	var immutable:=shot.duplicate(true);immutable["shot_id"]=id;immutable["live_session"]=session_id;immutable["launched_usec"]=now
 	immutable.range=float(weapon.max_range_m);immutable.speed=float(weapon.get("projectile_speed",shot.speed))
-	shots[id]={"shot":immutable.duplicate(true),"accepted":false,"contacted":false,"expires_usec":now+int((float(immutable.range)/maxf(float(immutable.speed),1)+5.0)*1000000)}
 	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.item_id),"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
-	if rig.abilities.primed:
-		var ability:Dictionary=rig.abilities.definition(profile)
+	if not ability.is_empty():
 		payload.ability_id=str(ability.id)
+		payload.target_id=target_id
 		immutable["ability"]=ability.duplicate(true)
 		rig.abilities.cooldowns[str(ability.id)]=float(ability.get("cooldown_seconds",0))
-		rig.abilities.primed=false
+	shots[id]={"shot":immutable.duplicate(true),"accepted":false,"contacted":false,"expires_usec":now+int((float(immutable.range)/maxf(float(immutable.speed),1)+5.0)*1000000)}
 	queue.append({"kind":"fire","payload":payload,"shot_id":id});return immutable
 
 func contact(shot:Dictionary,target:Dictionary,position:Vector3,_normal:Vector3,_distance:float)->void:
 	var id:=str(shot.get("shot_id",""));var target_id:=str(target.get("id",""))
 	if not is_ready() or str(shot.get("live_session",""))!=session_id or str(target.get("session_id",""))!=session_id or not shots.has(id) or not actors.has(target_id) or not actors[target_id].is_targetable() or shots[id].contacted:return
+	var bound_target:=str(shots[id].shot.get("target_id",""))
+	if not bound_target.is_empty() and target_id!=bound_target:
+		shots.erase(id);return # An intervening actor cannot inherit a targeted special.
 	if queue.size()>=MAX_QUEUE:fail("Live combat request budget exceeded; session disarmed.");return
 	shots[id].contacted=true
 	var age:=float(Time.get_ticks_usec()-int(shots[id].shot.launched_usec))/1000000.0
 	var payload:=owner();payload.merge({"shot_id":id,"target_id":target_id,"hit_position":source(position),"projectile_age_seconds":age})
 	queue.append({"kind":"impact","payload":payload,"shot_id":id})
+
+func rejected_fire(id:String)->void:
+	# A confirmed failed launch paid no SAC/cooldown. Replace only the local
+	# reservation with the latest native value, never alter player resources.
+	var ability_id:=str(shots.get(id,{}).get("shot",{}).get("ability_id",""))
+	if ability_id.is_empty():return
+	for entry:Dictionary in weapon.get("abilities",[]):
+		if str(entry.get("id",""))==ability_id:
+			rig.abilities.cooldowns[ability_id]=float(entry.get("cooldown_remaining_seconds",0));return
 
 func movement_payload() -> Dictionary:
 	var payload:=owner()
@@ -439,6 +469,7 @@ func pump()->void:
 	if request.kind in ["fire","impact","melee","taunt"]:
 		var mutation:Dictionary=response.get("mutation",{})
 		if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
+			if request.kind=="fire":rejected_fire(id)
 			rejected_shots+=1;shots.erase(id);return
 		if request.kind=="fire" and shots.has(id):shots[id].accepted=true
 		elif request.kind=="impact":
@@ -492,3 +523,17 @@ func _exit_tree()->void:
 	for saved:Dictionary in saved_states:
 		if is_instance_valid(saved.state):saved.state.profile=saved.profile;saved.state.core=saved.profile.core3;saved.state.ability_state=saved.ability_state;saved.state.wear_per_shot=saved.wear_per_shot
 	if is_instance_valid(rig):rig.authority_gate=Callable();rig.shot_authority=Callable()
+
+func request_loadout(proposal:Dictionary)->Dictionary:
+	if busy or not live or not native_ready or elapsed_since_snapshot>=SESSION_TIMEOUT or not queue.is_empty():return {"success":false,"error":"Wait for the current Core3 action to finish."}
+	if str(proposal.get("item_id",""))!=str(weapon.get("item_id","")):return {"success":false,"error":"Equipped weapon changed; select again."}
+	var payload:=owner();payload.merge(proposal,true)
+	var epoch:=generation;busy=true
+	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/loadout",payload)
+	busy=false
+	if epoch!=generation:return {"success":false,"error":"Character session changed."}
+	if not apply_loadout_response(response):return {"success":false,"error":str(response.get("error",response.get("error_code","Core3 loadout response unavailable.")))}
+	return {"success":bool(response.get("mutation",{}).get("success",false)),"error":str(response.get("mutation",{}).get("error_code","Loadout not saved."))}
+
+func apply_loadout_response(response:Dictionary)->bool:
+	return accept_response(response)

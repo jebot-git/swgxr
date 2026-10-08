@@ -57,7 +57,7 @@ initial resource population and a fixed iron pool without JTL additions.
 The integrator supplies `runtime/remote/gateway.json` with certificate/key paths
 and optional hashed legacy per-account tokens. Set `auth_database` to
 `/home/blux/swgxr/runtime/auth/accounts.sqlite3` and `registration_enabled` to
-`true` to enable account creation. Gateway runs as `blux` with an empty capability
+`true` to enable account creation with administrator-issued invitations (see below). Gateway runs as `blux` with an empty capability
 set and a read-only filesystem except for the private `runtime/auth` directory.
 `install-units` creates this directory owned by `blux`, mode0700. Back up its
 SQLite database consistently along with native state; it contains password
@@ -150,3 +150,149 @@ Validation: `python3 -m unittest tools.deploy.test_scheduled_restart
  tools.deploy.test_runtime` (write on one shell line). Live deployment validation
 checks unit syntax, enabled/active timer state, its next UTC elapse, unchanged
 service PIDs during schedule installation, and authenticated `/health` readiness.
+
+## Desktop launcher, updates and invitations
+
+The Linux/Windows x86_64 testing launcher is `tools/client/launcher.py`
+(Python 3.10+ and Tk). These are source bootstraps, not standalone executables.
+`tools/client/package_launcher.py` produces a small bootstrap containing the
+launcher, the public server origin and CA certificate. It contains no passwords,
+private keys, invitations or game assets. Testers create an account with an
+administrator-issued invitation, install/update once, then press Play VR.
+Subsequent releases download only missing SHA-256 chunks; each chunk is 4 MiB
+or smaller. The launcher remains a desktop application.
+
+Prepare the launcher first; this requires only the public server CA, without a
+client build or a server deployment:
+
+```bash
+python3 tools/client/package_launcher.py --target linux-x86_64 --output runtime/releases/testing-launcher/swgxr-launcher-linux-x86_64.tar.gz --origin https://87.106.27.237:18443 --ca runtime/client/server-ca.pem
+python3 tools/client/package_launcher.py --target windows-x86_64 --output runtime/releases/testing-launcher/swgxr-launcher-windows-x86_64.zip --origin https://87.106.27.237:18443 --ca runtime/client/server-ca.pem
+```
+
+The packages use `testing-linux-x86-64` and `testing-windows-x86-64`, respectively.
+Channel names retain the existing gateway's letters/digits/hyphens format.
+Each manifest declares `linux-x86_64` or `windows-x86_64`; the patcher refuses a
+platform mismatch before installing files. An unpublished channel displays a
+clear “no client build” message. Existing bootstraps using `testing` remain valid;
+new packages do not implicitly consume that older Linux release.
+
+After the client is finished, prepare its imported project, target-native
+extensions, converted assets, engine and license notices. Publish each payload
+**locally**, using separate channel sequences:
+
+```bash
+python3 tools/client/prepare_payload.py --output runtime/releases/client-payload-linux --engine /path/to/Godot --engine-notices /path/to/godot-licenses
+python3 tools/client/publish_release.py --target linux-x86_64 --channel testing-linux-x86-64 --payload runtime/releases/client-payload-linux --store runtime/releases/client-patches --source-root /home/blux/swgxr --version 2026.10.08.1 --sequence 1
+python3 tools/client/publish_release.py --target windows-x86_64 --channel testing-windows-x86-64 --payload /path/to/prepared-windows-payload --store runtime/releases/client-patches --source-root /home/blux/swgxr --version 2026.10.08.1 --sequence 1
+```
+
+The publisher runs on Linux and accepts either target. The current
+`prepare_payload.py` assembles and probes Linux builds only. Windows client
+assembly remains a separate build step: supply `engine/godot.exe`, Windows
+GDExtension DLLs and dependencies, the imported project and assets in the same
+layout. Use a Godot executable supporting loose projects and `--path`. Validate
+that payload on Windows before publication; renaming a Linux engine is not a
+Windows build. Launcher preparation does not publish any client or deploy files.
+
+Use a Linux x86_64 Godot 4.7+ binary that supports `--path`; the payload tool
+checks this with a dummy-renderer, XR-off probe. The installed 4.7.2 export
+template disables path overrides and is unsuitable for this loose-file layout.
+A standard editor binary works, without opening its editor. Prefer a portable
+upstream binary for distribution; a distro binary still needs that distro's
+shared libraries. The client native extensions also require compatible system
+libraries. This preparation does not establish compatibility across Linux
+versions or provide a Windows client. Keep the XR Tools pin unchanged.
+
+The payload includes converted assets for the prepared ground planets and the
+combat/entertainment catalogs. Original ISOs/TREs, extraction directories,
+credentials and server databases are excluded. Catalog paths pointing into the
+source workspace are relocated into the installed release; hashes verify the
+canonical downloaded bytes before relocation. Release contents are a snapshot;
+rerun preparation after source or asset changes. Use a new payload destination
+and an increasing sequence for every subsequent publication.
+
+To enable hosting after transferring the verified store and gateway changes,
+set these fields in the existing private `runtime/remote/gateway.json`, retaining
+its TLS, account, auth database and voice settings:
+
+```json
+{
+  "client_patch_root": "/home/blux/swgxr/runtime/releases/client-patches",
+  "registration_enabled": true,
+  "registration_invites_required": true
+}
+```
+
+The gateway service user must be able to read the store (published files are
+private by default). Transfer immutable `blobs/` before `channels/`; expose the
+new channel descriptor only after all blobs arrive. Restart the existing gateway
+service to load configuration changes. Do not replace its auth database. No
+additional public port is needed: authenticated patch downloads use HTTPS TCP
+18443, alongside the existing API. Keep patch storage out of any public web root.
+Only invited accounts and accounts explicitly listed in the private store's
+`access.json` (`{"accounts":["existing_tester"]}`) can download assets. A valid
+legacy login alone does not grant download access.
+
+On the server, issue invitations against the **existing** gateway database:
+
+```bash
+python3 tools/deploy/invite_account.py --database /home/blux/swgxr/runtime/auth/accounts.sqlite3 --uses 1 --hours 168
+python3 tools/deploy/invite_account.py --database /home/blux/swgxr/runtime/auth/accounts.sqlite3 --revoke
+```
+
+Replace the example database path with `auth_database` from gateway.json. The
+first command displays the random code once for private distribution; the
+second prompts privately for a code to revoke. Only SHA-256 digests are stored.
+Codes have bounded uses and expiry. Registration, code consumption, session
+creation and tester access commit together. Duplicate accounts and other failed
+registrations do not consume a use. Existing-account sign-in needs no invitation.
+Revoking an invitation stops future redemptions; it does not revoke accounts
+already created. Registration retains the existing rate limits and scrypt
+password hashing. Gateway configuration requires invitations by default;
+`registration_enabled` is still false unless explicitly enabled.
+
+Linux testers extract the bootstrap and run `./launch.sh`. The default install
+directory is `$XDG_DATA_HOME/swgxr`, or `~/.local/share/swgxr`. Windows testers
+install 64-bit Python with Tcl/Tk and the Python launcher, extract all ZIP files,
+and run `launch.cmd`; installation defaults to `%LOCALAPPDATA%\swgxr`.
+Windows long-path support must be enabled before installing large asset trees.
+`--install-dir "PATH"` overrides the location on either platform. The client uses
+Forward+ Vulkan and the user's active OpenXR runtime; the launcher has no headset
+or runtime dependency. For explicit desktop regression or asset inspection,
+start `./launch.sh --desktop` or `launch.cmd --desktop`; the button reads
+**Play desktop (test)** and the game receives `--xr-mode off` and `--desktop`.
+Play checks for the current release before starting the game. The session
+passes through a temporary file (mode 0600 on Linux, inherited user-directory
+permissions on Windows), never command-line credentials;
+the launcher deletes it after the client exits. The launcher does not save
+passwords or invitations. Updates and gameplay hold an exclusive installation
+lock. Interrupted downloads retain verified chunks for retry, while activation
+only occurs after the complete new release verifies. Deleted release files are
+absent from the new version. Corrupt downloads and older/conflicting release
+sequences are rejected. Transport verifies the bundled CA and hostname, and
+never follows redirects.
+
+Allow space for the cache, retained installed releases and staging (at least
+three times the initial payload, plus later retained versions). There is no
+automatic cache/version pruning yet. Older releases and unused chunks can be
+removed manually while the launcher and game are closed; retain the version
+named by `state/current.json`. Obtain the bootstrap through a trusted channel:
+release hashes protect transport/content integrity under the pinned server CA,
+not against an administrator or compromised signing endpoint. CA rotation or
+launcher code upgrades currently require a new small bootstrap; client content
+and engine updates do not require another full client download.
+
+Offline verification on Linux:
+`python3 -m unittest tests.test_launcher_platform tests.test_client_launcher tests.test_account_auth`.
+The portable suite can also run on Windows from the repository with
+`py -3 -m unittest tests.test_launcher_platform`; it checks both target manifests,
+archive contents and isolated imports, installation and path relocation, process
+locking, platform rejection, executable selection and temporary-session cleanup.
+Its child-process launch is mocked; it does not validate a client binary or VR.
+Native Windows validation is still required before calling the Windows launcher
+platform-tested.
+The invite concurrency tests use a cheap test-only KDF; the existing account auth
+suite exercises production scrypt. Full TLS integration additionally uses
+`tests.test_remote_gateway` and `tests.test_remote_auth` and requires permission
+to create local sockets. No automated check here launches a live VR client.

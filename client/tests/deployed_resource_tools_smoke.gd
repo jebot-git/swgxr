@@ -59,6 +59,13 @@ func run() -> void:
 	check(tools.world_position({"position":source}).distance_to(center)<0.001,"Source dictionary conversion failed")
 	check(tools.world_position({"planet":"naboo","world_position":center})==null,"Wrong planet admitted")
 	var record:={"id":"fixture:1","tool_id":"fixture","template":"object/tangible/survey_tool/survey_tool_mineral.iff","world_position":center,"resource_name":"Original resource fixture","state":"sampling","buffer":[{"quantity":12}]}
+	var full:=record.duplicate(true)
+	full.merge({"capacity":100000,"sample_status":"full","next_sample_at_unix":100,"buffer":[{"quantity":100000}]},true)
+	var full_text:=tools.count_text(full,99)
+	check(full_text.contains("100000 / 100000 units") and full_text.contains("Full"),"Full storage capacity/status missing")
+	check(not full_text.contains("Next sample") and not full_text.contains("Waiting for"),"Full tool promises another sample")
+	full.sample_status="duplicate_type"
+	check(not tools.count_text(full,99).contains("Next sample"),"Legacy duplicate promises another sample")
 	check(tools.set_states([record]),"Confirmed state rejected")
 	tools.sync_visuals()
 	check(tools.visuals.size()==1,"Original survey tool model unavailable")

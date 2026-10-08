@@ -199,8 +199,8 @@ class LiveCombatHub:
   account=account.lower()
   active=self.active_for(account)
   if not active or active['account']!=account or active['character_id']!=str(data.get('character_id','')) or active['id']!=data.get('session_id'):raise LiveConflict('Live session identity does not match this owned character.')
-  if action not in ('snapshot','update','fire','melee','taunt','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
-  fields={'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
+  if action not in ('snapshot','loadout','update','fire','melee','taunt','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
+  fields={'loadout':('item_id','loadout'),'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
   command={'action':action,'session_id':active['id'],**planet_context(data)}
   for key in fields:
    if key not in data and key!='heading_radians':raise ValueError('Missing '+key)
@@ -211,10 +211,15 @@ class LiveCombatHub:
    command['movement_revision']=revision
   if action=='inventory' and 'inventory_command'in data:command['inventory_command']=data['inventory_command']
   if action=='replication' and 'command'in data:command['command']=data['command']
+  if action=='loadout':
+   try:from .combat_loadout_protocol import validate
+   except ImportError:from combat_loadout_protocol import validate
+   command['loadout']=validate(data.get('loadout'))
   if action=='life' and command.get('life_action') not in ('recover','medical_transport'):raise ValueError('Unsupported life action.')
   if action=='fire' and 'ability_id' in data:
    if data['ability_id'] not in ('lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved'):raise ValueError('Unsupported native ranged ability.')
    command['ability_id']=data['ability_id']
+   if 'target_id' in data:command['target_id']=data['target_id']
   if action=='update':
    if 'guard_pose' in data:
     try:from .physical_guard_protocol import pose as guard_pose

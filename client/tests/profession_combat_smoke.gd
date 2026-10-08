@@ -100,7 +100,7 @@ func run() -> void:
 	await physics_frame
 	projectiles.strike_melee(hit, aim, aim)
 	check(target.hit_count == 2, "Hit area does not extend weapon range")
-	# Rig menu stays open, selects from stick direction, and displays original art.
+	# Ranged controls use local target points; the explicit melee lab retains its circle.
 	var body := CharacterBody3D.new()
 	root.add_child(body)
 	var camera := Camera3D.new()
@@ -114,16 +114,11 @@ func run() -> void:
 	rig.set_allowed(true)
 	rig.draw(0)
 	rig.sample_ability_input(true, Vector2.RIGHT, false, true)
-	check(rig.ability_ui.menu_open, "Click opens menu without selecting held stick direction")
-	rig.sample_ability_input(false, Vector2.ZERO, false, true)
-	check(rig.ability_ui.menu_open, "Menu remains open after click release")
-	rig.sample_ability_input(false, Vector2.UP, false, true)
-	check(not rig.ability_ui.menu_open and rig.abilities.selected == "lethal_shot", "Stick selects eligible ability and closes menu")
+	check(not rig.ability_ui.menu_open and rig.target_abilities.target==null, "Ranged joystick click without eligible actor opens no circle or marker")
 	rig.sample_ability_input(false, Vector2.ZERO, true, true)
-	rig.update_visuals()
-	check(rig.abilities.primed and rig.ability_ui.badge.visible and rig.ability_ui.halo.visible and rig.ability_ui.badge.texture != null and rig.ability_ui.badge.modulate.g > 1, "A primes and illuminates original icon above weapon")
+	check(not rig.abilities.primed, "A does not prime ranged specials")
 	rig.sample_ability_input(false, Vector2.ZERO, false, false)
-	check(not rig.abilities.primed and not rig.ability_ui.menu_open, "Tracking loss clears prime and closes menu")
+	check(rig.target_abilities.points.is_empty(), "Tracking loss clears local ranged markers")
 	rig.draw(1)
 	check(rig.active_profile().abilities[0].id == "melee_assault", "Melee weapon exposes only Melee Assault")
 	rig.sample_ability_input(true, Vector2.ZERO, false, true)

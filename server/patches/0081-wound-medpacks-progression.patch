@@ -1,0 +1,301 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
+@@ -4,6 +4,11 @@
+ // Native command policy, shared by ordinary Core3 commands and the VR bridge.
+ class CoreCuMedicine {
+ public:
++ static int recovery(CreatureObject* c,const String& name){
++  auto p=corecu::medicine::ability(name.toCharArray());
++  int speed=(name=="healwound" || name=="healenhance")?c->getSkillMod("healing_wound_speed"):name=="healdamage"?std::max(c->getSkillMod("healing_injury_speed"),c->getSkillMod("healing_range_speed")):c->getSkillMod("healing_injury_speed");
++  return corecu::medicine::recovery(p.recovery,speed);
++ }
+  static String key(const String& name){auto p=corecu::medicine::ability(name.toCharArray());return String("corecu_medical_")+p.group;}
+  static double remaining(CreatureObject* c,const String& name){
+   if(!c || !c->isPlayerCreature())return 0;
+@@ -28,8 +33,8 @@
+   auto p=corecu::medicine::ability(name.toCharArray());if(!c->isPlayerCreature() || p.recovery==0)return;
+   SwgxrSpice::HamAdjustment scope;
+   c->inflictDamage(c,3,cost(c,name,3),false);
+-  c->addCooldown(key(name),int(p.recovery*SwgxrSpice::cooldownScale(c)));
+-  if(name=="quickheal")c->addCooldown("corecu_medical_injury",int(6000*SwgxrSpice::cooldownScale(c)));
++  c->addCooldown(key(name),int(recovery(c,name)*SwgxrSpice::cooldownScale(c)));
++  if(name=="quickheal")c->addCooldown("corecu_medical_injury",int(recovery(c,"healdamage")*SwgxrSpice::cooldownScale(c)));
+  }
+  static int injury(CreatureObject* healer,CreatureObject* target,int nativePower){
+   if(!healer->isPlayerCreature() || !target->isPlayerCreature())return nativePower;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
+@@ -56,7 +56,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "injuryTreatment");
+-		creature->addPendingTask("injuryTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
++		creature->addPendingTask("injuryTreatment", task, int((creature->isPlayerCreature() ? CoreCuMedicine::recovery(creature,"healdamage") : delay * 1000) * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
+@@ -49,7 +49,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_59");
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "woundTreatment");
+-		creature->addPendingTask("woundTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
++		creature->addPendingTask("woundTreatment", task, int((creature->isPlayerCreature() ? CoreCuMedicine::recovery(creature,"healwound") : delay * 1000) * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+@@ -162,7 +162,7 @@
+ 		}
+ 
+ 		if (!playerEntryCheck(creature, creatureTarget)) {
+-			return GENERALERROR;
++			return false;
+ 		}
+ 
+ 		return true;
+@@ -233,6 +233,9 @@
+ 		if (result != SUCCESS)
+ 			return result;
+ 
++        uint8 requestedAttribute=CreatureAttribute::UNKNOWN;uint64 requestedItem=0;
++        parseModifier(arguments.toString(),requestedAttribute,requestedItem);
++        if(creature->isPlayerCreature() && requestedItem==0){creature->sendSystemMessage("Use a Wound Medpack to treat wounds.");return GENERALERROR;}
+ 		ManagedReference<SceneObject*> object = server->getZoneServer()->getObject(target);
+ 
+ 		if (object != nullptr) {
+@@ -271,19 +274,20 @@
+ 			SceneObject* inventory = creature->getSlottedObject("inventory");
+ 
+ 			if (inventory != nullptr) {
+-				woundPack = inventory->getContainerObject(objectId).castTo<WoundPack*>();
++				auto owned = server->getZoneServer()->getObject(objectId);
++                if(owned && owned->isASubChildOf(inventory)) woundPack = owned.castTo<WoundPack*>();
+ 			}
+ 
+ 			if (woundPack == nullptr) {
+ 				creature->sendSystemMessage("@healing_response:healing_response_66"); // That item does not heal wounds.
+-				return false;
++				return GENERALERROR;
+ 			}
+ 
+ 			int medicineUse = creature->getSkillMod("healing_ability");
+ 
+ 			if (woundPack->getMedicineUseRequired() > medicineUse) {
+ 				creature->sendSystemMessage("@error_message:insufficient_skill"); // You lack the skill to use this item.
+-				return false;
++				return GENERALERROR;
+ 			}
+ 
+ 			if (woundPack->getAttribute() != attribute) {
+@@ -330,7 +334,7 @@
+ 		}
+ 
+ 		uint32 woundPower = woundPack->calculatePower(creature, creatureTarget);
+-		if (creatureTarget->isPlayerCreature()) woundPower = corecu::medicine::wound(creatureTarget->getBaseHAM(attribute), woundPower);
++		if (creatureTarget->isPlayerCreature()) woundPower = corecu::medicine::woundPack(creatureTarget->getBaseHAM(attribute),creature->getSkillMod("healing_wound_treatment"),woundPack->getEffectiveness()/200.) * creatureTarget->calculateBFRatio();
+ 
+ 		int woundHealed = creatureTarget->healWound(creature, attribute, woundPower);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
+@@ -49,7 +49,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_59"); // You are now ready to heal more wounds or apply more enhancements.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "woundTreatment");
+-		creature->addPendingTask("woundTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
++		creature->addPendingTask("woundTreatment", task, int((creature->isPlayerCreature() ? CoreCuMedicine::recovery(creature,"healenhance") : delay * 1000) * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	EnhancePack* findEnhancePack(CreatureObject* enhancer, uint8 attribute) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealStateCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealStateCommand.h
+@@ -54,7 +54,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "stateTreatment");
+-		creature->addPendingTask("stateTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
++		creature->addPendingTask("stateTreatment", task, int((creature->isPlayerCreature() ? CoreCuMedicine::recovery(creature,"healstate") : delay * 1000) * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void awardXp(CreatureObject* creature, String type, int power) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
+@@ -156,6 +156,7 @@
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+ 		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
++		if(creature->isPlayerCreature() && tendWound){creature->sendSystemMessage("Use a Wound Medpack to treat wounds.");return GENERALERROR;}
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+ 		if (result != SUCCESS)
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DiagnoseCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DiagnoseCommand.h
+@@ -19,6 +19,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++        if(creature->isPlayerCreature()){creature->sendSystemMessage("Diagnose is no longer a separate ability.");return GENERALERROR;}
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrPlanets.h"
+ #include "SwgxrGathering.h"
+ #include "HealDamageCommand.h"
++#include "HealWoundCommand.h"
+ #include "SwgxrVitalFeedback.h"
+ #include "SwgxrSpice.h"
+ #include "SwgxrMedicDrag.h"
+@@ -13,7 +14,7 @@
+  static Json position(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+  static bool medicalTool(SceneObject* o){if(!o)return false;auto t=o->getObjectTemplate()->getFullTemplateString();return t=="object/tangible/medicine/medikit_tool_basic.iff" || t=="object/tangible/medicine/medikit_tool_advanced.iff";}
+  static bool learned(CreatureObject* c,const std::string& name){
+-  static const std::set<std::string> allowed{"healdamage","healwound","tenddamage","tendwound","firstaid","quickheal"};
++  static const std::set<std::string> allowed{"healdamage","tenddamage","firstaid","quickheal"};
+   if(!allowed.count(name) || !c->hasSkill("science_medic_novice"))return false;
+   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str()));
+   return cmd && (cmd->getCharacterAbility().isEmpty() || c->getPlayerObject()->hasAbility(cmd->getCharacterAbility()));
+@@ -21,8 +22,8 @@
+  static double pending(CreatureObject* c,const char* name){auto t=c->getPendingTask(name);if(!t)return 0;AtomicTime next;if(!Core::getTaskManager()->getNextExecutionTime(t,next))return 0;return std::max(0.0,-next.miliDifference()/1000.0);}
+  static double cooldown(CreatureObject* c,const std::string& name){auto t=c->getCooldownTime(String(("swgxr_medic_"+name).c_str()));double own=t?std::max(0.0,-t->miliDifference()/1000.0):0;return std::max(CoreCuMedicine::remaining(c,String(name.c_str())),std::max(own,pending(c,name=="healdamage"?"injuryTreatment":name=="healwound"?"woundTreatment":"swgxr_no_task")));}
+  static Json abilities(CreatureObject* c){
+-  Json out=Json::array();const char* names[]={"healdamage","healwound","tenddamage","tendwound","firstaid","quickheal"};const char* labels[]={"Heal Damage","Heal Wound","Tend Damage","Tend Wound","First Aid","Quick Heal"};
+-  for(int i=0;i<6;++i){if(!learned(c,names[i]))continue;double range=6,area=0;std::string medicine;
++  Json out=Json::array();const char* names[]={"healdamage","tenddamage","firstaid","quickheal"};const char* labels[]={"Heal Damage","Tend Damage","First Aid","Quick Heal"};
++  for(int i=0;i<4;++i){if(!learned(c,names[i]))continue;double range=6,area=0;std::string medicine;
+    if(i==0){range=7;auto cmd=dynamic_cast<const HealDamageCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("healdamage"));auto pack=cmd?cmd->findStimPack(c):nullptr;
+     if(pack){medicine=id(pack);area=pack->isArea()?pack->getArea():0;if(pack->isRangedStimPack())range=static_cast<RangedStimPack*>(pack)->getRange()+c->getSkillMod("healing_range")*.14;}
+    }
+@@ -31,18 +32,19 @@
+  }
+  static Json needs(CreatureObject* c){
+   bool injury=false,wound=false;for(int i=0;i<6;++i){if(i==0 && c->getHAM(i)<c->getMaxHAM(i)-c->getWounds(i))injury=true;if(c->getWounds(i)>0)wound=true;}
+-  return {{"healdamage",injury},{"healwound",wound},{"tenddamage",injury},{"tendwound",wound},{"quickheal",injury},{"firstaid",c->isBleeding()}};
++  return {{"healdamage",injury},{"wound_medpack",wound},{"tenddamage",injury},{"quickheal",injury},{"firstaid",c->isBleeding()}};
+  }
++ static Json wounds(CreatureObject* c){Json out=Json::array();for(int i=0;i<9;++i)out.push_back(c->getWounds(i));return out;}
+  static Json snapshot(CreatureObject* c){
+   auto g=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,g.value("hip_tool_id",std::string()));
+   Json out={{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_medic"},{"abilities",abilities(c)},{"selected",std::string(c->getPlayerObject()->getScreenPlayData("swgxr_medic","selected").toCharArray())},{"inventory",SwgxrInventory::snapshot(c)},{"hip_tool",hip?SwgxrInventory::describe(hip,c):Json(nullptr)},{"players",Json::array()},{"position",position(c)},{"vital_feedback",SwgxrVitalFeedback::snapshot(c->getObjectID())}};
+   out["drag"]=SwgxrMedicDrag::snapshot(c);out["drag_available"]=c->hasSkill("science_medic_injury_speed_02");
+-  out["self"]={{"id",id(c)},{"name",std::string(c->getDisplayedName().toCharArray())},{"position",position(c)},{"healable",!c->isDead()},{"needs",needs(c)}};
++  out["self"]={{"id",id(c)},{"name",std::string(c->getDisplayedName().toCharArray())},{"position",position(c)},{"healable",!c->isDead()},{"wounds",wounds(c)},{"needs",needs(c)}};
+   out["focus_issued"]=!c->getPlayerObject()->getScreenPlayData("swgxr_medic","focus_id").isEmpty();
+   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),80,&objects,true);
+   for(int i=0;i<objects.size() && out["players"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isPlayerCreature() || o==c)continue;auto p=o->asCreatureObject();Locker lock(p,c);if(p->getPlayerObject()->isOffline())continue;
+    String custom;p->getCustomizationString(custom);std::string hex;const char* digits="0123456789abcdef";for(int n=0;n<custom.length();++n){unsigned char v=custom[n];hex+=digits[v>>4];hex+=digits[v&15];}
+-   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"feigning_death",SwgxrSmuggler::feigning(p)},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
++   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"feigning_death",SwgxrSmuggler::feigning(p)},{"wounds",wounds(p)},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
+   }return out;
+  }
+ public:
+@@ -60,7 +62,21 @@
+    if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");
+    for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=request)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
+    if(!replay){
+-    if(verb=="bandage"){
++    if(verb=="wound_pack"){
++     if(!request.contains("pose") || !request.at("pose").value("tracked",false))throw std::runtime_error("Tracked Wound Medpack use required");
++     auto pack=c->getZoneServer()->getObject(std::stoull(request.at("item_id").get<std::string>())).castTo<WoundPack*>();
++     auto inventory=c->getSlottedObject("inventory");
++     if(!pack || !inventory || !pack->isASubChildOf(inventory) || pack->isDroidReconstructionKit())throw std::runtime_error("Owned Wound Medpack required");
++     if(!c->hasSkill("science_medic_novice") || c->getSkillMod("healing_ability")<pack->getMedicineUseRequired())throw std::runtime_error("Insufficient medicine skill");
++     auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>())).castTo<CreatureObject*>();
++     if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->isDead() || target->isAttackableBy(c) || !target->isHealableBy(c) || !c->isInRange(target,2.5f) || target->getWounds(pack->getAttribute())<=0)throw std::runtime_error("Nearby recipient with matching wounds required");
++     bool touching=false;for(auto side:{"left","right"}){auto p=request.at("pose").at(side);Vector3 hand(p[0].get<float>(),p[2].get<float>(),p[1].get<float>());if(hand.distanceTo(target->getWorldPosition())<=2.2f && hand.distanceTo(c->getWorldPosition())<=2.2f)touching=true;}
++     if(!touching)throw std::runtime_error("Hold the Wound Medpack near its recipient");
++     auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("healwound");
++     String arguments=CreatureAttribute::getName(pack->getAttribute())+"|"+String::valueOf(pack->getObjectID());
++     if(!cmd || cmd->doQueueCommand(c,target->getObjectID(),UnicodeString(arguments))!=QueueCommand::SUCCESS)throw std::runtime_error("Wound Medpack rejected: treatment location, state, wounds, recovery or resources");
++     mutation["target_id"]=id(target);mutation["item_id"]=id(pack);
++    }else if(verb=="bandage"){
+      if(!learned(c,"firstaid") || !request.contains("pose") || !request.at("pose").value("tracked",false))throw std::runtime_error("Tracked First Aid required");
+      auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>())).castTo<CreatureObject*>();
+      if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->isDead() || !target->isBleeding() || target->isAttackableBy(c) || !target->isHealableBy(c) || !c->isInRange(target,2.5f))throw std::runtime_error("Nearby bleeding recipient required");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -6,6 +6,7 @@
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include <set>
+ #include "SwgxrEquipment.h"
++#include "server/zone/objects/tangible/pharmaceutical/WoundPack.h"
+ #include "SwgxrSlicingData.h"
+ #include "server/zone/objects/tangible/deed/structure/StructureDeed.h"
+ #include "server/zone/objects/tangible/tool/SurveyTool.h"
+@@ -51,6 +52,7 @@
+   SwgxrEquipment::enrich(result,o,c);SwgxrSlicingData::describe(result,o,c);
+   auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
+   result["tool_kind"]=SwgxrSlicingData::tool(o)?"slicing":(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isCamoKit()?"camouflage":o->isTrapObject()?"trap":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  if(auto pack=dynamic_cast<WoundPack*>(o)){result["wound_medpack"]=!pack->isDroidReconstructionKit();result["wound_attribute"]=int(pack->getAttribute());result["wound_skill_required"]=pack->getMedicineUseRequired();}
+   if(auto deed=dynamic_cast<StructureDeed*>(o))result["structure_template"]=std::string(deed->getGeneratedObjectTemplate().toCharArray());
+   result["fishing_bait"]=o->isFishingBait();
+   result["tool_type"]=survey!=nullptr?survey->getToolType():0;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -67,7 +67,7 @@
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+    float h=w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0),a=w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3),m=w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6);
+-   out.push_back({{"sac_policy","corecu_cu_v1"},{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",0},{"action",last?0:a+h},{"mind",last?0:m*.5f}}},{"cooldown_seconds",30.0*SwgxrSpice::cooldownScale(c)},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
++   out.push_back({{"sac_action_strength_share",a+h>0?h/(a+h):0},{"sac_policy","corecu_cu_v2"},{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",0},{"action",last?0:a+h},{"mind",last?0:m*.5f}}},{"cooldown_seconds",30.0*SwgxrSpice::cooldownScale(c)},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
+   }return out;
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
+@@ -12,6 +12,7 @@
+ #include "server/zone/objects/player/badges/Badge.h"
+ #include "server/zone/objects/group/GroupObject.h"
+ #include "server/zone/objects/creature/commands/SwgxrPartyPolicy.h"
++#include "server/zone/objects/creature/commands/CoreCuMedicalPolicy.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+ #include "server/zone/managers/jedi/JediManager.h"
+ #include "templates/manager/TemplateManager.h"
+@@ -227,6 +228,7 @@
+ }
+ 
+ void SkillManager::addAbility(PlayerObject* ghost, const String& abilityName, bool notifyClient) {
++    if(corecu::medicine::retired(abilityName.toCharArray()))return;
+ 	if (ghost == nullptr) {
+ 		return;
+ 	}
+@@ -257,6 +259,7 @@
+ 
+ 	for (int i = 0; i < abilityNames.size(); ++i) {
+ 		const String& abilityName = abilityNames.get(i);
++        if(corecu::medicine::retired(abilityName.toCharArray()))continue;
+ 
+ 		Ability* ability = abilityMap.get(abilityName);
+ 
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -2856,10 +2856,10 @@
+ 	mind *= SwgxrSlicingStats::costScale(attacker, CreatureAttribute::MIND);
+ 
+ 	// Health SAC becomes Action expenditure; Mind costs are halved.
+-	if (attacker->isPlayerCreature()) { action += health; health = 0; mind *= .5f; }
+ 	health = attacker->calculateCostAdjustment(CreatureAttribute::STRENGTH, health);
+ 	action = attacker->calculateCostAdjustment(CreatureAttribute::QUICKNESS, action);
+ 	mind = attacker->calculateCostAdjustment(CreatureAttribute::FOCUS, mind);
++    if (attacker->isPlayerCreature()) { action += health; health = 0; mind *= .5f; }
+ 
+ 	if (attacker->getHAM(CreatureAttribute::HEALTH) <= health)
+ 		return false;
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -3264,9 +3264,9 @@
+ 			CreatureAttribute::WILLPOWER)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 6));
+ 
+     if (isPlayerCreature()) {
+-        healthTick = (uint32)ceil(getBaseHAM(0)*CoreCuResources::regen(0,isInCombat())*modifier*SwgxrSpice::regenScale(asCreatureObject(),0));
+-        actionTick = (uint32)ceil(getBaseHAM(3)*CoreCuResources::regen(3,isInCombat())*modifier*SwgxrSpice::regenScale(asCreatureObject(),3));
+-        mindTick = (uint32)ceil(getBaseHAM(6)*CoreCuResources::regen(6,isInCombat())*modifier*SwgxrSpice::regenScale(asCreatureObject(),6));
++        healthTick = (uint32)ceil(getBaseHAM(0)*CoreCuResources::regen(0,isInCombat())*corecu::medicine::regeneration(getHAM(2),getBaseHAM(2))*modifier*SwgxrSpice::regenScale(asCreatureObject(),0));
++        actionTick = (uint32)ceil(getBaseHAM(3)*CoreCuResources::regen(3,isInCombat())*corecu::medicine::regeneration(getHAM(5),getBaseHAM(5))*modifier*SwgxrSpice::regenScale(asCreatureObject(),3));
++        mindTick = (uint32)ceil(getBaseHAM(6)*CoreCuResources::regen(6,isInCombat())*corecu::medicine::regeneration(getHAM(8),getBaseHAM(8))*modifier*SwgxrSpice::regenScale(asCreatureObject(),6));
+     }
+ 	if (healthTick < 1 && !(isPlayerCreature() && isInCombat()))
+ 		healthTick = 1;

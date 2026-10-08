@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Targeted native Sweetblossom damage versus HAM-bookkeeping regression checks.
 Admin fixture grants items/skills, resets test HAM and shortens real buff timers;
-all outcomes run native consumable, buff, damage, AI and combat code.
+negative fixture potency bypasses only the random application roll; subsequent
+ticks and all outcomes run native consumable, buff, damage, AI and combat code.
 """
 import json,re,secrets,time
 from services_smoke import ROOT,req,redact
@@ -63,7 +64,7 @@ function Tests:swgxrSpiceEdgeDotStatus()
 end
 function Tests:swgxrSpiceEdgeDot(kind)
  local p=getSceneObject({owner['id']});local c=CreatureObject(p);c:clearState(8388608);c:clearState(16777216);c:setPosture(0);for _,i in ipairs({{0,3,6}})do c:setHAM(i,c:getMaxHAM(i))end
- c:addDotState(p,tonumber(kind),1,0,35,0,1711+tonumber(kind),0);return tostring(c:hasState(tonumber(kind)))..":"..tostring(c:getSkillMod("absorption_bleeding"))..":"..tostring(c:getSkillMod("absorption_poison"))
+ c:addDotState(p,tonumber(kind),1,0,35,-1,1711+tonumber(kind),0);return tostring(c:hasState(tonumber(kind)))..":"..tostring(c:getSkillMod("absorption_bleeding"))..":"..tostring(c:getSkillMod("absorption_poison"))
 end
 function Tests:swgxrSpiceEdgeCleanup()
  local p=getSceneObject({owner['id']});if p~=nil then CreatureObject(p):clearState(8388608);CreatureObject(p):clearState(16777216)end

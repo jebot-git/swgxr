@@ -52,6 +52,9 @@ func configure(value: Dictionary, path: String="") -> bool:
 	base_url=origin.trim_suffix("/");account=name;_token=token;_certificate=certificate
 	profile_path=path;configured=true;ca_certificate_path=certificate_path
 	authenticated=not token.is_empty();legacy_profile=authenticated
+	if value.has("launcher_session"):
+		if legacy_profile or not value.launcher_session is Dictionary: return fail("Invalid launcher session profile.")
+		return accept_session(value.launcher_session)
 	return true
 
 func validate_request(endpoint: String, path: String, body: Dictionary={}) -> String:

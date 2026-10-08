@@ -44,6 +44,21 @@ def catalog():
                 mods[key] = int(value)
             resistance = contribution(row['NAME'], skill['NAME'])
             description = descriptions.get(skill['NAME'], '')
+            if row['NAME'] in ('science_medic','science_doctor','science_combatmedic'):
+                description=all_labels[skill['NAME']]+': CoreCU medical progression. Health is the damage and wound pool; Action and Mind are ability resources.'
+                if row['NAME']=='science_combatmedic':
+                    description+=' Poison treats Health as its damage pool; disease temporarily drains Action. Heal Mind restores a bounded amount of another patient’s Mind with resource cost and recovery, without self wounds.'
+                if row['NAME']=='science_doctor':
+                    description+=' Wound Medpacks treat Health wounds. Apply crafted enhancement, cure, state and resuscitation packs directly to patients. Enhancements are capped at 15% of base attributes.'
+                if skill['NAME']=='science_medic_novice':
+                    description='Medic training enables held stim treatment and medical crafting. Apply stims to injured patients and Health Wound Medpacks to wounds; Diagnose and separate Heal/Tend Wound abilities are retired.'
+                if any(mods.get(key,0) for key in ('healing_injury_speed','healing_wound_speed','healing_range_speed')):
+                    description+='\nCoreCU medical recovery: relevant speed rating reduces recovery by up to 25% at 100 rating. Injury/ranged speed uses the stronger rating for Heal Damage; wound speed improves Wound Medpack and enhancement recovery.'
+                if mods.get('healing_wound_treatment',0):
+                    description+='\nCoreCU Wound Medpacks: treatment proficiency increases base wound repair from 3% to 8%, modified by pack quality and capped at 10% per use before spice effects and battle fatigue.'
+            if row['NAME'] in ('social_entertainer','social_dancer','social_musician'):
+                description=description.replace('mind wounds','Health wounds').replace('Mind wounds','Health wounds').replace('mental wounds','Health wounds')
+                description+='\nCoreCU performance treats Health wounds and battle fatigue; original mental-healing ratings continue to determine proficiency and inspiration.'
             if resistance:
                 description += '\nCoreCU resistance progression: ' + ', '.join(f'{name.title()} +{value:g}' for name, value in resistance.items()) + ' rating. Strongest profession plus 25% of other contributions; existing resistance is retained when stronger.'
             trap_bonus = trap_bonus_contribution(skill['NAME'])

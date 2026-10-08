@@ -45,6 +45,24 @@ func run()->void:
 	var shot:Dictionary={};abilities.apply_to_attack(shot,profile)
 	check(abilities.ham[0]==300 and abilities.ham[3]==1 and abilities.ham[6]==1,"Last Ditch spends action and mind to one, leaves health unchanged")
 	check(is_equal_approx(float(shot.ability.damage_multiplier),4.57),"30% health, 10% action and 3% mind produces requested 457% damage")
+	var cu=preload("res://combat/ability_state.gd").new()
+	cu.refresh_context({"character_id":"cu","complete":true,"ham":[900,300,300,100,300,300,30,300,300],"max_ham":[3000,300,300,1000,300,300,1000,300,300],"wounds":[0,0,0,0,0,0,0,0,0]})
+	var revised:Dictionary={"abilities":[{"id":"last_ditch","sac_policy":"corecu_cu_v1","base_sac":{"health":0,"action":0,"mind":0},"cooldown_seconds":30.0}]}
+	check(cu.select(revised,"last_ditch") and cu.toggle_prime(revised),"CU Last Ditch can be prepared")
+	var cu_shot:Dictionary={};cu.apply_to_attack(cu_shot,revised)
+	check(is_equal_approx(float(cu_shot.get("ability",{}).get("damage_multiplier",0)),4.335),"CU Last Ditch weights Health deficit twice and resource deficits half")
+	check(cu.ham[0]==900 and cu.ham[3]==1 and cu.ham[6]==1,"CU Last Ditch drains only Action/Mind to one")
+	cu.cooldowns.clear()
+	check(not cu.toggle_prime(revised),"Last Ditch cannot be reused with no expendable resources")
+	cu.ham=[3000,1500,300,1000,1500,300,1000,1500,300]
+	check(cu.costs({"sac_policy":"corecu_cu_v1","base_sac":{"health":0,"action":100,"mind":50}})==[0.0,75.0,37.5],"High secondaries cannot erase CU SAC")
+
+	check(cu.apply_authoritative({"ham":[3000,0,0],"max_ham":[3000,1000,1000],"wounds":[0,0,0],"full_ham":[3000,300,300,0,1500,300,0,900,300]}),"Native zero resource pools remain a valid authoritative observation")
+	check(cu.ham[4]==1500 and cu.ham[7]==900,"Native full HAM refresh updates secondary SAC inputs")
+	check(cu.costs({"sac_policy":"corecu_cu_v1","base_sac":{"health":0,"action":100,"mind":100}})==[0.0,75.0,87.5],"Client SAC matches current native secondary attributes")
+
+	cu.ham=[3000,600,300,1000,300,300,1000,345,300]
+	check(cu.costs({"sac_policy":"corecu_cu_v2","sac_action_strength_share":0.5,"base_sac":{"health":0,"action":100,"mind":100}})==[0.0,87.5,96.25],"CU v2 Strength reduces only the converted Health-cost component; Focus scales new baseline")
 	var second:Dictionary={};abilities.apply_to_attack(second,profile)
 	check(not second.has("ability"),"Last Ditch consumes prepared state exactly once")
 	var panel:=ServicePanel.new();root.add_child(panel)

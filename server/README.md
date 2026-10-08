@@ -306,7 +306,7 @@ checks use the dummy renderer with XR off.
 Offhand grip retrieves a hip medical focus. A focus picked from the bag with the
 main hand can be handed to the offhand by gripping near it after closing the bag.
 Offhand stick click opens/closes the independent wheel when no weapon is held;
-offhand trigger activates its selected heal. Stowing preserves selection.
+offhand trigger tap/release requests Tend Damage; a 0.65-second hold requests Quick Heal once, without a preceding Tend Damage cast. The client selects the requested native ability before healing and rechecks the aimed recipient after that reply. Explicit First Aid selection keeps its short-trigger fallback. Stowing preserves selection.
 
 Dragging uses native `science_medic_injury_speed_02`, two hand contacts against
 posed original avatar bones, fresh patient tracking, native incapacitation and

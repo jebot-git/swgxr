@@ -2,6 +2,7 @@ extends Node3D
 ## Independent offhand medical focus. Native Core3 owns all healing and supplies.
 const HandInput=preload("res://scripts/tracked_hand_input.gd")
 const Targeting=preload("res://medic/targeting.gd")
+const ItemTargeting=preload("res://medic/item_targeting.gd")
 const STIMPACK="object/tangible/medicine/stimpack_sm_s1.iff"
 var app: Node
 var bag: Node3D
@@ -17,7 +18,6 @@ var epoch := -1
 var busy := false
 var next_poll := 0.0
 var age := 100.0
-var trigger_armed := false
 var grip_armed := false
 var provision_attempted := false
 var status := ""
@@ -33,6 +33,9 @@ var drag_revision := 0
 var drag_grips_released := true
 var next_drag := 0.0
 var crossed := false
+var bandaging=preload("res://medic/bandaging.gd").new()
+var focus_trigger=preload("res://medic/focus_trigger.gd").new()
+var focus_cast_pending := false
 func setup(host: Node, inventory: Node3D) -> void:
 	app=host;bag=inventory;body=bag.body;rig=bag.rig;side=bag.offhand
 	hand=rig.get_node("LeftHand" if side=="left" else "RightHand");head=rig.get_node("XRCamera3D")
@@ -42,12 +45,13 @@ func setup(host: Node, inventory: Node3D) -> void:
 	body.medic=self;process_priority=145
 	RenderingServer.frame_pre_draw.connect(pose_tool)
 func reset() -> void:
+	bandaging.reset()
 	drag_motion.reset();drag_target="";drag_revision=0;drag_grips_released=true;crossed=false
 	stow();state={};selected="";epoch=app.datapad_epoch;age=100;next_poll=0;provision_attempted=false
 	for avatar in people.values():avatar.queue_free()
 	people.clear()
 func allowed() -> bool:
-	return bag.allowed and body.active and not (is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)) and not body.feedback.combat_blocked() and HandInput.controller_tracked(hand)
+	return bag.allowed and app.xr_focused and body.active and not (is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)) and not body.feedback.combat_blocked() and HandInput.controller_tracked(hand)
 func weapon_held() -> bool:
 	return is_instance_valid(app.combat_rig) and app.combat_rig.selected>=0
 func button(button_name: String, controller_side: String) -> bool:
@@ -55,9 +59,9 @@ func button(button_name: String, controller_side: String) -> bool:
 	if wheel.menu_open:wheel.close()
 	elif not weapon_held():wheel.open_on_hand(state.get("abilities",[]),hand,head)
 	return true
-func ability() -> Dictionary:
+func named_ability(name:String) -> Dictionary:
 	for entry: Dictionary in state.get("abilities",[]):
-		if str(entry.id)==selected:return entry
+		if str(entry.id)==name:return entry
 	return {}
 func request(action: String, detail: Dictionary={}) -> Dictionary:
 	if busy or app.datapad_character_id.is_empty():return {}
@@ -69,7 +73,7 @@ func request(action: String, detail: Dictionary={}) -> Dictionary:
 	busy=false
 	if version!=app.datapad_epoch:return {}
 	if result.get("ok",false) and result.get("state",{}).get("character_id","")==app.datapad_character_id:
-		state=result.state;age=0;selected=str(state.get("selected",""));next_poll=0.65 if not held.is_empty() else 5
+		state=result.state;age=0;selected=str(state.get("selected",""));next_poll=0.65 if bag.held_item.get("medical_item",false) or not held.is_empty() or state.get("self",{}).get("needs",{}).get("firstaid",false) or state.get("players",[]).any(func(person):return person.get("needs",{}).get("firstaid",false)) else 5
 		observe_drag(state.get("drag",{}));body.feedback.vital.observe(state.get("vital_feedback",{}));sync_inventory();sync_people();status=""
 	else:status=str(result.get("error","Medical action not confirmed"));next_poll=2
 	return result
@@ -94,9 +98,10 @@ func draw(item: Dictionary) -> void:
 	if model==null:status="Original stimpack appearance unavailable";return
 	if str(bag.held_item.get("id",""))==str(item.id):bag.clear_held()
 	held=item.duplicate(true);visual=Node3D.new();add_child(visual);visual.add_child(model);bag.offhand_occupied=true
-	trigger_armed=false;wheel.close();next_poll=0;app.update_inventory_presentation();pose_tool()
+	focus_trigger.reset();wheel.close();next_poll=0;app.update_inventory_presentation();pose_tool()
 func stow() -> void:
-	held={};trigger_armed=false;target={}
+	held={};target={}
+	focus_trigger.reset()
 	if is_instance_valid(visual):visual.queue_free()
 	visual=null
 	if is_instance_valid(wheel):wheel.close();wheel.update_badge({},false,0,Vector3.ZERO,false)
@@ -153,8 +158,10 @@ func candidates(entry: Dictionary) -> Array:
 		result.append({"id":id,"name":str(person.get("name","")),"position":body.global_position if self_target else app.scout.world(person.position),"bounds":bounds(avatar,self_target),"eligible":person.get("healable",false) and person.get("needs",{}).get(str(entry.get("id","")),false)})
 	return result
 func update_target(delta: float) -> void:
-	var entry:=ability();var showing: bool=not held.is_empty() and allowed() and age<3 and not bag.is_open
 	if reticle.mesh==null and is_instance_valid(app.combat_rig):reticle.configure(app.combat_rig.assets.texture(app.combat_rig.assets.catalog.reticle.path))
+	if update_supply_target(delta):return
+	var entry:=named_ability("firstaid" if selected=="firstaid" else "tenddamage");var showing: bool=not held.is_empty() and allowed() and age<3 and not bag.is_open
+	if focus_trigger.pressing:entry=named_ability("quickheal")
 	reticle.update_aim(aim(),showing)
 	target={}
 	if showing:
@@ -163,24 +170,107 @@ func update_target(delta: float) -> void:
 		var obstruction:=pose.origin.distance_to(hit.position) if not hit.is_empty() else INF
 		target=Targeting.first(pose,body.global_position,entry,candidates(entry),obstruction)
 	circle.update_circle(target.get("position",Vector3.ZERO),float(entry.get("area_radius_m",0)),showing and not target.is_empty(),delta)
-	wheel.update_badge(entry,false,float(entry.get("cooldown_seconds",0)),hand.global_position+Vector3.UP*0.15,showing,status if not status.is_empty() else str(target.get("name","Aim at a recipient")))
-func heal() -> void:
-	var entry:=ability()
-	if busy or target.is_empty() or entry.is_empty() or float(entry.get("cooldown_seconds",0))>0:return
-	await request("heal",{"item_id":str(held.id),"ability":selected,"target_id":str(target.id)})
+	var hint:=str(target.get("name","Aim at a recipient"))+" · Tap: Tend Damage · Hold: Quick Heal"
+	if selected=="firstaid":hint=str(target.get("name","Aim at a bleeding recipient"))+" · Tap: First Aid · Hold: Quick Heal"
+	if focus_trigger.pressing:hint="Hold for Quick Heal · %d%%"%roundi(clampf(focus_trigger.elapsed/focus_trigger.HOLD_SECONDS,0,1)*100)
+	wheel.update_badge(entry,false,float(entry.get("cooldown_seconds",0)),hand.global_position+Vector3.UP*0.15,showing,status if not status.is_empty() else hint)
+func update_supply_target(delta:float)->bool:
+	var item:Dictionary=bag.held_item
+	if not item.get("medical_ranged",false):return false
+	var controller:XRController3D=bag.held_controller()
+	var showing:bool=age<3 and body.active and app.xr_focused and HandInput.controller_tracked(controller) and not body.feedback.combat_blocked() and not bag.is_open
+	var entry:Dictionary={"id":"healdamage","label":str(item.get("name","Ranged stim")),"range_m":float(item.get("medical_range_m",0)),"area_radius_m":float(item.get("medical_area_m",0))}
+	var pose:Transform3D=bag.item_hand_pose(controller,controller.global_transform)
+	reticle.update_aim(pose,showing);target={}
+	if showing:
+		var hit:Dictionary=get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pose.origin,pose.origin-pose.basis.z*(float(entry.range_m)+2),7,[body.get_rid()]))
+		var obstruction:float=pose.origin.distance_to(hit.position) if not hit.is_empty() else INF
+		target=Targeting.first(pose,body.global_position,entry,candidates(entry),obstruction)
+	circle.update_circle(target.get("position",Vector3.ZERO),float(entry.area_radius_m),showing and not target.is_empty(),delta)
+	wheel.update_badge(entry,false,float(state.get("medical_item_cooldowns",{}).get("healdamage",0)),controller.global_position+Vector3.UP*.15,showing,str(target.get("name","Aim at an injured patient")))
+	return true
+func use_wound_pack(item:Dictionary)->void:
+	await use_medical_item(item)
+func use_medical_item(item:Dictionary)->void:
+	var controller:XRController3D=bag.held_controller()
+	if busy or not body.active or not app.xr_focused or not HandInput.controller_tracked(controller) or body.feedback.combat_blocked():
+		bag.finish_consumable_action({},false);bag.set_busy(false,"Medical treatment is unavailable.");return
+	if age>=2:await request("status")
+	if age>=3 or not body.active or not app.xr_focused or not HandInput.controller_tracked(controller) or str(bag.held_item.get("id",""))!=str(item.id):
+		bag.finish_consumable_action({},false);return
+	var recipient:Dictionary={};var nearest:=INF
+	var ranged_candidates:Array=[]
+	for person:Dictionary in state.get("players",[])+state.get("companions",[])+[state.get("self",{})]:
+		if not ItemTargeting.eligible(item,person):continue
+		var own:bool=str(person.id)==str(app.datapad_character_id)
+		var avatar:Node3D=app.avatar if own else people.get(str(person.id))
+		var boxes:Array=bounds(avatar,own)
+		if person.get("companion",false):
+			var actor:Node3D
+			if is_instance_valid(app.live_combat) and app.live_combat.live:actor=app.live_combat.actors.get(str(person.id))
+			elif is_instance_valid(app.get("multiplayer_sync")) and is_instance_valid(app.multiplayer_sync.entities):actor=app.multiplayer_sync.entities.actors.get(str(person.id))
+			if is_instance_valid(actor):boxes=[actor.global_transform*actor.visual_bounds()]
+		ranged_candidates.append({"id":str(person.id),"name":str(person.get("name","")),"position":body.global_position if own else app.scout.world(person.position),"bounds":boxes,"eligible":true})
+		for box:AABB in boxes:
+			var distance:float=controller.global_position.distance_squared_to(box.get_center())
+			if box.grow(.18).has_point(controller.global_position) and distance<nearest:
+				nearest=distance;recipient=person
+	if recipient.is_empty() and item.get("medical_ranged",false):
+		var pose:Transform3D=bag.item_hand_pose(controller,controller.global_transform)
+		var distance:float=float(item.get("medical_range_m",0))
+		var hit:Dictionary=get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pose.origin,pose.origin-pose.basis.z*(distance+2),7,[body.get_rid()]))
+		var obstruction:float=pose.origin.distance_to(hit.position) if not hit.is_empty() else INF
+		recipient=Targeting.first(pose,body.global_position,{"range_m":distance},ranged_candidates,obstruction)
+	if recipient.is_empty():
+		bag.finish_consumable_action({},false);bag.set_busy(false,"Touch a patient needing this supply and trigger. Ranged stims can be aimed at a patient.");return
+	var result:Dictionary=await request("medical_item",{"item_id":str(item.id),"target_id":str(recipient.id)})
+	var success:bool=result.get("ok",false) and result.get("mutation",{}).get("success",false)
+	bag.finish_consumable_action(app.owned_inventory_item(str(item.id)).duplicate(true) if success else {},success)
+	if not success:bag.set_busy(false,str(result.get("error","Medical item treatment was not confirmed.")))
+
+func focus_permitted()->bool:
+	return app.world_ready and allowed() and not held.is_empty() and age<3 and not bag.is_open and not wheel.menu_open and not bag.action_pending and not focus_cast_pending
+func cast_focus(name:String)->void:
+	if not focus_permitted() or busy:return
+	var entry:=named_ability(name)
+	if entry.is_empty():status="Medical ability not learned";return
+	if float(entry.get("cooldown_seconds",0))>0:status="Medical ability recovering";return
+	# Resolve the aimed recipient for this action, including its own need/range.
+	var pose:=aim();var range_m:=float(entry.get("range_m",0))+2
+	var hit:=get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pose.origin,pose.origin-pose.basis.z*range_m,7,[body.get_rid()]))
+	var recipient:=Targeting.first(pose,body.global_position,entry,candidates(entry),pose.origin.distance_to(hit.position) if not hit.is_empty() else INF)
+	if recipient.is_empty():return
+	var item_id:=str(held.id);var version:int=app.datapad_epoch
+	focus_cast_pending=true
+	var reply:=await request("select",{"item_id":item_id,"ability":name})
+	focus_cast_pending=false
+	if version!=app.datapad_epoch or str(held.get("id",""))!=item_id or not focus_permitted() or not reply.get("ok",false) or selected!=name:return
+	# Selection is asynchronous: recheck aim, so a moved/obscured recipient or
+	# released tool cannot receive a delayed treatment.
+	pose=aim();hit=get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pose.origin,pose.origin-pose.basis.z*range_m,7,[body.get_rid()]))
+	var current:=Targeting.first(pose,body.global_position,entry,candidates(entry),pose.origin.distance_to(hit.position) if not hit.is_empty() else INF)
+	if str(current.get("id",""))!=str(recipient.id):return
+	await request("heal",{"item_id":item_id,"ability":name,"target_id":str(recipient.id)})
+func sample_focus_trigger(delta:float,trigger:float)->void:
+	var action:String=focus_trigger.sample(delta,trigger,focus_permitted())
+	if action=="tenddamage" and selected=="firstaid":action="firstaid"
+	if not action.is_empty():cast_focus(action)
 func _process(delta: float) -> void:
-	if not is_instance_valid(app) or not app.world_ready:return
+	if not is_instance_valid(app) or not app.world_ready:bandaging.reset();focus_trigger.reset();return
 	if epoch!=app.datapad_epoch:reset()
-	if app.get("live_combat_reserved")==true and (not is_instance_valid(app.live_combat) or not app.live_combat.live):return
+	if app.get("live_combat_reserved")==true and (not is_instance_valid(app.live_combat) or not app.live_combat.live):bandaging.reset();focus_trigger.reset();return
 	age+=delta;next_poll-=delta;update_drag(delta)
+	if bag.held_item.get("medical_item",false) and age>=.65:next_poll=0
+	bandaging.frame(self,delta)
 	for entry: Dictionary in state.get("abilities",[]):entry.cooldown_seconds=maxf(0,float(entry.get("cooldown_seconds",0))-delta)
-	if not busy and not app.inventory_request_pending and not bag.action_pending and next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("medic")):
+	for command_name in state.get("medical_item_cooldowns",{}):state.medical_item_cooldowns[command_name]=maxf(0,float(state.medical_item_cooldowns[command_name])-delta)
+	if not busy and not focus_cast_pending and (held.is_empty() or hand.get_float("trigger")<.25) and not focus_trigger.pressing and not app.inventory_request_pending and not bag.action_pending and next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("medic")):
 		next_poll=5
 		if not provision_attempted and not state.get("abilities",[]).is_empty() and not state.get("focus_issued",true) and not app.inventory_snapshot.get("items",[]).any(func(item):return item.get("tool_kind","")=="medical") and bag.hip_tool.get("tool_kind","")!="medical":
 			provision_attempted=true;request("provision")
 		else:request("status")
 	if not allowed():
-		trigger_armed=false;grip_armed=false;wheel.close()
+		focus_trigger.reset();grip_armed=false;wheel.close()
 	else:
 		var grip:=hand.get_float("grip")
 		if grip<0.25:
@@ -196,9 +286,7 @@ func _process(delta: float) -> void:
 			if weapon_held():wheel.close()
 			var chosen: String=wheel.sample_stick(hand.get_vector2("primary"))
 			if not chosen.is_empty() and not busy:request("select",{"item_id":str(held.id),"ability":chosen})
-			if hand.get_float("trigger")<0.25:trigger_armed=true
-			elif hand.get_float("trigger")>0.7 and trigger_armed:
-				trigger_armed=false;update_target(0);heal()
+			sample_focus_trigger(delta,hand.get_float("trigger"))
 	body.medical_stick_side=side if wheel.menu_open else ""
 	if is_instance_valid(app.combat_rig):app.combat_rig.offhand_occupied=not held.is_empty()
 	for person: Dictionary in state.get("players",[]):

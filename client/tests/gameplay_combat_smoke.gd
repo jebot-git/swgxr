@@ -18,7 +18,7 @@ class Rig extends Node3D:
 	func active_profile()->Dictionary:return weapons[0].state.profile if not weapons.is_empty() else {}
 	func close_ability_menu()->void:pass
 class Actor extends Node3D:
-	var record:Dictionary={"health":100.0}
+	var record:Dictionary={"health":100.0,"kind":"creature","relation":"hostile","dead":false}
 	func is_targetable()->bool:return true
 class Entities extends Node:
 	var actors:Dictionary={}
@@ -105,19 +105,58 @@ func run()->void:
 	check(bridge.is_ready(),"A later owned authoritative heartbeat can safely rearm after receipt failure")
 	var special:=app.envelope();special.sequence=session.sequence+1
 	special.snapshot.weapon.abilities=[{"id":"last_ditch","label":"Last Ditch","activation":"native_ranged","base_sac":{"health":0,"action":0,"mind":0},"cooldown_seconds":15.0}]
+	special.snapshot.weapon.ability_loadout={"family":"pistols","slots":["","","",""],"ultimate":"last_ditch","revision":1}
 	session.accept(special);bridge.refresh_authority()
 	rig.abilities.apply_authoritative(special.snapshot.player)
-	check(rig.abilities.select(rig.active_profile(),"last_ditch") and rig.abilities.toggle_prime(rig.active_profile()),"Native granted Last Ditch uses existing selection and arming")
-	rig.abilities.apply_authoritative(special.snapshot.player)
-	check(rig.abilities.primed,"Routine native HAM heartbeat preserves prepared ranged ability")
+	check(not rig.abilities.primed,"Native target abilities need no primed selection")
 	var pools:Array=rig.abilities.ham.duplicate()
+	var special_shot:Dictionary=shot.duplicate(true);special_shot.ability_id="last_ditch";special_shot.target_id="201"
+	bridge.weapon.ability_loadout.ultimate=""
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Direct forged unequipped ultimate is rejected before the fire queue")
+	bridge.weapon.ability_loadout.ultimate="last_ditch"
 	bridge.next_launch_usec=Time.get_ticks_usec()+1000000
-	check(bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty() and rig.abilities.primed,"Launch cadence rejection does not consume armed ability")
-	bridge.next_launch_usec=0;launched=bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO)
-	check(not launched.is_empty() and bridge.queue.back().payload.ability_id=="last_ditch" and not rig.abilities.primed,"One native fire carries and consumes armed ability identity")
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Launch cadence rejects targeted special without consuming it")
+	bridge.next_launch_usec=0;launched=bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO)
+	check(not launched.is_empty() and bridge.queue.back().payload.ability_id=="last_ditch" and bridge.queue.back().payload.target_id=="201" and not rig.abilities.primed,"Native fire carries explicit ability and selected actor without priming")
 	check(rig.abilities.ham==pools,"Native special shot never predicts or fabricates HAM expenditure")
+	bridge.next_launch_usec=0
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Pending ability cooldown prevents duplicate use")
+	var bystander:=Actor.new();sync.entities.add_child(bystander);bridge.actors["202"]=bystander
+	var before_contacts:int=bridge.queue.size()
+	bridge.contact(launched,{"id":"202","session_id":"owned"},Vector3.ZERO,Vector3.UP,0)
+	check(bridge.queue.size()==before_contacts and not bridge.shots.has(launched.shot_id),"Intervening actor cannot receive selected target's special")
 	bridge.next_launch_usec=0;bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO)
-	check(not bridge.queue.back().payload.has("ability_id"),"Following ordinary shot cannot reuse consumed Last Ditch")
+	check(not bridge.queue.back().payload.has("ability_id"),"Following ordinary shot has no inherited special")
+	rig.abilities.cooldowns.clear();bridge.next_launch_usec=0
+	special_shot.target_id="missing"
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Removed target cannot receive a special")
+	special_shot.target_id="201";actor.record.relation="friendly"
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Friendly target is ineligible at dispatch")
+	actor.record.relation="hostile";actor.position.x=100
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Out-of-range target is ineligible at dispatch")
+	actor.position=Vector3.ZERO;rig.abilities.ham[3]=1
+	check(bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Last Ditch requires expendable Action at dispatch")
+	rig.abilities.ham=pools
+	bridge.queue.clear();bridge.shots.clear();bridge.next_launch_usec=0
+	launched=bridge.register_shot(special_shot,Transform3D.IDENTITY,Vector3.ZERO)
+	app.response_weapon=special.snapshot.weapon.duplicate(true);app.reject=true
+	await bridge.pump()
+	check(float(rig.abilities.cooldowns.get("last_ditch",0))==0 and not bridge.shots.has(launched.shot_id),"Confirmed rejected launch releases predicted cooldown using native snapshot")
+	app.reject=false;app.response_weapon={}
+	bridge.queue.clear();bridge.shots.clear();bridge.next_launch_usec=0
+	var saved_weapon:Dictionary=special.snapshot.weapon.duplicate(true)
+	saved_weapon.ability_loadout.ultimate="";saved_weapon.ability_loadout.revision=2;saved_weapon.abilities=[]
+	app.response_weapon=saved_weapon
+	var loadout_result:Dictionary=await bridge.request_loadout({"item_id":"99","loadout":saved_weapon.ability_loadout})
+	check(loadout_result.success and app.calls.back().path=="/combat/session/loadout","Loadout proposal goes through owned native session endpoint")
+	check(session.weapon_state.ability_loadout.ultimate=="" and bridge.weapon.abilities.is_empty(),"Confirmed loadout snapshot updates gameplay weapon and combat availability")
+	var calls_before:int=app.calls.size()
+	loadout_result=await bridge.request_loadout({"item_id":"foreign","loadout":saved_weapon.ability_loadout})
+	check(not loadout_result.success and app.calls.size()==calls_before,"Stale weapon proposal never reaches transport")
+	app.reject=true
+	loadout_result=await bridge.request_loadout({"item_id":"99","loadout":saved_weapon.ability_loadout})
+	check(not loadout_result.success and session.live,"Rejected loadout receipt preserves live session")
+	app.reject=false;app.response_weapon={}
 	var no_weapon:=app.envelope();no_weapon.sequence=session.sequence+1;no_weapon.snapshot.erase("weapon");session.accept(no_weapon);bridge.refresh_authority()
 	check(session.live and not bridge.is_ready(),"Missing native weapon leaves session connected with combat disarmed")
 	bridge.queue.clear();bridge.shots.clear();bridge.next_launch_usec=0

@@ -22,27 +22,29 @@ try:
   start=request('/combat/session/start',base);base['session_id']=start['session_id'];bases.append(base)
   request('/combat/session/update',dict(base,ready=True,medic_pose=tracking(base['position'])))
  initial=call(0,'status');s=initial['state'];tool=s.get('hip_tool') or next(i for i in s['inventory']['items'] if i.get('tool_kind')=='medical')
- check(len(s['abilities'])==6 and not any(a['id']=='diagnose' for a in s['abilities']),'Native learned basic heals available; Diagnose excluded')
+ check(len(s['abilities'])==3 and not any(a['id']=='diagnose' for a in s['abilities']),'Native learned basic heals available; Diagnose excluded')
  check(any(p['id']==fixtures[1]['id'] for p in s['players']),'Two authenticated native players share medical targeting')
  r=call(0,'holster',item_id=tool['id']);check(r['state']['hip_tool']['id']==tool['id'],'Medical tool uses persistent hip escrow')
- call(0,'select',item_id=tool['id'],ability='healdamage')
+ call(0,'select',item_id=tool['id'],ability='tenddamage')
  before=request('/combat/session?'+urllib.parse.urlencode({k:v for k,v in bases[1].items() if k!='position'}))['snapshot']['player']
  doc_before=request('/combat/session?'+urllib.parse.urlencode({k:v for k,v in bases[0].items() if k!='position'}))['snapshot']['player']
- used=next(i['use_count'] for i in s['inventory']['items'] if i['id']==s['abilities'][0]['medicine_id'])
- healed=call(0,'heal',item_id=tool['id'],ability='healdamage',target_id=fixtures[1]['id'])
+ pack=next(i for i in s['inventory']['items'] if i.get('medical_command')=='healdamage');used=pack['use_count']
+ healed=call(0,'medical_item',item_id=pack['id'],target_id=fixtures[1]['id'],pose=tracking(bases[0]['position']))
  after=request('/combat/session?'+urllib.parse.urlencode({k:v for k,v in bases[1].items() if k!='position'}))['snapshot']['player']
  check(after['ham'][0]>before['ham'][0],'Native Heal Damage changes recipient HAM')
  check(after['vital_feedback']['heal']>before['vital_feedback']['heal'],'Only healed recipient receives native healing event')
  doc=request('/combat/session?'+urllib.parse.urlencode({k:v for k,v in bases[0].items() if k!='position'}))['snapshot']['player']
  check(doc['vital_feedback']['damage']==doc_before['vital_feedback']['damage'],'Healing mind cost does not create damage flash')
- check(next(i['use_count'] for i in healed['state']['inventory']['items'] if i['id']==s['abilities'][0]['medicine_id'])==used-1,'Heal consumes exactly one native stim charge')
- check(next(a for a in healed['state']['abilities'] if a['id']=='healdamage')['cooldown_seconds']>0,'Source injury recovery reaches independent medical wheel')
+ check(next(i['use_count'] for i in healed['state']['inventory']['items'] if i['id']==pack['id'])==used-1,'Heal consumes exactly one native stim charge')
+ check(healed['state']['medical_item_cooldowns']['healdamage']>0,'Source injury recovery reaches independent medical wheel')
  moved=dict(bases[0],position=[5000.2,bases[0]['position'][1],-5400]);r=request('/combat/session/update',moved)
  check(r['mutation']['movement_accepted'] and abs(r['snapshot']['player']['position'][0]-5000.2)<.01,'Player can locomote immediately during healing recovery')
- try:call(0,'heal',item_id=tool['id'],ability='healdamage',target_id=fixtures[1]['id'])
+ try:call(0,'medical_item',item_id=pack['id'],target_id=fixtures[1]['id'],pose=tracking(bases[0]['position']))
  except urllib.error.HTTPError as e:check(e.code==400,'Native recovery rejects premature healing')
  else:raise AssertionError('Early heal accepted')
- r=call(0,'return_tool',item_id=tool['id']);check(r['state']['selected']=='healdamage','Medical selection persists when returned to inventory')
+ r=call(0,'return_tool',item_id=tool['id']);check(r['state']['selected']=='tenddamage','Medical selection persists when returned to inventory')
+ recovery=next(a['cooldown_seconds']for a in r['state']['abilities']if a['id']=='tenddamage')
+ if recovery>0:time.sleep(recovery+.2)
  call(0,'select',item_id=tool['id'],ability='tenddamage');r=call(0,'heal',item_id=tool['id'],ability='tenddamage',target_id=fixtures[1]['id']);check(r['mutation']['success'],'Tend uses its own native command and supplies')
  console('runLuaFunction Tests:swgxrMedicDamage:'+fixtures[1]['id']);time.sleep(.2)
  damage=request('/combat/session?'+urllib.parse.urlencode({k:v for k,v in bases[1].items() if k!='position'}))['snapshot']['player'];check(damage['vital_feedback']['damage']>after['vital_feedback']['damage'],'Actual native damage creates recipient screen event')
@@ -70,16 +72,15 @@ try:
  check(call(1,'status')['state']['drag']['owner']=='','Releasing grip clears drag owner')
  console('runLuaFunction Tests:swgxrMedicFixture:'+fixtures[1]['id'])
  console('runLuaFunction Tests:swgxrMedicArea:'+fixtures[0]['id']);time.sleep(.3)
- area=call(0,'status')['state'];pack=next(a for a in area['abilities'] if a['id']=='healdamage')
+ area=call(0,'status')['state'];pack=next(i for i in area['inventory']['items'] if i.get('medical_ranged') and i.get('medical_area_m',0)>0)
  deadline=time.monotonic()+8
- while pack['area_radius_m']!=15 and time.monotonic()<deadline:
-  time.sleep(.25);area=call(0,'status')['state'];pack=next(a for a in area['abilities'] if a['id']=='healdamage')
- check(pack['area_radius_m']==15,'AoE ring radius is read from original native area stim template')
- call(0,'select',item_id=tool['id'],ability='healdamage')
- remaining=pack['cooldown_seconds']
+ while pack['medical_area_m']!=15 and time.monotonic()<deadline:
+  time.sleep(.25);area=call(0,'status')['state'];pack=next(i for i in area['inventory']['items'] if i.get('medical_ranged') and i.get('medical_area_m',0)>0)
+ check(pack['medical_area_m']==15,'AoE ring radius is read from original native area stim template')
+ remaining=area['medical_item_cooldowns']['healdamage']
  if remaining>0:time.sleep(min(25,remaining+.15))
  before_area=call(1,'status')['state']['vital_feedback']['heal']
- r=call(0,'heal',item_id=tool['id'],ability='healdamage',target_id=fixtures[1]['id'])
+ r=call(0,'medical_item',item_id=pack['id'],target_id=fixtures[1]['id'],pose=tracking(bases[0]['position']))
  check(r['state']['vital_feedback']['heal']>0,'Native area healing reaches caster as additional eligible recipient')
  check(call(1,'status')['state']['vital_feedback']['heal']>before_area,'Native area heal also notifies primary recipient')
  passed=True

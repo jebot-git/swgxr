@@ -258,7 +258,12 @@ public authentication service. Core3 applies its normal name and creation limits
 In desktop inspection mode, move with **WASD**, look with the **mouse**, run with **Shift**, and use
 **Space** for a cosmetic jump or knockdown recovery. Jump raises the view without lifting the
 collision body. Open the menu with **Esc**, and reset to the entry point with **R**.
-In VR, click the **offhand stick** to jump/recover; the weapon-hand stick selects abilities.
+In VR, click the **offhand stick** to jump/recover. With a ranged weapon, click
+the **weapon-hand stick** while aiming at an eligible creature to show local
+holographic ability targets. Shoot the head marker for Concussion, heart for
+Lethal Shot, pelvis for Low Blow, or knees for Restraining Shot. Only usable
+abilities appear; scenery hides obstructed points. Hold the weapon with both
+hands and press **both triggers** for Last Ditch. Combat remains in real time.
 With empty hands, choose a learned dance from the weapon-hand stick radial. Spread
 both arms at chest height with open palms facing down, then make repeated circular
 or wavy motions with both hands. Dancing uses no ribbon or other prop. Holding fists,
@@ -277,6 +282,10 @@ played in place. Retrieve a carried instrument through the inventory’s **Equip
 items** view and **Return to inventory**, or grip it there after Core3 confirms
 unequipping it. An instrument merely held from inventory cannot start music.
 Original performance sessions own XP; the presentation bus never grants skills or XP.
+Image Design can be opened by holding a two-hand thumb/index frame near eye level
+for 0.8 seconds. Form opposite L corners with free hands; controllers approximate
+this with grip held, thumb/index off the controls, and opposite corner orientations.
+The gesture opens the recipient selector; native permissions and consent still apply.
 Audience presence still reports `buff_applied: false`: native watch/listen audience
 buff integration is outside this unlock-and-options milestone.
 
@@ -629,7 +638,9 @@ Scout VR controls and native authority are documented in [SCOUT_PROTOCOL.md](ser
 
 The basic Medic VR focus now has an independent offhand healing wheel and
 reticle. Point at the first eligible recipient (including your own body), then
-press the offhand trigger. Healing leaves locomotion available. Native area stims
+tap/release the offhand trigger for Tend Damage or hold it for 0.65 seconds for
+Quick Heal. A hold fires only Quick Heal; no wheel selection is needed. Explicit
+First Aid selection retains its short-trigger fallback. Healing leaves locomotion available. Native area stims
 show a ground perimeter, while recipients see restrained local healing/damage
 pulses. See `server/README.md` under “Basic Medic and recipient feedback” for
 controls, native requirements, validation and current drag limitations.

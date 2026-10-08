@@ -4,6 +4,7 @@ const HandInput = preload("res://scripts/tracked_hand_input.gd")
 var assets = preload("res://entertainment/assets.gd").new()
 var native:Node
 var gestures = preload("res://entertainment/gestures.gd").new()
+var clap = preload("res://entertainment/clap.gd").new()
 var motion := SwgPerformanceGesture.new()
 var models = preload("res://scripts/inventory_assets.gd").new()
 var host: Node
@@ -78,7 +79,7 @@ func reset() -> void:
 	if is_instance_valid(held_model): held_model.queue_free()
 	held_model = null
 	if is_instance_valid(ui): ui.close(); ui.update_badge({},false,0,Vector3.ZERO,false)
-	motion.reset(); gestures.reset()
+	motion.reset(); gestures.reset(); clap.reset()
 
 func clear_presentation() -> void:
 	for node in circles.values(): if is_instance_valid(node): node.queue_free()
@@ -201,6 +202,11 @@ func flourish() -> bool:
 	queue_action("flourish")
 	return true
 
+func sample_clap(delta: float, left: Transform3D, right: Transform3D, tracked: bool) -> void:
+	var permitted: bool=tracked and owns_controls() and is_performing() and not ui.menu_open
+	if is_instance_valid(host) and host.get("xr_requested")==true and host.get("xr_focused")!=true: permitted=false
+	if clap.sample(delta,head.global_transform,left,right,permitted): flourish()
+
 func sample_menu(click: bool, stick: Vector2, a_pressed: bool, tracked: bool) -> void:
 	var permitted: bool = owns_controls() and tracked and not body.feedback.combat_blocked()
 	if not permitted:
@@ -234,7 +240,8 @@ func sample_menu(click: bool, stick: Vector2, a_pressed: bool, tracked: bool) ->
 		body.set_combat_capture(dominant() if ui.menu_open or stick_latched else "",true)
 
 func _physics_process(delta: float) -> void:
-	if not is_instance_valid(body) or not body.active:return
+	if not is_instance_valid(body) or not body.active:
+		clap.reset();return
 	server_clock += delta; since_reply += delta; poll_time += delta
 	if since_reply > 3:
 		active_performance = {}; clip_key = ""; clear_presentation()
@@ -255,10 +262,13 @@ func _physics_process(delta: float) -> void:
 				queue_action("perform",{"performance_id":selected.id}); primed=false
 		var near := nearest_band()
 		var left: XRController3D = origin.get_node("LeftHand")
+		sample_clap(delta,left.global_transform,right.global_transform,tracked and HandInput.controller_tracked(off))
 		if gestures.join_sample(delta,not near.is_empty() and str(state.get("band_id","")).is_empty() and permitted,
 			gestures.thumbs_up(left,"left"),gestures.thumbs_up(right,"right"),tracked and HandInput.controller_tracked(off)):
 			queue_action("join",{"band_id":near.id})
-	else: tracked = body.active # Desktop debug input never fabricates a physical gesture.
+	else:
+		clap.reset()
+		tracked = body.active # Desktop debug input never fabricates a physical gesture.
 	if not token.is_empty() and poll_time >= 0.2 and not pending:
 		poll_time = 0
 		send_update(tracked and body.active and not body.feedback.combat_blocked())

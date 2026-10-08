@@ -1,6 +1,7 @@
 #ifndef SWGXR_SPICE_MEDICINE_H
 #define SWGXR_SPICE_MEDICINE_H
 #include "SwgxrSpice.h"
+#include "CoreCuMedicalPolicy.h"
 #include "SwgxrVitalFeedback.h"
 #include "server/zone/Zone.h"
 #include "server/zone/packets/object/PlayClientEffectObjectMessage.h"
@@ -12,10 +13,10 @@ class SwgxrSpiceMedicine {
 public:
  static CreatureObject* actor(TangibleObject* healer){return healer && healer->isCreatureObject()?healer->asCreatureObject():nullptr;}
  static bool inverted(CreatureObject* healer){return SwgxrSpice::withdrawing(healer,"crash_n_burn");}
- static int power(TangibleObject* healer,int amount){auto c=actor(healer);if(amount>0 && SwgxrVitalFeedback::medical() && SwgxrSpice::active(c,"crash_n_burn"))return int(std::min<long long>(std::numeric_limits<int>::max()/2,3LL*amount));return amount;}
+ static int power(TangibleObject* healer,int amount){auto c=actor(healer);if(amount>0 && SwgxrVitalFeedback::medical() && SwgxrSpice::active(c,"crash_n_burn"))return corecu::medicine::spiceHealing(amount);return amount;}
  static bool reverse(CreatureObject* target,TangibleObject* healer,int attribute,int amount,bool notify){
   auto c=actor(healer);if(amount<=0 || !SwgxrVitalFeedback::medical() || !inverted(c))return false;
-  const int pool=attribute-attribute%3;
+  const int pool=target->isPlayerCreature()?0:attribute-attribute%3;
   target->inflictDamage(healer,pool,amount,true,notify,false);
   // The actor retains the healing presentation, even for self-treatment. The
   // recipient's real damage event and actual HAM are never hidden from others.

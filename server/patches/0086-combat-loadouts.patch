@@ -1,0 +1,124 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -13,6 +13,7 @@
+ #include "SwgxrPlanets.h"
+ #include "AttackCommand.h"
+ #include "SwgxrSmuggler.h"
++#include "SwgxrCombatLoadout.h"
+ #include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
+ #include "server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+@@ -149,7 +150,7 @@
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"kind",weapon->isMeleeWeapon()?"melee":"ranged"},{"unarmed",weapon->isUnarmedWeapon()},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+-  if(!profile.is_null())out["weapon"]["abilities"]=weapon->isMeleeWeapon()?Json::array():SwgxrSmuggler::abilities(c);
++  if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+@@ -195,6 +196,7 @@
+    if(request.value("ready",false) && (!s.ready || c->getPlayerObject()->isOnLoadScreen())){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;
+   }
+   if(SwgxrSmuggler::feigning(c) && verb!="snapshot" && verb!="inventory" && verb!="replication" && verb!="services" && verb!="session" && !(verb=="medic" && request.at("medic").value("action",std::string("status"))=="status"))throw std::runtime_error("native_player_feigning");
++  if(verb=="loadout"){if(!s.ready || !s.transport.empty())throw std::runtime_error("session_not_ready");return SwgxrCombatLoadout::change(c,request);}
+   if(verb=="snapshot")return result;
+   if(verb=="inventory")return {{"inventory",SwgxrInventory::snapshot(c,String(request.value("inventory_command",std::string("swgxr_inventory_v1")).c_str()))}};
+   if(verb=="replication")return replication(c,request);
+@@ -280,6 +282,7 @@
+    auto weapon=c->getWeapon();if(weapon==nullptr || !weapon->isRangedWeapon() || id(weapon)!=request.at("item_id").get<std::string>() || !weapon->isASubChildOf(c))throw std::runtime_error("weapon_identity_mismatch");if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);double length=distance(direction,Json::array({0,0,0}));if(length<.9 || length>1.1 || distance(origin,position(c))>SwgxrVehicles::launchReach(c))throw std::runtime_error("invalid_launch_pose");for(int axis=0;axis<3;++axis)direction[axis]=direction[axis].get<double>()/length;
+    auto ability=request.value("ability_id",std::string());auto skill=SwgxrSmuggler::command(c,ability);
++   if(!SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_ability_not_equipped");
+    if(!SwgxrSmuggler::learned(c,ability))throw std::runtime_error("native_ability_not_learned");
+    if(!(skill->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_ability_wrong_weapon");
+    if(!ability.empty() && SwgxrSmuggler::cooldown(c,ability)>0)throw std::runtime_error("native_ability_cooldown");
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatLoadout.h
+@@ -0,0 +1,62 @@
++#pragma once
++#include "CoreCuLoadoutPolicy.h"
++#include "SwgxrSmuggler.h"
++class SwgxrCombatLoadout {
++ using Json=JSONSerializationType;
++public:
++ static std::string family(CreatureObject* c){
++  auto w=c->getWeapon();if(!w)return "unarmed";
++  if(w->isUnarmedWeapon())return "unarmed";
++  if(w->isPistolWeapon())return "pistols";
++  if(w->isCarbineWeapon())return "carbines";
++  if(w->isHeavyWeapon() || w->isFlameThrower() || w->isLightningRifle() || w->isHeavyAcidRifle())return "heavy";
++  if(w->isRifleWeapon())return "rifles";
++  if(w->isJediOneHandedWeapon())return "1h_lightsaber";
++  if(w->isJediTwoHandedWeapon())return "2h_lightsaber";
++  if(w->isJediPolearmWeapon())return "polearm_lightsaber";
++  if(w->isOneHandMeleeWeapon())return "1h_melee";
++  if(w->isTwoHandMeleeWeapon())return "2h_melee";
++  if(w->isPolearmWeaponObject())return "polearms";
++  return "other";
++ }
++ static Json empty(){return {{"slots",Json::array({"","","",""})},{"ultimate",""},{"revision",0}};}
++ static Json saved(CreatureObject* c){
++  auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_combat_loadout",String(family(c).c_str()));
++  return raw.isEmpty()?empty():Json::parse(raw.toCharArray());
++ }
++ static corecu::CombatLoadout selection(const Json& value){
++  corecu::CombatLoadout result;
++  if(!value.at("slots").is_array() || value.at("slots").size()!=4)throw std::runtime_error("loadout_requires_four_slots");
++  for(int i=0;i<4;++i)result.slots[i]=value.at("slots")[i].get<std::string>();
++  result.ultimate=value.at("ultimate").get<std::string>();return result;
++ }
++ static Json snapshot(CreatureObject* c,const Json& catalog){
++  auto out=saved(c);out["family"]=family(c);
++  // Lost skills leave empty usable slots; stored preferences never grant skills.
++  std::set<std::string> regular,ultimate;
++  for(const auto& row:catalog)(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
++  for(auto& id:out["slots"])if(!regular.count(id.get<std::string>()))id="";
++  if(!ultimate.count(out["ultimate"].get<std::string>()))out["ultimate"]="";
++  return out;
++ }
++ static Json equipped(CreatureObject* c,const Json& catalog){
++  auto selected=selection(snapshot(c,catalog));Json out=Json::array();
++  for(const auto& row:catalog)if(selected.contains(row.at("id").get<std::string>()))out.push_back(row);
++  return out;
++ }
++ static bool allows(CreatureObject* c,const std::string& id){
++  return id.empty() || selection(snapshot(c,SwgxrSmuggler::abilities(c))).contains(id);
++ }
++ static Json change(CreatureObject* c,const Json& request){
++  auto w=c->getWeapon();const auto& q=request.at("loadout");
++  if(!w || std::to_string(w->getObjectID())!=request.at("item_id").get<std::string>() || family(c)!=q.at("family").get<std::string>())throw std::runtime_error("loadout_weapon_changed");
++  if(c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
++  auto old=saved(c);if(q.at("revision")!=old.at("revision"))throw std::runtime_error("loadout_revision_changed");
++  auto selected=selection(q);std::set<std::string> regular,ultimate;
++  for(const auto& row:SwgxrSmuggler::abilities(c))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
++  if(!selected.valid(regular,ultimate))throw std::runtime_error("loadout_ability_not_eligible");
++  Json value={{"slots",q.at("slots")},{"ultimate",selected.ultimate},{"revision",old.at("revision").get<uint64>()+1}};
++  c->getPlayerObject()->setScreenPlayData("swgxr_combat_loadout",String(family(c).c_str()),String(value.dump().c_str()));
++  return {{"success",true},{"operation","loadout"}};
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
+@@ -0,0 +1,21 @@
++#pragma once
++#include <array>
++#include <set>
++#include <string>
++namespace corecu {
++struct CombatLoadout {
++ std::array<std::string,4> slots{};
++ std::string ultimate;
++ bool contains(const std::string& id) const {
++  if(id.empty())return false;
++  if(ultimate==id)return true;
++  for(const auto& value:slots)if(value==id)return true;
++  return false;
++ }
++ bool valid(const std::set<std::string>& regular,const std::set<std::string>& ultimates) const {
++  std::set<std::string> seen;
++  for(const auto& id:slots)if(!id.empty() && (!regular.count(id) || !seen.insert(id).second))return false;
++  return ultimate.empty() || ultimates.count(ultimate);
++ }
++};
++}

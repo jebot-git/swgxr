@@ -7,6 +7,7 @@ var bag: Node3D
 var state: Dictionary={}
 var dna_input=preload("res://bioengineer/sampling.gd").new()
 var gestures=preload("res://scout/gestures.gd").new()
+var mask_gesture=preload("res://scout/mask_scent_gesture.gd").new()
 var movement: Node3D
 var busy:=false
 var next_poll:=0.0
@@ -38,6 +39,7 @@ func reset() -> void:
 	if is_instance_valid(ranger):ranger.reset()
 	if is_instance_valid(inspection):inspection.reset()
 	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();dna_input.reset();camp_id="";cooldown_queue.clear()
+	mask_gesture.reset()
 	var terrain:Variant=app.get("terrain")
 	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):terrain.set_modification_group("camps",[])
 	for node in models.values():node.queue_free()
@@ -92,11 +94,33 @@ func select_mask() -> void:
 func selection_replaced(previous: Dictionary, was_primed: bool) -> void:
 	if was_primed and previous.get("id","")=="mask_scent": cooldown_queue.append("discard_mask_scent")
 	if was_primed and previous.get("id","")=="sample_dna": cooldown_queue.append("discard_sample_dna")
-func activate_mask() -> void:
-	if busy or mask_entry().is_empty() or body.combat_pools.selected!="mask_scent" or not body.combat_pools.primed: return
+func activate_mask(from_gesture: bool = false) -> void:
+	if busy or not cooldown_queue.is_empty() or mask_entry().is_empty(): return
+	if not from_gesture and (body.combat_pools.selected!="mask_scent" or not body.combat_pools.primed): return
+	if from_gesture and state.get("mask_scent_active",false): return
 	if float(body.combat_pools.cooldowns.get("mask_scent",0))>0: return
-	body.combat_pools.primed=false
+	if body.combat_pools.selected=="mask_scent": body.combat_pools.primed=false
 	request("mask_scent")
+
+func sample_mask_gesture(delta: float, left: XRController3D, right: XRController3D) -> void:
+	var permitted: bool=app.world_ready and not app.loading_stage and not app.session_leaving and body.active and not body.feedback.combat_blocked() and bag.allowed and not blocks_interactions()
+	if bool(app.get("xr_requested")) and not bool(app.get("xr_focused")): permitted=false
+	var tracker=XRServer.get_tracker("head")
+	var pose: XRPose=tracker.get_pose("default") if tracker!=null else null
+	permitted=permitted and pose!=null and pose.has_tracking_data and HandInput.controller_tracked(left) and HandInput.controller_tracked(right)
+	# Reuse the free-hand gates for tools, weapons, wallet, UI, performance and
+	# vehicle controls; rubbing never captures a trigger or drops a held item.
+	var services: Variant=app.get("services")
+	permitted=permitted and is_instance_valid(services) and services.party_hand_free("left") and services.party_hand_free("right")
+	var avatar: Variant=app.get("tracked_avatar")
+	var skeleton: Skeleton3D=avatar.skeleton if is_instance_valid(avatar) else null
+	var left_arm: Dictionary=mask_gesture.forearm(skeleton,"left")
+	var right_arm: Dictionary=mask_gesture.forearm(skeleton,"right")
+	permitted=permitted and not left_arm.is_empty() and not right_arm.is_empty()
+	# An open rubbing hand keeps this distinct from fist/minimap gestures.
+	if left.get_float("grip")>=0.65 or left.get_float("trigger")>=0.65: right_arm={}
+	if right.get_float("grip")>=0.65 or right.get_float("trigger")>=0.65: left_arm={}
+	if mask_gesture.sample(delta,left.global_position,right.global_position,left_arm,right_arm,permitted): activate_mask(true)
 func source_position() -> Array:
 	var p: Vector3=app.source_position_at(body.global_position);return [p.x,p.y,p.z]
 func world(p: Array) -> Vector3:
@@ -274,16 +298,19 @@ func update_camp_ui() -> void:
 	var hand: XRController3D=rig.get_node(("RightHand" if offhand=="left" else "LeftHand"))
 	update_pointer(find_hit(bag.pointing_pose(hand)),hand.get_float("trigger"))
 func _process(delta: float) -> void:
-	if not is_instance_valid(app) or not app.world_ready:return
-	if app.get("live_combat_reserved")==true and (not is_instance_valid(app.live_combat) or not app.live_combat.live):return
+	if not is_instance_valid(app) or not app.world_ready:
+		mask_gesture.sample(delta,Vector3.ZERO,Vector3.ZERO,{},{},false);return
+	if app.get("live_combat_reserved")==true and (not is_instance_valid(app.live_combat) or not app.live_combat.live):
+		mask_gesture.sample(delta,Vector3.ZERO,Vector3.ZERO,{},{},false);return
 	if epoch!=app.datapad_epoch:reset()
 	last_reply+=delta;next_poll-=delta
 	if is_instance_valid(app.combat_rig):app.combat_rig.scout=self
+	var head: Node3D=rig.get_node("XRCamera3D");var left: XRController3D=rig.get_node("LeftHand");var right: XRController3D=rig.get_node("RightHand")
+	var tracked: bool=bag.allowed and HandInput.controller_tracked(left) and HandInput.controller_tracked(right)
+	sample_mask_gesture(delta,left,right)
 	if not busy and not app.inventory_request_pending and not bag.action_pending:
 		if not cooldown_queue.is_empty():request(cooldown_queue.pop_front())
 		elif next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("scout")):next_poll=5;request("ranger_status")
-	var head: Node3D=rig.get_node("XRCamera3D");var left: XRController3D=rig.get_node("LeftHand");var right: XRController3D=rig.get_node("RightHand")
-	var tracked: bool=bag.allowed and HandInput.controller_tracked(left) and HandInput.controller_tracked(right)
 	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)
 	var main: XRController3D=right if offhand=="left" else left
 	gestures.sample_throw(delta,head.global_transform,main.global_position,tracked and trap_held())

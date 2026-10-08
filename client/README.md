@@ -521,3 +521,90 @@ circle for every profession. It uses native group removal and does not consume
 an armed combat ability. `tests/party_bump_smoke.gd` covers both tracked hands,
 wallet exclusion, receipt suppression, native acknowledgement and circle access
 with mocked tracking/transport; it does not validate headset interaction.
+
+### Mask Scent gesture
+
+With both hands free, rub an open hand back and forth along the opposite
+forearm as if applying lotion. Either arm works; three strokes of roughly
+9 cm over at least 0.65 seconds activate the learned Mask Scent ability.
+Release grip/trigger on the rubbing hand. No circle selection is required;
+the existing circle/A activation remains available. Move hands clear of the
+forearms for 0.35 seconds before repeating.
+
+The recognizer follows the original avatar's IK forearm, allows controller
+clearance, and ignores brief touches, hand-to-hand rubbing and small jitter.
+Held tools/weapons, interfaces, performance, vehicle controls, lost tracking
+and unavailable gameplay input block it. Core3 retains skill, cost and cooldown
+authority; the gesture does not replace another prepared ability.
+
+`tests/mask_scent_gesture_smoke.gd` covers both arms, 45–120 Hz, locomotion/turning,
+negative motions, release/tracking behavior and production controller routing
+with mocked tracking and transport. It does not validate live headset ergonomics.
+
+Validation (2026-10-08): clean headless editor import; 36 Mask Scent checks,
+19 Scout checks, 50 combat-input checks and 30 gesture-arbitration checks passed
+with `--xr-mode off` and the dummy renderer. No live VR launch was performed.
+
+### Entertainer flourish gesture
+
+Clap once in front of your torso while dancing or playing an instrument to
+request a random learned flourish through the existing native ability path.
+Separate hands by about 32 cm, then bring both inward with palms facing each
+other; registration occurs at about 16 cm, allowing controller clearance.
+Hands must separate again for another clap. A remains available.
+
+The recognizer reads actual controller poses even when instrument visuals
+constrain the rendered hands. Idle/expired performance, open interfaces,
+lost tracking/focus, one-handed taps and held contact do not trigger it.
+Native costs and recovery remain authoritative.
+
+Validation (2026-10-08): clean headless editor import, 24 clap recognizer/routing
+checks, 749 entertainer checks and 30 gesture-arbitration checks passed with
+`--xr-mode off` and the dummy renderer. Live headset ergonomics are untested.
+
+First Aid also uses a bandaging motion: with free hands, wrap an open hand around a nearby bleeding player's forearm or your opposite forearm, roughly four-fifths of a turn over at least 0.6 seconds. Move away to rearm. It shares native First Aid costs and recovery; the medical focus remains an alternative. Health is now the survival pool, with Action/Mind reserved for resources; see [the first CU medical balance pass](../docs/CORECU_COMBAT.md).
+
+Health Wound Medpacks are held inventory items: touch yourself or a nearby patient with the pack and trigger. The exact pack supplies one charge on confirmed native success. Diagnose and separate Heal/Tend Wound selections are retired. Only Health can receive player wounds; obsolete wound supplies and recipes are removed. See the [medical dependency audit](../docs/CORECU_COMBAT.md).
+
+Medical inventory supplies now include stims, ranged/area stims, antidotes, fire blankets, state cures, Doctor enhancements and resuscitation kits. Hold a supply against an eligible patient and trigger; ranged stims also support aiming. The native server chooses the treatment from the exact item, pays resources, and consumes one charge on success. With the medical focus, aim and tap/release trigger for Tend Damage, or hold trigger for 0.65 seconds for Quick Heal. A hold fires once and never casts Tend Damage first. No wheel selection is needed for these two actions; explicitly selecting First Aid keeps its short-trigger fallback. Food/drink now use bounded CU-inspired bonuses and a shared restoration cooldown; see [balance details](../docs/CORECU_COMBAT.md).
+
+Companion medical supplies: hold a pet stim or droid repair/reconstruction kit, touch the corresponding creature/droid model and trigger. The server applies the current Health-only treatment and shared recovery rules; ordinary organic medicine cannot repair droids.
+
+Image Design starts by holding two opposing thumb/index L shapes as a frame near eye level for 0.8 seconds. Either diagonal works. With optical tracking, extend thumb/index and curl the other fingers; with controllers, hold grip, lift thumb/index off their controls, and orient the grips as opposite frame corners. Both hands must be free. The frame opens the existing recipient selector, preserving native permissions and recipient consent. Lower or open the frame to rearm; losing tracking/focus cannot repeat a completed hold. Circle-menu access remains. Pet/droid commands intentionally remain in their circle menu.
+
+`tests/image_frame_smoke.gd` and `tests/medical_focus_trigger_smoke.gd` cover mocked input, frame-rate variation, one-shot activation, interruption, permissions, and production routing. Run headless with `--xr-mode off`; these checks use the dummy renderer and do not validate live headset behavior.
+
+Ranged combat abilities now use player-local target markers instead of circle
+selection and A-to-prime. Click the weapon-hand stick while aiming at an eligible
+creature, then shoot the desired marker: head/Concussion, heart/Lethal Shot,
+pelvis/Low Blow, knees/Restraining Shot. A second click on that creature closes
+the overlay; clicking a different creature changes targets. Markers follow posed
+bones or source bounds, share a world-space plane at target depth, and use normal
+depth testing plus scenery/shot-path occlusion. Unavailable abilities disappear.
+Last Ditch uses both triggers with both hands physically at the weapon; both
+triggers must be released to rearm. The native server still owns cost, cooldown,
+range, skill, weapon restrictions, impact and damage. No pause or slowdown occurs.
+
+Validation: `tests/target_abilities_smoke.gd` covers geometry, occlusion, availability,
+trigger timing and production weapon routing; `tests/gameplay_combat_smoke.gd`
+covers explicit ability/target transport. `tests/target_abilities_capture.gd`
+renders original assets with mocked state using desktop Forward+ Vulkan and XR off.
+
+### Weapon-family ability equipment
+
+Open the equipment hologram, then click the physical right joystick to switch to
+the loadout editor. Four combat slots sit above the avatar; the left pane holds a
+paged ability grid with a separate ultimate row, and the right pane explains the
+pointed-at ability. Grip-drag regular abilities to slots, swap occupied slots by
+dragging, or return them to the grid to clear. Trigger-click an ultimate to select
+it (click again to clear). Click the right stick again to return to equipment.
+
+The current native weapon snapshot supplies the family, learned compatible
+catalog and saved 4+1 selection. Changes wait for Core3 confirmation. Confirmed
+slots draw lines to source-avatar body anchors; tracking loss, stale weapon
+changes and invalid drops cancel drag state. Combat is captured while editing.
+The same family shares selections across weapon instances; other families retain
+independent Core3 selections. No client file grants or persists RPG abilities.
+Empty native melee catalogs are displayed explicitly. Run
+`combat_loadout_smoke.gd` with the dummy renderer and `--xr-mode off`; the optional
+`combat_loadout_capture.gd` uses desktop Forward+ Vulkan and mocked native state.

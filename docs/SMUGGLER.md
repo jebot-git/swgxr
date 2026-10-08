@@ -23,18 +23,32 @@ bones; tracked head/hands and the physics body retain their existing authorities
 
 ## Ranged abilities
 
-Use the existing select, arm, fire workflow. Core3 validates learned skills,
+Click the weapon-hand joystick while aiming at an eligible creature to show local
+holographic body-part targets. Shoot a marker to use its ability on that creature:
+head = Concussion Shot Improved, heart = Lethal Shot, pelvis = Low Blow, knees =
+Restraining Shot. The markers share a target-depth plane, follow current body
+bones (source bounds are the fallback), and are hidden where scenery blocks the
+view or shot path. Cooldown, SAC, state, certification and range checks filter
+availability. Combat continues in real time, without selection or priming.
+
+Last Ditch uses a physical two-hand weapon hold plus both triggers, aimed at the
+creature or one of its visible markers. A 120 ms chord window tolerates slightly
+uneven presses without firing an ordinary shot first. Release both triggers to
+rearm. It does not appear among the ordinary body markers. Future native-granted
+ultimates can use the same input metadata; Last Ditch is the currently enabled one.
+
+Core3 validates learned skills,
 weapon restrictions, cooldowns and HAM at launch and records the ability with the
 shot. A miss still consumes the launched ability; impact retries cannot consume
 it twice. Original Low Blow retains its native command and weapon restrictions.
 
-Last Ditch samples current/max health, action and mind **before** draining action
+Last Ditch samples current/effective-max health, action and mind **before** draining action
 and mind to one point each. Its damage multiplier is:
 
-`2 + (1 − health/max_health) + (1 − action/max_action) + (1 − mind/max_mind)`
+`2 + 2 × (1 − health/effective_max_health) + 0.5 × (1 − action/effective_max_action) + 0.5 × (1 − mind/effective_max_mind)`
 
-Thus 30% health, 10% action and 3% mind yield `4.57×` base damage. This value stays
-with the projectile even if HAM changes before impact.
+Thus 30% health, 10% action and 3% mind yield `4.335×` base damage. This value stays
+with the projectile even if HAM changes before impact. Both resources must exceed 1 to launch. This supersedes the initial equal-weight formula under the user-authorized CU balance pass.
 
 Restraining Shot is granted at Novice Smuggler; Concussion Shot Improved at
 Master. Initial tuning explicitly approved by the user on 2026-10-06 is a 25%
@@ -146,7 +160,7 @@ corpse ownership rules remain in force. The bonus chance is configurable through
 ## Spices
 
 Spices are crafted through the native schematics and consumed from the existing
-inventory. Original templates retain their HAM modifiers and active durations.
+inventory. Original templates retain their active durations. New consumptions scale each HAM modifier to `base × clamp(legacy / 4000, -0.25, 0.25)`; see [medical/resource balance](CORECU_COMBAT.md).
 Native persistent buffs own phase timing and the one-spice restriction. The new
 withdrawal durations below replace the original generic downer duration; the
 existing food modifier for reduced spice downtime still applies. Death
@@ -164,7 +178,7 @@ uses the existing native buff-clearing rules.
 | Zypolene Droid Lubricant | Power and stance recovery ×1.2 | Both ×0.5, darkening in 30-second cycles, 3 minutes |
 | Gunjack | Capacity and rate of fire ×1.2 | Both ×0.5, the same darkening, 3 minutes |
 | Pyrepenol | Melee damage ×1.25; forward 180° melee area attacks within weapon range; crimson view | NPCs appear aggressive locally and on the radar, 5 minutes |
-| Crash and Burn | Healing from items and abilities ×3 | Outgoing healing becomes equal damage while the healer still sees healing feedback, 5 minutes |
+| Crash and Burn | Healing from items and abilities ×1.5 | Outgoing healing becomes equal Health damage for players while the healer still sees healing feedback, 5 minutes |
 | Sedative H4b | Primary HAM cannot fall below 1 and ordinary damage cannot incapacitate; noisy view | Immediate incapacitation and primary HAM fixed at 1/1/1, 5 minutes |
 | Neutron Pixie | Entertainer wound healing and inspiration strength ×2; slight pink tint | Dance or music attempts knock down the performer; slight blue tint, 10 minutes |
 | Muon Gold | Experimentation always yields native Amazing Success; slight yellow tint | Experimentation always yields Critical Failure; local hands shake, 1 hour |

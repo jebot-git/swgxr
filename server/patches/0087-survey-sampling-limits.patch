@@ -1,0 +1,143 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -11,6 +11,8 @@
+ #include "server/zone/objects/waypoint/WaypointObject.h"
+ #include "templates/manager/TemplateManager.h"
+ #include "templates/params/ObserverEventType.h"
++#include "SwgxrSamplingPolicy.h"
++#include <set>
+ #include <ctime>
+ #include <cmath>
+ class SwgxrGathering {
+@@ -58,32 +60,25 @@
+   return std::max(threshold,units/(reliable?25.f:28.f));
+  }
+  static void settle(CreatureObject* c,Json& s){
+-  const int64 now=std::time(nullptr);int budget=1024;
++  const int64 now=std::time(nullptr);int budget=1024;std::set<int> activeTypes;
+   for(auto& dep:s["deployments"]){
+    if(dep.value("state",std::string())=="collected")continue;
++   auto tool=object(c,dep["tool_id"].get<std::string>()).castTo<SurveyTool*>();
++   if(tool==nullptr)throw std::runtime_error("Persistent deployed survey tool missing");
++   const int type=tool->getToolType();dep["tool_type"]=type;dep["capacity"]=ResourceContainer::MAXSIZE;
++   // Keep pre-policy duplicates recoverable, but only the oldest of a type samples.
++   if(!activeTypes.insert(type).second){swgxr_sampling::pause(dep,"duplicate_type");continue;}
+    auto spawn=object(c,dep["resource_id"].get<std::string>()).castTo<ResourceSpawn*>();
+    if(spawn==nullptr)throw std::runtime_error("Persistent resource anchor lost; collection is blocked safely");
+-   const int64 end=std::min<int64>(now,spawn->getDespawned());int64 next=dep["next_sample_at_unix"].get<int64>();
+-   const float density=dep["density"].get<float>();const int skill=dep["surveying_skill"].get<int>();int unitsTotal=0,xpTotal=0;
+-   while(next<=end && budget>0){--budget;next+=25;dep["cycles"]=dep.value("cycles",int64(0))+1;
+-    // ResourceSpawner::sendSampleResults baseline. Source samplingMultiplier=1.
+-    dep["last_sample_units"]=0;dep["last_sample_at_unix"]=next-25;
+-    if(density<.10f || density*100<(32-(skill/20)*6)){dep["sample_status"]="density_below_threshold";continue;}
+-    float rate=skill*density+System::random(100)+dep["sample_rate_modifier"].get<int>();if(rate<40){dep["sample_status"]="sample_failed";continue;}
+-    int maximum=int(density*(25+System::random(3)));float city=1.f+dep["sample_size_modifier"].get<int>()/100.f;
+-    int units=maximum*(float(skill)/100.f)*city;dep["last_sample_units"]=units;if(units<2){dep["sample_status"]="trace_amount";continue;}
+-    dep["sample_status"]="sample_located";
+-    unitsTotal+=units;xpTotal+=int(float(units)/float(maximum)*40);dep["successful_cycles"]=dep.value("successful_cycles",int64(0))+1;
+-   }
+-   dep["next_sample_at_unix"]=next;
+-   if(unitsTotal>0){Locker spawnLock(spawn,c);spawn->extractResource(String(dep.value("planet",std::string("tatooine")).c_str()),unitsTotal);dep["quantity"]=dep.value("quantity",int64(0))+unitsTotal;c->getZoneServer()->getPlayerManager()->awardExperience(c,"resource_harvesting_inorganic",xpTotal,true);dep["awarded_xp"]=dep.value("awarded_xp",int64(0))+xpTotal;}
+-   bool pending=next<=end;dep["settlement_pending"]=pending;dep["state"]=pending?"settling":now>=int64(spawn->getDespawned())?"expired":"sampling";
+-   if(!pending)checkpointSkills(c,dep);
++   if(dep.value("state",std::string())=="duplicate_type")dep["next_sample_at_unix"]=now+3;
++   const auto result=swgxr_sampling::advance(dep,now,spawn->getDespawned(),ResourceContainer::MAXSIZE,budget,[](int maximum){return System::random(maximum);});
++   if(result.units>0){Locker spawnLock(spawn,c);spawn->extractResource(String(dep.value("planet",std::string("tatooine")).c_str()),result.units);c->getZoneServer()->getPlayerManager()->awardExperience(c,"resource_harvesting_inorganic",result.xp,true);}
++   if(!dep.value("settlement_pending",false))checkpointSkills(c,dep);
+   }
+   save(c,s);
+  }
+  static Json context(CreatureObject* c,Json& s,const std::string& key){
+-  Json out={{"server_time",std::time(nullptr)},{"backend","core3"},{"source_kind","core3_gathering"},{"zone",SwgxrPlanets::name(c)},{"character_id",id(c)},{"planet",SwgxrPlanets::name(c)},{"tool_id",key},{"tool",nullptr},{"max_range_m",0},{"range_m",0},{"points_per_axis",0},{"surveying_skill",c->getSkillMod("surveying")},{"resources",Json::array()},{"deployments",Json::array()},{"hip_tool_id",s["hip_tool_id"]},{"hip_tool",nullptr},{"settlement_policy","native_persistent_lazy_25s_cycles"},{"limits",{{"max_deployments",16},{"max_cycles_per_request",1024},{"resource_stack_max",ResourceContainer::MAXSIZE}}}};
++  Json out={{"server_time",std::time(nullptr)},{"backend","core3"},{"source_kind","core3_gathering"},{"zone",SwgxrPlanets::name(c)},{"character_id",id(c)},{"planet",SwgxrPlanets::name(c)},{"tool_id",key},{"tool",nullptr},{"max_range_m",0},{"range_m",0},{"points_per_axis",0},{"surveying_skill",c->getSkillMod("surveying")},{"resources",Json::array()},{"deployments",Json::array()},{"hip_tool_id",s["hip_tool_id"]},{"hip_tool",nullptr},{"settlement_policy","native_persistent_lazy_25s_cycles"},{"limits",{{"max_deployments",16},{"max_deployments_per_tool_type",1},{"max_cycles_per_request",1024},{"resource_stack_max",ResourceContainer::MAXSIZE}}}};
+   if(!key.empty()){
+    auto tool=ownedTool(c,s,key);out["tool"]=describe(c,tool);auto survey=dynamic_cast<SurveyTool*>(tool.get());
+    if(survey!=nullptr){Locker lock(survey,c);survey->setRange(384);int range=survey->getRange(c);out["max_range_m"]=range;out["range_m"]=range;out["points_per_axis"]=survey->getPoints();
+@@ -112,12 +107,14 @@
+     if(highest["density"].get<float>()>=.10f && std::hypot(x-c->getWorldPosition().getX(),z-c->getWorldPosition().getY())<=6.0)c->notifyObservers(ObserverEventType::SURVEY,spawn,int64(highest["density"].get<float>()*100));
+     mutation["survey"]={{"planet",SwgxrPlanets::name(c)},{"position",pos},{"resource_id",id(spawn)},{"range_m",range},{"points_per_axis",points},{"spots",spots},{"highest",highest},{"waypoint",waypoint}};Json skill;checkpointSkills(c,skill);mutation["survey"]["minimum_productive_density"]=productiveDensity(skill);mutation["survey"]["recommended_density"]=productiveDensity(skill,true);return mutation;
+    }
++   // Compare actual native survey categories, across resources, planets and item variants.
++   for(const auto& dep:s["deployments"]){auto deployed=object(c,dep["tool_id"].get<std::string>()).castTo<SurveyTool*>();if(deployed==nullptr)throw std::runtime_error("Persistent deployed survey tool missing");if(deployed->getToolType()==survey->getToolType())throw std::runtime_error("A survey tool of this type is already deployed; recover it before placing another");}
+    if(s["deployments"].size()>=16)throw std::runtime_error("Maximum concurrent deployed tools reached");
+    auto store=escrow(c,s,true);Locker storeLock(store,c);Locker spawnLock(spawn,c);auto anchor=spawn->createResource(0);if(anchor==nullptr)throw std::runtime_error("Cannot anchor source resource");
+    try{transfer(c,anchor,store);}catch(...){anchor->destroyObjectFromDatabase(true);throw;}
+    try{transfer(c,tool,store);}catch(...){anchor->destroyObjectFromWorld(true);anchor->destroyObjectFromDatabase(true);throw;}
+    int64 generation=s["generation"].get<int64>()+1;s["generation"]=generation;int64 now=std::time(nullptr);
+-   Json dep={{"id",id(tool)+":"+std::to_string(generation)},{"tool_id",id(tool)},{"resource_id",id(spawn)},{"resource_name",std::string(spawn->getName().toCharArray())},{"resource",resource(spawn)},{"anchor_id",id(anchor)},{"position",pos},{"planet",SwgxrPlanets::name(c)},{"density",spawn->getDensityAt(c->getZone()->getZoneName(),x,z)},{"state","sampling"},{"started_at_unix",now},{"next_sample_at_unix",now+3},{"quantity",int64(0)},{"cycles",0},{"successful_cycles",0},{"awarded_xp",0},{"settlement_pending",false}};checkpointSkills(c,dep);s["deployments"].push_back(dep);if(s["hip_tool_id"]==id(tool))s["hip_tool_id"]="";mutation["deployment_id"]=dep["id"];return mutation;
++   Json dep={{"id",id(tool)+":"+std::to_string(generation)},{"tool_id",id(tool)},{"tool_type",survey->getToolType()},{"capacity",ResourceContainer::MAXSIZE},{"resource_id",id(spawn)},{"resource_name",std::string(spawn->getName().toCharArray())},{"resource",resource(spawn)},{"anchor_id",id(anchor)},{"position",pos},{"planet",SwgxrPlanets::name(c)},{"density",spawn->getDensityAt(c->getZone()->getZoneName(),x,z)},{"state","sampling"},{"started_at_unix",now},{"next_sample_at_unix",now+3},{"quantity",int64(0)},{"cycles",0},{"successful_cycles",0},{"awarded_xp",0},{"settlement_pending",false}};checkpointSkills(c,dep);s["deployments"].push_back(dep);if(s["hip_tool_id"]==id(tool))s["hip_tool_id"]="";mutation["deployment_id"]=dep["id"];return mutation;
+   }
+   auto root=c->getSlottedObject("inventory");if(root==nullptr)throw std::runtime_error("Missing player inventory");
+   if(action=="holster" || action=="return_tool"){
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSamplingPolicy.h
+@@ -0,0 +1,69 @@
++#ifndef SWGXR_SAMPLING_POLICY_H
++#define SWGXR_SAMPLING_POLICY_H
++#include <algorithm>
++#include <cstdint>
++#include <string>
++
++// Pure native policy, shared by Core3 settlement and deterministic offline tests.
++// The caller supplies ResourceContainer::MAXSIZE and the original RNG.
++namespace swgxr_sampling {
++struct Result { int units = 0; int xp = 0; };
++
++template<class Json>
++void pause(Json& dep, const char* reason) {
++    dep["state"] = reason;
++    dep["sample_status"] = reason;
++    dep["settlement_pending"] = false;
++    dep["last_sample_units"] = 0;
++}
++
++template<class Json, class Random>
++Result advance(Json& dep, int64_t now, int64_t expires, int capacity,
++               int& budget, Random random) {
++    Result result;
++    const int64_t quantity = dep.value("quantity", int64_t(0));
++    // Legacy excess remains recoverable; it never grants additional output/XP.
++    if (quantity >= capacity) { pause(dep, "full"); return result; }
++    const int64_t end = std::min(now, expires);
++    int64_t next = dep.at("next_sample_at_unix").template get<int64_t>();
++    const float density = dep.at("density").template get<float>();
++    const int skill = dep.at("surveying_skill").template get<int>();
++    while (next <= end && budget > 0 && quantity + result.units < capacity) {
++        --budget;
++        next += 25;
++        dep["cycles"] = dep.value("cycles", int64_t(0)) + 1;
++        dep["last_sample_units"] = 0;
++        dep["last_sample_at_unix"] = next - 25;
++        if (density < .10f || density * 100 < (32 - (skill / 20) * 6)) {
++            dep["sample_status"] = "density_below_threshold"; continue;
++        }
++        const float rate = skill * density + random(100) + dep.template value<int>("sample_rate_modifier", 0);
++        if (rate < 40) { dep["sample_status"] = "sample_failed"; continue; }
++        const int maximum = int(density * (25 + random(3)));
++        const float city = 1.f + dep.template value<int>("sample_size_modifier", 0) / 100.f;
++        const int rolled = maximum * (float(skill) / 100.f) * city;
++        if (rolled < 2) { dep["sample_status"] = "trace_amount"; continue; }
++        const int units = int(std::min<int64_t>(rolled, capacity - quantity - result.units));
++        dep["last_sample_units"] = units;
++        dep["sample_status"] = "sample_located";
++        result.units += units;
++        result.xp += int(float(units) / float(maximum) * 40);
++        dep["successful_cycles"] = dep.value("successful_cycles", int64_t(0)) + 1;
++    }
++    dep["next_sample_at_unix"] = next;
++    dep["quantity"] = quantity + result.units;
++    dep["awarded_xp"] = dep.value("awarded_xp", int64_t(0)) + result.xp;
++    if (quantity + result.units >= capacity) {
++        // Keep the final accepted yield visible, with no outstanding catch-up.
++        dep["state"] = "full";
++        dep["sample_status"] = "full";
++        dep["settlement_pending"] = false;
++    } else {
++        const bool pending = next <= end;
++        dep["settlement_pending"] = pending;
++        dep["state"] = pending ? "settling" : now >= expires ? "expired" : "sampling";
++    }
++    return result;
++}
++}
++#endif

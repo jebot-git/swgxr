@@ -45,8 +45,11 @@ def gathering_snapshot(result, oid):
         dep['name']=dep['tool']['name']
         dep['ground_validation']='client_stage_support_only'
         code=dep.get('sample_status','waiting')
-        fallback={'waiting':'Waiting for next sample','expired':'Resource is no longer available'}.get(code,code.replace('_',' '))
-        message=display('survey',code,fallback) if code not in ('waiting','expired') else fallback
+        messages={'waiting':'Waiting for next sample','expired':'Resource is no longer available',
+                  'full':'Storage full — recover tool to collect resources',
+                  'duplicate_type':'Sampling paused — another tool of this type is deployed'}
+        fallback=messages.get(code,code.replace('_',' '))
+        message=display('survey',code,fallback) if code not in messages else fallback
         dep['sample_message']=message.replace('%TO',dep.get('resource_name','Resource')).replace('%DI',str(dep.get('last_sample_units',0)))
     out['backend']='core3'
     return out

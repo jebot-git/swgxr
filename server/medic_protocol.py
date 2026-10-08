@@ -11,8 +11,8 @@ try:
 except ImportError:
  from character_protocol import decode_customization
  from datapad_protocol import display,template_label
-ABILITIES=('healdamage','healwound','tenddamage','tendwound','firstaid','quickheal')
-ACTIONS=('status','provision','select','heal','holster','return_tool','drag')
+ABILITIES=('tenddamage','firstaid','quickheal')
+ACTIONS=('status','provision','select','heal','holster','return_tool','drag','bandage','wound_pack','medical_item')
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported medical action')
  out={'action':action,**planet_context(data)}
@@ -21,10 +21,11 @@ def command(action,data):
  key=data.get('request_id','')
  if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique medical request_id required')
  out['request_id']=key
+ if action in ('bandage','wound_pack','medical_item') and 'pose' not in out:raise ValueError('Tracked medical pose required')
  if action=='drag':
   if type(data.get('release',False)) is not bool:raise ValueError('Boolean drag release required')
   out['release']=data.get('release',False)
- for field in (('target_id',) if action=='drag' else () if action=='provision' else ('item_id','target_id') if action=='heal' else ('item_id',)):
+ for field in (('target_id',) if action in ('drag','bandage') else () if action=='provision' else ('item_id','target_id') if action in ('heal','wound_pack','medical_item') else ('item_id',)):
   value=data.get(field)
   if not isinstance(value,str) or not value.isdigit() or not 0<int(value)<2**64:raise ValueError('Invalid '+field)
   out[field]=value
@@ -38,7 +39,7 @@ def snapshot(raw,oid):
  if out.get('error'):raise ValueError(out['error'])
  if out.get('character_id')!=str(oid) or out.get('source_kind')!='core3_medic':raise ValueError('Missing owned native medical response')
  state=out.get('state',{})
- if state.get('character_id')!=str(oid) or len(state.get('players',[]))>32:raise ValueError('Invalid medical snapshot')
+ if state.get('character_id')!=str(oid) or any(len(state.get(key,[]))>32 for key in ('players','companions')):raise ValueError('Invalid medical snapshot')
  inventory=state.get('inventory',{});inventory['backend']='core3'
  items=inventory.get('items',[])+([state['hip_tool']] if state.get('hip_tool') else [])
  for item in items:

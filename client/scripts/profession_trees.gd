@@ -182,7 +182,8 @@ func select_skill(node: Dictionary) -> void:
 	var modifiers: PackedStringArray = []
 	for key: String in node.get("modifiers", {}):
 		if key.begins_with("private_"): continue
-		modifiers.append(key.replace("_", " ").capitalize() + " %+d" % int(node.modifiers[key]))
+		var label: String={"healing_dance_mind":"Dance healing / inspiration","healing_music_mind":"Music healing / inspiration","healing_wound_treatment":"Wound Medpack effectiveness","healing_wound_speed":"Wound treatment / enhancement recovery"}.get(key,key.replace("_", " ").capitalize())
+		modifiers.append(label + " %+d" % int(node.modifiers[key]))
 	if not modifiers.is_empty(): description += "\n\n" + "\n".join(modifiers)
 	if not node.get("certificates", []).is_empty():
 		var certificates: PackedStringArray = []

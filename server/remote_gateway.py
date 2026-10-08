@@ -17,9 +17,11 @@ from urllib.parse import parse_qsl, urlencode, urlsplit
 try:
     from .account_auth import AccountAuth, AuthError
     from .voice_protocol import TicketAuthority
+    from .client_patches import PatchStore
 except ImportError:  # Executable systemd entry point.
     from account_auth import AccountAuth, AuthError
     from voice_protocol import TicketAuthority
+    from client_patches import PatchStore
 
 MAX_BODY = 16384
 MAX_RESPONSE = 8 * 1024 * 1024
@@ -33,14 +35,14 @@ UPSTREAM = ('127.0.0.1', 18080)
 GET = {'/health','/combat/session','/gathering/corpses','/crafting','/gathering','/inventory','/weapons','/datapad','/creation-options','/characters'}
 POST = {'/session/sync','/session/life','/session/start','/session/update','/session/logout','/voice/session','/voice/presence','/services/presence','/performance','/characters','/enter','/waypoints','/datapad/delete'}
 for prefix, actions in {
-    '/combat/session/': 'start update fire melee taunt impact stop life',
+    '/combat/session/': 'start update fire melee taunt impact stop life loadout',
     '/gathering/corpse/': 'inspect harvest loot',
     '/gathering/': 'status survey deploy collect holster return_tool',
     '/inventory/': 'status equip unequip consume split',
     '/services/': 'status open mission_refresh mission_accept mission_abort delivery_open delivery_pickup delivery_complete bazaar_buy bazaar_retrieve bazaar_sell bazaar_cancel bank_transfer pay crafting_station travel_purchase travel_board trainer_train vendor_place vendor_sell vendor_buy vendor_retrieve vendor_cancel vendor_customize vendor_recover fishing_status fishing_open fishing_bait fishing_cast fishing_action fishing_stop fishing_stow fishing_collect house_status house_preview house_place house_deposit house_permission_arm house_permission house_drop house_recover house_harvester_status house_harvester_select house_harvester_active house_harvester_power house_harvester_deposit house_harvester_collect house_harvester_recover house_factory_status house_factory_blueprint house_factory_remove_blueprint house_factory_input house_factory_withdraw house_factory_collect house_factory_active house_factory_power house_factory_deposit house_factory_recover',
     '/vehicles/': 'status activate call board dismount store recall pet_call pet_recall pet_store pet_command ch_status ch_tame ch_embolden ch_enrage ch_train_mount ch_train_command',
     '/entertainer/': 'status perform stop flourish register_location group_invite group_join group_leave group_bump image_open image_propose image_accept image_cancel',
-    '/medic/': 'status provision select heal holster return_tool drag',
+    '/medic/': 'status provision select heal holster return_tool drag bandage wound_pack medical_item',
     '/scout/': 'inspect holster return_tool status forage trap camp disband mask_scent discard_mask_scent burst_run sample_dna discard_sample_dna ranger_status conceal rescue area_track',
     '/crafting/': 'status open select assemble finish cancel',
 }.items():
@@ -89,10 +91,10 @@ class Gateway(http.server.BaseHTTPRequestHandler):
         body = json.dumps(data, separators=(',', ':')).encode()
         self.send_bytes(status, body, retry_after=data.get('retry_after'))
 
-    def send_bytes(self, status, body, retry_after=None):
+    def send_bytes(self, status, body, retry_after=None, content_type='application/json; charset=utf-8'):
         self.close_connection = True
         self.send_response(status)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
+        self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
         if retry_after is not None: self.send_header('Retry-After', str(int(retry_after)))
         self.send_header('Cache-Control', 'no-store')
@@ -118,8 +120,9 @@ class Gateway(http.server.BaseHTTPRequestHandler):
             if path.scheme or path.netloc or path.fragment or not self.path.startswith('/') or self.path.startswith('//') or '%' in path.path:
                 return self.reply(400, {'error':'Invalid request target'})
             is_auth = path.path.startswith('/auth/')
+            is_patch = path.path.startswith('/patch/v1/')
             allowed = path.path in GET or re.fullmatch(r'/characters/[0-9]{1,20}', path.path) if self.command == 'GET' else path.path in POST
-            if not allowed and not is_auth:
+            if not allowed and not is_auth and not is_patch:
                 return self.reply(404, {'error':'Unknown endpoint'})
             query = unique(parse_qsl(path.query, keep_blank_values=True, strict_parsing=True, max_num_fields=64))
             if any(key.lower() in {'password','pass','passwd','pwd','token','remember_token','access_token','refresh_token','authorization','bearer','secret','api_key'} for key in query):
@@ -143,6 +146,9 @@ class Gateway(http.server.BaseHTTPRequestHandler):
                     raise ValueError()
             elif length:
                 return self.reply(400, {'error':'GET request body forbidden'})
+            if is_patch:
+                if self.command!='GET' or path.query:return self.reply(400,{'error':'Expected a patch GET without query parameters'})
+                return self.patch_route(path.path)
             if is_auth:
                 return self.auth_route(path, data)
             account, credential, legacy_credential = self.authenticate()
@@ -212,6 +218,18 @@ class Gateway(http.server.BaseHTTPRequestHandler):
                 pass
 
 
+    def patch_route(self,path):
+        store=self.server.patch_store
+        if store is None:return self.reply(404,{'error':'Client updates are not configured'})
+        account,_,_=self.authenticate()
+        if not self.server.patch_slots.acquire(False):return self.reply(503,{'error':'Client download slots busy','retry_after':5})
+        try:
+            try:body=store.read(path,account,entitled=bool(self.server.auth_store and self.server.auth_store.has_client_access(account)))
+            except PermissionError:return self.reply(403,{'error':'Client downloads require tester access'})
+            except FileNotFoundError:return self.reply(404,{'error':'Client release not found'})
+            return self.send_bytes(200,body,content_type='application/octet-stream')
+        finally:self.server.patch_slots.release()
+
     def authenticate(self, *, legacy_only=False):
         auth = self.headers.get_all('Authorization', [])
         if len(auth) != 1 or not re.fullmatch(r'Bearer [A-Za-z0-9_-]{43,128}', auth[0]):
@@ -246,9 +264,12 @@ class Gateway(http.server.BaseHTTPRequestHandler):
         if self.command == 'POST' and route in ('/auth/register', '/auth/login'):
             # Public entry points accept no bearer or credentials in another channel.
             if self.headers.get_all('Authorization', []): raise AuthError(400, 'Sign-in does not accept bearer credentials')
+            if route == '/auth/register':
+                if set(data) not in ({'account','password'}, {'account','password','invite_code'}):
+                    raise AuthError(400, 'Expected account, password and invitation')
+                return self.reply(201, store.register(data['account'], data['password'], ip, data.get('invite_code')))
             if set(data) != {'account','password'}: raise AuthError(400, 'Expected account and password')
-            method = store.register if route == '/auth/register' else store.login
-            return self.reply(201 if route == '/auth/register' else 200, method(data['account'], data['password'], ip))
+            return self.reply(200, store.login(data['account'], data['password'], ip))
         if self.command == 'POST' and route == '/auth/claim':
             account, _, _ = self.authenticate(legacy_only=True)
             if set(data) != {'password'}: raise AuthError(400, 'Expected password')
@@ -267,15 +288,17 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     request_queue_size = MAX_CONNECTIONS
     allow_reuse_address = True
 
-    def __init__(self, address, context, accounts, *, upstream=UPSTREAM, auth_database=None, registration_enabled=False, voice_secret=None):
+    def __init__(self, address, context, accounts, *, upstream=UPSTREAM, auth_database=None, registration_enabled=False, voice_secret=None, client_patch_root=None, registration_invites_required=True):
         # Upstream override is internal for ephemeral tests; CLI never accepts one.
         if upstream[0] != '127.0.0.1':
             raise ValueError('Only private loopback upstream is supported')
         self.context, self.accounts, self.upstream = context, accounts_from_config(accounts, allow_empty=auth_database is not None), upstream
         if not isinstance(registration_enabled, bool): raise ValueError('registration_enabled must be boolean')
         if registration_enabled and auth_database is None: raise ValueError('Registration requires auth_database')
-        self.auth_store = AccountAuth(auth_database, reserved=self.accounts, registration_enabled=registration_enabled) if auth_database is not None else None
+        self.auth_store = AccountAuth(auth_database, reserved=self.accounts, registration_enabled=registration_enabled, invites_required=registration_invites_required) if auth_database is not None else None
         self.voice_tickets=TicketAuthority(Path(voice_secret).read_bytes()) if voice_secret else None
+        self.patch_store=PatchStore(client_patch_root) if client_patch_root else None
+        self.patch_slots=threading.BoundedSemaphore(4)
         self.slots = threading.BoundedSemaphore(MAX_CONNECTIONS)
         super().__init__(address, Gateway)
 
@@ -331,7 +354,7 @@ def main():
     parser.add_argument('--port', type=int, default=18443)
     args = parser.parse_args()
     config = json.loads(args.config.read_text(), object_pairs_hook=unique)
-    server = Server((args.bind,args.port), tls_context(config['certificate'],config['private_key']), config.get('accounts', {}), auth_database=config.get('auth_database'), registration_enabled=config.get('registration_enabled', False), voice_secret=config.get('voice_secret'))
+    server = Server((args.bind,args.port), tls_context(config['certificate'],config['private_key']), config.get('accounts', {}), auth_database=config.get('auth_database'), registration_enabled=config.get('registration_enabled', False), voice_secret=config.get('voice_secret'),client_patch_root=config.get('client_patch_root'), registration_invites_required=config.get('registration_invites_required', True))
     print('SWGXR authenticated TLS gateway ready', flush=True)
     try: server.serve_forever()
     finally: server.server_close()

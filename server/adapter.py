@@ -728,7 +728,7 @@ class Handler(BaseHTTPRequestHandler):
                 # old binaries behind the global lane to avoid player deadlock.
                 self.respond(200,gameplay_session(account,data))
                 return
-            if self.path in ('/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact') and LIVE_COMBAT.parallel_update_allowed(account,data):
+            if self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact') and LIVE_COMBAT.parallel_update_allowed(account,data):
                 # Cross-account native waits may overlap; the owned IPC gate
                 # still serializes every mutation for one player.
                 self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
@@ -753,7 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200,logout_session(account,str(data.get('character_id','')),data))
                 elif self.path == '/combat/session/start':
                     self.respond(200,LIVE_COMBAT.start(account,data,SECRET,CONTAINER,characters))
-                elif self.path in ('/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact','/combat/session/stop','/combat/session/life'):
+                elif self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact','/combat/session/stop','/combat/session/life'):
                     self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
                 elif self.path in ('/gathering/corpse/inspect','/gathering/corpse/harvest','/gathering/corpse/loot'):
                     self.respond(200,corpse_request(account,str(data.get('character_id','')),'corpse_'+self.path.rsplit('/',1)[-1],data))

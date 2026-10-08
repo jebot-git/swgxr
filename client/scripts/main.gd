@@ -1859,6 +1859,8 @@ func unequip_inventory_item(item: Dictionary, side: String="") -> void:
 	inventory_request_pending=false
 
 func consume_inventory_item(item: Dictionary) -> void:
+	if bool(item.get("medical_item",false)) or bool(item.get("wound_medpack",false)):
+		await medic.use_medical_item(item);return
 	await mutate_inventory_item("consume",item,{})
 
 func mutate_inventory_item(operation: String, item: Dictionary, extra: Dictionary) -> void:

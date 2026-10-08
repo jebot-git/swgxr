@@ -1,5 +1,8 @@
 extends Node3D
 ## Local frozen presentation: no actor script, controller, collision or network ID.
+signal loadout_proposed(value:Dictionary)
+var ability_editor:Node3D
+var ability_context:Dictionary={}
 const HEIGHT := 0.54
 const MAX_MARKERS := 32
 const PAGE_ROWS := 4
@@ -40,6 +43,8 @@ func configure(source: Node3D, current_equipment: Array) -> void:
 	if skeleton==null: report.error="Current character skeleton is unavailable."
 	create_panel(-0.38,0.22,"CURRENT EQUIPMENT")
 	create_panel(0.38,-0.22,"HELD ITEM")
+	ability_editor=preload("res://scripts/equipment_abilities.gd").new();add_child(ability_editor);ability_editor.setup(self);ability_editor.observe(ability_context)
+	ability_editor.proposed.connect(func(value):loadout_proposed.emit(value))
 	visible=false; active=false
 
 func freeze_nodes(node: Node) -> void:
@@ -120,10 +125,11 @@ func show_equipment(head: Transform3D) -> bool:
 		add_child(marker);marker.position=anchor
 		var id:=str(item.get("id",""));markers[id]=marker;equipment_targets[id]=item.duplicate(true)
 	labels[0].text="EQUIPPED ITEMS\n\nTouch a glowing item and squeeze grip.\n\nOpen your backpack with the other hand, then release the item inside it."
-	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory."
+	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory.\n\nRight stick click: combat abilities."
 	return true
 
 func equipped_at(position:Vector3)->Dictionary:
+	if is_instance_valid(ability_editor) and ability_editor.active:return {}
 	if not active or not browsing:return {}
 	var nearest:=.055;var selected:Dictionary={}
 	for id:String in equipment_targets:
@@ -158,7 +164,7 @@ func slot_anchor(slot: String) -> Variant:
 	return null
 
 func update_hand(position: Vector3) -> Dictionary:
-	if not active: return {}
+	if not active or (is_instance_valid(ability_editor) and ability_editor.active): return {}
 	if browsing:return equipped_at(position)
 	var nearest:=0.075; var target: Dictionary={}
 	for slot: String in markers:
@@ -226,15 +232,24 @@ func attribute_values(items: Array) -> Dictionary:
 	return result
 
 func scroll_page(direction: int) -> void:
+	if is_instance_valid(ability_editor) and ability_editor.active:ability_editor.scroll(direction);return
 	var next:=clampi(page+direction,0,maxi(0,int(ceil(float(comparison_rows.size())/PAGE_ROWS))-1))
 	if next==page: return
 	page=next; update_comparison(highlighted)
 
 func set_status(message: String) -> void:
 	status=message
+	if active and is_instance_valid(ability_editor) and ability_editor.active:
+		if not message.is_empty():labels[1].text=message
+		return
 	if active:
 		if browsing and labels.size()>1:labels[1].text=message
 		else:update_comparison(highlighted)
 
+func set_ability_context(value:Dictionary)->void:
+	ability_context=value.duplicate(true)
+	if is_instance_valid(ability_editor):ability_editor.observe(value)
+
 func close() -> void:
+	if is_instance_valid(ability_editor):ability_editor.close()
 	active=false; visible=false; highlighted={}

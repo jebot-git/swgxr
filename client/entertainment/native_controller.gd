@@ -14,6 +14,7 @@ var clock:=0.0
 var age:=100.0
 var owner_session:=""
 var gesture=preload("res://entertainment/register_location_gesture.gd").new()
+var image_frame=preload("res://entertainment/image_frame_gesture.gd").new()
 var progress_label:Label3D
 var design_ui:Node3D
 var last_effect_revision:=-1
@@ -34,6 +35,7 @@ func setup(value:Node)->void:
 		effects=preload("res://entertainment/effects.gd").new();add_child(effects);effects.configure(performer.assets,performer.head)
 func reset()->void:
 	generation+=1;pending_actions.clear();state={};sequence=-1;busy=false;clock=0;age=100;owner_session="";last_effect_revision=-1;remote_effects.clear();gesture.reset()
+	image_frame.reset()
 	if is_instance_valid(progress_label):progress_label.hide()
 	if is_instance_valid(design_ui):design_ui.set_allowed(false)
 	clear_registration_points()
@@ -92,6 +94,19 @@ func group_selector()->void:
 func image_open_selector()->void:
 	if not allowed() or not image_eligible():return
 	design_ui.set_allowed(true);design_ui.show_candidates(state.get("nearby_players",[]))
+func image_frame_allowed()->bool:
+	if not allowed() or not image_eligible() or not performer.owns_controls() or performer.ui.menu_open:return false
+	if not performer.item.is_empty() or performer.primed or performer.is_performing():return false
+	if image_active(state.get("image_design",{})):return false
+	if is_instance_valid(design_ui) and not design_ui.terminal.is_empty():return false
+	var inventory:Variant=host.get("inventory")
+	if is_instance_valid(inventory) and (not inventory.held_item.is_empty() or inventory.get("interaction_active")==true or inventory.get("offhand_occupied")==true):return false
+	if host.has_method("corpse_interaction_blocks") and host.corpse_interaction_blocks():return false
+	var crafting:Variant=host.get("crafting")
+	if is_instance_valid(crafting) and crafting.get("is_open")==true:return false
+	return true
+func sample_image_frame(delta:float,head:Transform3D,left:Dictionary,right:Dictionary,tracked:bool)->void:
+	if image_frame.sample(delta,head,left,right,tracked,image_frame_allowed()):image_open_selector()
 func _process(delta:float)->void:
 	if not is_instance_valid(performer) or not is_instance_valid(host):return
 	age+=delta;clock-=delta
@@ -113,11 +128,14 @@ func _process(delta:float)->void:
 	if host.has_method("try_background_poll") and not host.try_background_poll("entertainer"):return
 	request("status")
 func _physics_process(delta:float)->void:
-	if not is_instance_valid(performer) or not is_instance_valid(performer.origin):gesture.interrupt();return
+	if not is_instance_valid(performer) or not is_instance_valid(performer.origin):gesture.interrupt();image_frame.interrupt();return
 	var origin:XROrigin3D=performer.origin
 	var left:XRController3D=origin.get_node("LeftHand");var right:XRController3D=origin.get_node("RightHand")
 	var tracker=XRServer.get_tracker("head");var head_pose:XRPose=tracker.get_pose("default") if tracker!=null else null
 	var tracked:bool=head_pose!=null and head_pose.has_tracking_data and Hands.controller_tracked(left) and Hands.controller_tracked(right)
+	var frame_left:Dictionary=image_frame.hand(left,"left");var frame_right:Dictionary=image_frame.hand(right,"right")
+	var frame_tracked:bool=head_pose!=null and head_pose.has_tracking_data and (Hands.controller_tracked(left) or not Hands.tracked_joints("left").is_empty()) and (Hands.controller_tracked(right) or not Hands.tracked_joints("right").is_empty())
+	sample_image_frame(delta,performer.head.global_transform,frame_left,frame_right,frame_tracked)
 	var physical:Dictionary=performer.body.feedback.physical()
 	var standing:bool=int(physical.get("posture",-1))==0 and bool(physical.get("grounded",false))
 	sample_registration(delta,performer.head.global_transform,left.global_transform,right.global_transform,tracked,standing)

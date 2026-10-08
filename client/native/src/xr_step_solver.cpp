@@ -38,11 +38,48 @@ bool walkable(CharacterBody3D *body, const Dictionary &hit) {
 }
 
 void SwgXRStepSolver::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("update_terrain_evaluator","evaluator"),&SwgXRStepSolver::update_terrain_evaluator);
+    ClassDB::bind_method(D_METHOD("configure_terrain","evaluator","source_origin","swim_height"),&SwgXRStepSolver::configure_terrain);
+    ClassDB::bind_method(D_METHOD("set_swim_height","swim_height"),&SwgXRStepSolver::set_swim_height);
+    ClassDB::bind_method(D_METHOD("constrain_terrain_motion","body","motion"),&SwgXRStepSolver::constrain_terrain_motion);
     ClassDB::bind_method(D_METHOD("terrain_support", "body", "point", "up", "down"), &SwgXRStepSolver::terrain_support, DEFVAL(0.35), DEFVAL(0.6));
     ClassDB::bind_method(D_METHOD("move_on_terrain", "body", "motion", "attachment"), &SwgXRStepSolver::move_on_terrain, DEFVAL(0.35));
     ClassDB::bind_method(D_METHOD("has_support", "body", "distance"), &SwgXRStepSolver::has_support, DEFVAL(0.1));
     ClassDB::bind_method(D_METHOD("step_up", "body", "motion", "maximum"), &SwgXRStepSolver::step_up, DEFVAL(0.35));
     ClassDB::bind_method(D_METHOD("step_down", "body", "maximum"), &SwgXRStepSolver::step_down, DEFVAL(0.35));
+}
+
+void SwgXRStepSolver::update_terrain_evaluator(const Ref<SwgTerrainEvaluator> &evaluator) {
+    terrain = evaluator; // Retain source origin and the character's swim height.
+}
+
+void SwgXRStepSolver::configure_terrain(const Ref<SwgTerrainEvaluator> &evaluator,const Vector3 &origin,double swim) {
+    terrain=evaluator;
+    terrain_origin=origin;
+    set_swim_height(swim);
+}
+void SwgXRStepSolver::set_swim_height(double swim) {swim_height=std::isfinite(swim)?MAX(0.0,swim):0.0;}
+
+Vector3 SwgXRStepSolver::constrain_terrain_motion(CharacterBody3D *body,const Vector3 &motion) const {
+    if(!valid(body)||!motion.is_finite())return Vector3();
+    if(terrain.is_null())return motion;
+    const Vector3 start=body->get_global_position();
+    auto allowed=[&](const Vector3 &delta) {
+        const int steps=MAX(1,int(std::ceil(delta.length()/2.0)));
+        if(steps>4096)return false;
+        for(int i=1;i<=steps;++i) {
+            const Vector3 point=start+delta*(double(i)/steps);
+            const Dictionary state=terrain->movement_sample(point.x+terrain_origin.x,terrain_origin.z-point.z);
+            if(!bool(state.get("passable",false)))return false;
+        }
+        return true;
+    };
+    if(allowed(motion))return motion;
+    // Source passability uses world-axis sliding, independently of capsule walls.
+    const Vector3 x(motion.x,motion.y,0),z(0,motion.y,motion.z);
+    if(allowed(x))return x;
+    if(allowed(z))return z;
+    return Vector3(0,motion.y,0);
 }
 
 bool SwgXRStepSolver::has_support(CharacterBody3D *body, double distance) const {
@@ -119,7 +156,10 @@ Dictionary SwgXRStepSolver::terrain_support(CharacterBody3D *body,const Vector3 
     Dictionary out;out["valid"]=false;
     if(!valid(body)||!point.is_finite()||!std::isfinite(up)||!std::isfinite(down)||up<0||down<0)return out;
     Ref<PhysicsRayQueryParameters3D> query;query.instantiate();
-    query->set_from(point+Vector3(0,up,0));query->set_to(point-Vector3(0,down,0));query->set_collision_mask(2);
+    Dictionary environment;
+    if(terrain.is_valid())environment=terrain->movement_sample(point.x+terrain_origin.x,terrain_origin.z-point.z);
+    const bool water=bool(environment.get("water_enabled",false));
+    query->set_from(point+Vector3(0,up,0));query->set_to(point-Vector3(0,water?MAX(down,8192.0):down,0));query->set_collision_mask(2);
     TypedArray<RID> excluded;excluded.push_back(body->get_rid());query->set_exclude(excluded);
     const Dictionary hit=body->get_world_3d()->get_direct_space_state()->intersect_ray(query);
     if(hit.is_empty())return out;
@@ -128,7 +168,12 @@ Dictionary SwgXRStepSolver::terrain_support(CharacterBody3D *body,const Vector3 
     if(!collider||!bool(collider->get_meta("terrain_walkable",true)))return out;
     const Vector3 normal=hit["normal"],position=hit["position"];
     if(normal.y<=0.00001)return out; // Only a height-field surface, never a wall.
-    out["valid"]=true;out["terrain"]=true;out["height"]=position.y;out["body_height"]=position.y+MARGIN;
+    const double water_level=double(environment.get("water_height",0.0))-terrain_origin.y-swim_height;
+    const double logical=water?MAX(double(position.y),water_level):double(position.y);
+    if(logical>point.y+up+MARGIN||logical<point.y-down-MARGIN)return out;
+    out["valid"]=true;out["terrain"]=true;out["height"]=logical;out["body_height"]=logical+MARGIN;
+    out["real_height"]=position.y;out["swimming"]=water&&water_level>position.y;
+    out["below_water"]=water&&double(environment.get("water_height",0.0))-terrain_origin.y>logical;
     out["normal"]=normal;out["position"]=position;out["walkability_source"]="resident_terrain_collision";
     out["server_validated"]=false;
     return out;
@@ -147,17 +192,15 @@ Dictionary SwgXRStepSolver::move_on_terrain(CharacterBody3D *body,const Vector3 
         support=terrain_support(body,start,attachment,64);
         if(!bool(support.get("valid",false)))return out;
     }
-    Vector3 motion(requested.x,0,requested.z);
+    const Vector3 constrained=constrain_terrain_motion(body,requested);
+    Vector3 motion(constrained.x,0,constrained.z);
     // Preview the actual mesh, including its AEXC holes. Do not invent support
     // from terrain evaluator heights when a collider is absent or denied.
     Dictionary destination=terrain_support(body,start+motion,64,64);
     if(!bool(destination.get("valid",false)))return out;
-    Vector3 surface_motion=motion+Vector3(0,double(destination["body_height"])-double(support["body_height"]),0);
-    // Speed is distance along the ground, not unbounded vertical velocity on a
-    // near-vertical height-field face. Skill modifiers already scale input.
-    if(surface_motion.length()>motion.length() && motion.length()>1e-8){
-        const double fraction=motion.length()/surface_motion.length();motion*=fraction;
-    }
+    // SWG locomotion spends its speed budget in the horizontal plane. Terrain
+    // supplies height afterward; slope modifiers are applied by the movement
+    // policy, not a second cosine reduction from the surface's 3D distance.
     const int count=MAX(1,int(std::ceil(motion.length()/0.05)));
     if(count>128){out["reason"]="motion_requires_substeps";return out;}
     std::vector<Vector3> path;path.reserve(count);
@@ -179,6 +222,18 @@ Dictionary SwgXRStepSolver::move_on_terrain(CharacterBody3D *body,const Vector3 
         const Vector3 delta=next-transform.origin;
         Ref<KinematicCollision3D> collision;collision.instantiate();
         if(body->test_move(transform,delta,collision,MARGIN)){
+            // The capsule toe reaches an authored ramp before its centre is
+            // over that floor. Keeping terrain ownership here would pin it
+            // against the ramp forever and bypass the ordinary stair solver.
+            // Retry the whole move through that solver, including its ceiling
+            // and capsule sweeps; do not consume a partial terrain move twice.
+            const Dictionary surface=tread(body,collision->get_position(),attachment+MARGIN,attachment+MARGIN);
+            if(walkable(body,surface)) {
+                body->set_global_position(start);
+                body->set_collision_mask(original_mask);
+                out["reason"]="authored_support_handoff";
+                return out;
+            }
             body->set_global_position(transform.origin+collision->get_travel());blocked=true;break;
         }
         body->set_global_position(next);

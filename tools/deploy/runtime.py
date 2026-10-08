@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from server.planets import SUPPORTED_PLANETS, planet
+from tools.deploy.capacity import load as load_capacity, validate as validate_capacity, host_readiness, configuration_status
 
 def vehicle_catalog_status(root=ROOT):
     path = root/'runtime/assets/vehicles/catalog.json'
@@ -79,12 +80,19 @@ def validate_planets(planets):
     return tuple(planet(value) for value in values)
 
 
-def render_config(source, password, planets=("tatooine",)):
+def render_config(source, password, planets=("tatooine",), capacity=None):
     planets = validate_planets(planets)
     if not re.fullmatch(r'[0-9a-f]{64}', password): raise ValueError('Invalid generated DB credential')
     changes = {'Core3.DBHost':'"127.0.0.1"','Core3.DBName':'"swgemu"','Core3.DBUser':'"swgemu"',
         'Core3.DBPass':json.dumps(password),'Core3.ZonesEnabled':'{'+','.join(json.dumps(p) for p in planets)+'}','Core3.SpaceZonesEnabled':'{}',
         'Core3.ZoneProcessingThreads':'2','Core3.MaxNavMeshJobs':'1','Core3.AutoReg':'1'}
+    if capacity is not None:
+        profile=validate_capacity(capacity)
+        if list(planets) != profile['planets']:raise ValueError('Requested planets differ from the deployment profile.')
+        changes.update({'Core3.ZoneProcessingThreads':str(profile['zone_threads']),
+                        'Core3.MaxNavMeshJobs':str(profile['navmesh_jobs']),
+                        'Core3.LoginAllowedConnections':str(profile['native_connections']),
+                        'Core3.ZoneAllowedConnections':str(profile['native_connections'])})
     for key,value in changes.items(): source=assignment(source,key,value)
     # The optional bug-tracker database is outside this prototype's scope.
     if re.search(r'(?m)^Core3\.MantisHost\s*=',source):
@@ -131,7 +139,9 @@ def bootstrap(confirmed):
     if (REMOTE/'db-password').exists():
         raise RuntimeError('Unmarked generated configuration exists; inspect interrupted bootstrap')
     password=secrets.token_hex(32)
-    config=render_config(source,password); resource=render_resources(resource)
+    capacity=load_capacity(REMOTE)
+    planets=capacity['planets'] if capacity else ('tatooine',)
+    config=render_config(source,password,planets,capacity); resource=render_resources(resource,planets)
     REMOTE.mkdir(parents=True,exist_ok=True); STATE.mkdir(parents=True,exist_ok=True)
     for path in (REMOTE/'mysql',REMOTE/'databases',REMOTE/'logs'):
         path.mkdir(exist_ok=True);path.chmod(0o700)
@@ -139,7 +149,7 @@ def bootstrap(confirmed):
     private_write(REMOTE/'config-local.lua',config)
     private_write(REMOTE/'resource_manager.lua',resource)
     private_write(REMOTE/'bootstrap.json',json.dumps({'kind':MARKER,'image':IMAGE,'created':int(time.time())}))
-    print('Fresh private DB credential and Tatooine-only overlays prepared')
+    print('Fresh private DB credential and reviewed planet overlays prepared')
 
 
 def podman(*args): return run(['podman',*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True).stdout
@@ -156,6 +166,9 @@ def inspect_container():
     for target,source in expected_mounts().items():
         if mounts.get(target) != str(source): raise RuntimeError('Container mounts do not match isolated runtime')
     if data['HostConfig'].get('PortBindings'): raise RuntimeError('Native container must not publish ports')
+    capacity=load_capacity(REMOTE)
+    if capacity and data['HostConfig'].get('PidsLimit',0)<capacity['container_pids']:
+        raise RuntimeError('32-player profile requires recreating the stopped container with its larger PID budget; preserve all mounted databases.')
     return data
 
 
@@ -181,11 +194,16 @@ def load_apparmor():
 
 def container_start():
     require_bootstrap()
+    capacity=load_capacity(REMOTE)
+    if capacity:
+        mem=re.search(r'^MemTotal:\s+(\d+)',Path('/proc/meminfo').read_text(),re.M)
+        readiness=host_readiness(os.cpu_count() or 1,int(mem[1]) if mem else 0,capacity)
+        if not readiness['passed']:raise RuntimeError(' '.join(readiness['issues']))
     load_apparmor()
     exists=subprocess.run(['podman','container','exists',CONTAINER]).returncode==0
     if not exists:
         command=['podman','create','--name',CONTAINER,'--network','none','--label','swgxr.remote='+MARKER,
-            '--security-opt','no-new-privileges','--security-opt','apparmor='+APPARMOR_PROFILE,'--pids-limit','512']
+            '--security-opt','no-new-privileges','--security-opt','apparmor='+APPARMOR_PROFILE,'--pids-limit',str(capacity['container_pids'] if capacity else 512)]
         for target,source in expected_mounts().items():
             command += ['--volume',str(source)+':'+target+(':ro' if source.is_file() else ':rw')]
         command += [IMAGE,'python3','/workspace/tools/deploy/runtime.py','idle'];run(command,stdout=subprocess.DEVNULL)
@@ -220,9 +238,11 @@ def child_db():
         stopping=True
         subprocess.run(['mariadb-admin','--socket='+str(STATE/'mysql.sock'),'shutdown'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=120)
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
+    capacity=load_capacity(REMOTE)
+    db_options=[] if not capacity else ['--innodb-buffer-pool-size='+str(capacity['db_buffer_pool_mib'])+'M','--max-connections='+str(capacity['db_connections'])]
     with (REMOTE/'mysql-console.log').open('ab') as log:
         process=subprocess.Popen(['mariadbd','--user=root','--datadir='+str(datadir),'--socket='+str(STATE/'mysql.sock'),
-            '--pid-file='+str(REMOTE/'mysql.pid'),'--bind-address=127.0.0.1','--log-error='+str(REMOTE/'mysql.log')],stdout=log,stderr=log)
+            '--pid-file='+str(REMOTE/'mysql.pid'),'--bind-address=127.0.0.1','--log-error='+str(REMOTE/'mysql.log')]+db_options,stdout=log,stderr=log)
         try:
             end=time.monotonic()+180
             while not mysql_ready():
@@ -251,7 +271,7 @@ def child_db():
 def core_pid():
     try:
         pid=int((STATE/'core3.pid').read_text())
-        if Path('/proc',str(pid),'comm').read_text().strip()=='core3': return pid
+        if Path('/proc',str(pid),'comm').read_text().strip() in ('core3','corecu'): return pid
     except (OSError,ValueError): pass
     return None
 
@@ -328,7 +348,7 @@ def child_core():
             (STATE/'core3-console.previous.log').write_bytes(previous.read(LOG_LIMIT))
     log.write_bytes(b'')
     try:
-        process=subprocess.Popen(['./core3'],cwd=BIN,stdin=fd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+        process=subprocess.Popen(['./corecu' if (BIN/'corecu').is_file() else './core3'],cwd=BIN,stdin=fd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
         pump=threading.Thread(target=pump_console,args=(process.stdout,log),daemon=True);pump.start()
         private_write(STATE/'core3.pid',str(process.pid)+'\n')
         result=process.wait();pump.join(timeout=10)
@@ -336,6 +356,10 @@ def child_core():
     finally:
         os.close(fd)
         (STATE/'core3.pid').unlink(missing_ok=True)
+
+
+def native_initialized(log_text):
+    return any(marker in log_text for marker in ('[CoreCU] initialized', '[Core] initialized'))
 
 
 def wait_ready(kind):
@@ -349,7 +373,7 @@ def wait_ready(kind):
             if (REMOTE/'schema-ready').exists() and subprocess.run(['podman','exec',CONTAINER,'mariadb-admin','--socket=/workspace/runtime/server/mysql.sock','ping'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0:return
         elif kind=='core':
             try:
-                if (STATE/'core3-console.log').stat().st_mtime_ns>=int((REMOTE/'core-start-requested').read_text()) and '[Core] initialized' in (STATE/'core3-console.log').read_text(errors='replace'):return
+                if (STATE/'core3-console.log').stat().st_mtime_ns>=int((REMOTE/'core-start-requested').read_text()) and native_initialized((STATE/'core3-console.log').read_text(errors='replace')):return
             except OSError:pass
         time.sleep(1)
     raise RuntimeError(kind+' readiness timeout; inspect runtime logs')
@@ -407,6 +431,8 @@ def main():
     if action=='bootstrap':bootstrap(args.confirm_fresh_remote)
     elif action=='prepare-core':
         require_bootstrap()
+        capacity_status=configuration_status(REMOTE)
+        if not capacity_status['passed']:raise RuntimeError(' '.join(capacity_status['issues']))
         catalogs = vehicle_catalog_status(ROOT)
         if not catalogs['passed']: raise RuntimeError('; '.join(catalogs['errors']))
         private_write(REMOTE/'core-start-requested',str(time.time_ns()))

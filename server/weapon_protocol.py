@@ -75,6 +75,28 @@ def weapon_snapshots(result, oid):
         if damage_type not in damage_types: raise ValueError('Unsupported Core3 weapon damage type')
         profile['core3']['damageType'] = damage_types[damage_type]
         profile['core3']['armorPiercing'] = int(number('swgxr.armor_piercing'))
+        if attr.get('swgxr.combat_version') != '1':
+            raise ValueError('Native armour/weapon conversion unavailable; rebuild Core3.')
+        converted = {'version':1, 'revision':attr.get('swgxr.combat_revision','')}
+        for field,attribute_name in (('base_type','swgxr.base_type'),('element_type','swgxr.element_type')):
+            value = int(number(attribute_name))
+            if value not in (1,2,32,64,128,256): raise ValueError('Invalid converted damage channel')
+            converted[field] = damage_types[value]
+        for field,attribute_name,minimum,maximum in (
+            ('element_fraction','swgxr.element_fraction',0,.20),
+            ('penetration','swgxr.penetration',0,.20),
+            ('damage_scale','swgxr.damage_scale',.5,1)):
+            value = number(attribute_name)
+            if not minimum <= value <= maximum: raise ValueError('Invalid converted weapon '+field)
+            converted[field] = value
+        if len(converted['revision']) != 64 or any(c not in '0123456789abcdef' for c in converted['revision']):
+            raise ValueError('Invalid native armour revision')
+        profile['core3']['damage_profile'] = converted
+        profile['armour_scales'] = {'output_scale':number('swgxr.armour_output_scale'),
+                                    'recovery_scale':number('swgxr.capacity_recovery_scale')}
+        if any(not .75 <= v <= 1 for v in profile['armour_scales'].values()):
+            raise ValueError('Invalid native armour hindrance')
+
         for field, source in {'minDamage':'min_damage', 'maxDamage':'max_damage', 'woundsRatio':'wounds',
                               'pointBlankRange':'near_range', 'pointBlankAccuracy':'near_accuracy',
                               'idealRange':'ideal_range', 'idealAccuracy':'ideal_accuracy',

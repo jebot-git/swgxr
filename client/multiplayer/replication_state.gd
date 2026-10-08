@@ -1,7 +1,7 @@
 extends RefCounted
 ## Validates the authenticated snapshot before any render state changes. Poses
 ## only decorate IDs in Core3's observer set; they never create gameplay objects.
-const MAX_PLAYERS:=16
+const MAX_PLAYERS:=32
 const MAX_ACTORS:=96
 const POSE_TTL_MS:=1000.0
 const SOURCE_REFLECTION:=Basis(Vector3.RIGHT,Vector3.UP,Vector3(0,0,-1))

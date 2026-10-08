@@ -1,8 +1,11 @@
 # SWGXR rough prototype
 
 VR-first Godot/OpenXR client with all ten original ground planets streamed in
-chunks and a persistent Core3/Engine3 character backend. Original SWG media and converted game assets stay
+chunks and a persistent CoreCU/Engine3 character backend, derived from SWGEmu Core3. Original SWG media and converted game assets stay
 on this machine in ignored directories.
+
+CoreCU is the local combat fork: pre-CU progression with CU-inspired balance and combat feel. See [the PvE and status rules](docs/CORECU_COMBAT.md).
+Existing Core3 paths and protocol identifiers remain compatible; historical notes below retain the upstream name.
 
 The client creates and selects persistent Core3 characters, then retains a native
 connection for inventory, services, resource gathering, crafting and vehicles.
@@ -116,12 +119,15 @@ The saved original SWG avatar is visible in first person with tracked head/arm I
 and input-driven finger poses; XR Tools gloves remain the pre-entry fallback. Desktop body clips and
 keyboard posture/emote controls do not drive the VR player.
 
-Hold **grip + trigger on the left hand** for a quarter second to raise the wrist
-datapad; release either to close it. Point the other index finger at an entry or
-button and squeeze its trigger to select. Keep the finger over the interface and
-use that hand’s joystick to scroll or pan; turning remains suppressed until the
-stick returns to neutral. The wrist surface follows your view with limited pitch
-and no added roll, with an angled information panel alongside it. **Planet map**
+Hold **grip + trigger on the left hand** for a quarter second to show the wrist
+minimap. Touch it with the other fingertip to open the full datapad ahead of you.
+You can release and lower your hands; press **Close** to dismiss the datapad.
+Point the other index finger at an entry or button and squeeze its trigger to
+select. Keep the finger over the interface and use that hand’s joystick to
+scroll or pan; turning remains suppressed until the stick returns to neutral.
+The datapad floats 75cm ahead (95cm expanded) and follows larger turns gently.
+Looking across any of its three panels or leaning slightly leaves it stationary;
+clicks and drags also hold it still. **Planet map**
 expands the screen; click a map point and press **New waypoint**. Without a
 selected point it saves your current position; **Use my position** clears a map
 selection. The selection survives switching back to the entry list. **Delete entry**
@@ -129,8 +135,8 @@ is available for removable player entries; static POIs, learned recipes and
 server-managed entries remain protected. The original map provides a planet overview;
 zooming does not add detailed city imagery.
 
-With the datapad closed, a compact circular holographic **64 m radar** occupies the
-same offhand wrist mount. Contacts rotate with your horizontal head direction:
+With the datapad closed, the fist gesture shows a compact circular holographic
+**64 m radar** on the offhand wrist. Contacts rotate with your horizontal head direction:
 white for neutral NPCs, yellow for explicitly attackable contacts, red for hostile
 contacts, and green for explicitly friendly contacts. NPCs use dots; mobs use
 diamonds. Small chevrons indicate contacts more than 3 m above or below you.
@@ -257,8 +263,8 @@ With empty hands, choose a learned dance from the weapon-hand stick radial. Spre
 both arms at chest height with open palms facing down, then make repeated circular
 or wavy motions with both hands. Dancing uses no ribbon or other prop. Holding fists,
 raising hands overhead, standing still, or moving only one hand does not start a dance.
-For music, hold an owned instrument, select a learned song, then bring a wind
-instrument to your mouth, strum strings, alternate keyboard taps, or strike a percussion
+For music with a carried instrument, equip it in the weapon slot, select a learned
+song, then bring a wind instrument to your mouth, strum strings, alternate keyboard taps, or strike a percussion
 instrument with the other hand. These primed gestures take priority over the wrist
 datapad chord; release the chord before opening the datapad again.
 During an entertainer performance, press **A** to request a random learned flourish.
@@ -266,8 +272,10 @@ Dancer, Musician and Image Designer profession boxes use the existing native tra
 and skill-tree interfaces. The flourish pool includes learned original special effects;
 Core3 checks the performance mode, skill modifiers, HAM and cooldown before accepting.
 Music stops retain the original 15-second outro; dance/song switches use the original
-change-performance commands. Large instruments require native deployed placement and
-are explicitly rejected until that separate interaction is available.
+change-performance commands. Nearby statically placed instruments are selected and
+played in place. Retrieve a carried instrument through the inventory’s **Equipped
+items** view and **Return to inventory**, or grip it there after Core3 confirms
+unequipping it. An instrument merely held from inventory cannot start music.
 Original performance sessions own XP; the presentation bus never grants skills or XP.
 Audience presence still reports `buff_applied: false`: native watch/listen audience
 buff integration is outside this unlock-and-options milestone.
@@ -279,13 +287,23 @@ hold. Core3 requires the original qualifying profession and building; this canno
 create arbitrary outdoor POIs. Registration disappears when the original venue no
 longer has registered professionals.
 
-The entertainer radial offers **Image design**, nearby native group invitations,
-accepting an invitation and leaving the group. Self-design is allowed; another
+Form a party by bumping a free fist with another player's free fist. Either hand
+works; on controllers, hold grip and trigger to close the fist. Bumping any member
+of an existing party joins that party. The higher combat-level player leads the
+initial pair, with Squad Leader profession holders taking priority. A later
+ordinary member does not replace the leader; among Squad Leaders the higher
+combat level leads, retaining the current leader on ties. Two existing parties
+are not merged. **Leave Party** remains in the combat and entertainer circle menus.
+
+The entertainer radial offers **Image design**. Self-design is allowed; another
 recipient must share the original Core3 group and be within 8 m in the same cell.
 The holographic designer panel exposes learned body, face, hair, marking and
 holoemote options with an original-model preview and price. Both players consent to
 the exact revision before Core3 commits appearance, payment and XP. A revision clears
 both approvals. Stat migration is outside this appearance-options milestone.
+
+See the [ability activation audit](docs/ABILITY_ACTIVATION.md) for the primary
+abilities that still use buttons or menus rather than dedicated gestures.
 
 Local asset preparation includes `tools/entertainment/prepare_assets.py` and
 `tools/entertainment/prepare_image_design.py --ensure`. The latter hashes original
@@ -590,9 +608,9 @@ suite. See [benchmark targets and limitations](docs/WORKFLOW.md#forward-viabilit
 for full-duration and synthetic stereo workloads. Benchmark success is not a
 supported MMO population claim.
 
-The wrist datapad now rises vertically above its wrist hinge, independent of
-palm roll, with its lower edge attached to the wrist. View following retains the
-25-degree pitch limit and adds no roll relative to this upright origin.
+The minimap keeps its upright wrist hinge. The full datapad opens ahead of the
+viewer and follows with a generous dead zone around all three panels. Head roll
+does not roll the interface.
 
 Combat effects now default to a native batched renderer using original textures
 and source-derived colors, including the bright tracer core. Enforced 20/50/100 m
@@ -729,3 +747,26 @@ recorded for separate investigation, not cut by widening the safety bound.
 Evidence is under ignored `runtime/evidence/core2/`: original Core3 objective
 transactions, actual-stage collision, mocked tracking and desktop Forward+ Vulkan
 rendering are recorded separately. No live headset validation is claimed.
+
+## Smuggler
+
+Smuggler now uses the native trainer and crafting paths, tracked Feign Death,
+authoritative ranged abilities, Imperial/Rebel wallet delegation, ground PvE
+Underworld deliveries and spatial pipe-puzzle slicing with native crafted-item
+bonuses, party mission rewards and locked-container drops. See
+[controls, scope and validation](docs/SMUGGLER.md). Crafted spices retain native
+HAM effects and add combat, healing, crafting and entertainer modifiers with
+timed withdrawal and local visual/virtual-hand effects.
+
+## Character avatar export
+
+Export a native character's current appearance and equipment as a self-contained
+VRM 1.0 avatar with the separate [character extractor](tools/character_export/README.md):
+
+```bash
+python3 tools/character_export/export_character.py --account YOUR_ACCOUNT
+```
+
+It supports a local account, an authenticated HTTPS gateway, or an offline
+character snapshot. Models, baked textures and exports remain local. This first
+version exports a T-pose humanoid rig without facial presets or spring physics.

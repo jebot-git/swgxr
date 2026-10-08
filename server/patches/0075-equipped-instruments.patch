@@ -1,0 +1,116 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -45,6 +45,14 @@
+    bool grouped=c->isGrouped() && c->getGroupID()==peer->getGroupID();if(grouped || !requireGroup)rows.push_back({{"id",id(peer)},{"name",str(peer->getFirstName())},{"self",false},{"in_same_group",grouped}});
+   }return rows;
+  }
++ static bool placedPlayable(CreatureObject* c,Instrument* item){
++  if(!item || item->getZone()!=c->getZone() || item->getParentID()!=c->getParentID() || !c->isInRange(item,3) || item->getParentRecursively(SceneObjectType::PLAYERCREATURE)!=nullptr)return false;
++  auto owner=item->getSpawnerPlayer().get();return !owner || owner==c;
++ }
++ static Json placedInstruments(CreatureObject* c){
++  Json out=Json::array();SortedVector<TreeEntry*> objects(32,32);auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),8,&objects,true);
++  for(int i=0;i<objects.size() && out.size()<32;++i){auto item=dynamic_cast<Instrument*>(static_cast<SceneObject*>(objects.get(i)));if(!item || item->getParentRecursively(SceneObjectType::PLAYERCREATURE)!=nullptr || item->getZone()!=c->getZone() || item->getParentID()!=c->getParentID())continue;auto position=item->getWorldPosition();auto parent=item->getParent().get();auto root=item->getRootParent();int cell=parent && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json row={{"id",id(item)},{"name",str(item->getDisplayedName())},{"template",str(item->getObjectTemplate()->getFullTemplateString())},{"position",Json::array({position.getX(),position.getZ(),position.getY()})},{"building_id",cell && root?id(root):"0"},{"cell_index",cell}};row["playable"]=placedPlayable(c,item);out.push_back(row);}return out;
++ }
+  static Json activeLocations(CreatureObject* c){
+   Json rows=Json::array();std::set<uint64> seen;
+   for(auto category:{"cantina","hotel","theater","guild_theater","tavern","medicalcenter","imperial","rebel"}){
+@@ -60,7 +68,7 @@
+   auto flourishes=Json::array();for(int i=1;i<=8;++i)if(c->getPlayerObject()->hasAbility(String(("flourish+"+std::to_string(i)).c_str())))flourishes.push_back(i);
+   auto instrument=c->getPlayableInstrument();bool dancing=s && s->isDancing(),music=s && s->isPlayingMusic();
+   auto inviter=c->getZoneServer()->getObject(c->getGroupInviterID()).castTo<CreatureObject*>();
+-  return {{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
++  return {{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"instrument_id",id(instrument)},{"instrument_mode",instrument?(instrument->getParent().get()==c?"equipped":"placed"):"none"},{"placed_instruments",placedInstruments(c)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
+  }
+  static Json run(CreatureObject* c,const Json& q){
+   SwgxrPlanets::require(c,q);auto action=q.value("action",std::string("status"));auto ghost=c->getPlayerObject();auto mutation=Json{{"success",true},{"operation",action}};
+@@ -80,9 +88,12 @@
+    auto kind=q.at("kind").get<std::string>(),name=q.at("name").get<std::string>();auto pm=SkillManager::instance()->getPerformanceManager();
+    auto current=session(c);bool active=current && (current->isDancing() || current->isPlayingMusic());if(active && current->isPerformingOutro())throw std::runtime_error("native_music_outro_pending");if(active && ((kind=="dance")!=current->isDancing()))throw std::runtime_error("stop_current_performance_before_changing_kind");
+    if(kind=="music"){
+-    auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>())).castTo<Instrument*>();if(item==nullptr || !item->isASubChildOf(c))throw std::runtime_error("owned_instrument_required");
++    auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>())).castTo<Instrument*>();if(item==nullptr)throw std::runtime_error("native_instrument_required");
++    if(item->isASubChildOf(c)){if(c->getSlottedObject("hold_r")!=item)throw std::runtime_error("instrument_requires_weapon_slot");}
++    else{if(!placedPlayable(c,item))throw std::runtime_error("nearby_placed_instrument_required");if(c->getSlottedObject("hold_r").castTo<Instrument*>()!=nullptr)throw std::runtime_error("unequip_carried_instrument_before_playing_placed");c->setTargetID(item->getObjectID(),true);}
++    if(c->getPlayableInstrument()!=item)throw std::runtime_error("native_instrument_not_playable");
+     int index=pm->getPerformanceIndex(PerformanceType::MUSIC,String(name.c_str()),item->getInstrumentType());if(!index || !pm->canPlayInstrument(c,item->getInstrumentType()) || !pm->canPlaySong(c,index))throw std::runtime_error("unlearned_original_music");
+-    if(c->getPlayableInstrument()!=item){bool equipped=false;for(int n=0;n<item->getArrangementDescriptorSize();++n){auto plan=SwgxrEquipment::arrangement(item,c,n);if(plan.value("available",false)){auto result=SwgxrEquipment::mutate(c,String(("swgxr_inventory_v1 equip "+id(item)+" "+std::to_string(n)).c_str()));if(!result.value("success",false))throw std::runtime_error("native_instrument_equip_failed");equipped=true;break;}}if(!equipped || c->getPlayableInstrument()!=item)throw std::runtime_error("native_instrument_requires_deployed_placement");}
++
+    }else if(kind!="dance")throw std::runtime_error("invalid_performance_kind");
+    invoke(c,active?(kind=="dance"?"changedance":"changemusic"):(kind=="dance"?"startdance":"startmusic"),name);auto started=session(c);if(started==nullptr || (kind=="dance"?!started->isDancing():!started->isPlayingMusic()))throw std::runtime_error("native_performance_not_started");mutation["performance_index"]=started->getPerformanceIndex();
+   }else if(action=="stop"){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/tangible/pharmaceutical/StimPack.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+ #include "server/zone/objects/player/sessions/TradeSession.h"
++#include "server/zone/objects/player/sessions/EntertainingSession.h"
+ class SwgxrEquipment {
+  using Json=JSONSerializationType;
+  static std::string id(SceneObject* o) { return o?std::to_string(o->getObjectID()):""; }
+@@ -68,6 +69,17 @@
+   }
+   return result;
+  }
++ static std::string unequipReason(SceneObject* o,CreatureObject* c) {
++  auto root=c->getSlottedObject("inventory");
++  auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("transferitemmisc");
++  if(!equippable(o) || o->getParent().get()!=c)return "owned_equipped_item_required";
++  if(c->isDead() || c->isIncapacitated())return "player_unavailable";
++  if(c->getActiveSession(SessionFacadeType::TRADE)!=nullptr)return "active_trade";
++  if(!cmd || !cmd->checkStateMask(c) || !cmd->checkInvalidLocomotions(c))return "source_command_state_restriction";
++  if(!root || root->getContainerVolumeLimit()-root->getCountableObjectsRecursive()<1+o->getCountableObjectsRecursive())return "inventory_space_required";
++  if(!o->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) || !c->checkContainerPermission(c,ContainerPermissions::MOVEOUT))return "container_permission";
++  return "";
++ }
+  static void enrich(Json& record,SceneObject* o,CreatureObject* c) {
+   record["equippable"]=equippable(o); record["equip_slots"]=Json::array();record["equip_arrangements"]=Json::array();record["equipped_slots"]=Json::array();
+   record["equip_available"]=false;record["equip_block_reason"]="not_equippable";
+@@ -85,6 +97,7 @@
+     record["arrangement"]=index;
+    }
+   }
++  record["unequip_block_reason"]=unequipReason(o,c);record["unequip_available"]=record["unequip_block_reason"]=="";
+   record["bonuses"]=Json::array();
+   if(o->isWearableObject()) {
+    auto mods=cast<WearableObject*>(o)->getWearableSkillMods();
+@@ -108,11 +121,17 @@
+   result["operation"]=std::string(verb.toCharArray());
+   if(!tokens.hasMoreTokens()) {result["error"]="Missing item";return result;}
+   uint64 target=tokens.getLongToken();auto o=c->getZoneServer()->getObject(target);result["item_id"]=std::to_string(target);
+-  if(o==nullptr || !o->isASubChildOf(c) || !inInventory(o,c)) {result["error"]="Item outside owned inventory";return result;}
++  if(o==nullptr || !o->isASubChildOf(c) || (verb!="unequip" && !inInventory(o,c))) {result["error"]="Item outside owned inventory";return result;}
+   Locker itemLock(o,c);auto parent=o->getParent().get();auto root=c->getSlottedObject("inventory");
+-  if(parent==nullptr || root==nullptr || !inInventory(o,c)) {result["error"]="Inventory changed";return result;}
++  if(parent==nullptr || root==nullptr || (verb!="unequip" && !inInventory(o,c))) {result["error"]="Inventory changed";return result;}
+   if(c->getActiveSession(SessionFacadeType::TRADE)!=nullptr){result["error"]="active_trade";return result;}
+   result["before_stats"]=stats(c);
++  if(verb=="unequip") {
++   auto reason=unequipReason(o,c);if(!reason.empty()){result["error"]=reason;return result;}
++   if(!c->getZoneServer()->getObjectController()->transferObject(o,root,-1,true)){result["error"]="native_unequip_rejected";return result;}
++   if(o->isInstrument()){auto music=c->getActiveSession(SessionFacadeType::ENTERTAINING).castTo<EntertainingSession*>();if(music && music->isPlayingMusic())music->stopMusic(true);}
++   result["success"]=true;result["after_stats"]=stats(c);return result;
++  }
+   if(verb=="consume") {
+    bool isMedicine=medicine(o);
+    if(!isMedicine && !(o->isTangibleObject() && o->asTangibleObject()->isConsumable())) {result["error"]="Unsupported source consumable";return result;}
+@@ -147,6 +166,7 @@
+    for(int i=moved-1;i>=0;--i)rollback=controller->transferObject(displaced[i].first,c,displaced[i].second,true,true)&&rollback;
+    result["error"]=rollback?"Core3 rejected equipment; original items restored":"Equipment rollback incomplete; refresh inventory";result["rollback_complete"]=rollback;return result;
+   }
++  for(auto& old:displaced)if(old.first->isInstrument()){auto music=c->getActiveSession(SessionFacadeType::ENTERTAINING).castTo<EntertainingSession*>();if(music && music->isPlayingMusic())music->stopMusic(true);break;}
+   if(o->isWeaponObject()) {
+    auto weapon=cast<WeaponObject*>(o.get());c->setWeapon(weapon,true);weapon->setCertified(weapon->isCertifiedFor(c));
+    if(c->hasBuff(STRING_HASHCODE("centerofbeing")))c->removeBuff(STRING_HASHCODE("centerofbeing"));
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -120,7 +120,7 @@
+   ManagedReference<SceneObject*> root=c->getSlottedObject("inventory");
+   if (root==nullptr) out["error"]="Missing inventory container";
+   else {
+-   if (args.contains(" equip ") || args.contains(" consume ")) out["mutation"]=SwgxrEquipment::mutate(c,args);
++   if (args.contains(" equip ") || args.contains(" unequip ") || args.contains(" consume ")) out["mutation"]=SwgxrEquipment::mutate(c,args);
+    else if (args!="swgxr_inventory_v1") out["mutation"]=split(c,root,args);
+    out["inventory"]={{"id",id(root)},{"capacity",root->getContainerVolumeLimit()},{"occupied",root->getCountableObjectsRecursive()},{"direct_count",root->getContainerObjectsSize()}};
+    std::set<uint64> seen; walk(root,c,out,seen,0,false);

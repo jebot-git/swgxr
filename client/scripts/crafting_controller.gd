@@ -21,6 +21,8 @@ var sliders: Array[Node3D] = []
 var preview: Node3D
 var preview_root: Node3D
 var preview_missing: Label3D
+var preview_description: Label3D
+var recipe_category := ""
 var dragging := -1
 var gripping := false
 var grabbed_knob := -1
@@ -31,6 +33,7 @@ var next_poll := 0.0
 var clock_offset := 0.0
 var locked_pose := Transform3D.IDENTITY
 var last_error := ""
+var last_outcome := ""
 var icon_catalog: Dictionary = {}
 var drag_visual: Node3D
 var scroll_delay := 0.0
@@ -51,15 +54,17 @@ func setup(host: Node, inventory: Node3D) -> void:
 	surfaces[1].mesh.position=Vector3(inner*0.43,0,0.035)
 	surfaces[1].mesh.rotation.y=deg_to_rad(-inner*25)
 	preview_root=Node3D.new(); add_child(preview_root); preview_root.position=Vector3(-inner*0.43,0,0.035); preview_root.rotation.y=deg_to_rad(inner*25)
-	var frame:=MeshInstance3D.new(); var plane:=QuadMesh.new(); plane.size=Vector2(0.32,0.34); frame.mesh=plane; frame.material_override=holo(Color(0.02,0.16,0.21,0.5)); preview_root.add_child(frame)
+	var frame:=MeshInstance3D.new(); var plane:=QuadMesh.new(); plane.size=Vector2(0.32,0.42); frame.mesh=plane; frame.position.y=-0.035;frame.material_override=holo(Color(0.02,0.16,0.21,0.5)); preview_root.add_child(frame)
 	var label:=label3d("ITEM PREVIEW",Vector3(0,0.14,0.015));preview_root.add_child(label)
 	preview_missing=label3d("Original preview unavailable",Vector3(0,0,0.015));preview_missing.font_size=18;preview_missing.visible=false;preview_root.add_child(preview_missing)
+	preview_description=label3d("",Vector3(0,-0.13,0.02));preview_description.font_size=18;preview_description.width=850;preview_description.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;preview_root.add_child(preview_description)
 	dot=MeshInstance3D.new();var sphere:=SphereMesh.new();sphere.radius=0.003;sphere.height=0.006;dot.mesh=sphere;dot.material_override=holo(Color("baffff"));add_child(dot)
 	ingredient_viewport=bag.create_model_viewport(Vector2i(660,660))
 	ingredient_images=TextureRect.new();ingredient_images.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	ingredient_images.texture=ingredient_viewport.get_texture();ingredient_images.size=Vector2(660,660);materials.add_child(ingredient_images)
 	materials.page_changed.connect(refresh_material_page)
 	ui.chosen.connect(select_schematic);materials.chosen.connect(select_resource)
+	ui.category_chosen.connect(select_category)
 	bag.crafting_requested.connect(activate)
 	bag.item_held_changed.connect(held_changed)
 	var icon_path: String="res://../runtime/assets/crafting/catalog.json"
@@ -81,6 +86,7 @@ func set_visible_ui(value: bool) -> void:
 	for surface: Dictionary in surfaces:
 		surface.mesh.visible=value;surface.viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE if value else SubViewport.UPDATE_DISABLED
 	if not value:
+		ui.reset_dwell()
 		cancel_press();clear_hover();cancel_grab();stick_captured=false;main_stick_captured=false;navigation_surface=-1
 		if is_instance_valid(body): body.set_interface_capture(false,false)
 func reset() -> void:
@@ -89,6 +95,7 @@ func reset() -> void:
 func held_changed(item: Dictionary) -> void:
 	var next_id:=str(item.get("id","")) if item.get("tool_kind","")=="crafting" else ""
 	if next_id!=held_id:
+		recipe_category="";ui.selected=-1;ui.reset_dwell()
 		pending_selection.clear()
 		set_visible_ui(false)
 		if busy: pending_cancel=true
@@ -117,7 +124,8 @@ func request(action: String, extra: Dictionary={}) -> Dictionary:
 		state=result.state.duplicate(true);clock_offset=float(state.server_time)-Time.get_unix_time_from_system()
 		if result.get("inventory",{}).get("source_kind","")=="core3_inventory":
 			app.inventory_snapshot=result.inventory.duplicate(true);app.reconcile_inventory_presentations();app.update_inventory_presentation()
-		last_error=""
+		last_error="";last_outcome=""
+		if action=="finish":last_outcome=experimentation_label(int(result.get("mutation",{}).get("experimentation_result",-1)))
 		if action=="finish" and is_instance_valid(app.get("services")):app.services.poll_clock=0
 	else: last_error=str(result.get("error","Core3 did not confirm crafting. Refresh before retrying."))
 	if pending_cancel:
@@ -144,13 +152,13 @@ func activate(tool: Dictionary) -> void:
 			var result:=await request("finish",{"points":points,"colors":colors,"output":"blueprint" if blueprint_output.button_pressed and state.get("can_create_blueprint",false) else "prototype"})
 			if result.is_empty(): bag.set_busy(false,last_error);return
 		rebuild()
-	bag.set_busy(false,last_error)
+	bag.set_busy(false,last_error if not last_error.is_empty() else last_outcome)
 func cancel_draft() -> void:
 	set_visible_ui(false)
 	await request("cancel")
 func select_schematic(index: int) -> void:
 	if int(state.get("stage",0))>2 or not is_open: return
-	var choices: Array=state.get("schematics",[])
+	var choices: Array=ui.rows
 	if index<0 or index>=choices.size(): return
 	pending_selection={"id":str(choices[index].get("id","")),"template":str(choices[index].get("template","")),"epoch":app.datapad_epoch,"generation":generation,"tool":held_id}
 	ui.footer="Loading selected recipe from Core3…";ui.queue_redraw()
@@ -173,9 +181,26 @@ func drain_selection() -> void:
 	if not result.is_empty():
 		allocations=[]
 		for slot in state.get("schematic",{}).get("slots",[]): allocations.append([])
-		ui.selected=resolved_index
 		selected_resource=-1;rebuild()
 	if not pending_selection.is_empty():drain_selection.call_deferred()
+func select_category(id: String) -> void:
+	if int(state.get("stage",0))>2:return
+	recipe_category=id;pending_selection={};ui.selected=-1;ui.offset=0;ui.reset_dwell();configure_recipes()
+func configure_recipes() -> void:
+	var categories: Array=[{"id":"","name":"All"}]
+	var seen: Dictionary={}
+	var choices: Array=[]
+	for row: Dictionary in state.get("schematics",[]):
+		if not row.get("tool_compatible",true):continue
+		var id:=str(row.get("category_id","other"))
+		if not seen.has(id):categories.append({"id":id,"name":str(row.get("category","Other"))});seen[id]=true
+	if not recipe_category.is_empty() and not seen.has(recipe_category):recipe_category=""
+	for row: Dictionary in state.get("schematics",[]):
+		if row.get("tool_compatible",true) and (recipe_category.is_empty() or str(row.get("category_id","other"))==recipe_category):choices.append(row)
+	ui.recipe_mode=true;ui.categories=categories;ui.category_id=recipe_category;ui.page_size=10
+	ui.category_offset=clampi(ui.category_offset,0,maxi(0,categories.size()-3))
+	if ui.selected>=choices.size():ui.selected=-1;ui.reset_dwell()
+	ui.configure("CRAFTING RECIPES",choices,"Highlight for 1 second to load · trigger assembles")
 func select_resource(index: int) -> void:
 	if busy or int(state.get("stage",0))!=2: return
 	selected_resource=index;materials.selected=index;materials.queue_redraw();update_slots()
@@ -232,7 +257,7 @@ func rebuild() -> void:
 	if stage==0: set_visible_ui(false);return
 	ui.enabled=stage<=2;materials.enabled=stage==2
 	if stage<=2:
-		ui.configure("USABLE SCHEMATICS",state.get("schematics",[]),"Stick: highlight · stick click: select · trigger assembles")
+		configure_recipes()
 		materials.layout(true)
 		materials.configure("INGREDIENTS",state.get("inventory",[]),"Finger selects quality · grip drags to cube")
 		for i in range(state.get("schematic",{}).get("slots",[]).size()):
@@ -246,6 +271,7 @@ func rebuild() -> void:
 					var sprite:=Sprite3D.new();sprite.texture=ImageTexture.create_from_image(image);sprite.pixel_size=0.06/image.get_width();sprite.position.z=0.04;cube.add_child(sprite)
 		update_slots()
 	else:
+		ui.recipe_mode=false;ui.categories=[];ui.reset_dwell()
 		points=[];colors=[]
 		for i in range(state.get("rows",[]).size()):
 			points.append(0);var knob:=MeshInstance3D.new();var cylinder:=CylinderMesh.new();cylinder.top_radius=0.014;cylinder.bottom_radius=0.014;cylinder.height=0.015;knob.mesh=cylinder;knob.rotation.x=PI/2;knob.material_override=holo(Color("63dbe5"));add_child(knob);knob.add_child(label3d("•",Vector3(0,0.014,0)));knobs.append(knob)
@@ -261,12 +287,15 @@ func rebuild() -> void:
 	refresh_material_page()
 	var template := preview_template()
 	show_preview(template)
+	var description:=str(state.get("schematic",{}).get("description",""))
+	if description.is_empty() and not ui.rows.is_empty() and stage<=2:description=str(ui.rows[clampi(ui.selected,0,ui.rows.size()-1)].get("description",""))
+	preview_description.text=description;preview_description.visible=not description.is_empty()
 
 func preview_template() -> String:
 	var template := str(state.get("prototype_template",""))
 	if template.is_empty(): template=str(state.get("schematic",{}).get("template",""))
 	if template.is_empty():
-		var choices: Array=state.get("schematics",[])
+		var choices: Array=ui.rows
 		if not choices.is_empty(): template=str(choices[clampi(ui.selected,0,choices.size()-1)].get("template",""))
 	return template
 
@@ -277,14 +306,14 @@ func show_preview(template: String, customization: Dictionary={}) -> void:
 	if template.is_empty():
 		preview_missing.text="No usable recipes returned by Core3."
 		return
-	var model: MeshInstance3D=bag.assets.instance(template,0.25,customization)
+	var model: MeshInstance3D=bag.assets.instance(template,0.20,customization)
 	if model==null:
 		preview_missing.text="Original preview unavailable"
 		return
 	# Rotate a centered fitted model as a group: replacing its source-derived offset
 	# or rotating the mesh around its authored origin shifts long/asymmetric items.
 	preview=Node3D.new(); preview_root.add_child(preview); preview.add_child(model)
-	preview.position=Vector3(0,-0.01,0.15);preview.rotation=Vector3(-0.1,0.5,0)
+	preview.position=Vector3(0,0.02,0.15);preview.rotation=Vector3(-0.1,0.5,0)
 	preview_missing.visible=false
 func refresh_experiment() -> void:
 	var used:=0;var rows: Array=[]
@@ -443,7 +472,7 @@ func _process(delta: float) -> void:
 	var main: XRController3D=bag.held_controller()
 	var off: XRController3D=bag.tool_pointer_controller()
 	var head: XRCamera3D=rig.get_node("XRCamera3D")
-	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(off): cancel_grab();cancel_press();clear_hover();return
+	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(off): ui.reset_dwell();cancel_grab();cancel_press();clear_hover();return
 	if not gripping:
 		var facing: Vector3=(head.global_position-main.global_position).slide(Vector3.UP).normalized()
 		if facing.length_squared()>0.5:
@@ -459,6 +488,7 @@ func _process(delta: float) -> void:
 		update_pointer(hit,press)
 	update_hand(off.get_float("grip"),off.global_transform,hit)
 	update_scroll_inputs(main.get_vector2("primary"),off.get_vector2("primary"),hit,delta)
+	if not gripping and int(state.get("stage",0))<=2:ui.advance_dwell(delta)
 
 func confirm_button(side: String) -> bool:
 	if not is_open:return false
@@ -489,3 +519,7 @@ func update_scroll_inputs(main_stick: Vector2, off_stick: Vector2, hit: Dictiona
 func _exit_tree() -> void:
 	if is_instance_valid(hip_timer): hip_timer.queue_free()
 	if is_instance_valid(ingredient_viewport): ingredient_viewport.queue_free()
+
+static func experimentation_label(result:int)->String:
+	# Preserve native result naming; Muon changes the roll, not its label.
+	return "Amazing Success" if result==0 else "Critical Failure" if result==8 else ""

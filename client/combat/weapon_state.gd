@@ -1,5 +1,7 @@
 extends RefCounted
 ## Local simulation seam. Inputs are copied; this never writes Core3 state.
+const ArmourModel = preload("res://combat/armour_model.gd")
+var armour_scales: Dictionary = {}
 var profile: Dictionary = {}
 var core: Dictionary = {}
 var certificates: Array = []
@@ -22,11 +24,22 @@ var ability_state: RefCounted
 func profession(field: String, fallback: float) -> float:
 	return float(profile.get("profession", {}).get(field, fallback))
 
+func observe_armour(scales: Dictionary) -> void:
+	var previous := float(armour_scales.get("recovery_scale", profile.get("armour_scales", {}).get("recovery_scale", 1)))
+	var current := float(scales.get("recovery_scale", profile.get("armour_scales", {}).get("recovery_scale", 1)))
+	if reload_until >= clock and not is_equal_approx(previous, current):
+		reload_until = clock + (reload_until-clock) * previous / maxf(0.001, current)
+	armour_scales = scales.duplicate(true)
+
+func armour_ratio(key: String) -> float:
+	var captured := float(profile.get("armour_scales", {}).get(key, 1))
+	return float(armour_scales.get(key, captured)) / maxf(0.001, captured)
+
 func effective_rpm() -> float:
-	return float(profile.get("rpm", 0)) * profession("rpm_scale", 1)
+	return float(profile.get("rpm", 0)) * profession("rpm_scale", 1) * armour_ratio("output_scale")
 
 func effective_recovery() -> float:
-	return float(profile.get("stance_recovery", 0)) * profession("stance_recovery_scale", 1)
+	return float(profile.get("stance_recovery", 0)) * profession("stance_recovery_scale", 1) * armour_ratio("recovery_scale")
 
 func is_melee() -> bool:
 	return profile.get("kind","") == "melee"
@@ -112,7 +125,7 @@ func cycle_mode() -> void:
 func reload() -> bool:
 	if is_melee(): return false
 	if reload_until >= 0 or rounds == int(profile.capacity): return false
-	reload_until = clock + float(profile.reload_seconds) / profession("capacity_recovery_scale", 1)
+	reload_until = clock + float(profile.reload_seconds) / (profession("capacity_recovery_scale", 1) * float(armour_scales.get("recovery_scale", profile.get("armour_scales", {}).get("recovery_scale", 1))))
 	block()
 	return true
 
@@ -179,7 +192,7 @@ func melee_thresholds(two_hands: bool) -> Dictionary:
 	var power_scale := 1.0
 	if int(profile.hands)==1 and two_hands: power_scale=float(profile.get("two_hand_power_bonus",1.2))
 	elif int(profile.hands)==2 and not two_hands: power_scale=float(profile.get("one_hand_power_penalty",0.5))
-	var power := float(profile.power)*power_scale
+	var power := float(profile.power) * armour_ratio("output_scale")*power_scale
 	return {"power":power,"speed":float(profile.swing_speed_reference)*100.0/power,
 		"travel":float(profile.swing_travel_reference)*100.0/effective_recovery()}
 
@@ -225,10 +238,11 @@ static func damage_at(shot: Dictionary, distance: float, resistance: Dictionary,
 	# Core3 TangibleObject condition reduction starts at 75% condition damage.
 	var condition := clampf(float(shot.condition_fraction),0,1)
 	var pierce := int(stats.armorPiercing) if condition > 0 else 0
-	var difference := pierce - clampi(armor_rating,0,3)
-	var armor_multiplier := pow(1.25,difference) if difference > 0 else pow(0.5,-difference)
-	var resist := clampf(float(resistance.get(stats.damageType,0)),0,100)
+	# Legacy AR is intentionally unused. Profiles carry bounded mitigation bypass.
+	var converted: Dictionary = stats.get("damage_profile", ArmourModel.weapon(str(stats.damageType), pierce, condition <= 0))
+	if condition <= 0:
+		converted = ArmourModel.weapon(str(stats.damageType), 0, true)
 	var condition_multiplier := 1.0-maxf(0.0,((1.0-condition)*100.0-75.0)/50.0)
-	var amount := base * maxf(0,1.0+modifier/100.0) * condition_multiplier * armor_multiplier * (1.0-resist/100.0)
+	var amount := ArmourModel.damage(base * maxf(0,1.0+modifier/100.0) * condition_multiplier, converted, resistance)
 	amount *= float(shot.get("ability", {}).get("damage_multiplier", 1))
 	return {"damage":amount,"damage_type":stats.damageType,"wound":amount>0 and wound_roll < clampf(float(stats.woundsRatio)/100.0,0,1),"armor_piercing":pierce,"range_modifier":modifier,"raw_range_modifier":raw_modifier,"firing_posture":shot.get("firing_posture","standing")}

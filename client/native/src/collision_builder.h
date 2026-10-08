@@ -9,7 +9,7 @@ class SwgCollisionBuilder : public RefCounted {
 protected: static void _bind_methods();
 public:
     Array build_extent(const Dictionary &definition) const;
-    Array build_cell_extent(const Dictionary &definition,const Array &portals) const;
+    Array build_cell_extent(const Dictionary &definition,const Array &portals,const Dictionary &floor) const;
     Ref<ConcavePolygonShape3D> build_floor(const Dictionary &cell) const;
 };
 }

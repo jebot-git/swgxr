@@ -19,6 +19,8 @@ var comparison_rows: Array = []
 var status := ""
 var offhand := "left"
 var report: Dictionary = {}
+var browsing := false
+var equipment_targets: Dictionary = {}
 
 func configure(source: Node3D, current_equipment: Array) -> void:
 	source_avatar=source; equipment=current_equipment.duplicate(true)
@@ -77,6 +79,7 @@ func create_panel(x: float, yaw: float, title: String) -> void:
 
 func show_item(item: Dictionary, head: Transform3D) -> bool:
 	if not report.get("error","").is_empty(): return false
+	browsing=false; equipment_targets.clear()
 	incoming=item.duplicate(true); highlighted={}; page=0; status=""
 	for marker in markers.values():
 		remove_child(marker); marker.queue_free()
@@ -98,6 +101,37 @@ func show_item(item: Dictionary, head: Transform3D) -> bool:
 	global_transform=Transform3D(Basis.looking_at(forward,Vector3.UP),head.origin+forward*0.67-Vector3.UP*0.46)
 	active=true; visible=true; report.markers=markers.size()
 	update_comparison({}); return true
+
+func show_equipment(head: Transform3D) -> bool:
+	# Reuse original avatar anchors; each actual equipped object gets its own
+	# reachable marker even when several layers occupy the same source slot.
+	if not show_item({},head):return false
+	browsing=true
+	var offsets:Dictionary={}
+	for item:Dictionary in equipment:
+		var slots:Array=item.get("equipped_slots",[])
+		if not item.get("equipped",true) or slots.is_empty():continue
+		var anchor:Variant=slot_anchor(str(slots[0]))
+		if not anchor is Vector3:continue
+		var slot:=str(Vector3(anchor).snapped(Vector3.ONE*.025));var layer:=int(offsets.get(slot,0));offsets[slot]=layer+1
+		anchor+=Vector3(0.065*layer,0,0.018*layer)
+		var marker:=MeshInstance3D.new();var shape:=SphereMesh.new();shape.radius=.018;shape.height=.036;shape.radial_segments=12;shape.rings=6;marker.mesh=shape
+		var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;material.albedo_color=Color("59d5f0");marker.material_override=material
+		add_child(marker);marker.position=anchor
+		var id:=str(item.get("id",""));markers[id]=marker;equipment_targets[id]=item.duplicate(true)
+	labels[0].text="EQUIPPED ITEMS\n\nTouch a glowing item and squeeze grip.\n\nOpen your backpack with the other hand, then release the item inside it."
+	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory."
+	return true
+
+func equipped_at(position:Vector3)->Dictionary:
+	if not active or not browsing:return {}
+	var nearest:=.055;var selected:Dictionary={}
+	for id:String in equipment_targets:
+		var distance:float=markers[id].global_position.distance_to(position)
+		if distance<nearest:nearest=distance;selected=equipment_targets[id]
+	if not selected.is_empty():
+		labels[1].text=str(selected.get("name","Equipment"))+"\n\n"+("Grip to drag to inventory" if selected.get("unequip_available",false) else str(selected.get("unequip_block_reason","Cannot remove this item.")))
+	return selected.duplicate(true)
 
 func bone_anchor(names: Array) -> Variant:
 	if skeleton==null: return null
@@ -125,6 +159,7 @@ func slot_anchor(slot: String) -> Variant:
 
 func update_hand(position: Vector3) -> Dictionary:
 	if not active: return {}
+	if browsing:return equipped_at(position)
 	var nearest:=0.075; var target: Dictionary={}
 	for slot: String in markers:
 		var distance: float=markers[slot].global_position.distance_to(position)
@@ -197,7 +232,9 @@ func scroll_page(direction: int) -> void:
 
 func set_status(message: String) -> void:
 	status=message
-	if active: update_comparison(highlighted)
+	if active:
+		if browsing and labels.size()>1:labels[1].text=message
+		else:update_comparison(highlighted)
 
 func close() -> void:
 	active=false; visible=false; highlighted={}

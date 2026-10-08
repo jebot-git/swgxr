@@ -68,11 +68,18 @@ func physical_posture()->int:
 	return 2 if posture=="prone" else 1 if posture=="crouched" else 0
 func tracking()->Dictionary:
 	var result:Dictionary={}
-	# Send the actual source skeleton targets so remote IK reproduces the same
-	# grip/head offsets. Loss of OpenXR tracking clears targets immediately.
+	# Keep the established source skeleton offsets, but local spice hand effects
+	# must never enter peer presentation. Tracking loss clears targets immediately.
 	if not app.xr_requested or not app.xr_focused or not is_instance_valid(app.tracked_avatar):return result
 	var skeleton:Skeleton3D=app.tracked_avatar.skeleton
 	if not is_instance_valid(skeleton):return result
+	var physical_only:=false
+	var body:Variant=app.get("player")
+	if is_instance_valid(body):
+		var feedback:Variant=body.get("feedback")
+		if feedback!=null:
+			var policy:Dictionary=feedback.spice.policy()
+			physical_only=policy.tremor>0 or policy.sticky_aim or policy.lag_seconds>0
 	for pair in [["head","head"],["left_hand","lwrist"],["right_hand","rwrist"]]:
 		var tracked:=false
 		if pair[0]=="head":
@@ -85,6 +92,13 @@ func tracking()->Dictionary:
 		var index:=skeleton.find_bone(pair[1])
 		if not tracked or index<0:continue
 		var pose:Transform3D=skeleton.global_transform*skeleton.get_bone_global_pose(index)
+		if physical_only:
+			if pair[0]=="head":
+				pose=app.tracked_avatar.camera.global_transform
+				pose.basis=pose.basis.orthonormalized()*app.tracked_avatar.head_rest.basis
+			else:
+				var side:="left" if pair[0]=="left_hand" else "right"
+				pose=app.xr_origin.get_node(side.capitalize()+"Hand").global_transform*app.tracked_avatar.grip_offsets[side]
 		var p:Vector3=app.source_position_at(pose.origin)
 		result[pair[0]]={"tracked":true,"position":[p.x,p.y,p.z],"rotation":State.source_rotation(pose.basis,app.stage.global_basis)}
 	return result

@@ -83,11 +83,11 @@ class SyncTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.sync(event_sequence='bad')
         self.assertIsNone(self.hub.sessions['test1']['pose'])
         self.assertEqual(self.sync()['sequence'],1)
-    def test_capacity_and_ring_are_bounded(self):
-        for n in range(3,17):self.hub.publish('test'+str(n),str(n),'s'+str(n),self.snapshot,1)
-        with self.assertRaises(ValueError):self.hub.publish('extra','17','s17',self.snapshot,1)
+    def test_connected_population_uncapped_and_event_ring_bounded(self):
+        for n in range(3,66):self.hub.publish('test'+str(n),str(n),'s'+str(n),self.snapshot,1)
+        self.hub.publish('extra','66','s66',self.snapshot,1)
         for n in range(300):self.hub.publish('test1','1','session1',self.snapshot,n+2,command={'action':'life'},mutation={'success':True})
         self.assertEqual(len(self.hub.events),256)
-        self.assertEqual(len(self.hub.sessions),16)
+        self.assertEqual(len(self.hub.sessions),66)
 
 if __name__=='__main__':unittest.main()

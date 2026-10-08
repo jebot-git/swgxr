@@ -3,7 +3,7 @@ extends RefCounted
 ## two joints; cache their terminal skin extent instead of inventing a third joint.
 static var endpoints: Dictionary={}
 static var click_rays: Dictionary={}
-static func pose(avatar: Node3D, side: String, rig: XROrigin3D=null, controller: XRController3D=null) -> Dictionary:
+static func pose(avatar: Node3D, side: String, rig: XROrigin3D=null, controller: XRController3D=null, stabilize_click:=true) -> Dictionary:
 	if is_instance_valid(avatar):
 		var skeleton: Skeleton3D=avatar.get("skeleton")
 		if is_instance_valid(skeleton):
@@ -19,7 +19,7 @@ static func pose(avatar: Node3D, side: String, rig: XROrigin3D=null, controller:
 				var distal:=skeleton.global_transform*skeleton.get_bone_global_pose(last)
 				var result:Dictionary={"tip":distal*endpoint,"direction":(distal.basis*endpoint).normalized(),"source":"rendered_skin","bone":last,"local_tip":endpoint}
 				var wrist:=skeleton.find_bone(prefix+"wrist")
-				if is_instance_valid(controller) and wrist>=0:
+				if stabilize_click and is_instance_valid(controller) and wrist>=0:
 					return stabilize(result,skeleton.global_transform*skeleton.get_bone_global_pose(wrist),controller.get_float("trigger"),str(avatar.get_instance_id())+":"+side)
 				return result
 	if is_instance_valid(rig):

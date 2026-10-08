@@ -6,7 +6,7 @@ const REFRESH_SECONDS := 0.2
 const PIXELS := 256
 const DIAMETER_METERS := 0.14
 # Original SWG relationship colors; source mapping is documented by the provider.
-const COLORS := {"neutral":Color("ffffff"),"attackable":Color("ffdd00"),"friendly":Color("00ff00"),"hostile":Color("ff0000")}
+const COLORS = preload("res://scripts/entity_relationship.gd").COLORS
 class RadarCanvas extends Control:
 	const LABEL_FONT = preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 	var points: Array = []

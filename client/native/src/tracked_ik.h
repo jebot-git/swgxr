@@ -15,11 +15,12 @@ class SwgTrackedIK : public RefCounted {
         Vector3 bend;
         bool have_bend = false;
         bool attached = false;
-        Vector3 free_hand_position;
+        Vector3 free_lower_position, free_hand_position;
     };
     uint64_t skeleton_id = 0;
     int head = -1;
     Arm left, right;
+    void restore_arm(Skeleton3D *skeleton, Arm &arm);
     Dictionary solve_arm(Skeleton3D *skeleton, Arm &arm, const Transform3D &target,
                          const Vector3 &pole, double delta, bool attached = false);
 protected:

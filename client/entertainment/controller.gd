@@ -15,6 +15,7 @@ var token := ""
 var account := ""
 var state: Dictionary = {}
 var item: Dictionary = {}
+var equipped_instrument: Dictionary = {}
 var selected: Dictionary = {}:
 	get:
 		return body.combat_pools.selection if is_instance_valid(body) and body.combat_pools.selection_owner=="entertainer" else {}
@@ -72,7 +73,7 @@ func reset() -> void:
 	generation += 1
 	if is_instance_valid(native):native.reset()
 	token = ""; state = {}; context = {}; actions.clear(); selected = {}; primed = false
-	active_performance = {}; clip_key = ""; pending = false; item = {}
+	active_performance = {}; clip_key = ""; pending = false; item = {}; equipped_instrument={}
 	clear_presentation()
 	if is_instance_valid(held_model): held_model.queue_free()
 	held_model = null
@@ -87,6 +88,8 @@ func clear_presentation() -> void:
 	voices.clear()
 
 func dominant() -> String:
+	if not item.is_empty() and is_instance_valid(host) and is_instance_valid(host.inventory) and host.inventory.has_method("held_hand_side") and str(host.inventory.held_item.get("id",""))==str(item.get("id","")):
+		return host.inventory.held_hand_side()
 	return body.dominant_hand if is_instance_valid(origin) else "right"
 
 func owns_controls() -> bool:
@@ -95,7 +98,26 @@ func owns_controls() -> bool:
 	if is_instance_valid(host.inventory) and host.inventory.is_open: return false
 	if is_instance_valid(host.datapad) and host.datapad.is_open: return false
 	if is_instance_valid(host.inventory) and not host.inventory.held_item.is_empty() and item.is_empty(): return false
+	if not item.is_empty() and not instrument_ready():return false
 	return not is_instance_valid(host.combat_rig) or host.combat_rig.selected < 0
+
+func instrument_ready() -> bool:
+	if item.is_empty():return true # Dancing needs no instrument.
+	if item.get("placed",false):
+		return is_instance_valid(native) and native.has_method("placed_instruments") and native.placed_instruments().any(func(row):return str(row.id)==str(item.id))
+	return not equipped_instrument.is_empty() and str(item.get("id",""))==str(equipped_instrument.get("id",""))
+
+func sync_equipment(equipment:Array) -> void:
+	var next:Dictionary={}
+	for entry:Dictionary in equipment:
+		var template:=str(entry.get("template","")).replace("/shared_","/")
+		if assets.catalog.get("items",{}).has(template) and "hold_r" in entry.get("equipped_slots",[]):
+			next=entry.duplicate(true);break
+	if next==equipped_instrument:return
+	active_performance={};clip_key=""
+	equipped_instrument=next
+	var held:Dictionary=host.inventory.held_item if is_instance_valid(host) and is_instance_valid(host.inventory) else {}
+	set_item(held)
 
 func reserves_datapad() -> bool:
 	# Priming a learned performance explicitly reserves its gesture. Inventory
@@ -109,6 +131,7 @@ func is_performing() -> bool:
 	return not active_performance.is_empty() and since_reply < 3 and body.active and not body.feedback.combat_blocked()
 
 func set_item(value: Dictionary) -> void:
+	if value.is_empty():value=equipped_instrument
 	var template := str(value.get("template","")).replace("/shared_","/")
 	var supported: bool = assets.catalog.get("items",{}).has(template) and template != "object/static/item/item_ribbon.iff"
 	item = value.duplicate(true) if supported else {}
@@ -117,6 +140,7 @@ func set_item(value: Dictionary) -> void:
 	if is_instance_valid(held_model): held_model.queue_free()
 	held_model = null
 	if not supported: return
+	if item.get("placed",false):return # Original scenery stays at its world location.
 	var mesh: ArrayMesh = models.model(template, value.get("customization",{}))
 	if mesh == null: message = "Original prop model unavailable"; return
 	var visual := MeshInstance3D.new()
@@ -124,9 +148,10 @@ func set_item(value: Dictionary) -> void:
 	visual.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	held_model = visual
 	add_child(held_model)
+	held_model.visible=can_process()
 	keyboard_pose = Transform3D(Basis(Vector3.UP,head.global_rotation.y),body.global_position-head.global_basis.z.slide(Vector3.UP).normalized()*0.8)
 	# Original asset dimensions, with grip anchored at object origin.
-	if is_instance_valid(host.inventory): host.inventory.set_held_visual_enabled(false)
+	if is_instance_valid(host.inventory): host.inventory.set_held_visual_enabled(not can_process())
 	poll_time = 1
 
 func eligible_menu() -> Array:
@@ -135,14 +160,17 @@ func eligible_menu() -> Array:
 	if is_instance_valid(native) and native.has_method("group_available"):
 		if native.group_available():entries.append({"id":"group_join","label":"Accept Group Invite","source_command":"join"})
 		if native.image_eligible() or context.get("entertainer",false):entries.append({"id":"group_invite","label":"Invite to Group","source_command":"invite"})
-		if str(native.state.get("group_id","0")) not in ["","0"]:entries.append({"id":"group_leave","label":"Leave Group","source_command":"leavegroup"})
+		if native.has_method("party_menu_entries"):entries.append_array(native.party_menu_entries())
 	if not context.get("entertainer",false): return entries
+	if is_instance_valid(native) and native.has_method("placed_instruments"):
+		for placed:Dictionary in native.placed_instruments():
+			entries.append({"id":"placed:"+str(placed.id),"label":"Play "+str(placed.get("name","instrument")),"source_command":"startmusic"})
 	var band := str(state.get("band_id",""))
 	if band.is_empty(): entries.append({"id":"start_band","label":"Start Band","source_command":"startband"})
 	else: entries.append({"id":"leave","label":"Leave Band","source_command":"stopmusic"})
 	if band.is_empty() or str(state.get("leader","")) == str(context.get("character_id","")):
 		if is_performing(): entries.append({"id":"stop","label":"Stop Performance","source_command":"stopmusic"})
-		entries.append_array(assets.performances(context,item))
+		if instrument_ready():entries.append_array(assets.performances(context,item))
 	if is_instance_valid(host.get("scout")):
 		var entry: Dictionary=host.scout.mask_entry()
 		if not entry.is_empty(): entries.append(entry)
@@ -157,6 +185,7 @@ func apply_native_context(value:Dictionary)->void:
 	if is_instance_valid(ui):ui.close()
 
 func queue_action(action: String, detail: Dictionary = {}) -> void:
+	if action=="perform" and not instrument_ready():message="Equip the instrument in the weapon slot first.";return
 	if action in ["perform","stop","flourish","group_join","group_leave"]:
 		if is_instance_valid(native):native.request(action,detail)
 		else:message="Waiting for the native entertainer session."
@@ -184,6 +213,10 @@ func sample_menu(click: bool, stick: Vector2, a_pressed: bool, tracked: bool) ->
 		if ui.menu_open:
 			var choice: String = ui.sample_stick(stick)
 			if choice=="image_design" and is_instance_valid(native):native.image_open_selector()
+			elif choice.begins_with("placed:") and is_instance_valid(native) and native.has_method("placed_instruments"):
+				for placed:Dictionary in native.placed_instruments():
+					if str(placed.id)==choice.trim_prefix("placed:"):
+						var world_item:=placed.duplicate(true);world_item.placed=true;set_item(world_item);break
 			elif choice=="group_invite" and is_instance_valid(native):native.group_selector()
 			elif choice in ["start_band","leave","stop","group_join","group_leave"]: queue_action(choice); selected={}; primed=false
 			elif choice=="mask_scent" and is_instance_valid(host.get("scout")): host.scout.select_mask()
@@ -277,19 +310,22 @@ func _process(_delta: float) -> void:
 		if is_instance_valid(host.tracked_avatar): held_pose = host.tracked_avatar.limit_weapon_pose(dominant(),held_pose)
 		if item_gesture()=="keyboard": held_pose=keyboard_pose
 		held_model.global_transform=held_pose
-		held_model.visible=body.active and owns_controls()
+		var inspecting:bool=is_instance_valid(host.inventory) and str(host.inventory.held_item.get("id",""))==str(item.get("id",""))
+		held_model.visible=body.active and (owns_controls() or inspecting)
 		if is_instance_valid(host.inventory): host.inventory.set_held_visual_enabled(false)
 	var point := held_pose.origin if is_instance_valid(held_model) else head.global_position-head.global_basis.z*0.4
 	var badge_selection: Dictionary=selected
 	ui.update_badge(badge_selection,body.combat_pools.primed,float(body.combat_pools.cooldowns.get(body.combat_pools.selected,0)),point+Vector3.UP*0.20,owns_controls(),message)
 
 func hand_target(side: String) -> Variant:
+	if not can_process():return null
 	return held_pose if item_gesture()!="keyboard" and side==dominant() and is_instance_valid(held_model) and held_model.visible else null
 
 func item_gesture() -> String:
 	return "dance" if item.is_empty() else str(assets.catalog.get("items",{}).get(str(item.get("template","")).replace("/shared_","/"),{}).get("gesture",""))
 
 func constrain_prop() -> void:
+	if not can_process():return
 	if item_gesture()!="keyboard" and is_instance_valid(held_model) and is_instance_valid(host.tracked_avatar):
 		held_pose=host.tracked_avatar.limit_weapon_pose(dominant(),held_pose)
 		held_model.global_transform=held_pose

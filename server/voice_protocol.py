@@ -35,7 +35,6 @@ class NativeVoiceState:
         with self.lock:self.states.pop(account,None);self._save()
     def _save(self):
         now=time.time();self.states={a:s for a,s in self.states.items()if now-s['updated_at']<=s['ttl']}
-        if len(self.states)>64:raise VoiceError('Voice participant capacity reached')
         self.path.parent.mkdir(parents=True,exist_ok=True)
         temporary=self.path.with_suffix('.tmp');temporary.write_text(json.dumps(self.states,separators=(',',':')));temporary.chmod(0o640);temporary.replace(self.path)
     def owned(self,account,character_id,session_id=None):

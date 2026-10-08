@@ -26,6 +26,34 @@ def signature(paths,archives):
     code=b''.join(p.read_bytes() for p in (Path(__file__),Path(__file__).with_name('shader_alpha.py')))
     return hashlib.sha256(code+json.dumps(rows).encode()).hexdigest()
 
+def refresh_model_references(root, changes):
+    """Carry verified before/after hashes into catalogs referencing edited models.
+
+    Only replace the exact pre-edit hash; an unrelated mismatch must still fail
+    provenance validation. Model geometry and source hashes are untouched.
+    """
+    updated=[]
+    for path in sorted(root.rglob('catalog.json')):
+        value=json.loads(path.read_text());modified=False
+        def visit(node):
+            nonlocal modified
+            if isinstance(node,dict):
+                for file_key,hash_key in (('model','model_sha256'),('preview_model','preview_sha256'),('source_model','source_model_sha256')):
+                    if not isinstance(node.get(file_key),str) or hash_key not in node:continue
+                    base=root/'inventory' if file_key=='preview_model' and path.parent.name=='gcw' else path.parent
+                    source=(base/node[file_key]).resolve()
+                    change=changes.get(source)
+                    if change and node[hash_key]==change[0]:
+                        node[hash_key]=change[1];modified=True
+                for child in node.values():visit(child)
+            elif isinstance(node,list):
+                for child in node:visit(child)
+        visit(value)
+        if modified:
+            temp=path.with_suffix('.json.material.tmp');temp.write_text(json.dumps(value,indent=2)+'\n');temp.replace(path)
+            updated.append(str(path.relative_to(root)))
+    return updated
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--ensure',action='store_true');parser.add_argument('--assets',type=Path,default=ASSETS);args=parser.parse_args()
     root=args.assets;paths=candidates(root);archives=root/'active_tre';stamp=root/'static_material_state.json'
@@ -58,13 +86,18 @@ def main():
             for child in value:
                 if isinstance(child,(dict,list)):modified=visit(child,path) or modified
         return modified
+    hash_changes={}
     for path in paths:
-        value=json.loads(path.read_text())
+        before=path.read_bytes();value=json.loads(before)
         # Avoid descending through large skeletal animation/bone arrays.
         if not isinstance(value,dict) or not ('surfaces' in value or path.name=='scene.json'):continue
         if visit(value,path):
-            temporary=path.with_suffix('.json.material.tmp');temporary.write_text(json.dumps(value,separators=(',',':')));temporary.replace(path);changed.append(str(path.relative_to(root)))
+            after=json.dumps(value,separators=(',',':')).encode()
+            temporary=path.with_suffix('.json.material.tmp');temporary.write_bytes(after);temporary.replace(path);changed.append(str(path.relative_to(root)))
+            hash_changes[path.resolve()]=(hashlib.sha256(before).hexdigest(),hashlib.sha256(after).hexdigest())
+    updated_catalogs=refresh_model_references(root,hash_changes)
     report={'schema_version':SCHEMA_VERSION,'files_checked':len(paths),'static_surfaces':surface_count,'updated_files':changed,'classification_changes':classification,'failures':failures,'dependencies':dependencies,'geometry_modified':False}
+    report['updated_catalogs']=updated_catalogs
     (root/'static_material_report.json').write_text(json.dumps(report,indent=2))
     stamp.write_text(json.dumps({'schema_version':SCHEMA_VERSION,'signature':signature(paths,archives),'failures':len(failures)},indent=2))
     print(json.dumps({'updated_files':len(changed),'classification_changes':len(classification),'failures':len(failures),'geometry_modified':False}))

@@ -1,0 +1,398 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/MovementBudget.h
+@@ -0,0 +1,38 @@
++#ifndef SWGXR_MOVEMENT_BUDGET_H
++#define SWGXR_MOVEMENT_BUDGET_H
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++namespace swgxr { namespace movement {
++// One shared distance allowance, not a fresh tolerance for each packet. The
++// bounded two-second window accommodates the measured 0.5–1s HTTP round trip.
++struct Budget {
++ static constexpr double WINDOW_SECONDS=2.0;
++ static constexpr double SPEED_TOLERANCE=1.10;
++ static constexpr double INITIAL_METRES=0.25;
++ double stamp=0,credit=INITIAL_METRES,x=0,y=0,rate=0;
++ uint64_t parent=0,revision=0;
++ static double speed(double value){return std::isfinite(value)?std::max(0.0,value)*SPEED_TOLERANCE:0;}
++ void rebase(double now,double px,double py,uint64_t cell,double maxSpeed){
++  stamp=now;credit=INITIAL_METRES;x=px;y=py;parent=cell;rate=speed(maxSpeed);++revision;
++ }
++ void accrue(double now,double maxSpeed){
++  if(!std::isfinite(now) || now<stamp)return;
++  const double next=speed(maxSpeed),elapsed=std::min(WINDOW_SECONDS,now-stamp);
++  // Native speed changes can occur between arrivals. Allow that last bounded
++  // interval at the higher observed speed; subsequent intervals use the new one.
++  credit=std::min(WINDOW_SECONDS*std::max(rate,next)+INITIAL_METRES,
++                  credit+elapsed*std::max(rate,next));
++  stamp=now;rate=next;
++ }
++ bool accept(double px,double py,uint64_t cell){
++  if(!std::isfinite(px) || !std::isfinite(py))return false;
++  const double distance=std::hypot(px-x,py-y);
++  if(distance>credit+1e-6)return false;
++  credit=std::max(0.0,credit-distance);
++  if(distance>1e-6 || parent!=cell)++revision;
++  x=px;y=py;parent=cell;return true;
++ }
++};
++}}
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
+@@ -1,7 +1,11 @@
+-#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #ifndef SWGXR_MOVEMENT_H
+ #define SWGXR_MOVEMENT_H
+ #include "SwgxrPlanets.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "MovementBudget.h"
++#include <chrono>
++#include <map>
++#include <mutex>
+ #include "server/zone/packets/object/transform/Transform.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+ #include "server/zone/managers/planet/PlanetManager.h"
+@@ -14,13 +18,43 @@
+ // movement policy. Only genuine transport operations may use teleport().
+ class SwgxrMovement {
+  using Json=JSONSerializationType;
++ struct RequestRevision {uint64 owner=0,value=0;bool present=false;};
++ static RequestRevision& requestRevision(){static thread_local RequestRevision value;return value;}
++ struct Record {swgxr::movement::Budget budget;uint64 zone=0;};
++ static double monotonic(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static std::map<uint64,Record>& records(){static std::map<uint64,Record> value;return value;}
++ static std::mutex& gate(){static std::mutex value;return value;}
++ static double maxSpeed(CreatureObject* c){return std::max(0.0,double(c->getRunSpeed()*c->getSpeedMultiplierMod()));}
++ static Record read(CreatureObject* c){
++  std::lock_guard<std::mutex> lock(gate());auto it=records().find(c->getObjectID());
++  if(it!=records().end())return it->second;
++  Record row;auto world=c->getWorldPosition();row.zone=c->getZone()?c->getZone()->getObjectID():0;
++  row.budget.rebase(monotonic(),world.getX(),world.getY(),c->getParentID(),maxSpeed(c));return row;
++ }
++ static void store(CreatureObject* c,const Record& row){
++  std::lock_guard<std::mutex> lock(gate());records()[c->getObjectID()]=row;
++ }
+  static void place(CreatureObject* c,const Vector3& p,SceneObject* parent){
+   c->setPosition(p.getX(),p.getZ(),p.getY());
+   if(parent)c->updateZoneWithParent(parent,false,true);else c->updateZone(false,true);
+  }
+ public:
+- static Json snapshot(CreatureObject* c){c->updateSpeedAndAccelerationMods();return {
+-  {"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
++ class RequestScope {
++  RequestRevision previous;
++ public:
++  RequestScope(CreatureObject* c,const Json& request):previous(requestRevision()){
++   RequestRevision next;next.owner=c->getObjectID();
++   if(request.contains("movement_revision")){
++    auto value=request.at("movement_revision");
++    if(!value.is_number_integer() || value.get<int64>()<0)throw std::runtime_error("native_movement_revision_invalid");
++    next.present=true;next.value=value.get<uint64>();
++   }
++   requestRevision()=next;
++  }
++  ~RequestScope(){requestRevision()=previous;}
++ };
++ static Json snapshot(CreatureObject* c){return {
++  {"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
+   {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
+   {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
+   {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()},
+@@ -29,13 +63,31 @@
+   {"turn_scale",c->getTurnScale()},{"current_speed",c->getCurrentSpeed()},
+   {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()},
+   {"movement_allowed",c->isMovementAllowed()},{"frozen",c->isFrozen()},{"swimming",c->isSwimming()}};}
+- static void begin(CreatureObject* c){c->getPlayerObject()->updateLastValidatedPosition();c->setCurrentSpeed(0);c->updateLocomotion();}
++ static void begin(CreatureObject* c){
++  if(!c || !c->isPlayerCreature() || !c->getPlayerObject() || !c->getZone())return;
++  auto row=read(c);auto world=c->getWorldPosition();row.zone=c->getZone()->getObjectID();
++  row.budget.rebase(monotonic(),world.getX(),world.getY(),c->getParentID(),maxSpeed(c));store(c,row);
++  c->getPlayerObject()->updateLastValidatedPosition();c->setCurrentSpeed(0);c->updateLocomotion();
++ }
++ static void end(CreatureObject* c){std::lock_guard<std::mutex> lock(gate());records().erase(c->getObjectID());}
+  static void move(CreatureObject* c,const Json& r){
++  try{moveChecked(c,r);}catch(const std::exception& e){
++   std::string code=e.what();if(code.rfind("native_movement_",0)==0)throw;
++   if(code.rfind("native_",0)==0)code=code.substr(7);
++   throw std::runtime_error("native_movement_"+code);
++  }
++ }
++private:
++ static void moveChecked(CreatureObject* c,const Json& r){
+   SwgxrPlanets::require(c,r);if(!r.contains("position"))return;
+   auto ghost=c->getPlayerObject();auto zone=c->getZone();auto manager=c->getZoneServer()->getPlayerManager();
+   if(!ghost || !zone || !manager)throw std::runtime_error("native_movement_context_missing");
+   auto p=r.at("position");if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_position");
+   for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>8192)throw std::runtime_error("invalid_position");
++  auto budget=read(c);
++  if(requestRevision().owner==c->getObjectID() && requestRevision().present && requestRevision().value!=budget.budget.revision)throw std::runtime_error("native_movement_stale_revision");
++  if(r.contains("movement_revision") && (!r["movement_revision"].is_number_unsigned() && !r["movement_revision"].is_number_integer()))throw std::runtime_error("native_movement_revision_invalid");
++  if(r.contains("movement_revision") && r["movement_revision"].get<uint64>()!=budget.budget.revision)throw std::runtime_error("native_movement_stale_revision");
+   auto oldParent=c->getParent().get();ManagedReference<SceneObject*> parent=oldParent,root=c->getRootParent();
+   if(r.contains("building_id")){
+    auto text=r.at("building_id").get<std::string>();if(text.empty() || text.size()>20 || text.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_source_cell");
+@@ -51,7 +103,9 @@
+   if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");
+   if(parent!=nullptr){double a=root->getDirection()->getRadians(),dx=x-root->getPositionX(),dy=y-root->getPositionY();x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();heading-=a;if(std::abs(x)>1024 || std::abs(y)>1024 || std::abs(z)>1024)throw std::runtime_error("cell_position_out_of_bounds");}
+   const auto previous=c->getPosition();Vector3 next(x,y,z);
+-  bool changed=parent!=oldParent || previous.squaredDistanceTo(next)>0.000001f;
++  // Client tile support and the native continuous height may differ; vertical
++  // support adjustment alone is not physical locomotion.
++  bool changed=parent!=oldParent || previous.squaredDistanceTo2d(next)>0.000001f;
+   if(changed){
+    Transform policy;if(!policy.isPostureValid(c->getPosture()) || c->hasBuff(STRING_HASHCODE("private_feign_buff")))throw std::runtime_error("native_player_immobilized");
+    if(!c->isMovementAllowed())throw std::runtime_error("native_animation_movement_locked");
+@@ -84,20 +138,27 @@
+    CollisionManager::getWorldFloorCollisions(x,y,zone,&intersections,c->getCloseObjects());
+    floorZ=pm->findClosestWorldFloor(x,y,z,c->getSwimHeight(),&intersections,c->getCloseObjects());
+   }
++  const double clock=monotonic();const double since=std::max(0.001,clock-budget.budget.stamp);
++  budget.budget.accrue(clock,maxSpeed(c));
++  // Budget coordinates are world horizontal, including connected cell changes.
++  // Do not compare two unrelated parent-local coordinate frames.
++  auto proposed=budget;
++  if(budget.zone!=zone->getObjectID() || !proposed.budget.accept(p[0].get<double>(),p[2].get<double>(),parent?parent->getObjectID():0)){
++   store(c,budget);throw std::runtime_error("native_movement_speed_rejected");
++  }
+   auto validated=ghost->getLastValidatedPosition();uint32 stamp=ghost->getClientLastMovementStamp();
+   // No client wall clock is trusted. Core3 validates against its own elapsed
+   // server time and allows the same recent-speed-change grace period.
+   int valid=manager->checkSpeedHackTests(c,ghost,validated,next,stamp,floorZ,parent);
+   if(valid==Transform::INVALID_POSITION){
+-   ManagedReference<SceneObject*> restored;if(validated->getParent())restored=c->getZoneServer()->getObject(validated->getParent());
+-   place(c,validated->getPosition(),restored);c->setCurrentSpeed(0);c->updateLocomotion();ghost->updateServerLastMovementStamp();throw std::runtime_error("native_movement_speed_rejected");
++   // Accepted pose and budget remain authoritative. A rejection does not rewind
++   // them, reset the native timer or grant a new unchecked interval.
++   store(c,budget);throw std::runtime_error("native_movement_speed_rejected");
+   }
+-  float elapsed=std::max(0.2f,float(ghost->getServerMovementTimeDelta())/1000.f);
+-  float speed=next.distanceTo2d(validated->getPosition())/elapsed;
+-  if(parent!=oldParent){auto world=c->getWorldPosition();float dx=p[0].get<float>()-world.getX(),dy=p[2].get<float>()-world.getY();speed=std::sqrt(dx*dx+dy*dy)/elapsed;}
++  float speed=std::hypot(p[0].get<double>()-budget.budget.x,p[2].get<double>()-budget.budget.y)/since;
+   if(!changed)speed=0;
+   c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));
+-  next.setZ(floorZ);c->setCurrentSpeed(speed);place(c,next,parent);c->updateLocomotion();
++  next.setZ(floorZ);c->setCurrentSpeed(speed);place(c,next,parent);c->updateLocomotion();store(c,proposed);
+   if(parent==nullptr)manager->updateSwimmingState(c,floorZ,&intersections,c->getCloseObjects());else c->notifySelfPositionUpdate();
+   if(valid==Transform::FULL_VALIDATED){validated->setPosition(x,floorZ,y);validated->setParent(parent?parent->getObjectID():0);ghost->updateServerLastMovementStamp();}
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -174,6 +174,7 @@
+   return {{"object_ids",ids},{"location",SwgxrServices::sessionState(c,Json::object())["location"]}};
+  }
+  static Json action(CreatureObject* c,Session& s,const Json& request){
++  SwgxrMovement::RequestScope movementRequest(c,request);
+   SwgxrPlanets::require(c,request);  const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
+   if(verb!="update" && verb!="snapshot")SwgxrPhysicalGuard::release(c->getObjectID());
+   if(verb=="update"){
+@@ -207,11 +208,11 @@
+    uint64 facility=cloneFacility(c);auto manager=c->getZoneServer()->getPlayerManager();if(!c->isDead())manager->killPlayer(c,c);if(!c->isDead())throw std::runtime_error("native_suicide_failed");manager->sendPlayerToCloner(c,facility);if(!c->getPlayerObject()->isCloning())throw std::runtime_error("native_clone_failed");
+    c->getPlayerObject()->setOnLoadScreen(true);s.shots.clear();s.transport={{"id",s.token+"_"+std::to_string(s.sequence)},{"facility_id",std::to_string(facility)},{"destination",location(c)}};result["transport_id"]=s.transport["id"];return result;
+   }
+-  if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");if(!SwgxrVehicles::seated(c))SwgxrServices::move(c,request.at("vehicles"));return SwgxrVehicles::run(c,request.at("vehicles"));}
++  if(verb=="vehicles"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrVehicles::run(c,request.at("vehicles"));}
+   if(verb=="medic"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrMedic::run(c,request.at("medic"));}
+-  if(verb=="scout"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("scout");if(SwgxrRanger::action(q.value("action",std::string())))SwgxrServices::move(c,q);return SwgxrScout::run(c,q);}
++  if(verb=="scout"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("scout");return SwgxrScout::run(c,q);}
+   if(verb=="gathering"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");return SwgxrGathering::run(c,request.at("gathering"));}
+-  if(verb=="entertainer"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("entertainer");SwgxrServices::move(c,q);return SwgxrEntertainer::run(c,q);}
++  if(verb=="entertainer"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("entertainer");return SwgxrEntertainer::run(c,q);}
+   if(verb=="crafting"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto out=SwgxrCrafting::run(c,request.at("crafting"));out["inventory"]=SwgxrInventory::snapshot(c);return out;}
+   if(verb=="services"){
+    if(SwgxrVehicles::seated(c) && request.at("service").value("action",std::string())=="travel_board")throw std::runtime_error("Dismount before boarding a shuttle");
+@@ -311,7 +312,7 @@
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+   if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+-  out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
++  out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
+  }
+ };
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -3,6 +3,7 @@
+ #ifndef SWGXR_GATHERING_H
+ #define SWGXR_GATHERING_H
+ #include "SwgxrPlanets.h"
++#include "SwgxrMovement.h"
+ #include "SwgxrInventory.h"
+ #include "server/zone/objects/tangible/tool/SurveyTool.h"
+ #include "server/zone/objects/resource/ResourceSpawn.h"
+@@ -154,11 +155,11 @@
+    if(action!="status"){
+     const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid idempotency key");std::string fingerprint=request.dump();bool replay=false;
+     for(auto& receipt:state["receipts"])if(receipt["request_id"]==key){if(receipt["fingerprint"]!=fingerprint)throw std::runtime_error("Idempotency key reused with different request");mutation=receipt["mutation"];mutation["replayed"]=true;replay=true;break;}
+-    if(!replay){mutation=execute(c,state,request);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());save(c,state);}
++    if(!replay){SwgxrMovement::move(c,request);mutation=execute(c,state,request);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());save(c,state);}
+    }
+    std::string key=request.value("tool_id",std::string());if(action=="deploy" || action=="collect")key="";if(!key.empty() && !mutation.is_null() && mutation.value("replayed",false)){try{ownedTool(c,state,key);}catch(const std::exception&){key="";}}
+    out={{"source_kind",action=="status"?"core3_gathering":"core3_gathering_"+action},{"character_id",id(c)},{"state",context(c,state,key)}};if(!mutation.is_null()){out["mutation"]=mutation;out["inventory"]=SwgxrInventory::snapshot(c);if(mutation.contains("survey"))out["survey"]=mutation["survey"];}
+-  }catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",id(c)}};}
++  }catch(const std::exception& e){if(std::string(e.what()).rfind("native_movement_",0)==0)throw;out={{"error",std::string(e.what())},{"character_id",id(c)}};}
+   return out;
+  }
+  static void send(CreatureObject* c,const String& arguments){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCorpses.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCorpses.h
+@@ -1,5 +1,5 @@
+ /* Native corpse inspection, source harvesting and capacity-preflight personal loot.
+- * Local movement is projected only while the already-locked player's request runs. */
++ * Requests use the same native-authoritative movement policy as live locomotion. */
+ #ifndef SWGXR_CORPSES_H
+ #define SWGXR_CORPSES_H
+ #include "SwgxrPlanets.h"
+@@ -10,14 +10,6 @@
+ #include "TransferItemMiscCommand.h"
+ class SwgxrCorpses {
+  using Json=JSONSerializationType;
+- struct Projection {
+-  CreatureObject* player;float x,y,z;
+-  Projection(CreatureObject* c,const Json& p):player(c),x(c->getPositionX()),y(c->getPositionY()),z(c->getPositionZ()) {
+-   if(c->getParent().get()!=nullptr || c->getZone()==nullptr || !SwgxrPlanets::supported(c->getZone()->getZoneName()))throw std::runtime_error("Corpse projection requires outdoor supported-planet player context");
+-   c->initializePosition(p[0].get<float>(),p[1].get<float>(),p[2].get<float>());
+-  }
+-  ~Projection(){player->initializePosition(x,z,y);}
+- };
+  static std::string id(SceneObject* o){return SwgxrGathering::id(o);}
+  static std::string commandReason(CreatureObject* c,const char* name){auto command=c->getZoneServer()->getObjectController()->getQueueCommand(name);return command==nullptr || !command->checkStateMask(c) || !command->checkInvalidLocomotions(c)?"source_command_state_restriction":"";}
+  static int64 total(CreatureObject* c,ResourceSpawn* spawn){int64 amount=0;auto root=c->getSlottedObject("inventory");for(int i=0;i<root->getContainerObjectsSize();++i){auto part=root->getContainerObject(i).castTo<ResourceContainer*>();if(part!=nullptr && part->getSpawnObject()==spawn)amount+=part->getQuantity();}return amount;}
+@@ -88,14 +80,16 @@
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+   SwgxrPlanets::require(c,request);
+-  auto position=SwgxrGathering::position(request);Projection projection(c,position);const auto action=request.at("action").get<std::string>();Json out={{"zone",SwgxrPlanets::name(c)},{"backend","core3"},{"character_id",id(c)},{"source_kind",action=="corpses"?"core3_corpses":"core3_"+action},{"position_authority","local_client_projection_native_proximity"}};
++  const auto action=request.at("action").get<std::string>();Json out={{"zone",SwgxrPlanets::name(c)},{"backend","core3"},{"character_id",id(c)},{"source_kind",action=="corpses"?"core3_corpses":"core3_"+action},{"position_authority","native_authoritative_movement_and_proximity"}};
+   if(action=="corpses"){
++   SwgxrMovement::move(c,request);
+    SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),64,&objects,true);Json values=Json::array();bool truncated=false;
+    for(int i=0;i<objects.size();++i){auto scene=static_cast<SceneObject*>(objects.get(i));auto agent=dynamic_cast<AiAgent*>(scene);if(agent==nullptr || !agent->isDead() || agent->getParent().get()!=nullptr)continue;if(values.size()>=64){truncated=true;break;}Locker lock(agent,c);values.push_back(describe(c,agent));}
+    out["corpses"]=values;out["radius_m"]=64;out["truncated"]=truncated;return out;
+   }
+   auto state=SwgxrGathering::load(c);const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid idempotency key");auto fingerprint=request.dump();
+   if(action!="corpse_inspect")for(auto& receipt:state["receipts"])if(receipt["request_id"]==key){if(receipt["fingerprint"]!=fingerprint)throw std::runtime_error("Idempotency key reused with different request");out["mutation"]=receipt["mutation"];out["mutation"]["replayed"]=true;out["corpse"]=receipt.value("corpse",Json(nullptr));return out;}
++  SwgxrMovement::move(c,request);
+   auto agent=corpse(c,request.at("corpse_id").get<std::string>());Locker lock(agent,c);
+   if(action=="corpse_inspect"){out["corpse"]=describe(c,agent);return out;}
+   auto mutation=mutate(c,agent,request);auto value=describe(c,agent);state["receipts"].push_back({{"request_id",key},{"fingerprint",fingerprint},{"mutation",mutation},{"corpse",value}});while(state["receipts"].size()>32)state["receipts"].erase(state["receipts"].begin());SwgxrGathering::save(c,state);out["corpse"]=value;out["mutation"]=mutation;return out;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -62,20 +62,24 @@
+   auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";
+   if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+   auto p=SwgxrGathering::position(request);
++  auto applyPose=[&](){
+   if(!c->isDead() && !c->isIncapacitated()){
+-   if(!ranger && !inspect)SwgxrMovement::move(c,request);
++   if(!inspect)SwgxrMovement::move(c,request);
+    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
+     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
+     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
+    }
+   }
++  };
+   if(inspect){if(c->getSkillMod("creature_knowledge")<5)throw std::runtime_error("creature_knowledge_required");auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>()));if(!target || !target->isCreatureObject() || target->isPlayerCreature() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,64) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("creature_inspection_out_of_reach");Locker targetLock(target,c);target->sendAttributeListTo(c);Json inspection={{"id",id(target)},{"name",std::string(target->getDisplayedName().toCharArray())}};return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",{{"success",true},{"action",verb},{"inspection",inspection}}}};}
+   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_scout","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());Json mutation={{"success",true},{"action",verb}};
++  if(verb=="status" || verb=="ranger_status")applyPose();
+   if(verb!="status" && verb!="ranger_status"){
+    auto semantic=request;if(ranger)for(auto field:{"position","building_id","cell_index","zone","planet","hand_position","posture"})semantic.erase(field);
+    const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");bool replay=false;
+    for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=semantic)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
+    if(!replay){
++    applyPose();
+     if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
+     if(ranger)SwgxrRanger::execute(c,request,mutation);
+     else if(verb=="holster" || verb=="return_tool"){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -219,11 +219,13 @@
+   SwgxrPlanets::require(c,q);
+   std::lock_guard<std::recursive_mutex> lock(mutex());if(!c || !c->getZone() || !c->getPlayerObject())throw std::runtime_error("Native player required");cleanup(c);
+   auto action=q.value("action",std::string("status"));Json mutation={{"success",true},{"action",action}};
++  if(action!="activate" && !seated(c))SwgxrMovement::move(c,q);
+   if(action.rfind("ch_",0)==0){SwgxrCreatureHandler::execute(c,q,mutation);
+   }else if(action=="activate"){
+    auto key=q.value("request_id",std::string());if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable activation request_id required");
+    auto ghost=c->getPlayerObject();auto saved=ghost->getScreenPlayData("swgxr_vehicles","activation_receipts");Json receipts=saved.isEmpty()?Json::array():Json::parse(saved.toCharArray());
+    for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=q)throw std::runtime_error("Activation request_id reused");auto prior=receipt["mutation"];prior["replayed"]=true;return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",prior},{"inventory",SwgxrInventory::snapshot(c)}};}
++   if(!seated(c))SwgxrMovement::move(c,q);
+    auto reject=[&](const char* reason)->Json{return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_vehicles"},{"character_id",id(c)},{"error",reason},{"confirmed_rejection",true},{"mutation_started",false}};};
+    if(c->isDead() || c->isIncapacitated() || c->isInCombat() || c->getParent().get()!=nullptr)return reject("Unpack a deed while alive, outside and at peace");
+    auto item=c->getZoneServer()->getObject(std::stoull(q.at("item_id").get<std::string>()));if(item==nullptr || (!item->isVehicleDeedObject() && dynamic_cast<PetDeed*>(item.get())==nullptr) || !SwgxrEquipment::inInventory(item,c))return reject("Owned vehicle or creature deed required");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -84,8 +84,8 @@
+   }return out;
+  }
+  static Json run(CreatureObject* c,const Json& r){
+-  if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);move(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
+-  if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);if(r.value("action",std::string())!="fishing_stow" && r.value("action",std::string())!="fishing_stop")move(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
++  if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
++  if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="slicing_status" && action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   Json receiptRequest=r;if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
+   if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #include "SwgxrSpiceEntertainer.h"
+ #ifndef SWGXR_ENTERTAINER_H
+ #define SWGXR_ENTERTAINER_H
+@@ -79,6 +80,7 @@
+    for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=semantic)throw std::runtime_error("entertainer_request_id_reused");mutation=receipt["mutation"];mutation["replayed"]=true;return {{"backend","core3"},{"source_kind","core3_entertainer"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};}
+    if(c->isDead() || c->isIncapacitated() || c->isInCombat())throw std::runtime_error("native_player_unavailable");
+   }
++  SwgxrMovement::move(c,q);
+   if(action.rfind("image_",0)==0){auto result=SwgxrImageDesign::run(c,q);mutation=result.at("mutation");}
+   else if(action=="group_invite"){
+    auto target=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>()));if(!target || !target->isPlayerCreature() || target==c || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,32))throw std::runtime_error("nearby_group_player_required");invoke(c,"invite","",target->getObjectID());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #ifndef SWGXR_HOUSING_H
+ #define SWGXR_HOUSING_H
+ #include "SwgxrInventory.h"
+@@ -50,7 +51,7 @@
+  static Json run(CreatureObject* c,const Json& r){
+   auto action=r.at("action").get<std::string>();bool mutation=action!="house_status" && action!="house_preview" && action!="house_harvester_status" && action!="house_factory_status";Json result={{"success",true}},proposal=r,receipts=Json::array();for(auto f:{"position","building_id","cell_index","zone","request_id","left_hand","right_hand"})proposal.erase(f);auto saved=data(c,"receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());auto key=r.value("request_id",std::string());bool replay=false;
+   if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable housing request ID required");for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=proposal)throw std::runtime_error("Housing request ID reused");result=receipt["result"];result["replayed"]=true;replay=true;break;}}
+-  if(!replay){if(action!="house_status" && (c->isDead() || c->isIncapacitated() || c->isRidingMount() || c->isInCombat()))throw std::runtime_error("Housing unavailable in current state");
++  if(!replay){SwgxrMovement::move(c,r);if(action!="house_status" && (c->isDead() || c->isIncapacitated() || c->isRidingMount() || c->isInCombat()))throw std::runtime_error("Housing unavailable in current state");
+    if(action=="house_preview" || action=="house_place"){auto p=r.at("placement_position");vector(p);int angle=r.at("rotation").get<int>();if(angle<0 || angle>3)throw std::runtime_error("Quarter turn required");auto cmd=dynamic_cast<const PlaceStructureCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("placestructure"));if(!cmd)throw std::runtime_error("Native placement command unavailable");auto args=std::to_string(oid(r,"deed_id"))+" "+std::to_string(p[0].get<double>())+" "+std::to_string(p[2].get<double>())+" "+std::to_string(angle);bool valid=cmd->placement(c,UnicodeString(String(args.c_str())),action=="house_preview")==QueueCommand::SUCCESS;result["valid"]=valid;result["placement_position"]=p;result["rotation"]=angle;result["deed_id"]=r["deed_id"];result["reason"]=valid?"":"Core3 placement rules reject this location, deed or player state.";if(action=="house_place" && !valid)throw std::runtime_error("Core3 rejected structure placement");}
+    else if(action=="house_deposit"){auto s=terminalStructure(c,r);Locker lock(s,c);int amount=r.at("amount").get<int>();if(!s->isOnAdminList(c) || amount<=0 || amount>c->getCashCredits() || amount>100000000-s->getSurplusMaintenance())throw std::runtime_error("Invalid maintenance deposit");auto before=c->getCashCredits();StructureManager::instance()->payMaintenance(s,c,amount);if(before-c->getCashCredits()!=amount)throw std::runtime_error("Maintenance payment rejected");s->updateToDatabaseAllObjects(false);}
+    else if(action=="house_permission_arm"){auto s=terminalStructure(c,r);if(!s->isOwnerOf(c))throw std::runtime_error("Owner permission required");auto list=r.at("permission_list").get<std::string>(),op=r.at("permission_action").get<std::string>();if((list!="ENTRY" && list!="ADMIN" && list!="BAN" && list!="VENDOR") || (op!="add" && op!="remove"))throw std::runtime_error("Invalid house permission");Json arm={{"structure_id",id(s)},{"permission_list",list},{"permission_action",op},{"arm_id",key}};put(c,"arm",arm);c->addCooldown("swgxr_house_permission",60000);result["arm"]=arm;}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFishing.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFishing.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #ifndef SWGXR_FISHING_H
+ #define SWGXR_FISHING_H
+ #include "SwgxrInventory.h"
+@@ -34,6 +35,7 @@
+   auto saved=data(c,"receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   std::string key=r.value("request_id",std::string());bool replay=false;
+   if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("Stable fishing request ID required");for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=proposal)throw std::runtime_error("Fishing request ID reused");result=receipt["result"];result["replayed"]=true;replay=true;break;}}
++  if(!replay && action!="fishing_stow" && action!="fishing_stop")SwgxrMovement::move(c,r);
+   if(mutation && !replay){
+    if(action!="fishing_stow" && action!="fishing_stop" && (c->isDead() || c->isIncapacitated() || c->isInCombat() || c->isRidingMount() || c->getActiveSession(SessionFacadeType::TRADE)!=nullptr))throw std::runtime_error("Fishing unavailable in current player state");
+    if(action=="fishing_open"){
+--- a/MMOCoreORB/src/server/zone/objects/scene/components/GroundZoneComponent.cpp
++++ b/MMOCoreORB/src/server/zone/objects/scene/components/GroundZoneComponent.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrMovement.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.
+@@ -85,6 +86,7 @@
+ 		DataTransform* pack = new DataTransform(sceneObject);
+ 		sceneObject->broadcastMessage(pack, true, false);
+ 	}
++	if(sceneObject->isPlayerCreature())SwgxrMovement::begin(sceneObject->asCreatureObject());
+ }
+ 
+ void GroundZoneComponent::updateZone(SceneObject* sceneObject, bool lightUpdate, bool sendPackets) const {

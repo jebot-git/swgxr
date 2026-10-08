@@ -35,6 +35,9 @@ Chunk data includes `vertices`, `normals`, `uvs` (global SWG metres), `indices`,
 (PackedColorArray), plus source heights and excluded cell count. Normals use
 constant global +/-1m samples, so equal positions on adjacent chunks match.
 Indices use Godot clockwise winding, independently compared with PlaneMesh.
+Adjacent sample quads alternate diagonals to form the original client's
+eight-triangle leaf-tile fans. Refined boundary vertices stay on those same
+planes; rendering and resident collision use identical indices.
 Source cave exclusions remove both render/collision triangles at the chosen
 mesh resolution. Interior source floor masks are handled separately by the
 terrain context/presentation pipeline; there is no invented world-wide flat floor.
@@ -61,3 +64,6 @@ so unrelated .LAY files are not silently applied.
 
 The native algorithm derives from AGPL-3.0 Core3 source. Its source attribution
 and complete license are in `client/native/TERRAIN_SOURCE.md` and `TERRAIN_COPYING`.
+
+See [player terrain navigation](../../docs/TERRAIN_NAVIGATION.md) for the original
+client's height-field, slope, passability, water and floor-transition contract.

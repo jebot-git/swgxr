@@ -49,11 +49,11 @@ func run() -> void:
 	world.add_child(pad)
 	pad.configure(rig,body)
 	pad.set_process(false)
-	pad.set_allowed(true)
+	pad.set_allowed(true);pad.radar_eligible=true
 	pad.new_waypoint_requested.connect(func(point,label): requests.append({"point":point,"label":label}))
 	pad.ui.set_player_position(Vector3(3528,5,-4800))
 	pad.ui.set_entries([])
-	check(pad.surfaces.size()==2 and not pad.is_open,"Configured closed wrist and detached details")
+	check(pad.surfaces.size()==3 and not pad.is_open,"Configured closed wrist, player summary and detached details")
 	check(pad.ui.category_buttons.has("poi"),"Original POI category available")
 	pad.ui.select_category("poi")
 	check(pad.ui.filtered_entries.size()==11 and pad.ui.filtered_entries[0].reference_only,"Original Tatooine POIs populated as reference data")
@@ -62,7 +62,9 @@ func run() -> void:
 	pad.update_activation(true,0.8,0.8,0.10)
 	check(not pad.is_open,"Short squeeze does not open")
 	pad.update_activation(true,0.8,0.8,0.16)
-	check(pad.is_open and pad.visible,"Sustained offhand grip+trigger opens")
+	check(not pad.is_open and pad.radar.active,"Sustained fist opens only the minimap")
+	check(not pad.touch_minimap({"tip":pad.radar.display.global_position+Vector3.BACK*.25,"direction":Vector3.FORWARD}),"A distant pointing ray cannot open the full datapad")
+	check(pad.touch_minimap({"tip":pad.radar.display.global_position,"direction":Vector3.FORWARD}) and pad.is_open,"Touching the minimap opens full datapad")
 	check(not controllers[0].get_node("FunctionPointer").enabled and not controllers[1].get_node("FunctionPointer").enabled,"Default XR pointers suspended while datapad open")
 	var mount: Transform3D = pad.wrist_mount(controllers[0])
 	check(mount.basis.y.dot(Vector3.UP)>0.9999,"Datapad mount rises vertically rather than following palm plane")
@@ -71,14 +73,15 @@ func run() -> void:
 	var rolled_mount: Transform3D = pad.wrist_mount(controllers[0])
 	check(rolled_mount.basis.y.dot(Vector3.UP)>0.9999,"Rolled wrist does not lay the datapad flat")
 	controllers[0].rotation = original_hand_rotation
-	for frame in range(60):
-		var follow: Dictionary = pad.follower.follow(mount,camera.global_position,1.0/60)
-		pad.global_transform = follow.transform
-	check(pad.global_position.distance_to(mount.origin)<0.00001,"Wrist hinge follows fixed mount anchor")
-	check(pad.global_basis.y.dot(Vector3.UP)>=cos(deg_to_rad(25.01)),"View-follow pitch retains upright display")
-	var panel_top: Vector3 = pad.surfaces[0].mesh.global_transform*Vector3(0,0.125,0)
-	check(panel_top.y-pad.global_position.y>0.22,"Compact display extends above wrist anchor")
-	check(absf(pad.surfaces[1].mesh.rotation.y-deg_to_rad(-25))<0.00001,"Details panel tilted inward")
+	pad.update_view_follow(camera.global_transform,1.0/60)
+	var float_pose:Transform3D=pad.global_transform
+	check(absf(camera.to_local(pad.global_position).z+.75)<.001,"Datapad opens75cm ahead of view")
+	check(absf(camera.to_local(pad.global_position).y+.08)<.001,"Datapad opens slightly below eye level")
+	controllers[0].position+=Vector3(.4,-.3,.1)
+	pad.update_view_follow(camera.global_transform,1.0/60)
+	check(pad.global_transform.is_equal_approx(float_pose),"Moving opening wrist leaves full datapad fixed")
+	controllers[0].transform=original_transforms[2]
+	check(absf(pad.surfaces[1].mesh.rotation.y-deg_to_rad(-25))<.00001,"Details panel tilted inward")
 	for frame in range(3): await process_frame
 	var hit := hit_button(pad,pad.ui.waypoint_button)
 	check(not hit.is_empty() and hit.surface==0,"Native fingertip ray reaches actual waypoint button")
@@ -86,9 +89,9 @@ func run() -> void:
 	await process_frame
 	check(not pad.pressed and requests.is_empty(),"Trigger already held on opening cannot click")
 	pad.update_pointer(hit,0.0)
-	pad.update_pointer({},0.2)
-	check(not pad.aim_latch.is_empty() and not pad.pressed,"Early analog trigger latches hover before finger curl")
-	pad.update_pointer({},0.9)
+	pad.update_pointer(hit,0.2)
+	check(pad.aim_latch.is_empty() and not pad.pressed,"Early analog trigger keeps ray on actual finger until press")
+	pad.update_pointer(hit,0.9)
 	await process_frame
 	check(pad.pressed and requests.is_empty(),"Fresh trigger press reaches SubViewport without premature activation")
 	pad.update_pointer({},0.0)
@@ -98,11 +101,12 @@ func run() -> void:
 	pad.update_pointer(hit,0.0)
 	pad.update_pointer(hit,0.9)
 	await process_frame
-	pad.update_activation(false,0.8,0.8,0.02)
+	pad.update_tracking_state(false,true,true,0.8,0.8,0.02)
 	await process_frame
 	check(not pad.is_open and not pad.pressed and requests.size()==1,"Tracking loss closes and cancels held click")
 	check(controllers[0].get_node("FunctionPointer").enabled and controllers[1].get_node("FunctionPointer").enabled,"XR pointers restored after close")
-	pad.update_activation(true,0.8,0.8,0.26)
+	pad.update_tracking_state(true,true,true,0.8,0.8,0.26)
+	pad.touch_minimap({"tip":pad.radar.display.global_position,"direction":Vector3.FORWARD})
 	pad.ui.select_category("poi")
 	await process_frame
 	var map_hit := hit_button(pad,pad.ui.map_toggle)
@@ -115,7 +119,7 @@ func run() -> void:
 	check(pad.ui.map_visible and pad.ui.expanded,"SubViewport Planet map click opens expanded map")
 	check(pad.surfaces[0].viewport.size==Vector2i(1260,828),"Expanded map uses1260x828viewport")
 	check(pad.surfaces[0].meters.is_equal_approx(Vector2(0.70,0.46)),"Expanded physical map size")
-	check(absf(pad.surfaces[0].mesh.position.y-0.23)<0.00001 and pad.global_position.distance_to(mount.origin)<0.00001,"Expansion grows above same wrist hinge")
+	check(pad.surfaces[0].mesh.position.y==0,"Expansion keeps the interface centered")
 	var touch_surface: Dictionary = pad.surfaces[0]
 	var touch: Dictionary = pad.find_hit({"tip":touch_surface.mesh.global_transform*Vector3(0,0,0.005),"direction":Vector3.ZERO})
 	check(not touch.is_empty() and touch.touching,"Native direct fingertip contact reaches viewport")
@@ -129,10 +133,11 @@ func run() -> void:
 	if "--capture" in OS.get_cmdline_user_args():
 		pad.ui.select_category("poi")
 		var observer := Camera3D.new()
-		observer.fov = 55
+		observer.fov = 60
 		world.add_child(observer)
-		var center: Vector3 = pad.global_transform*Vector3(0.12,0.24,0)
-		observer.global_position = center+pad.global_basis.z*0.65
+		pad.update_view_follow(camera.global_transform,0)
+		var center: Vector3 = pad.global_position
+		observer.global_position = camera.global_position
 		observer.look_at(center,pad.global_basis.y)
 		observer.make_current()
 		root.size = Vector2i(1280,800)
@@ -170,7 +175,13 @@ func run() -> void:
 		await process_frame
 		check(pad.ui.detail_description.text.contains("Prerequisites:"), "Trigger on profession box populates detached details")
 	pad.update_activation(true,0.44,0.8,0.02)
-	check(not pad.is_open,"Releasing opening grip closes panel")
+	check(pad.is_open,"Releasing opening grip leaves floating datapad open")
+	var close_hit:=hit_button(pad,pad.ui.close_button)
+	pad.update_pointer(close_hit,0);pad.update_pointer(close_hit,.9)
+	await process_frame
+	pad.update_pointer(close_hit,0)
+	await process_frame
+	check(not pad.is_open,"Actual trigger click on Close dismisses floating datapad")
 	pad.update_stick_capture(Vector2(0,0.7),{},0.016)
 	check(body.turn_captured,"Closing while stick held retains capture to avoid accidental turning")
 	pad.update_stick_capture(Vector2.ZERO,{},0.016)

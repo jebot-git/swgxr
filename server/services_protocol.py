@@ -2,10 +2,12 @@
 try:
  from .housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from .fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
+ from .slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
  from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 except ImportError:
  from housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
+ from slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
  from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 from copy import deepcopy
 import math,re,json
@@ -20,8 +22,8 @@ except ImportError:
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
 ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
-ACTIONS+=FISHING_ACTIONS+HOUSING_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
-MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
+ACTIONS+=('underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
+MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
  out={'action':action,**planet_context(data)}
@@ -43,6 +45,7 @@ def command(action,data):
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
   out.update(building_id=v,cell_index=ci)
  required={
+  'underworld_accept':('terminal_id',),
   'recruiter_promote':('terminal_id',),'recruiter_join':('terminal_id',),'recruiter_status_toggle':('terminal_id',),'recruiter_purchase':('terminal_id',),'contraband_answer':('scan_id',),
   'vendor_place':('vendor_id',),'vendor_customize':('vendor_id',),'vendor_recover':('vendor_id',),'vendor_sell':('terminal_id','item_id'),'vendor_buy':('terminal_id','listing_id'),'vendor_retrieve':('terminal_id','listing_id'),'vendor_cancel':('terminal_id','listing_id'),
   'delivery_open':('npc_id','mission_id'),'delivery_pickup':('npc_id','mission_id'),'delivery_complete':('npc_id','mission_id','parcel_id'),
@@ -56,8 +59,14 @@ def command(action,data):
   out[k]=v
  if action in ('bank_transfer','pay'):
   n=data.get('amount')
-  if type(n) is not int or not 0<n<=2000000000:raise ValueError('Positive integer amount required.')
+  minimum=0 if action=='pay' else 1
+  if type(n) is not int or not minimum<=n<=2000000000:raise ValueError('Valid integer amount required.')
   out['amount']=n
+  if action=='pay':
+   points=data.get('faction_points',{})
+   if not isinstance(points,dict) or set(points)-{'imperial','rebel'} or any(type(v) is not int or not 0<=v<=2000000000 for v in points.values()):raise ValueError('Nonnegative Imperial/Rebel faction amounts required.')
+   if not n and not any(points.values()):raise ValueError('Select credits or faction points to send.')
+   if points:out['faction_points']={f:points.get(f,0) for f in ('imperial','rebel')}
  if action=='vendor_place':
   p=data.get('placement_position');heading=data.get('placement_heading')
   if not isinstance(p,list) or len(p)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>(2048 if i==1 else 8192) for i,x in enumerate(p)):raise ValueError('Finite vendor placement position required.')
@@ -117,6 +126,7 @@ def command(action,data):
   out['accept']=data['accept'];out.pop('terminal_id',None)
  if action in HOUSING_ACTIONS:out.update(housing_fields(action,data))
  if action in FISHING_ACTIONS:out.update(fishing_fields(action,data))
+ if action in SLICING_ACTIONS:out.update(slicing_fields(action,data))
  return out
 
 def label(value):

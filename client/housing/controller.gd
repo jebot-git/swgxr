@@ -19,6 +19,7 @@ var recover_ready:=true
 var status:Label3D
 var state:Dictionary={}
 var error:=""
+var transient_error_until:=0
 var factory_panel:Node3D
 var harvester_panel:Node3D
 var harvester_click_ready:=false
@@ -41,11 +42,12 @@ func reset()->void:
 	if is_instance_valid(factory_panel):factory_panel.close()
 	if is_instance_valid(app.get("datapad")):app.datapad.ui.set_harvesting_deeds([]);app.datapad.ui.set_factory_blueprints([])
 	harvester_requests.clear()
-	generation+=1;busy=false;deed={};approved={};arm={};state={};poll=0
+	generation+=1;busy=false;deed={};approved={};arm={};state={};poll=0;error="";transient_error_until=0
 	if is_instance_valid(preview):preview.queue_free();preview=null
 	if is_instance_valid(scenery):scenery.clear()
 	if is_instance_valid(status):status.hide()
 func held_changed(item:Dictionary)->void:
+	error="";transient_error_until=0
 	deed=item.duplicate(true) if not str(item.get("structure_template","")).is_empty() else {}
 	approved={};trigger_ready=false;preview_poll=0
 	if is_instance_valid(preview):preview.queue_free();preview=null
@@ -86,10 +88,15 @@ func request(action:String,extra:Dictionary={})->Dictionary:
 	if version!=generation or epoch!=app.datapad_epoch:return {}
 	busy=false;poll=3.0
 	if not observe(response):
-		error=str(response.get("error","Core3 did not confirm housing operation. Refresh before retrying."));bag.set_busy(false,error)
+		error=str(response.get("error","Core3 did not confirm housing operation. Refresh before retrying."))
+		transient_error_until=0
+		if bool(response.get("movement_rejected",false)) or error.begins_with("native_movement_"):
+			error="Movement was rejected. Aim at the plot again."
+			transient_error_until=Time.get_ticks_msec()+2500
+		bag.set_busy(false,error)
 		return {"ok":false,"error":error}
 	if mutation:harvester_requests.erase(request_key)
-	error=""
+	error="";transient_error_until=0
 	var inv:Dictionary=response.get("state",{}).get("inventory",{})
 	if inv.get("source_kind","")=="core3_inventory" and str(inv.get("character_id",""))==app.datapad_character_id:
 		app.inventory_snapshot=inv.duplicate(true);app.reconcile_inventory_presentations();app.update_inventory_presentation()
@@ -143,7 +150,11 @@ func recover(left:XRController3D,right:XRController3D)->void:
 		var bounds:AABB=node.mesh.get_aabb().grow(.10)
 		if bounds.has_point(node.to_local(left.global_position)) and bounds.has_point(node.to_local(right.global_position)) and left.global_position.distance_to(node.global_position)<=1 and right.global_position.distance_to(node.global_position)<=1:
 			request("recover",{"item_id":str(row.id),"left_hand":app.services.source(left.global_position),"right_hand":app.services.source(right.global_position)});return
+func expire_transient_error(now:int)->void:
+	if transient_error_until>0 and now>=transient_error_until:
+		error="";transient_error_until=0
 func _process(dt:float)->void:
+	expire_transient_error(Time.get_ticks_msec())
 	if not allowed or not is_instance_valid(app.services):return
 	if is_instance_valid(app.get("datapad")) and app.datapad.is_open:trigger_ready=false;recover_ready=false;harvester_click_ready=false;return
 	poll-=dt;preview_poll-=dt

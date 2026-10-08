@@ -41,6 +41,7 @@ def rule(n):
   r=Reader(d.first('PARM').data);out.update(fractal=r.val('i'),operation=r.val('i'),ramp=r.string().replace(chr(92),'/'))
  elif tag=='ACRH':out.update(operation=r.val('i'),min=r.val('f'),max=r.val('f'),ramp=r.string().replace(chr(92),'/'))
  elif tag=='AEXC':pass
+ elif tag=='APAS':out.update(passable=bool(r.val('B')),feather_threshold=r.val('f'))
  else:
   # Visual detail and flora affectors are inventoried, never misrepresented as evaluated.
   out['raw_hex']=d.data.hex();return out

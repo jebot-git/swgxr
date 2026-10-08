@@ -82,6 +82,22 @@ func run() -> void:
 	check(app.combat_rig.abilities.ham==saved,"Rejected native action cannot heal predicted pools")
 	mutation.success=true; mutation.after_stats.ham[0]=NAN; app.apply_inventory_stat_delta(mutation)
 	check(app.combat_rig.abilities.ham==saved,"Malformed benefit rejected atomically")
+	# Use the real bag's equipped view and grip request; no item is transferred
+	# into a local hand before the native equipment mutation confirms it.
+	var instrument:Dictionary={"id":"horn","name":"Slitherhorn","template":"object/tangible/instrument/slitherhorn.iff","container_id":"fixture","equipped":true,"equipped_slots":["hold_r"],"unequip_available":true}
+	var worn:Dictionary=snapshot.duplicate(true);worn.items=[instrument];worn.equipment=[instrument]
+	app.inventory_snapshot=worn;app.update_inventory_presentation();app.inventory.ui.container_id="@equipment";app.inventory.ui.set_snapshot(worn);app.inventory.ui.select_item(instrument)
+	check(app.inventory.ui.items.size()==1 and app.inventory.ui.unequip_button.visible and not app.inventory.ui.unequip_button.disabled,"Equipped instrument is reachable in VR bag with enabled return action")
+	app.inventory.unequip_requested.connect(app.unequip_inventory_item)
+	app.reply={"ok":false,"error":"Inventory full"};app.inventory.take_item(instrument,"left")
+	check(app.inventory.held_item.is_empty() and app.inventory.action_pending,"Equipped grip waits for native removal rather than fabricating a held instrument")
+	await process_frame;await process_frame;await process_frame
+	check(app.inventory.held_item.is_empty() and app.inventory_snapshot.equipment.size()==1 and not app.inventory_request_pending,"Failed removal preserves native equipment and allows retry")
+	var returned:Dictionary=worn.duplicate(true);returned.equipment=[];returned.items[0].equipped=false;returned.items[0].equipped_slots=[];returned.items[0].container_id="bag"
+	app.reply={"ok":true,"source_kind":"core3_inventory_unequip","mutation":{"success":true},"inventory":returned}
+	app.inventory.take_item(instrument,"left");await process_frame;await process_frame
+	check(app.inventory.held_item.get("id","")=="horn" and app.inventory.held_hand_side()=="left" and app.inventory_snapshot.equipment.is_empty(),"Confirmed removal returns original instrument to requesting tracked hand")
+	check(app.calls.filter(func(call):return call.path=="/inventory/unequip").size()==2,"One explicit attempt per grip; rejected removal is never automatically repeated")
 	var report: Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"server_mocked":true,"hardware_tested":false}
 	FileAccess.open("res://../runtime/evidence/equipment-actions-main-smoke.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
 	print(JSON.stringify(report)); app.queue_free(); await process_frame; quit(0 if errors.is_empty() else 1)

@@ -1,0 +1,248 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
+@@ -1,6 +1,7 @@
+ /* Core3-backed equipment transactions and source consumable use. */
+ #ifndef SWGXR_EQUIPMENT_H
+ #define SWGXR_EQUIPMENT_H
++#include "SwgxrSlicingData.h"
+ #include "server/zone/managers/objectcontroller/ObjectController.h"
+ #include "server/zone/objects/tangible/consumable/Consumable.h"
+ #include "server/zone/objects/tangible/wearables/WearableObject.h"
+@@ -14,7 +15,7 @@
+  static std::string id(SceneObject* o) { return o?std::to_string(o->getObjectID()):""; }
+ public:
+  static bool equippable(SceneObject* o) {
+-  return (o->isWearableObject() || o->isWearableContainerObject() || o->isWeaponObject() || o->isInstrument() || o->isFishingPoleObject()) && o->getArrangementDescriptorSize()>0 && !o->getObjectTemplate()->getFullTemplateString().contains("unarmed_default");
++  return (o->isWearableObject() || o->isWearableContainerObject() || o->isWeaponObject() || o->isInstrument() || o->isFishingPoleObject() || SwgxrSlicingData::tool(o)) && o->getArrangementDescriptorSize()>0 && !o->getObjectTemplate()->getFullTemplateString().contains("unarmed_default");
+  }
+  static bool medicine(SceneObject* o) {
+   auto stim=dynamic_cast<StimPack*>(o);return stim!=nullptr && !stim->isRangedStimPack() && !stim->isArea() && !o->getObjectTemplate()->getFullTemplateString().contains("/pet/");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -17,6 +17,7 @@
+  friend class SwgxrCrafting;
+  friend class SwgxrScout;
+  friend class SwgxrMedic;
++ friend class SwgxrSlicing;
+  using Json=JSONSerializationType;
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+  static Json initial(){return {{"version",1},{"escrow_id",""},{"hip_tool_id",""},{"generation",0},{"deployments",Json::array()},{"receipts",Json::array()}};}
+@@ -30,9 +31,10 @@
+  }
+  static ManagedReference<SceneObject*> ownedTool(CreatureObject* c,Json& s,const std::string& key){
+   auto tool=object(c,key);auto store=escrow(c,s);
+-  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !tool->isTrapObject() && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_basic.iff" && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_advanced.iff"))throw std::runtime_error("Item is not a source tool");
++  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !SwgxrSlicingData::tool(tool) && !tool->isTrapObject() && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_basic.iff" && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_advanced.iff"))throw std::runtime_error("Item is not a source tool");
+   bool hip=s.value("hip_tool_id",std::string())==key && store!=nullptr && tool->getParent().get()==store;
+-  if(!SwgxrEquipment::inInventory(tool,c) && !hip)throw std::runtime_error("Tool is not in owned inventory or hip escrow");return tool;
++  bool knifeEquipped=SwgxrSlicingData::tool(tool) && tool->getParent().get()==c && c->getSlottedObject("hold_r").get()==tool.get();
++  if(!SwgxrEquipment::inInventory(tool,c) && !hip && !knifeEquipped)throw std::runtime_error("Tool is not in owned inventory or hip escrow");return tool;
+  }
+  static Json describe(CreatureObject* c,SceneObject* tool){auto value=SwgxrInventory::describe(tool,c);tool->sendAttributeListTo(c);return value;}
+  static Json resource(ResourceSpawn* spawn){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSlicing.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSlicing.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrSlicingData.h"
+ #include "SwgxrSlicingPuzzle.h"
+ #include "SwgxrSlicingRewards.h"
++#include "SwgxrGathering.h"
+ #include "server/zone/objects/tangible/weapon/WeaponObject.h"
+ #include "server/zone/managers/skill/SkillModManager.h"
+ #include "server/zone/objects/tangible/terminal/mission/MissionTerminal.h"
+@@ -23,6 +24,7 @@
+  static Json wire(const Vector3& p){return Json::array({p.getX(),p.getZ(),p.getY()});}
+  static void setData(TangibleObject* t,const Json& d){t->setLuaStringData("swgxr_slice",String(d.dump().c_str()));t->updateToDatabase();}
+  static ManagedReference<TangibleObject*> target(CreatureObject* c,const Json& s){auto id=s.value("target_id",std::string());return id.empty()?nullptr:c->getZoneServer()->getObject(std::stoull(id)).castTo<TangibleObject*>();}
++ static bool ownedKnife(CreatureObject* c,SceneObject* tool){if(!tool || !SwgxrSlicingData::tool(tool))return false;try{auto state=SwgxrGathering::load(c);return SwgxrGathering::ownedTool(c,state,std::to_string(tool->getObjectID())).get()==tool;}catch(const std::exception&){return false;}}
+  static void settleCharge(CreatureObject* c,const Json& s){
+   auto toolId=s.value("tool_id",std::string());if(toolId.empty())return;auto tool=c->getZoneServer()->getObject(std::stoull(toolId)).castTo<PrecisionLaserKnife*>();if(!tool)return;
+   Locker toolLock(tool,c);auto d=SwgxrSlicingData::data(tool);if(d.value("reservation",std::string())!=s.value("attempt_id",std::string()))return;
+@@ -44,7 +46,7 @@
+   else if(!c->isOnline() || c->getPlayerObject()->isOffline())reason="disconnected";
+   else if(c->isDead() || c->isIncapacitated() || c->isInCombat() || c->hasBuff(STRING_HASHCODE("private_feign_buff")))reason="interrupted";
+   else if(!c->getZone() || s.value("zone",std::string())!=std::string(c->getZone()->getZoneName().toCharArray()) || s.value("cell_id",uint64(0))!=c->getParentID() || point(s.at("origin")).distanceTo(c->getWorldPosition())>ABANDON_DISTANCE)reason="walked_away";
+-  else {auto t=target(c,s);if(!t || (s.value("target_kind",std::string())=="item" && !t->isASubChildOf(c->getInventory())))reason="ownership_changed";}
++  else {auto t=target(c,s);auto knife=c->getZoneServer()->getObject(std::stoull(s.at("tool_id").get<std::string>()));if(!ownedKnife(c,knife) || !t || (s.value("target_kind",std::string())=="item" && !t->isASubChildOf(c->getInventory())))reason="ownership_changed";}
+   if(reason)finish(c,s,reason);
+  }
+  static Json challenge(const Puzzle& b){Json out={{"size",b.size},{"pairs",Json::array()},{"preconnected",Json::array()}};for(auto& p:b.pairs)out["pairs"].push_back({{"color",p.color},{"ends",Json::array({Json{{"cell",p.a.cell},{"face",p.a.face}},Json{{"cell",p.b.cell},{"face",p.b.face}}})}});for(auto& w:b.preconnected)out["preconnected"].push_back({{"color",w.color},{"cells",w.cells}});return out;}
+@@ -77,7 +79,7 @@
+   if(action=="slicing_status"){if(!token.empty() && token!=s.value("attempt_id",std::string()))throw std::runtime_error("slicing_attempt_mismatch");return {{"success",true}};}
+   if(action=="slicing_begin"){
+    if(s.value("active",false))throw std::runtime_error("slicing_already_active");int tier=SwgxrSlicingData::tier(c);if(tier<0)throw std::runtime_error("novice_smuggler_required");if(c->isDead() || c->isIncapacitated() || c->isInCombat())throw std::runtime_error("native_player_unavailable");
+-   auto tool=c->getZoneServer()->getObject(std::stoull(r.at("tool_id").get<std::string>())).castTo<PrecisionLaserKnife*>();if(!tool || !SwgxrSlicingData::tool(tool) || !tool->isASubChildOf(c->getInventory()) || tool->getUseCount()<1)throw std::runtime_error("owned_charged_slicing_tool_required");
++   auto tool=c->getZoneServer()->getObject(std::stoull(r.at("tool_id").get<std::string>())).castTo<PrecisionLaserKnife*>();if(!tool || !SwgxrSlicingData::tool(tool) || !ownedKnife(c,tool) || tool->getUseCount()<1)throw std::runtime_error("owned_charged_slicing_tool_required");
+    auto t=c->getZoneServer()->getObject(std::stoull(r.at("target_id").get<std::string>())).castTo<TangibleObject*>();if(!t)throw std::runtime_error("slicing_target_missing");Locker targetLock(t,c);auto targetKind=r.at("target_kind").get<std::string>();std::string kind;
+    if(targetKind=="terminal"){auto term=t.castTo<MissionTerminal*>();if(tier<1 || !term || term->isBountyTerminal() || term->isStatueTerminal() || term->isNewbieTerminal() || term->getZone()!=c->getZone() || term->getParentID()!=c->getParentID() || !c->isInRange(term,3) || !CollisionManager::checkLineOfSight(c,term))throw std::runtime_error("sliceable_nearby_mission_terminal_required");if(terminalBlocked(c,t))throw std::runtime_error("terminal_slice_permanently_failed");if(!c->checkCooldownRecovery("slicing.terminal"))throw std::runtime_error("slicing_terminal_cooldown");auto city=c->getCityRegion().get();if(city && !city->isClientRegion() && city->isBanned(c->getObjectID()))throw std::runtime_error("city_banned_services");kind="terminal";
+    }else if(targetKind=="item"){if(!c->getInventory() || !t->isASubChildOf(c->getInventory()))throw std::runtime_error("unequipped_owned_inventory_target_required");auto reason=SwgxrSlicingData::reason(t,c);if(!reason.empty())throw std::runtime_error(reason);kind=SwgxrSlicingData::kind(t);}else throw std::runtime_error("invalid_slice_target_kind");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCraftingView.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCraftingView.h
+@@ -11,6 +11,7 @@
+  static std::string text(const String& s){return s.toCharArray();}
+  static Json draft(DraftSchematic* d,int index){
+   Json out={{"index",index},{"id",id(d)},{"name",text(d->getCustomName())},{"name_table",text(d->getObjectNameStringIdFile())},{"name_key",text(d->getObjectNameStringIdName())},{"template",text(TemplateManager::instance()->getTemplateFile(d->getTanoCRC()))},{"complexity",d->getComplexity()},{"slots",Json::array()},{"weights",Json::array()}};
++  out["category_id"]=std::to_string(d->getToolTab());out["tool_compatible"]=true;auto product=TemplateManager::instance()->getTemplate(d->getTanoCRC());out["description"]=product?text(product->getDetailedDescription()):"";
+   for(int i=0;i<d->getDraftSlotCount();++i){auto slot=d->getDraftSlot(i);out["slots"].push_back({{"index",i},{"name_table",text(slot->getStringIdFile())},{"name_key",text(slot->getStringIdName())},{"type",text(slot->getResourceType())},{"quantity",slot->getQuantity()},{"kind",slot->getSlotType()},{"optional",slot->getSlotType()>=3}});}
+   for(int i=0;i<d->getResourceWeightCount();++i){auto w=d->getResourceWeight(i);if(w->isFiller())continue;Json weights=Json::array();for(int j=0;j<w->getPropertyListSize();++j)weights.push_back({{"property",w->getTypeAndWeight(j)>>4},{"weight",w->getPropertyPercentage(j)}});out["weights"].push_back({{"name",text(w->getPropertyName())},{"group",text(w->getExperimentalTitle())},{"weights",weights}});}
+   return out;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -6,6 +6,7 @@
+ #include "SwgxrGathering.h"
+ #include "SwgxrBioEngineer.h"
+ #include "SwgxrRanger.h"
++#include "SwgxrTerrainModification.h"
+ #include "server/zone/objects/area/CampSiteActiveArea.h"
+ #include "server/zone/objects/tangible/components/CampKitMenuComponent.h"
+ #include "server/zone/objects/tangible/components/CampTerminalMenuComponent.h"
+@@ -29,7 +30,7 @@
+   Json result=Json::array();SortedVector<TreeEntry*> nearby(256,256);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),128,&nearby,true);
+   for(int i=0;i<nearby.size() && result.size()<16;++i){auto object=static_cast<SceneObject*>(nearby.get(i));if(!object->isCampStructure())continue;auto camp=static_cast<StructureObject*>(object);Locker lock(camp,c);auto areas=camp->getActiveAreas();
+    for(int n=0;n<areas->size();++n){auto area=areas->get(n).castTo<CampSiteActiveArea*>();if(area==nullptr)continue;
+-    Json entry=visual(camp);auto owner=area->getOwner();entry["owner_id"]=id(owner);entry["owner"]=owner?std::string(owner->getDisplayedName().toCharArray()):"";entry["uptime_seconds"]=area->getUptime();entry["visitors"]=area->getVisitorCount();entry["abandoned"]=area->isAbandoned();entry["can_disband"]=camp->getOwnerObjectID()==c->getObjectID();entry["objects"]=Json::array();entry["terminal_id"]="";
++    Json entry=visual(camp);SwgxrTerrainModification::describe(camp,entry);auto owner=area->getOwner();entry["owner_id"]=id(owner);entry["owner"]=owner?std::string(owner->getDisplayedName().toCharArray()):"";entry["uptime_seconds"]=area->getUptime();entry["visitors"]=area->getVisitorCount();entry["abandoned"]=area->isAbandoned();entry["can_disband"]=camp->getOwnerObjectID()==c->getObjectID();entry["objects"]=Json::array();entry["terminal_id"]="";
+     auto children=camp->getChildObjects();for(int k=0;k<children->size() && k<128;++k){auto child=children->get(k);if(child==nullptr)continue;entry["objects"].push_back(visual(child));if(child->isTerminal()){entry["terminal_id"]=id(child);entry["terminal_position"]=position(child);}}
+     for(int f=0;f<nearby.size();++f){auto fire=static_cast<SceneObject*>(nearby.get(f));auto name=fire->getObjectTemplate()->getFullTemplateString();if(camp->isInRange(fire,1) && (name=="object/static/structure/general/campfire_fresh.iff" || name=="object/static/structure/general/campfire_smoldering.iff"))entry["objects"].push_back(visual(fire));}
+     result.push_back(entry);break;
+@@ -38,6 +39,7 @@
+  }
+  static Json snapshot(CreatureObject* c){
+   Json state={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
++  state["inspect_available"]=c->getSkillMod("creature_knowledge")>=5;state["creature_knowledge"]=c->getSkillMod("creature_knowledge");
+   SwgxrBioEngineer::status(c,state);
+   state["ranger"]=SwgxrRanger::status(c);
+   state["inventory"]=SwgxrInventory::snapshot(c);
+@@ -57,16 +59,17 @@
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+   SwgxrPlanets::require(c,request);
+-  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);
+-  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
++  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";
++  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+   auto p=SwgxrGathering::position(request);
+   if(!c->isDead() && !c->isIncapacitated()){
+-   if(!ranger)SwgxrMovement::move(c,request);
++   if(!ranger && !inspect)SwgxrMovement::move(c,request);
+    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
+     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
+     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
+    }
+   }
++  if(inspect){if(c->getSkillMod("creature_knowledge")<5)throw std::runtime_error("creature_knowledge_required");auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>()));if(!target || !target->isCreatureObject() || target->isPlayerCreature() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,64) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("creature_inspection_out_of_reach");Locker targetLock(target,c);target->sendAttributeListTo(c);Json inspection={{"id",id(target)},{"name",std::string(target->getDisplayedName().toCharArray())}};return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",{{"success",true},{"action",verb},{"inspection",inspection}}}};}
+   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_scout","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());Json mutation={{"success",true},{"action",verb}};
+   if(verb!="status" && verb!="ranger_status"){
+    auto semantic=request;if(ranger)for(auto field:{"position","building_id","cell_index","zone","planet","hand_position","posture"})semantic.erase(field);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrInventory.h"
+ #include "SwgxrHarvesters.h"
+ #include "SwgxrFactories.h"
++#include "SwgxrTerrainModification.h"
+ #include "PlaceStructureCommand.h"
+ #include "PermissionListModifyCommand.h"
+ #include "server/zone/objects/building/BuildingObject.h"
+@@ -42,7 +43,7 @@
+  static void describe(CreatureObject* c,SceneObject* t,Json& view){auto s=controlled(t);if(!s)return;view["structure_id"]=id(s);view["owner"]=s->isOwnerOf(c);view["maintenance"]=s->getSurplusMaintenance();view["maintenance_rate"]=s->getMaintenanceRate();view["options"]=Json::array();if(s->isOnAdminList(c))view["options"].push_back({{"id","deposit"},{"name","Deposit upkeep credits"},{"description","Maintenance: "+std::to_string(s->getSurplusMaintenance())+" credits"}});if(s->isOwnerOf(c))for(auto list:{"ENTRY","ADMIN","BAN","VENDOR"})for(auto op:{"add","remove"})view["options"].push_back({{"id",std::string(op)+"_"+list},{"name",std::string(op)+" "+list+" permission"},{"description","Select, then shake hands with the target within one minute."},{"permission_list",list},{"permission_action",op}});if(s->isBuildingObject()){auto b=static_cast<BuildingObject*>(s);view["item_count"]=b->getCurrentNumberOfPlayerItems();view["item_limit"]=b->getMaximumNumberOfPlayerItems();}}
+  static Json snapshot(CreatureObject* c){
+   Json out={{"structures",Json::array()},{"items",Json::array()},{"construction_active",c->containsActiveSession(SessionFacadeType::PLACESTRUCTURE)}};SortedVector<ManagedReference<TreeEntry*>> objects;c->getZone()->getInRangeObjects(c->getWorldPosition().getX(),c->getWorldPosition().getZ(),c->getWorldPosition().getY(),256,&objects,true,false);
+-  for(int i=0;i<objects.size() && out["structures"].size()<64;++i){auto o=static_cast<SceneObject*>(objects.get(i).get());if(o && o->isStructureObject() && static_cast<StructureObject*>(o)->getOwnerObjectID()!=0){if((SwgxrHarvesters::supports(o) || SwgxrFactories::supports(o)) && static_cast<StructureObject*>(o)->getDeedObjectID()==0)continue;auto row=record(o);row["harvester"]=SwgxrHarvesters::supports(o);row["factory"]=SwgxrFactories::supports(o);row["admin"]=static_cast<StructureObject*>(o)->isOnAdminList(c);row["owner_id"]=std::to_string(static_cast<StructureObject*>(o)->getOwnerObjectID());out["structures"].push_back(row);}}
++  for(int i=0;i<objects.size() && out["structures"].size()<64;++i){auto o=static_cast<SceneObject*>(objects.get(i).get());if(o && o->isStructureObject() && static_cast<StructureObject*>(o)->getOwnerObjectID()!=0){if((SwgxrHarvesters::supports(o) || SwgxrFactories::supports(o)) && static_cast<StructureObject*>(o)->getDeedObjectID()==0)continue;auto row=record(o);SwgxrTerrainModification::describe(o,row);row["harvester"]=SwgxrHarvesters::supports(o);row["factory"]=SwgxrFactories::supports(o);row["admin"]=static_cast<StructureObject*>(o)->isOnAdminList(c);row["owner_id"]=std::to_string(static_cast<StructureObject*>(o)->getOwnerObjectID());out["structures"].push_back(row);}}
+   out["blueprints"]=SwgxrFactories::blueprints(c);out["deeds"]=Json::array();SwgxrFactories::deeds(c,c->getInventory(),out["deeds"]);SwgxrHarvesters::deeds(c,c->getInventory(),out["deeds"]);for(int i=0;i<c->getSlottedObjectsSize();++i){auto bag=c->getSlottedObject(i);if(bag && bag->isWearableContainerObject()){SwgxrHarvesters::deeds(c,bag,out["deeds"]);SwgxrFactories::deeds(c,bag,out["deeds"]);}}
+   ManagedReference<SceneObject*> parent=c->getParent().get();SceneObject* root=c->getRootParent();if(parent && parent->isCellObject() && root && root->isBuildingObject()){auto b=static_cast<BuildingObject*>(root);out["item_count"]=b->getCurrentNumberOfPlayerItems();out["item_limit"]=b->getMaximumNumberOfPlayerItems();out["can_furnish"]=b->isOnAdminList(c);for(int ci=1;ci<=b->getTotalCellNumber();++ci){auto cell=b->getCell(ci);if(!cell)continue;for(int i=0;i<cell->getContainerObjectsSize() && out["items"].size()<1000;++i){auto o=cell->getContainerObject(i);if(!o || !o->isTangibleObject() || o->isCreatureObject() || o->isVendor())continue;auto row=record(o);row["building_id"]=id(b);row["cell_index"]=ci;row["terminal"]=o->isTerminal();row["recoverable"]=!o->isTerminal() && !o->isClientObject() && o->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) && cell->checkContainerPermission(c,ContainerPermissions::MOVEOUT);out["items"].push_back(row);}}}return out;
+  }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTerrainModification.h
+@@ -0,0 +1,17 @@
++#ifndef SWGXR_TERRAIN_MODIFICATION_H
++#define SWGXR_TERRAIN_MODIFICATION_H
++#include "templates/building/SharedBuildingObjectTemplate.h"
++#include "templates/footprint/StructureFootprint.h"
++// Original authored client terrain layer; this is metadata, never a replacement
++// height or an inferred rectangular flattening operation.
++class SwgxrTerrainModification {
++public:
++ static void describe(SceneObject* object,JSONSerializationType& row){
++  auto source=object->getObjectTemplate();auto building=dynamic_cast<SharedBuildingObjectTemplate*>(source);
++  row["terrain_modification_file"]=building?std::string(building->getTerrainModificationFile().toCharArray()):"";
++  row["snap_to_terrain"]=source->getSnapToTerrain();row["clear_flora_radius"]=source->getClearFloraRadius();row["footprint"]=nullptr;
++  auto tangible=dynamic_cast<SharedTangibleObjectTemplate*>(source);auto footprint=tangible?tangible->getStructureFootprint():nullptr;
++  if(footprint)row["footprint"]={{"rows",footprint->getRowSize()},{"columns",footprint->getColSize()},{"center_x",footprint->getCenterX()},{"center_z",footprint->getCenterY()},{"row_chunk_size",footprint->getRowChunkSize()},{"column_chunk_size",footprint->getColChunkSize()}};
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -67,6 +67,7 @@
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+   if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
++  bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+   String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
+  }
+@@ -307,7 +308,7 @@
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+-  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update"){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
++  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+   out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
+  }
+ };
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -216,7 +216,7 @@
+ 				try{std::ifstream file(liveDirectory+"/request.json");file>>input;file.close();std::remove((liveDirectory+"/request.json").c_str());}catch(const std::exception& e){publish({{"session_live",false},{"error_code","invalid_ipc_json"}});break;}
+ 				last=std::chrono::steady_clock::now();auto message=new ObjectControllerMessage(oid,0x0B,0x116);message->insertInt(counter++);message->insertInt(STRING_HASHCODE("getattributesbatch"));message->insertLong(0);message->insertUnicode(UnicodeString(String(("swgxr_livecombat_v1 "+input.dump()).c_str())));core.zone->getZoneClient()->sendMessage(message);
+ 				bool complete=false;for(int attempt=0;attempt<100;++attempt){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(values["swgxr.live.snapshot"].get<std::string>());if(reply.value("request_id",std::string())==input.value("request_id",std::string())){if(input.value("action",std::string())=="scout" && reply.contains("mutation")){
+-                         auto inventory=reply["mutation"].value("state",JSONSerializationType::object()).value("inventory",JSONSerializationType::object());reply["scout_attributes"]=JSONSerializationType::object();
++                         auto inventory=reply["mutation"].value("state",JSONSerializationType::object()).value("inventory",JSONSerializationType::object());reply["scout_attributes"]=JSONSerializationType::object();auto inspection=reply["mutation"].value("mutation",JSONSerializationType::object()).value("inspection",JSONSerializationType::object());if(inspection.contains("id")){auto key="o"+inspection.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering" || input.value("action",std::string())=="inventory") && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("inventory",JSONSerializationType::object());reply["service_attributes"]=JSONSerializationType::object();
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
+@@ -1611,6 +1611,7 @@
+ String CraftingSessionImplementation::swgxrSnapshot() {
+  using View=SwgxrCraftingView;using Json=JSONSerializationType;
+  Json out={{"experimentation_result",experimentationPointsUsed > 0 ? int(experimentationResult) : -1},{"stage",state},{"points",experimentationPointsTotal-experimentationPointsUsed},{"schematics",Json::array()},{"rows",Json::array()},{"statistics",Json::array()},{"colors",Json::array()},{"station_id",View::id(craftingStation.get())}};
++ auto tool=craftingTool.get();auto station=craftingStation.get();if(tool!=nullptr){ out["tool_template"]=View::text(tool->getObjectTemplate()->getFullTemplateString());out["tool_type"]=tool->getToolType();out["tool_tabs"]=Json::array();auto tabs=tool->getToolTabs();for(int i=0;i<tabs->size();++i)out["tool_tabs"].push_back(tabs->get(i));out["max_complexity"]=station!=nullptr?station->getComplexityLevel():tool->getComplexityLevel();}
+  for(int i=0;i<currentSchematicList.size();++i)out["schematics"].push_back(View::draft(currentSchematicList.get(i),i));
+  auto manu=manufactureSchematic.get();auto proto=prototype.get();
+  if(manu!=nullptr){out["schematic"]=View::draft(manu->getDraftSchematic(),-1);auto values=manu->getCraftingValues();
+--- a/MMOCoreORB/bin/scripts/object/tangible/slicing/slicing_laser_knife.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/slicing/slicing_laser_knife.lua
+@@ -42,7 +42,30 @@
+ 
+ 
+ object_tangible_slicing_slicing_laser_knife = object_tangible_slicing_shared_slicing_laser_knife:new {
++	playerRaces = {
++		"object/creature/player/bothan_male.iff",
++		"object/creature/player/bothan_female.iff",
++		"object/creature/player/human_male.iff",
++		"object/creature/player/human_female.iff",
++		"object/creature/player/ithorian_male.iff",
++		"object/creature/player/ithorian_female.iff",
++		"object/creature/player/moncal_male.iff",
++		"object/creature/player/moncal_female.iff",
++		"object/creature/player/rodian_male.iff",
++		"object/creature/player/rodian_female.iff",
++		"object/creature/player/sullustan_male.iff",
++		"object/creature/player/sullustan_female.iff",
++		"object/creature/player/trandoshan_male.iff",
++		"object/creature/player/trandoshan_female.iff",
++		"object/creature/player/twilek_male.iff",
++		"object/creature/player/twilek_female.iff",
++		"object/creature/player/wookiee_male.iff",
++		"object/creature/player/wookiee_female.iff",
++		"object/creature/player/zabrak_male.iff",
++		"object/creature/player/zabrak_female.iff"
++	},
+ 	templateType = SLICINGTOOL,
++	arrangementDescriptorFilename = "abstract/slot/arrangement/wearables/hold_r.iff",
+ 	gameObjectType = 32777,
+ 	effectiveness = 0,
+ 

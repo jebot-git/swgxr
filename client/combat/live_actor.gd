@@ -160,6 +160,7 @@ func set_presentation_floor_offset(height:float)->void:
 
 func refresh_label()->void:
 	if label==null:return
+	label.modulate=Color("ff2020") if label.get_meta("spice_hostile_illusion",false) else preload("res://scripts/entity_relationship.gd").color(record)
 	label.text=str(record.get("name","Core3 entity"))+"\n"+("Dead · Core3 confirmed" if record.dead else "%d / %d"%[int(record.health),int(record.max_health)])
 
 	if report.get("appearance_status","")=="partial":label.text+="\nSome original components unavailable"

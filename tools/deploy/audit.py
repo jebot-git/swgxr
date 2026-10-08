@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Read-only runtime evidence. Run as VPS administrator; emits no credentials."""
+import os
 import hashlib
 import json
 import re
@@ -32,7 +33,7 @@ def main():
     processes = []
     for path in Path('/proc').glob('[0-9]*'):
         try:
-            if (path/'comm').read_text().strip() != 'core3': continue
+            if (path/'comm').read_text().strip() not in ('core3','corecu'): continue
             with (path/'exe').open('rb') as stream:
                 digest = hashlib.file_digest(stream, 'sha256').hexdigest()
             status = (path/'status').read_text()
@@ -57,11 +58,18 @@ def main():
               'space_zones': re.search(r'Core3.SpaceZonesEnabled\s*=\s*([^\n]+)', config)[1],
               'resource_zones': re.search(r'^activeZones\s*=\s*([^\n]+)', resources, re.M)[1],
               'listeners': command('ss', '-lntu')}
+    from tools.deploy.capacity import load as load_capacity, host_readiness, configuration_status
+    capacity=load_capacity(ROOT/'runtime/remote')
+    report['capacity_configuration']=configuration_status(ROOT/'runtime/remote')
+    report['capacity_profile']=capacity
+    report['host_capacity']=host_readiness(os.cpu_count() or 1,memory.get('MemTotal_KiB',0),capacity) if capacity else None
+    report['container_pids_limit']=data['HostConfig'].get('PidsLimit')
     report['vehicle_catalog'] = vehicle_catalog_status(ROOT)
     report['passed'] = (report['vehicle_catalog']['passed'] and all(value == 'active' for value in states.values()) and len(processes) == 1
                         and report['network_mode'] == 'none' and not report['published_ports']
                         and report['apparmor'] == 'swgxr-core3'
                         and report['database']['schema_version'] == 1008)
+    if capacity:report['passed'] &= report['capacity_configuration']['passed'] and report['host_capacity']['passed'] and report['container_pids_limit']>=capacity['container_pids']
     print(json.dumps(report, indent=2))
     return 0 if report['passed'] else 1
 

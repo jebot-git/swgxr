@@ -205,7 +205,7 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 		set_standing_eye_height(standing_eye_height)
 	var presentation:Dictionary=context.get("presentation",{})
 	if bool(presentation.get("life_locked",false)):
-		update_life_pose(delta,head,floor_y,presentation)
+		update_life_pose(delta,head,floor_y,presentation,left,right)
 		return
 	if life_pose_locked:
 		reset_life_pose_anchor()
@@ -439,7 +439,7 @@ func reset_life_pose_anchor()->void:
 	solver.reset_smoothing();stance_solver.reset_smoothing();planted_feet.clear()
 	have_body_position=false;measured_velocity=Vector3.ZERO
 
-func update_life_pose(delta:float,head:Transform3D,floor_y:float,presentation:Dictionary)->void:
+func update_life_pose(delta:float,head:Transform3D,floor_y:float,presentation:Dictionary,left:Variant=null,right:Variant=null)->void:
 	var state:=str(presentation.get("life_state","incapacitated"))
 	if not life_pose_locked:
 		var forward:Vector3=-head.basis.z
@@ -448,12 +448,26 @@ func update_life_pose(delta:float,head:Transform3D,floor_y:float,presentation:Di
 		planted_feet.clear()
 	if not life_pose_locked or state!=life_pose_state:life_pose_time=0.0
 	life_pose_locked=true;life_pose_state=state
+	if bool(presentation.get("feigning_death",false)):life_pose_anchor=Vector3(body.global_position.x,floor_y,body.global_position.z)
 	if bool(presentation.get("life_pose_frozen",state=="dead")):
 		life_pose_time=float(presentation.get("life_pose_time",0.0))
 	else:life_pose_time+=clampf(delta,0.0,0.1)
 	global_transform=Transform3D(Basis(Vector3.UP,life_pose_heading).scaled(Vector3.ONE*fit_scale),life_pose_anchor)
 	var sampled:Dictionary=avatar.sample_life_pose(str(presentation.get("life_animation",state)),life_pose_time)
 	last_report={"life_locked":true,"life_state":state,"life_pose":sampled,"life_pose_time":life_pose_time,"anchor":life_pose_anchor,"tracking_ik_applied":false}
+	if bool(presentation.get("feigning_death",false)):
+		# Only untracked bones retain the incap clip. Tracking remains authoritative.
+		var inverse:=skeleton.global_transform.affine_inverse()
+		var local_head:=inverse*head
+		local_head.basis=local_head.basis.orthonormalized()*head_rest.basis
+		var targets:Dictionary={"head":local_head}
+		for side in ["left","right"]:
+			var tracked:Variant=left if side=="left" else right
+			if tracked is Transform3D:
+				var local:Transform3D=inverse*tracked;local.basis=local.basis.orthonormalized()
+				targets[side+"_hand"]=local*grip_offsets[side]
+		last_report["tracking_ik"]=solver.solve(targets,delta)
+		last_report.tracking_ik_applied=true
 	visible=true;set_gloves_visible(false)
 	if is_instance_valid(combat_rig):combat_rig.update_visuals()
 
@@ -535,9 +549,13 @@ func hand_target(controller: XRController3D, side: String) -> Variant:
 		var attached: Variant = combat_rig.hand_target(side)
 		if attached is Transform3D: return attached
 	if HandInput.controller_tracked(controller):
-		return controller.global_transform
+		return visual_hand_pose(controller.global_transform,side)
 	var data := HandInput.tracked_joints(side)
-	return rig.global_transform * data.grip if not data.is_empty() else null
+	return visual_hand_pose(rig.global_transform * data.grip,side) if not data.is_empty() else null
+
+func visual_hand_pose(pose:Transform3D,side:String)->Transform3D:
+	if is_instance_valid(body) and body.get("feedback")!=null:return body.feedback.spice.hand_pose(pose,camera.global_transform,side)
+	return pose
 
 func foot_ground(point: Vector3, fallback_y: float) -> Dictionary:
 	# Imported interior cells deliberately exclude terrain; use the same mask.

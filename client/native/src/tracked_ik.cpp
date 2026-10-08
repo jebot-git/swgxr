@@ -35,6 +35,8 @@ void SwgTrackedIK::_bind_methods() {
     ClassDB::bind_method(D_METHOD("reset_smoothing"), &SwgTrackedIK::reset_smoothing);
 }
 bool SwgTrackedIK::configure(Skeleton3D *skeleton, const Dictionary &mapping) {
+    auto previous = Object::cast_to<Skeleton3D>(ObjectDB::get_instance(skeleton_id));
+    if (previous) { restore_arm(previous, left); restore_arm(previous, right); }
     skeleton_id = 0;
     left = Arm();
     right = Arm();
@@ -93,13 +95,16 @@ Transform3D SwgTrackedIK::limit_hand_pair(const String &side, const Transform3D 
 void SwgTrackedIK::reset_smoothing() {
     left.have_bend = right.have_bend = false;
 }
+void SwgTrackedIK::restore_arm(Skeleton3D *skeleton, Arm &arm) {
+    if (!arm.attached) return;
+    skeleton->set_bone_pose_position(arm.lower, arm.free_lower_position);
+    skeleton->set_bone_pose_position(arm.hand, arm.free_hand_position);
+    arm.attached = false;
+}
 Dictionary SwgTrackedIK::solve_arm(Skeleton3D *skeleton, Arm &arm, const Transform3D &target,
                                  const Vector3 &pole, double delta, bool attached) {
     Dictionary result;
-    if (arm.attached) {
-        skeleton->set_bone_pose_position(arm.hand, arm.free_hand_position);
-        arm.attached = false;
-    }
+    restore_arm(skeleton, arm);
     if (!valid_target(target) || !pole.is_finite()) { result["valid"] = false; return result; }
     // Start from the calibrated neutral arm every time: accumulated shortest
     // arc rotations otherwise introduce axial twist when targets circle around.
@@ -108,14 +113,27 @@ Dictionary SwgTrackedIK::solve_arm(Skeleton3D *skeleton, Arm &arm, const Transfo
     Transform3D upper = skeleton->get_bone_global_pose(arm.upper);
     Transform3D lower = skeleton->get_bone_global_pose(arm.lower);
     Transform3D hand = skeleton->get_bone_global_pose(arm.hand);
-    const double first = upper.origin.distance_to(lower.origin);
-    const double second = lower.origin.distance_to(hand.origin);
+    double first = upper.origin.distance_to(lower.origin);
+    double second = lower.origin.distance_to(hand.origin);
     if (first < 0.0001 || second < 0.0001) { result["valid"] = false; return result; }
     const Vector3 difference = target.origin - upper.origin;
     const double requested = difference.length();
     const Vector3 direction = requested > 0.00001 ? difference / requested : Vector3(0, 0, -1);
-    // Keep a tiny bend at full extension and avoid the folded zero-distance
-    // singularity. No source bone translation or scale is changed.
+    // Vehicle controls are fixed in the world. Spread additional reach across
+    // both segments in their original proportions, rather than pulling only
+    // the wrist out of its forearm. Hand size and orientation remain unchanged.
+    double stretch = 1.0;
+    if (attached && requested > first + second - 0.0001) {
+        stretch = (requested + 0.0001) / (first + second);
+        first *= stretch;
+        second *= stretch;
+    }
+    if (attached) {
+        arm.free_lower_position = skeleton->get_bone_pose_position(arm.lower);
+        arm.free_hand_position = skeleton->get_bone_pose_position(arm.hand);
+        arm.attached = true;
+    }
+    // Ordinary tracked hands retain original lengths and a tiny elbow bend.
     const double reach = Math::clamp(requested, Math::abs(first - second) + 0.0001, first + second - 0.0001);
     Vector3 bend = (pole - upper.origin).slide(direction);
     Vector3 previous = arm.bend.slide(direction);
@@ -138,28 +156,30 @@ Dictionary SwgTrackedIK::solve_arm(Skeleton3D *skeleton, Arm &arm, const Transfo
     const Vector3 endpoint = upper.origin + direction * reach;
     const Quaternion rotate_upper((lower.origin - upper.origin).normalized(), (elbow - upper.origin).normalized());
     global_rotation(skeleton, arm.upper, Basis(rotate_upper) * upper.basis);
+    if (attached) {
+        const int parent = skeleton->get_bone_parent(arm.lower);
+        const Transform3D parent_pose = parent >= 0 ? skeleton->get_bone_global_pose(parent) : Transform3D();
+        skeleton->set_bone_pose_position(arm.lower, parent_pose.affine_inverse().xform(elbow));
+    }
     lower = skeleton->get_bone_global_pose(arm.lower);
     hand = skeleton->get_bone_global_pose(arm.hand);
     const Quaternion rotate_lower((hand.origin - lower.origin).normalized(), (endpoint - lower.origin).normalized());
     global_rotation(skeleton, arm.lower, Basis(rotate_lower) * lower.basis);
     global_rotation(skeleton, arm.hand, target.basis.orthonormalized());
-    const double solver_error = skeleton->get_bone_global_pose(arm.hand).origin.distance_to(endpoint);
     if (attached) {
-        // A mounted vehicle cannot move into the avatar's reach volume like a
-        // held weapon. Preserve the solved elbow, but let the visual forearm
-        // extend to its rigid grip. This never writes tracking or body physics.
-        arm.free_hand_position = skeleton->get_bone_pose_position(arm.hand);
+        // Complete the visual chain at the rigid grip without scaling fingers
+        // or writing the tracked controllers, camera or physics body.
         const int parent = skeleton->get_bone_parent(arm.hand);
         const Transform3D parent_pose = parent >= 0 ? skeleton->get_bone_global_pose(parent) : Transform3D();
         skeleton->set_bone_pose_position(arm.hand, parent_pose.affine_inverse().xform(target.origin));
-        arm.attached = true;
     }
     const Transform3D actual = skeleton->get_bone_global_pose(arm.hand);
     result["valid"] = true;
     result["clamped"] = Math::abs(reach - requested) > 0.00001;
     result["error"] = actual.origin.distance_to(target.origin);
-    result["solver_error"] = solver_error;
+    result["solver_error"] = actual.origin.distance_to(endpoint);
     result["attached"] = attached;
+    result["stretch"] = stretch;
     result["upper_length"] = first;
     result["lower_length"] = second;
     result["elbow"] = skeleton->get_bone_global_pose(arm.lower).origin;
@@ -179,10 +199,10 @@ Dictionary SwgTrackedIK::solve(const Dictionary &targets, double delta) {
     if (bool(targets.get("left_tracked", true)) && targets.has("left_hand")) {
         const Vector3 shoulder = skeleton->get_bone_global_pose(left.upper).origin;
         result["left"] = solve_arm(skeleton, left, targets["left_hand"], targets.get("left_pole", shoulder + Vector3(-0.35, -0.5, 0.1)), delta, bool(targets.get("left_hand_attached", false)));
-    }
+    } else restore_arm(skeleton, left);
     if (bool(targets.get("right_tracked", true)) && targets.has("right_hand")) {
         const Vector3 shoulder = skeleton->get_bone_global_pose(right.upper).origin;
         result["right"] = solve_arm(skeleton, right, targets["right_hand"], targets.get("right_pole", shoulder + Vector3(0.35, -0.5, 0.1)), delta, bool(targets.get("right_hand_attached", false)));
-    }
+    } else restore_arm(skeleton, right);
     return result;
 }

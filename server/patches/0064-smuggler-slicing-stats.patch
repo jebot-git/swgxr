@@ -1,0 +1,345 @@
+--- a/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ #include "WeaponCraftingReferences.h"
+ /*
+  * WeaponObjectImplementation.cpp
+@@ -213,13 +214,19 @@
+ 
+ void WeaponObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
+ 	TangibleObjectImplementation::fillAttributeList(alm, object);
+-
+-	// Resolve from raw persisted crafting fields, before condition/slicing/PUPs.
++	SwgxrSlicingStats::describe(alm, _this.getReferenceUnsafeStaticCast());
++
++	// Resolve raw crafted values, then apply persistent slices before condition/PUPs.
+ 	// This also runs for the crafting prototype, so examine previews and finished
+ 	// items share one calculation without storing redundant derived statistics.
+ 	for (const auto& ref : swgxr::REFERENCES) {
+ 		if (getServerObjectCRC() != String(ref.templateName).hashCode()) continue;
+-		const auto profile = swgxr::resolve(ref, attackSpeed, healthAttackCost, actionAttackCost, mindAttackCost);
++		auto profile = swgxr::resolve(ref, attackSpeed, healthAttackCost, actionAttackCost, mindAttackCost);
++		auto sliceItem = _this.getReferenceUnsafeStaticCast();
++		profile.stanceRecovery *= SwgxrSlicingStats::factor(sliceItem, "stance_recovery_pct");
++		profile.power *= SwgxrSlicingStats::factor(sliceItem, "power_pct");
++		profile.rpm *= SwgxrSlicingStats::factor(sliceItem, "rof_pct");
++		profile.capacity = std::max(1, int(std::round(profile.capacity * SwgxrSlicingStats::factor(sliceItem, "capacity_pct"))));
+ 		alm->insertAttribute("swgxr.version", swgxr::PROFILE_VERSION);
+ 		alm->insertAttribute("swgxr.balance", String(swgxr::BALANCE_REVISION));
+ 		alm->insertAttribute("swgxr.id", String(ref.id));
+@@ -242,15 +249,15 @@
+ 		alm->insertAttribute("swgxr.mind_cost", mindAttackCost);
+ 		alm->insertAttribute("swgxr.damage_type", damageType);
+ 		alm->insertAttribute("swgxr.armor_piercing", armorPiercing);
+-		alm->insertAttribute("swgxr.min_damage", String::valueOf(minDamage));
+-		alm->insertAttribute("swgxr.max_damage", String::valueOf(maxDamage));
++		alm->insertAttribute("swgxr.min_damage", String::valueOf(std::min(double(minDamage) * SwgxrSlicingStats::factor(sliceItem, "min_damage_pct"), double(maxDamage) * SwgxrSlicingStats::factor(sliceItem, "max_damage_pct")) * (sliced ? damageSlice : 1)));
++		alm->insertAttribute("swgxr.max_damage", String::valueOf(maxDamage * SwgxrSlicingStats::factor(sliceItem, "max_damage_pct") * (sliced ? damageSlice : 1)));
+ 		alm->insertAttribute("swgxr.wounds", String::valueOf(woundsRatio));
+ 		alm->insertAttribute("swgxr.near_range", pointBlankRange);
+-		alm->insertAttribute("swgxr.near_accuracy", pointBlankAccuracy);
++		alm->insertAttribute("swgxr.near_accuracy", int(pointBlankAccuracy + SwgxrSlicingStats::percent(sliceItem, "range_pct")));
+ 		alm->insertAttribute("swgxr.ideal_range", idealRange);
+-		alm->insertAttribute("swgxr.ideal_accuracy", idealAccuracy);
++		alm->insertAttribute("swgxr.ideal_accuracy", int(idealAccuracy + SwgxrSlicingStats::percent(sliceItem, "range_pct")));
+ 		alm->insertAttribute("swgxr.max_range", maxRange);
+-		alm->insertAttribute("swgxr.max_accuracy", maxRangeAccuracy);
++		alm->insertAttribute("swgxr.max_accuracy", int(maxRangeAccuracy + SwgxrSlicingStats::percent(sliceItem, "range_pct")));
+ 		alm->insertAttribute("swgxr.max_condition", getMaxCondition());
+ 		alm->insertAttribute("swgxr.condition_damage", getConditionDamage());
+ 		break;
+@@ -512,10 +519,10 @@
+ }
+ 
+ int WeaponObjectImplementation::getPointBlankAccuracy(bool withPup) const {
+-	if (powerupObject != nullptr && withPup)
+-		return pointBlankAccuracy + (abs(pointBlankAccuracy) * powerupObject->getPowerupStat("pointBlankAccuracy"));
+-
+-	return pointBlankAccuracy;
++	int value = pointBlankAccuracy + int(SwgxrSlicingStats::percent(_this.getReferenceUnsafeStaticCast(), "range_pct"));
++	if (powerupObject != nullptr && withPup)
++		value += abs(pointBlankAccuracy) * powerupObject->getPowerupStat("pointBlankAccuracy");
++	return value;
+ }
+ 
+ int WeaponObjectImplementation::getPointBlankRange(bool withPup) const {
+@@ -540,22 +547,22 @@
+ }
+ 
+ int WeaponObjectImplementation::getIdealAccuracy(bool withPup) const {
+-	if (powerupObject != nullptr && withPup)
+-		return idealAccuracy + (abs(idealAccuracy) * powerupObject->getPowerupStat("idealAccuracy"));
+-
+-	return idealAccuracy;
++	int value = idealAccuracy + int(SwgxrSlicingStats::percent(_this.getReferenceUnsafeStaticCast(), "range_pct"));
++	if (powerupObject != nullptr && withPup)
++		value += abs(idealAccuracy) * powerupObject->getPowerupStat("idealAccuracy");
++	return value;
+ }
+ 
+ 
+ int WeaponObjectImplementation::getMaxRangeAccuracy(bool withPup) const {
+-	if (powerupObject != nullptr && withPup)
+-		return maxRangeAccuracy + (abs(maxRangeAccuracy) * powerupObject->getPowerupStat("maxRangeAccuracy"));
+-
+-	return maxRangeAccuracy;
++	int value = maxRangeAccuracy + int(SwgxrSlicingStats::percent(_this.getReferenceUnsafeStaticCast(), "range_pct"));
++	if (powerupObject != nullptr && withPup)
++		value += abs(maxRangeAccuracy) * powerupObject->getPowerupStat("maxRangeAccuracy");
++	return value;
+ }
+ 
+ float WeaponObjectImplementation::getAttackSpeed(bool withPup) const {
+-	float speed = attackSpeed;
++	float speed = attackSpeed / SwgxrSlicingStats::factor(_this.getReferenceUnsafeStaticCast(), "rof_pct");
+ 
+ 	if (sliced)
+ 		speed *= speedSlice;
+@@ -573,7 +580,7 @@
+ 
+ 
+ float WeaponObjectImplementation::getMaxDamage(bool withPup) const {
+-	float damage = maxDamage;
++	float damage = maxDamage * SwgxrSlicingStats::factor(_this.getReferenceUnsafeStaticCast(), "max_damage_pct");
+ 
+ 	if (sliced)
+ 		damage *= damageSlice;
+@@ -587,7 +594,9 @@
+ }
+ 
+ float WeaponObjectImplementation::getMinDamage(bool withPup) const {
+-	float damage = minDamage;
++	auto item = _this.getReferenceUnsafeStaticCast();
++	float damage = std::min(double(minDamage) * SwgxrSlicingStats::factor(item, "min_damage_pct"),
++	                        double(maxDamage) * SwgxrSlicingStats::factor(item, "max_damage_pct"));
+ 
+ 	if (sliced)
+ 		damage *= damageSlice;
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+  * ArmorObjectImplementation.cpp
+  *
+@@ -70,6 +71,7 @@
+ }
+ 
+ void ArmorObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
++	SwgxrSlicingStats::describe(alm, _this.getReferenceUnsafeStaticCast());
+ 	// Codition
+ 	if (maxCondition > 0) {
+ 		StringBuffer cond;
+@@ -99,6 +101,12 @@
+ 
+ 		if (value > 0)
+ 			alm->insertAttribute(statname, value);
++	}
++
++	for (const auto& mod : SwgxrSlicingData::skillMods(_this.getReferenceUnsafeStaticCast())) {
++		String name(mod.at("id").get<std::string>().c_str());
++		int original = wearableSkillMods.contains(name) ? wearableSkillMods.get(name) : 0;
++		alm->insertAttribute("cat_skill_mod_bonus.@stat_n:" + name, original + mod.at("value").get<int>());
+ 	}
+ 
+ 	// Sockets Remaining
+@@ -303,6 +311,11 @@
+ 		}
+ 	}
+ 
++	// Slicing improves an existing protection channel, never removes vulnerability.
++	if (!(vulnerabilites & type) && newValue > 0) {
++		const double bonus = SwgxrSlicingStats::percent(_this.getReferenceUnsafeStaticCast(), "protection_pct");
++		if (bonus > 0) newValue = std::min(90, int(std::round(newValue * (1.0 + bonus / 100.0))));
++	}
+ 	return newValue;
+ }
+ 
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/PsgArmorObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/PsgArmorObjectImplementation.cpp
+@@ -11,24 +11,15 @@
+ 
+ 
+ void PsgArmorObjectImplementation::initializeTransientMembers() {
+-	WearableObjectImplementation::initializeTransientMembers();
++	ArmorObjectImplementation::initializeTransientMembers();
+ 
+ 	setLoggingName("PsgArmorObject");
+ }
+ 
+ void PsgArmorObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
+-
++	ArmorObjectImplementation::fillAttributeList(alm, object);
+ }
+ 
+ void PsgArmorObjectImplementation::updateCraftingValues(CraftingValues* values, bool firstUpdate) {
+-	/*
+-	 * Values available:	Range:
+-	 * sockets				0-0(novice artisan) (Don't use)
+-	 * hitpoints			1000-1000 (Don't Use)
+-	 */
+-
+-	//if(firstUpdate) {
+-
+-//	}
+-
++	ArmorObjectImplementation::updateCraftingValues(values, firstUpdate);
+ }
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/WearableObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/WearableObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+  * WearableObjectImplementation.cpp
+  *
+@@ -27,6 +28,7 @@
+ }
+ 
+ void WearableObjectImplementation::fillAttributeList(AttributeListMessage* alm, CreatureObject* object) {
++	SwgxrSlicingStats::describe(alm, _this.getReferenceUnsafeStaticCast());
+ 	TangibleObjectImplementation::fillAttributeList(alm, object);
+ 
+ 	for(int i = 0; i < wearableSkillMods.size(); ++i) {
+@@ -36,6 +38,12 @@
+ 
+ 		if (value > 0)
+ 			alm->insertAttribute(statname, value);
++	}
++
++	for (const auto& mod : SwgxrSlicingData::skillMods(_this.getReferenceUnsafeStaticCast())) {
++		String name(mod.at("id").get<std::string>().c_str());
++		int original = wearableSkillMods.contains(name) ? wearableSkillMods.get(name) : 0;
++		alm->insertAttribute("cat_skill_mod_bonus.@stat_n:" + name, original + mod.at("value").get<int>());
+ 	}
+ 
+ 	//Anti Decay Kit
+@@ -198,6 +206,12 @@
+ 		}
+ 	}
+ 
++	for (const auto& mod : SwgxrSlicingData::skillMods(_this.getReferenceUnsafeStaticCast())) {
++		String name(mod.at("id").get<std::string>().c_str());
++		if (!SkillModManager::instance()->isWearableModDisabled(name))
++			creature->addSkillMod(SkillModManager::WEARABLE, name, mod.at("value").get<int>(), true);
++	}
++	creature->updateSpeedAndAccelerationMods();
+ 	SkillModManager::instance()->verifyWearableSkillMods(creature);
+ }
+ 
+@@ -217,6 +231,12 @@
+ 		}
+ 	}
+ 
++	for (const auto& mod : SwgxrSlicingData::skillMods(_this.getReferenceUnsafeStaticCast())) {
++		String name(mod.at("id").get<std::string>().c_str());
++		if (!SkillModManager::instance()->isWearableModDisabled(name))
++			creature->removeSkillMod(SkillModManager::WEARABLE, name, mod.at("value").get<int>(), true);
++	}
++	creature->updateSpeedAndAccelerationMods();
+ 	SkillModManager::instance()->verifyWearableSkillMods(creature);
+ }
+ 
+--- a/MMOCoreORB/src/server/zone/managers/skill/SkillModManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/skill/SkillModManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.
+@@ -303,6 +304,12 @@
+ 			}
+ 		}
+ 
++		// Slice bonuses are independent of attachment sockets and survive verification.
++		for (const auto& mod : SwgxrSlicingData::skillMods(object)) {
++			String name(mod.at("id").get<std::string>().c_str());
++			if (!isWearableModDisabled(name)) mods.put(name, mods.get(name) + mod.at("value").get<int>());
++		}
++
+ 		usedObjects.put(object->getObjectID());
+ 	}
+ 
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+  * CombatManager.cpp
+  *
+@@ -2946,6 +2947,10 @@
+ 	float action = weapon->getActionAttackCost() * data.getActionCostMultiplier();
+ 	float mind = weapon->getMindAttackCost() * data.getMindCostMultiplier();
+ 
++	health *= SwgxrSlicingStats::costScale(attacker, CreatureAttribute::HEALTH);
++	action *= SwgxrSlicingStats::costScale(attacker, CreatureAttribute::ACTION);
++	mind *= SwgxrSlicingStats::costScale(attacker, CreatureAttribute::MIND);
++
+ 	health = attacker->calculateCostAdjustment(CreatureAttribute::STRENGTH, health);
+ 	action = attacker->calculateCostAdjustment(CreatureAttribute::QUICKNESS, action);
+ 	mind = attacker->calculateCostAdjustment(CreatureAttribute::FOCUS, mind);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,5 +1,6 @@
+ #ifndef SWGXR_SMUGGLER_H
+ #define SWGXR_SMUGGLER_H
++#include "SwgxrSlicingStats.h"
+ #include "CombatQueueCommand.h"
+ #include <algorithm>
+ #include "SwgxrSmugglerPolicy.h"
+@@ -57,7 +58,7 @@
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+-   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()}}},{"cooldown_seconds",30.0},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
++   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0)},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3)},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6)}}},{"cooldown_seconds",30.0},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
+   }return out;
+  }
+ };
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSlicingStats.h
+@@ -0,0 +1,44 @@
++#ifndef SWGXR_SLICING_STATS_H
++#define SWGXR_SLICING_STATS_H
++#include "SwgxrSlicingData.h"
++#include "server/zone/packets/scene/AttributeListMessage.h"
++#include <set>
++#include <map>
++#include <cmath>
++
++// Derived from immutable crafted values plus the persistent slice outcome.
++// Repeated examine/equip/login calls never write modified base statistics.
++class SwgxrSlicingStats {
++public:
++ static double percent(SceneObject* item,const char* key) {
++  const double value=SwgxrSlicingData::bonus(item,key);
++  return std::isfinite(value)?std::max(0.0,std::min(100.0,value)):0.0;
++ }
++ static double factor(SceneObject* item,const char* key) {return 1.0+percent(item,key)/100.0;}
++ static void describe(AttributeListMessage* attributes,SceneObject* item) {
++  const auto bonuses=SwgxrSlicingData::bonuses(item);
++  for(const auto& entry:bonuses.items()) {
++   static const std::map<std::string,std::string> labels={
++    {"capacity_pct","Capacity"},{"rof_pct","Rate of fire"},{"power_pct","Power"},
++    {"stance_recovery_pct","Stance recovery"},{"range_pct","Range modifier"},
++    {"min_damage_pct","Minimum damage"},{"max_damage_pct","Maximum damage"},
++    {"protection_pct","Protection"},{"sac_health_pct","Health attack cost"},
++    {"sac_action_pct","Action attack cost"},{"sac_mind_pct","Mind attack cost"}};
++   auto found=labels.find(entry.key());if(found==labels.end())continue;
++   const bool cost=entry.key().find("sac_")==0;
++   attributes->insertAttribute(String(("Slice: "+found->second).c_str()),String(cost?"-":"+")+String::valueOf(entry.value().get<double>())+(entry.key()=="range_pct"?" points":"%"));
++  }
++ }
++ static double costScale(CreatureObject* player,int pool) {
++  if(!player)return 1.0;
++  const char* key=pool==0?"sac_health_pct":pool==3?"sac_action_pct":"sac_mind_pct";
++  std::set<uint64> seen;double total=0;
++  for(int i=0;i<player->getSlottedObjectsSize();++i){
++   auto item=player->getSlottedObject(i);
++   if(item!=nullptr && item->isWearableObject() && seen.insert(item->getObjectID()).second)
++    total+=percent(item,key);
++  }
++  return 1.0-std::min(80.0,total)/100.0;
++ }
++};
++#endif

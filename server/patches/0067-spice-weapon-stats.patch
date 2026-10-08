@@ -1,0 +1,227 @@
+--- a/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
+@@ -1,4 +1,5 @@
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "WeaponCraftingReferences.h"
+ /*
+  * WeaponObjectImplementation.cpp
+@@ -223,10 +224,16 @@
+ 		if (getServerObjectCRC() != String(ref.templateName).hashCode()) continue;
+ 		auto profile = swgxr::resolve(ref, attackSpeed, healthAttackCost, actionAttackCost, mindAttackCost);
+ 		auto sliceItem = _this.getReferenceUnsafeStaticCast();
++		// Spice is an equipped wielder effect, never a persistent item mutation.
++		auto spiceParent = _this.getReferenceUnsafeStaticCast()->getParent().get();
++		auto wielder = spiceParent != nullptr && spiceParent->isCreatureObject() ? spiceParent->asCreatureObject() : nullptr;
++		profile.stanceRecovery *= SwgxrSpice::meleeRecoveryScale(wielder);
++		profile.power *= SwgxrSpice::meleePowerScale(wielder);
++		profile.rpm *= SwgxrSpice::rangedRpmScale(wielder);
+ 		profile.stanceRecovery *= SwgxrSlicingStats::factor(sliceItem, "stance_recovery_pct");
+ 		profile.power *= SwgxrSlicingStats::factor(sliceItem, "power_pct");
+ 		profile.rpm *= SwgxrSlicingStats::factor(sliceItem, "rof_pct");
+-		profile.capacity = std::max(1, int(std::round(profile.capacity * SwgxrSlicingStats::factor(sliceItem, "capacity_pct"))));
++		profile.capacity = std::max(1, int(std::round(profile.capacity * SwgxrSlicingStats::factor(sliceItem, "capacity_pct") * SwgxrSpice::rangedCapacityScale(wielder))));
+ 		alm->insertAttribute("swgxr.version", swgxr::PROFILE_VERSION);
+ 		alm->insertAttribute("swgxr.balance", String(swgxr::BALANCE_REVISION));
+ 		alm->insertAttribute("swgxr.id", String(ref.id));
+@@ -563,6 +570,9 @@
+ 
+ float WeaponObjectImplementation::getAttackSpeed(bool withPup) const {
+ 	float speed = attackSpeed / SwgxrSlicingStats::factor(_this.getReferenceUnsafeStaticCast(), "rof_pct");
++	auto spiceParent = _this.getReferenceUnsafeStaticCast()->getParent().get();
++	if (isRangedWeapon() && spiceParent != nullptr && spiceParent->isCreatureObject())
++		speed /= SwgxrSpice::rangedRpmScale(spiceParent->asCreatureObject());
+ 
+ 	if (sliced)
+ 		speed *= speedSlice;
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -2850,7 +2850,9 @@
+ 	if (jediSpeed > 0)
+ 		attackSpeed = attackSpeed - (attackSpeed * jediSpeed);
+ 
+-	return Math::max(attackSpeed, 1.0f);
++	// Gunjack scales the completed native cadence, including its original floor.
++	float minimum = weapon->isRangedWeapon() ? 1.f / SwgxrSpice::rangedRpmScale(attacker) : 1.f;
++	return Math::max(attackSpeed, minimum);
+ }
+ 
+ // Fly Text - Miss, Counterattack, Block, Hit Location
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEquipment.h
+@@ -95,10 +95,11 @@
+    String custom;o->asTangibleObject()->getCustomizationString(custom); std::string hex;const char* digits="0123456789abcdef";
+    for(int i=0;i<custom.length();++i) {unsigned char ch=custom.charAt(i);hex+=digits[ch>>4];hex+=digits[ch&15];}record["customization_hex"]=hex;
+   }
+-  bool food=(o->isTangibleObject() && o->asTangibleObject()->isConsumable()) && !cast<Consumable*>(o)->isSpice();
+-  record["consumable"]=food || medicine(o);record["consume_kind"]=food?(cast<Consumable*>(o)->isDrink()?"drink":"food"):medicine(o)?"medicine":"unsupported";
++  bool food=o->isTangibleObject() && o->asTangibleObject()->isConsumable();
++  bool spice=food && cast<Consumable*>(o)->isSpice();
++  record["consumable"]=food || medicine(o);record["consume_kind"]=food?(spice?"spice":cast<Consumable*>(o)->isDrink()?"drink":"food"):medicine(o)?"medicine":"unsupported";
+   record["consume_available"]=food && inInventory(o,c) && !c->isDead() && !c->isIncapacitated();
+-  record["consume_block_reason"]=food?"server_validates_species_stomach_and_existing_effects":"unsupported_source_use";
++  record["consume_block_reason"]=food?(spice?"server_validates_species_and_existing_spice":"server_validates_species_stomach_and_existing_effects"):"unsupported_source_use";
+   if(medicine(o)) {auto reason=medicineReason(o,c);record["consume_available"]=reason.empty();record["consume_block_reason"]=reason;}
+   record["consume_requires_server_validation"]=true;
+  }
+@@ -114,7 +115,7 @@
+   result["before_stats"]=stats(c);
+   if(verb=="consume") {
+    bool isMedicine=medicine(o);
+-   if(!isMedicine && (!(o->isTangibleObject() && o->asTangibleObject()->isConsumable()) || cast<Consumable*>(o.get())->isSpice())) {result["error"]="Unsupported source consumable";return result;}
++   if(!isMedicine && !(o->isTangibleObject() && o->asTangibleObject()->isConsumable())) {result["error"]="Unsupported source consumable";return result;}
+    int before=o->asTangibleObject()->getUseCount();
+    if(isMedicine) {
+     auto reason=medicineReason(o,c);if(!reason.empty()){result["error"]=reason;return result;}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/QueueCommand.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/QueueCommand.cpp
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+  * QueueCommand.cpp
+  *
+@@ -351,7 +352,7 @@
+ 	auto cooldownKey = cooldownName.isEmpty() ? "command_" + name : cooldownName;
+ 
+ 	if (creo->checkCooldownRecovery(cooldownKey)) {
+-		creo->addCooldown(cooldownKey, cooldown);
++		creo->addCooldown(cooldownKey, uint64(cooldown * (characterAbility.isEmpty() ? 1.f : SwgxrSpice::cooldownScale(creo))));
+ 		return true;
+ 	}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/EquilibriumCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/EquilibriumCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -14,6 +15,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrSpice::HamAdjustment adjustment;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+@@ -84,7 +86,7 @@
+ 		player->sendSystemMessage("@innate:equil_active"); // Through sheer willpower, you force yourself into a state of equilibrium.
+ 		player->showFlyText("combat_effects", "innate_equilibrium", 0, 255, 0); // +Equilibrium+
+ 
+-		player->addCooldown("innate_equilibrium", 3600 * 1000);
++		player->addCooldown("innate_equilibrium", uint64((3600 * 1000) * SwgxrSpice::cooldownScale(player)));
+ 
+ 		return SUCCESS;
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ForceOfWillCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ForceOfWillCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -104,7 +105,7 @@
+ 		player->setPosture(CreaturePosture::UPRIGHT, true);
+ 		incapTask->cancel();
+ 		player->removePendingTask("incapacitationRecovery");
+-		player->addCooldown("tkaForceOfWill", 3600 * 1000);
++		player->addCooldown("tkaForceOfWill", uint64((3600 * 1000) * SwgxrSpice::cooldownScale(player)));
+ 
+ 		player->removeFeignedDeath();
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/RegenerationCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/RegenerationCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -72,7 +73,7 @@
+ 
+ 		player->addBuff(regenBuff);
+ 		player->showFlyText("combat_effects", "innate_regeneration", 0, 255, 0); // +Regeneration+
+-		player->addCooldown("innate_regeneration", 3600 * 1000); // 1 hour reuse time.
++		player->addCooldown("innate_regeneration", uint64((3600 * 1000) * SwgxrSpice::cooldownScale(player))); // 1 hour reuse time.
+ 		player->removeSkillMod(SkillModManager::TEMPORARYMOD,"enhanced_regen",true);
+ 
+ 		return SUCCESS;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/VitalizeCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/VitalizeCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -61,7 +62,7 @@
+ 
+ 		player->addBuff(buff);
+ 		player->showFlyText("combat_effects", "innate_vitalize", 0, 255, 0); // +Vitalize+
+-		player->addCooldown("innate_vitalize", 3600 * 1000);
++		player->addCooldown("innate_vitalize", uint64((3600 * 1000) * SwgxrSpice::cooldownScale(player)));
+ 
+ 		return SUCCESS;
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/WookieeRoarCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/WookieeRoarCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -64,7 +65,7 @@
+ 		}
+ 
+ 		player->sendSystemMessage("@innate:roar_active"); // You let out a mighty roar.
+-		player->addCooldown("innate_roar", 300 * 1000); // 5min reuse time.
++		player->addCooldown("innate_roar", uint64((300 * 1000) * SwgxrSpice::cooldownScale(player))); // 5min reuse time.
+ 
+ 		if (res == GENERALERROR)
+ 			creature->sendSystemMessage("@combat_effects:wookiee_roar_miss");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/EmboldenpetsCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/EmboldenpetsCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -92,7 +93,7 @@
+ 				buff->setAttributeModifier(CreatureAttribute::MIND, mindBuff);
+ 
+ 				pet->addBuff(buff);
+-				pet->getCooldownTimerMap()->updateToCurrentAndAddMili("emboldenPetsCooldown", cooldownMilli);
++				pet->getCooldownTimerMap()->updateToCurrentAndAddMili("emboldenPetsCooldown", uint64(cooldownMilli * SwgxrSpice::cooldownScale(player)));
+ 				pet->showFlyText("combat_effects","pet_embolden", 0, 153, 0); // "! Embolden !"
+ 				petEmboldened = true;
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/EnragepetsCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/EnragepetsCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -94,7 +95,7 @@
+ 				buff->setSkillModifier("private_damage_susceptibility", damageSusceptibility);
+ 
+ 				pet->addBuff(buff);
+-				pet->getCooldownTimerMap()->updateToCurrentAndAddMili("enragePetsCooldown", cooldownMilli);
++				pet->getCooldownTimerMap()->updateToCurrentAndAddMili("enragePetsCooldown", uint64(cooldownMilli * SwgxrSpice::cooldownScale(player)));
+ 				petEnraged = true;
+ 
+ 			} // end if creature
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/RetreatCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/RetreatCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -145,7 +146,7 @@
+ 
+ 		player->addBuff(buff);
+ 
+-		player->updateCooldownTimer("retreat", 30000);
++		player->updateCooldownTimer("retreat", uint64(30000 * SwgxrSpice::cooldownScale(player)));
+ 
+ 	}
+ 

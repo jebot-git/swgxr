@@ -131,7 +131,7 @@ func run() -> void:
 	equipped_snapshot.containers.append({"id":"equippedbag","parent_id":"character","capacity":30,"occupied":1,"equipped":true})
 	equipped_snapshot.items.append({"id":"bagitem","container_id":"equippedbag","template":template,"name":"Equipped bag contents"})
 	bag.set_snapshot(equipped_snapshot)
-	check(bag.ui.container_switch.item_count==2,"Equipped backpack gets explicit container selector without synthetic root slot")
+	check(bag.ui.container_switch.item_count==3 and bag.ui.container_switch.get_item_metadata(2)=="@equipment","Equipped backpack and equipped items get explicit selectors without synthetic inventory slots")
 	bag.ui.container_switch.item_selected.emit(1)
 	check(bag.ui.items.size()==1 and bag.ui.items[0].id=="bagitem","Equipped backpack contents reachable despite parent character outside inventory")
 	bag.ui.parent_container()

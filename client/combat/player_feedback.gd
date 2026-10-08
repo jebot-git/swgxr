@@ -13,9 +13,14 @@ var applied_offset := 0.0
 var character_id := ""
 var observed_posture := -1
 var life_locked := false
+var feigning_death := false
+var feign_available := false
+var feign_pose = preload("res://smuggler/feign_pose.gd").new()
 var local_prediction := true
 var last_action: Dictionary = {}
 var source: Dictionary = {}
+var locomotion:Dictionary={}
+var armour:Dictionary={}
 var performer: Node3D
 var life_action_pending := false
 var life_action := ""
@@ -29,6 +34,8 @@ var life_view_offset := 0.0
 var life_view_from := 0.0
 var life_view_time := LIFE_VIEW_SECONDS
 var life_fade_alpha := 0.0
+var spice=preload("res://spice/state.gd").new()
+var spice_screen:CompositorEffect
 var vital = preload("res://combat/vital_feedback.gd").new()
 var life_label: Label3D
 
@@ -37,6 +44,7 @@ func configure(player: CharacterBody3D, view: Camera3D, xr: XROrigin3D = null) -
 	camera = view
 	origin = xr
 	vital.configure(camera)
+	spice_screen=preload("res://spice/screen_effect.gd").new();spice_screen.attach(camera)
 	life_label = Label3D.new()
 	life_label.name = "AuthoritativeLifeFeedback"
 	life_label.font = load("res://resources/fonts/Jupiteroid-Regular.ttf")
@@ -67,10 +75,15 @@ func physical() -> Dictionary:
 		"grounded":body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor(), "tracked":true}
 
 func reset() -> void:
-	vital.reset()
+	vital.reset();spice.reset();locomotion={};armour={}
+	if is_instance_valid(body) and body.has_method("set_locomotion_profile"):body.set_locomotion_profile({})
+	if spice_screen!=null:spice_screen.set_policy(spice.policy())
 	remove_offset()
 	motion.reset()
 	life_locked = false
+	feigning_death = false
+	feign_available = false
+	feign_pose.reset()
 	observed_posture = -1
 	last_action = {}
 	life_action_pending = false
@@ -92,6 +105,22 @@ func observe(context: Dictionary) -> void:
 	if id != character_id:
 		reset()
 		character_id = id
+	if context.get("locomotion") is Dictionary:
+		locomotion=context.locomotion.duplicate(true)
+		if is_instance_valid(body) and body.has_method("set_locomotion_profile"):body.set_locomotion_profile(locomotion)
+		var solver:Variant=body.get("step_solver") if is_instance_valid(body) else null
+		var swim_height:=float(locomotion.get("swim_height",NAN))
+		if solver!=null and solver.has_method("set_swim_height") and is_finite(swim_height) and swim_height>=0:solver.set_swim_height(swim_height)
+	feign_available=bool(context.get("feign_death_available",false))
+	if context.get("armour") is Dictionary:
+		var candidate: Dictionary = context.armour
+		var valid := int(candidate.get("version", 0)) == 1
+		for key in ["movement_scale", "output_scale", "recovery_scale"]:
+			var value := float(candidate.get(key, NAN))
+			valid = valid and is_finite(value) and value >= 0.75 and value <= 1
+		if valid: armour = candidate.duplicate(true)
+	if context.get("spice") is Dictionary:spice.observe(context.spice)
+	vital.prefer_latest_heal=spice.is_phase("crash_n_burn","withdrawal")
 	vital.observe(context.get("vital_feedback",{}))
 	if not context.has("posture"): return
 	var posture := int(context.posture)
@@ -99,10 +128,12 @@ func observe(context: Dictionary) -> void:
 	recovery_remaining_seconds = float(countdown) if (countdown is float or countdown is int) and is_finite(float(countdown)) else -1.0
 	recovery_requested_authoritatively = bool(context.get("recovery_requested",false))
 	cloning = bool(context.get("cloning",false))
-	if posture == observed_posture: return
+	var feigning:bool=bool(context.get("feigning_death",false)) and posture!=14
+	if posture == observed_posture and feigning==feigning_death: return
+	feigning_death=feigning
 	var was_locked := life_locked
 	observed_posture = posture
-	life_locked = posture in [13, 14]
+	life_locked = posture in [13, 14] and not feigning_death
 	if was_locked or life_locked:
 		life_view_from = life_view_offset
 		life_view_time = 0.0
@@ -160,7 +191,10 @@ func life_readout() -> Dictionary:
 
 func update_life_label() -> void:
 	if not is_instance_valid(life_label): return
-	life_label.visible = life_locked
+	life_label.visible = life_locked or feigning_death
+	if feigning_death:
+		life_label.text="FEIGN DEATH\nStand upright to resume movement"
+		return
 	if not life_locked: return
 	var lines: Array[String] = ["INCAPACITATED" if observed_posture == 13 else "DEAD"]
 	if not life_status.is_empty(): lines.append(life_status)
@@ -180,12 +214,12 @@ func set_life_fade(alpha: float) -> void:
 	if fade != null: fade.set_fade_level("authoritative_life_feedback", Color(0, 0, 0, alpha))
 
 func receive_knockdown() -> bool:
-	if life_locked: return false
+	if life_locked or feigning_death: return false
 	return motion.knock_down(int(physical().posture))
 
 func request_jump() -> Dictionary:
 	var context := physical()
-	last_action = motion.press_jump(int(context.posture), bool(context.grounded), body.active and not life_locked and bool(context.tracked))
+	last_action = motion.press_jump(int(context.posture), bool(context.grounded), body.active and not life_locked and not feigning_death and bool(context.tracked))
 	if last_action.action == "recover":
 		recovery_requested.emit(int(last_action.posture), false)
 		# Explicit local prediction until a continuous authoritative combat
@@ -199,11 +233,14 @@ func remove_offset() -> void:
 	applied_offset = 0.0
 
 func advance(delta: float) -> void:
-	vital.advance(delta)
+	vital.advance(delta);spice.advance(delta)
+	vital.prefer_latest_heal=spice.is_phase("crash_n_burn","withdrawal")
+	if spice_screen!=null:spice_screen.set_policy(spice.policy())
 	var context := physical()
+	if is_instance_valid(origin):feign_pose.sample(context,camera.global_basis,stance.standing_eye_height,delta)
 	var state: Dictionary = motion.advance(delta, 0 if life_locked else int(context.posture), float(context.eye_height), bool(context.tracked))
 	if state.get("auto_prone_recovery", false): recovery_requested.emit(2, true)
-	var desired := float(state.offset)
+	var desired := 0.0 if feigning_death else float(state.offset)
 	if life_locked or life_view_time < LIFE_VIEW_SECONDS:
 		life_view_time = minf(LIFE_VIEW_SECONDS, life_view_time + clampf(delta, 0.0, 0.1))
 		var progress := life_view_time / LIFE_VIEW_SECONDS
@@ -227,7 +264,7 @@ func advance(delta: float) -> void:
 	update_life_label()
 
 func combat_blocked() -> bool:
-	return life_locked or motion.is_knocked_down()
+	return life_locked or feigning_death or motion.is_knocked_down()
 
 func animation_context() -> Dictionary:
 	var result := {"knocked_down":motion.is_knocked_down() or life_locked, "jump_time":motion.get_jump_time(),
@@ -236,5 +273,7 @@ func animation_context() -> Dictionary:
 		"life_state":"dead" if observed_posture == 14 else "incapacitated" if observed_posture == 13 else "",
 		"life_animation":"dead" if observed_posture == 14 else "incapacitated" if observed_posture == 13 else "",
 		"life_pose_frozen":observed_posture == 14, "life_pose_time":0.0}
+	if feigning_death:
+		result.merge({"feigning_death":true,"life_locked":true,"life_pose":"incapacitated","life_state":"incapacitated","life_animation":"incapacitated","life_pose_frozen":false},true)
 	if is_instance_valid(performer) and not combat_blocked(): result.merge(performer.animation_context())
 	return result

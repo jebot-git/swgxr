@@ -18,6 +18,9 @@ var presence_age := 100.0
 var state_age := 100.0
 var presence_sequence := 0
 var presence_token := ""
+var party_bump=preload("res://scripts/party_bump.gd").new()
+var party_notice:Label3D
+var party_notice_seconds:=0.0
 var peers: Array = []
 var previous_position := Vector3.ZERO
 var have_previous := false
@@ -48,7 +51,9 @@ func reset() -> void:
 	generation += 1
 	if is_instance_valid(gcw):gcw.reset()
 	busy = false; presence_busy = false; state = {}; peers = []
-	presence_token = ""; presence_sequence = 0; presence_age = 100.0
+	presence_token = ""; presence_sequence = 0; presence_age = 100.0;party_bump.reset()
+	party_notice_seconds=0
+	if is_instance_valid(party_notice):party_notice.hide()
 	state_age = 100.0
 	if is_instance_valid(app) and is_instance_valid(app.get("datapad")) and is_instance_valid(app.datapad.get("ui")) and app.datapad.ui.has_method("set_service_points"):
 		app.datapad.ui.set_service_points([])
@@ -204,6 +209,8 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 		state_age = 0.0
 	var parcels:Variant=app.get("mission_parcels")
 	if progress_current and is_instance_valid(parcels):parcels.observe(response)
+	var slicing_controller:Variant=app.get("slicing")
+	if progress_current and is_instance_valid(slicing_controller):slicing_controller.observe(response)
 	var housing_controller:Variant=app.get("housing")
 	if progress_current and is_instance_valid(housing_controller):housing_controller.observe(response)
 	var vendors:Variant=app.get("vendor_placement")
@@ -231,6 +238,7 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	if progress_current and inventory is Dictionary and inventory.get("source_kind","") == "core3_inventory" and str(inventory.get("character_id","")) == str(app.datapad_character_id):
 		app.inventory_snapshot = inventory.duplicate(true)
 		app.reconcile_inventory_presentations(); app.update_inventory_presentation()
+		if is_instance_valid(slicing_controller):slicing_controller.equipment_updated(response)
 	if live is Dictionary and is_instance_valid(app.live_combat) and app.live_combat.live and str(live.get("session_id","")) == app.live_combat.session_id and int(live.get("sequence",-1)) > app.live_combat.sequence:
 		if not app.live_combat.accept_response(live):
 			last_error = app.live_combat.last_error
@@ -274,7 +282,7 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
 		value.position = world(record.position)
-		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter"]:
+		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld"]:
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis
 			var object_pose:=Transform3D(basis,value.position)
@@ -305,6 +313,13 @@ func update_presence() -> void:
 		"main_hand_side":"right" if app.vr_settings.offhand=="left" else "left",
 		"heading_radians":app.tracked_avatar.global_rotation.y if is_instance_valid(app.tracked_avatar) else app.player.global_rotation.y,
 		"hand":{"position":source(hand.global_position),"tracked":tracked,"grip":tracked and hand.get_float("grip")>=0.65}})
+	var hands:Dictionary={}
+	for side in ["left","right"]:
+		var controller:XRController3D=rig.get_node(side.capitalize()+"Hand")
+		var hand_tracked:bool=allowed and head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(controller)
+		if str(payload.building_id)!=str(native_player.get("building_id","0")) or int(payload.cell_index)!=int(native_player.get("cell_index",0)):hand_tracked=false
+		hands[side]=party_bump.hand_sample(source(controller.global_position),hand_tracked,controller.get_float("grip"),controller.get_float("trigger"),party_hand_free(side))
+	payload.hands=hands
 	var response: Dictionary = await app.api(HTTPClient.METHOD_POST,"/services/presence",payload)
 	if version != generation or character_epoch != app.datapad_epoch: return
 	presence_busy = false
@@ -323,6 +338,72 @@ func update_presence() -> void:
 	if peers.size()>MAX_VISIBLE_PEERS: peers.resize(MAX_VISIBLE_PEERS)
 	presence_age = 0
 	update_peer_markers()
+	consume_party_bumps(response.get("peers",[]))
+
+func party_hand_free(side:String)->bool:
+	if not allowed or not is_instance_valid(ui) or ui.wallet_held or not ui.terminal.is_empty() or ui.pointer_pressed:return false
+	var occupied:Array=[]
+	var combat:Variant=app.get("combat_rig")
+	var main_side:String="right" if app.vr_settings.offhand=="left" else "left"
+	var bag:Variant=app.get("inventory")
+	if is_instance_valid(bag):
+		if bag.is_open or bag.action_pending or bag.hologram.active:return false
+		if not bag.held_item.is_empty():occupied.append(bag.held_hand_side())
+		if not bag.equipment_drag.is_empty():occupied.append(main_side)
+		if bag.offhand_occupied:occupied.append(str(app.vr_settings.offhand))
+		for item:Dictionary in bag.current_equipment:
+			# Native hold_r remains equipped while the original weapon visual is holstered.
+			if is_instance_valid(combat) and combat.weapons.any(func(entry):return str(entry.state.profile.get("item_id",""))==str(item.get("id","")) and (combat.selected<0 or str(combat.weapons[combat.selected].state.profile.get("item_id",""))!=str(item.get("id","")))):continue
+			if "hold_r" in item.get("equipped_slots",[]):occupied.append(main_side)
+			if "hold_l" in item.get("equipped_slots",[]):occupied.append(str(app.vr_settings.offhand))
+	if is_instance_valid(combat):
+		if combat.ability_ui.menu_open:return false
+		if combat.selected>=0:occupied.append(main_side)
+		if combat.support_latched or combat.offhand_occupied:occupied.append(str(app.vr_settings.offhand))
+		if combat.vehicle_hand_busy(side) or combat.pet_trigger_reserved(side):occupied.append(side)
+	var performer:Variant=app.get("entertainer")
+	if is_instance_valid(performer):
+		if performer.ui.menu_open or performer.is_performing():return false
+		if not performer.item.is_empty() and not performer.item.get("placed",false):occupied.append(performer.dominant())
+	for key in ["datapad","crafting"]:
+		var node:Variant=app.get(key)
+		if is_instance_valid(node) and node.get("is_open"):return false
+	for key in ["mission_parcels","vendor_placement","vendor_commerce","housing"]:
+		var node:Variant=app.get(key)
+		if is_instance_valid(node) and node.has_method("blocks_interactions") and node.blocks_interactions():return false
+	var slicer:Variant=app.get("slicing")
+	if is_instance_valid(slicer) and not slicer.current_tool().is_empty():occupied.append(str(slicer.tool_hand().name).to_lower().trim_suffix("hand"))
+	var fishing:Variant=app.get("fishing")
+	if is_instance_valid(fishing) and fishing.busy_hand(side):occupied.append(side)
+	return party_bump.free_hand(side,{"blocked":false,"occupied":occupied})
+
+func consume_party_bumps(records:Array)->void:
+	var performer:Variant=app.get("entertainer")
+	if not is_instance_valid(performer) or not is_instance_valid(performer.native):return
+	var native:Node=performer.native
+	if native.busy or not native.allowed() or not (party_hand_free("left") or party_hand_free("right")):return
+	var detail:Dictionary=party_bump.take_ready(str(app.datapad_character_id),records)
+	if detail.is_empty():return
+	var version:=generation
+	var response:Dictionary=await native.request("group_bump",detail)
+	if version!=generation:return
+	if response.get("ok",false) and response.get("source_kind","")=="core3_entertainer" and str(response.get("character_id",""))==str(app.datapad_character_id) and response.get("mutation",{}).get("success",false):
+		poll_clock=0
+		show_party_notice(str(response.get("mutation",{}).get("message","Party updated")))
+
+func show_party_notice(message:String)->void:
+	if not is_instance_valid(party_notice):
+		party_notice=Label3D.new();add_child(party_notice);party_notice.font=preload("res://resources/fonts/Jupiteroid-Regular.ttf");party_notice.font_size=24;party_notice.pixel_size=.0008;party_notice.modulate=Color("b8ffff");party_notice.billboard=BaseMaterial3D.BILLBOARD_ENABLED
+	party_notice.text=message;party_notice_seconds=3.5;party_notice.show()
+	update_party_notice(0)
+
+func update_party_notice(delta:float)->void:
+	party_notice_seconds=maxf(0,party_notice_seconds-delta)
+	if not is_instance_valid(party_notice):return
+	party_notice.visible=party_notice_seconds>0 and allowed
+	if party_notice.visible and is_instance_valid(app.xr_origin):
+		var camera:Camera3D=app.xr_origin.get_node("XRCamera3D")
+		party_notice.global_position=camera.global_position-camera.global_basis.z*.7-Vector3.UP*.18
 
 func update_peer_markers() -> void:
 	# Persistent multiplayer owns full avatars; handshake proof remains separate.
@@ -363,6 +444,7 @@ func use_crafting_tool(tool_id: String) -> void:
 func _process(delta: float) -> void:
 	if not is_instance_valid(app): return
 	if epoch != app.datapad_epoch: reset()
+	update_party_notice(delta)
 	presence_age += delta
 	state_age += delta
 	for marker: Node3D in peer_markers.values(): marker.advance(delta)

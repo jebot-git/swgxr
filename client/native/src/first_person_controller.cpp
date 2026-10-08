@@ -1,5 +1,6 @@
 #include "first_person_controller.h"
 #include "ground_support.h"
+#include "scout_locomotion.h"
 #include <godot_cpp/core/object.hpp>
 #include <cmath>
 
@@ -17,6 +18,8 @@
 namespace godot {
 
 void SwgFirstPersonController::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("get_step_solver"), &SwgFirstPersonController::get_step_solver);
+    ADD_PROPERTY(PropertyInfo(Variant::OBJECT,"step_solver",PROPERTY_HINT_RESOURCE_TYPE,"SwgXRStepSolver"),"","get_step_solver");
     ClassDB::bind_method(D_METHOD("get_grounded"), &SwgFirstPersonController::get_grounded);
     ClassDB::bind_method(D_METHOD("get_ground_provider"), &SwgFirstPersonController::get_ground_provider);
     ClassDB::bind_method(D_METHOD("set_ground_provider", "provider"), &SwgFirstPersonController::set_ground_provider);
@@ -38,6 +41,7 @@ void SwgFirstPersonController::_bind_methods() {
     BIND_SETTING(Variant::FLOAT, camera_orbit_yaw)
     BIND_SETTING(Variant::FLOAT, presentation_height)
     BIND_SETTING(Variant::BOOL, movement_locked)
+    BIND_SETTING(Variant::DICTIONARY, locomotion_profile)
     ADD_SIGNAL(MethodInfo("cosmetic_jump_requested"));
     ADD_SIGNAL(MethodInfo("spawn_reset"));
     BIND_SETTING(Variant::FLOAT, speed)
@@ -89,6 +93,7 @@ void SwgFirstPersonController::_ready() {
 }
 
 void SwgFirstPersonController::reset_spawn() {
+    source_speed=0;source_direction=Vector3();
     terrain_grounded=false;
     presentation_height = 0.0;
     movement_locked = false;
@@ -126,6 +131,7 @@ void SwgFirstPersonController::_unhandled_input(const Ref<InputEvent> &event) {
 
 void SwgFirstPersonController::_physics_process(double delta) {
     if (!active) {
+        source_speed=0;source_direction=Vector3();
         update_camera();
         return;
     }
@@ -137,6 +143,35 @@ void SwgFirstPersonController::_physics_process(double delta) {
     Vector3 velocity = get_velocity();
     velocity.x = direction.x * actual_speed;
     velocity.z = direction.z * actual_speed;
+    if (!locomotion_profile.is_empty()) {
+        Dictionary environment;
+        Node3D *provider=get_ground_provider();
+        const Dictionary context=provider&&provider->has_method("collision_context")?Dictionary(provider->call("collision_context",get_global_position())):Dictionary();
+        bool authored=int64_t(context.get("building_object_id",0))!=0;
+        const Dictionary terrain_support=terrain_solver.is_valid()&&!authored&&(get_collision_mask()&2)?terrain_solver->terrain_support(this,get_global_position()):Dictionary();
+        if (provider) {
+            Object *object=provider->get("ground_support");
+            auto *support=Object::cast_to<SwgGroundSupport>(object);
+            const Array allowed=context.get("allowed_cell_ids",Array());
+            if(support&&!allowed.is_empty()) {
+                const Dictionary floor=support->sample_support(get_global_position(),allowed,0.1,0.1);
+                authored=authored||(bool(floor.get("valid",false))&&(!bool(terrain_support.get("valid",false))||double(floor.get("height",0))>=double(terrain_support.get("height",0))));
+            }
+        }
+        if (!authored && (get_collision_mask()&2) && terrain_solver.is_valid()) {
+            const Dictionary &support=terrain_support;
+            environment["terrain"]=support.get("valid",false);
+            environment["swimming"]=support.get("swimming",locomotion_profile.get("swimming",false));
+            environment["below_water"]=support.get("below_water",false);
+            const Vector3 normal=support.get("normal",Vector3(0,1,0));
+            environment["normal_dot_forward"]=normal.dot(-get_global_basis().get_column(2));
+        }
+        if (direction.length_squared()>0) source_direction=direction.normalized();
+        const Dictionary result=SwgScoutLocomotion::source_movement(locomotion_profile,source_speed,move.length(),false,environment,delta);
+        source_speed=bool(result.get("valid",false))?double(result.get("speed",0)):0;
+        if(movement_locked)source_speed=0;
+        velocity.x=source_direction.x*source_speed;velocity.z=source_direction.z*source_speed;
+    }
     const bool supported = is_on_floor() || stepped_last_frame || terrain_grounded;
     if (!supported) {
         velocity.y -= 20.0 * delta;
@@ -145,9 +180,18 @@ void SwgFirstPersonController::_physics_process(double delta) {
     }
     if (!testing && input->is_action_just_pressed("jump")) emit_signal("cosmetic_jump_requested");
     Vector3 horizontal_motion(velocity.x * delta, 0.0, velocity.z * delta);
+    if((get_collision_mask()&2)&&terrain_solver.is_valid()) {
+        Node3D *provider=get_ground_provider();
+        const Dictionary context=provider&&provider->has_method("collision_context")?Dictionary(provider->call("collision_context",get_global_position())):Dictionary();
+        if(int64_t(context.get("building_object_id",0))==0) {
+            horizontal_motion=terrain_solver->constrain_terrain_motion(this,horizontal_motion);
+            if(delta>0) {velocity.x=horizontal_motion.x/delta;velocity.z=horizontal_motion.z/delta;}
+        }
+    }
     terrain_grounded=false;
     if((get_collision_mask()&2) && velocity.y<=0 && terrain_solver.is_valid()) {
         bool authored=false;
+        const Dictionary terrain_support=terrain_solver->terrain_support(this,get_global_position());
         Node3D *provider=get_ground_provider();
         if(provider && provider->has_method("collision_context")) {
             const Dictionary context=provider->call("collision_context",get_global_position());
@@ -155,7 +199,10 @@ void SwgFirstPersonController::_physics_process(double delta) {
             Object *object=provider->get("ground_support");
             auto *support=Object::cast_to<SwgGroundSupport>(object);
             const Array allowed=context.get("allowed_cell_ids",Array());
-            if(support && !allowed.is_empty())authored=authored || bool(support->sample_support(get_global_position(),allowed,0.1,0.1).get("valid",false));
+            if(support && !allowed.is_empty()) {
+                const Dictionary floor=support->sample_support(get_global_position(),allowed,0.1,0.1);
+                authored=authored||(bool(floor.get("valid",false))&&(!bool(terrain_support.get("valid",false))||double(floor.get("height",0))>=double(terrain_support.get("height",0))));
+            }
         }
         if(!authored) {
             const Dictionary followed=terrain_solver->move_on_terrain(this,horizontal_motion,max_step_height);

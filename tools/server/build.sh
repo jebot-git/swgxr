@@ -9,3 +9,5 @@ if [[ -d "$ROOT/runtime/assets/active_tre" ]]; then
 fi
 podman exec "$CONTAINER" bash -lc 'export PATH=/usr/lib/llvm-19/bin:$PATH; cd /workspace/vendor/Core3/MMOCoreORB; cmake -S . -B build/swgxr -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOMPILE_TESTS=OFF -DENABLE_ERROR_ON_WARNINGS=OFF -DENABLE_NATIVE=OFF -DENABLE_BUILD_CLIENT=ON'
 podman exec "$CONTAINER" cmake --build /workspace/vendor/Core3/MMOCoreORB/build/swgxr --parallel "$JOBS"
+
+python3 "$ROOT/tools/server/native_build_receipt.py" record

@@ -60,8 +60,17 @@ def main():
                     raise ValueError('Invalid vertex data')
                 if len(surface['indices']) % 3 or not surface['indices'] or min(surface['indices']) < 0 or max(surface['indices']) >= count:
                     raise ValueError('Invalid source triangle indices')
-                if any(key in surface for key in ('bones', 'weights', 'blend_shapes')):
+                if any(surface.get(key) for key in ('bones', 'weights')):
                     raise ValueError('Frozen preview unexpectedly requires a skeleton')
+                if surface.get('blend_shapes'):
+                    if not item.get('vendor_morphs') or not template.startswith('object/mobile/vendor/'):
+                        raise ValueError('Only original vendor previews may retain morph arrays')
+                    for name,shape in surface['blend_shapes'].items():
+                        if name not in model.get('blend_shapes',[]):raise ValueError('Undeclared vendor preview morph')
+                        for key in ('vertices','normals'):
+                            values=shape.get(key,[])
+                            if len(values) not in (0,len(vertices)) or not all(math.isfinite(v) for v in values):
+                                raise ValueError('Invalid vendor preview morph array')
                 if surface.get('normals') and len(surface['normals']) != len(vertices):
                     raise ValueError('Normal count differs')
                 if surface.get('uv') and len(surface['uv']) != count * 2:

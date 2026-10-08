@@ -1,8 +1,10 @@
 #ifndef SWGXR_MEDIC_H
 #define SWGXR_MEDIC_H
+#include "SwgxrPlanets.h"
 #include "SwgxrGathering.h"
 #include "HealDamageCommand.h"
 #include "SwgxrVitalFeedback.h"
+#include "SwgxrSpice.h"
 #include "SwgxrMedicDrag.h"
 class SwgxrMedic {
  using Json=JSONSerializationType;
@@ -32,24 +34,25 @@ class SwgxrMedic {
  }
  static Json snapshot(CreatureObject* c){
   auto g=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,g.value("hip_tool_id",std::string()));
-  Json out={{"character_id",id(c)},{"source_kind","core3_medic"},{"abilities",abilities(c)},{"selected",std::string(c->getPlayerObject()->getScreenPlayData("swgxr_medic","selected").toCharArray())},{"inventory",SwgxrInventory::snapshot(c)},{"hip_tool",hip?SwgxrInventory::describe(hip,c):Json(nullptr)},{"players",Json::array()},{"position",position(c)},{"vital_feedback",SwgxrVitalFeedback::snapshot(c->getObjectID())}};
+  Json out={{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_medic"},{"abilities",abilities(c)},{"selected",std::string(c->getPlayerObject()->getScreenPlayData("swgxr_medic","selected").toCharArray())},{"inventory",SwgxrInventory::snapshot(c)},{"hip_tool",hip?SwgxrInventory::describe(hip,c):Json(nullptr)},{"players",Json::array()},{"position",position(c)},{"vital_feedback",SwgxrVitalFeedback::snapshot(c->getObjectID())}};
   out["drag"]=SwgxrMedicDrag::snapshot(c);out["drag_available"]=c->hasSkill("science_medic_injury_speed_02");
   out["self"]={{"id",id(c)},{"name",std::string(c->getDisplayedName().toCharArray())},{"position",position(c)},{"healable",!c->isDead()},{"needs",needs(c)}};
   out["focus_issued"]=!c->getPlayerObject()->getScreenPlayData("swgxr_medic","focus_id").isEmpty();
   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),80,&objects,true);
   for(int i=0;i<objects.size() && out["players"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isPlayerCreature() || o==c)continue;auto p=o->asCreatureObject();Locker lock(p,c);if(p->getPlayerObject()->isOffline())continue;
    String custom;p->getCustomizationString(custom);std::string hex;const char* digits="0123456789abcdef";for(int n=0;n<custom.length();++n){unsigned char v=custom[n];hex+=digits[v>>4];hex+=digits[v&15];}
-   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
+   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"feigning_death",SwgxrSmuggler::feigning(p)},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
   }return out;
  }
 public:
  static Json run(CreatureObject* c,const Json& request){
+  SwgxrPlanets::require(c,request);
   if(!c || !c->getPlayerObject() || !c->getZone())throw std::runtime_error("Native player required");
   auto verb=request.value("action",std::string("status"));Json mutation={{"success",true},{"action",verb}};
   // Movement is a separate live update. Medical commands never capture locomotion,
   // change posture, teleport to a stale request position or wait for an animation.
   if(request.contains("pose"))SwgxrMedicDrag::observe(c,request.at("pose"));
-  if(verb=="drag")return {{"backend","core3"},{"source_kind","core3_medic"},{"character_id",id(c)},{"mutation",SwgxrMedicDrag::run(c,request)},{"state",snapshot(c)}};
+  if(verb=="drag")return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_medic"},{"character_id",id(c)},{"mutation",SwgxrMedicDrag::run(c,request)},{"state",snapshot(c)}};
   if(verb!="status"){
    if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
    auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_medic","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());const auto key=request.at("request_id").get<std::string>();bool replay=false;
@@ -74,14 +77,14 @@ public:
        if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->isDead() || target->isAttackableBy(c) || !target->isHealableBy(c))throw std::runtime_error("Invalid healing target");
        auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str()));
        int result=cmd->doQueueCommand(c,target->getObjectID(),UnicodeString(""));if(result!=QueueCommand::SUCCESS)throw std::runtime_error("Core3 rejected healing: supply, range, state, environment or HAM requirement");
-       c->addCooldown(String(("swgxr_medic_"+name).c_str()),int(std::max(0.f,cmd->getCommandDuration(c,UnicodeString("")))*1000));mutation["target_id"]=id(target);
+       c->addCooldown(String(("swgxr_medic_"+name).c_str()),int(std::max(0.f,cmd->getCommandDuration(c,UnicodeString("")))*1000*SwgxrSpice::cooldownScale(c)));mutation["target_id"]=id(target);
       }else throw std::runtime_error("Unsupported medical action");
      }
     }
     receipts.push_back({{"key",key},{"request",request},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_medic","receipts",String(receipts.dump().c_str()));
    }
   }
-  return {{"backend","core3"},{"source_kind","core3_medic"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
+  return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_medic"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};
  }
 };
 #endif

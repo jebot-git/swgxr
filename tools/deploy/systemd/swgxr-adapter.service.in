@@ -10,6 +10,9 @@ WorkingDirectory=@ROOT@
 Environment=SWGXR_CONTAINER=swgxr-core3-build
 Environment=SWGXR_VOICE_STATE=@ROOT@/runtime/voice/state.json
 Environment=SWGXR_VOICE_SECRET=@ROOT@/runtime/remote/voice.secret
+EnvironmentFile=-@ROOT@/runtime/remote/capacity.env
+LimitNOFILE=8192
+TasksMax=512
 ExecStart=/usr/bin/python3 @ROOT@/server/adapter.py --port 18080
 Restart=on-failure
 RestartSec=5

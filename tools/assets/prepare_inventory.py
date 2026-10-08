@@ -199,7 +199,9 @@ class InventoryImporter:
             relative = 'models/' + digest[:24] + '.json'
             destination = self.out / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
-            if not destination.exists():
+            # A material migration may have edited a cached file in place.
+            # Content-addressed names must always match the bytes being indexed.
+            if not destination.exists() or hashlib.sha256(destination.read_bytes()).hexdigest() != digest:
                 destination.write_bytes(encoded)
             descriptor.update(status='ready', model=relative, model_sha256=digest, source_meshes=meshes,
                               bounds_min=minimum, bounds_max=maximum, vertices=len(points),
@@ -294,6 +296,7 @@ def main():
     parser.add_argument('--snapshot', type=Path, action='append', default=[])
     parser.add_argument('--starter-items', action='store_true', help='Prepare source creation-manager items as preview assets, never grant them')
     parser.add_argument('--gathering-assets', action='store_true', help='Prepare original Core3 survey tools and concrete resource-container templates; grants nothing')
+    parser.add_argument('--spice-assets', action='store_true', help='Prepare all concrete original Core3 spice appearances for crafting previews; grants nothing')
     parser.add_argument('--population-lairs', type=Path, help='Prepare every original building/lair model referenced by a Core3 population sources.json dependency index')
     parser.add_argument('--core3-root', type=Path, default=ROOT / 'vendor/Core3')
     parser.add_argument('--refresh', action='store_true', help='Reconvert every existing catalog entry too')
@@ -311,6 +314,11 @@ def main():
     for source, record in list(inputs.items()):
         if record.get('kind', '').startswith('backend inventory snapshot') and 'selections' not in Path(source).parts:
             catalog['provenance'].setdefault('historical_selections', []).append({'source_path': source, **record})
+            del inputs[source]
+        elif args.population_lairs and record.get('kind') == 'Core3 population source definition' and Path(source).is_file() and hashlib.sha256(Path(source).read_bytes()).hexdigest()!=record['sha256']:
+            # A fresh dependency selection below records current source hashes.
+            # Preserve older selection evidence without claiming old Lua is current.
+            catalog['provenance'].setdefault('historical_selections', []).append({'source_path':source,**record})
             del inputs[source]
     for snapshot in args.snapshot:
         raw = snapshot.read_bytes()
@@ -373,6 +381,22 @@ def main():
                 if templates:
                     inputs[str(source.resolve())] = {'sha256': hashlib.sha256(raw).hexdigest(), 'kind': 'Core3 survey tool/resource container reference template'}
         catalog['gathering_assets'] = {'templates': sorted(set(references)), 'policy': 'Reference appearances only; owned/deployed tools and gathered stacks remain authoritative server state'}
+    if args.spice_assets:
+        folder = args.core3_root / 'MMOCoreORB/bin/scripts/object/tangible/food/spice'
+        shared_source = folder / 'objects.lua'
+        shared_raw = shared_source.read_bytes()
+        shared_names = dict(re.findall(r'ObjectTemplates:addClientTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', shared_raw.decode()))
+        inputs[str(shared_source.resolve())] = {'sha256': hashlib.sha256(shared_raw).hexdigest(), 'kind': 'Core3 original spice client-template mapping'}
+        references = []
+        for source in sorted(folder.glob('spice_*.lua')):
+            if source.stem == 'spice_base': continue
+            raw = source.read_bytes()
+            parents = dict(re.findall(r'\b(\w+)\s*=\s*(\w+):new\s*\{', raw.decode()))
+            for symbol, template in re.findall(r'ObjectTemplates:addTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', raw.decode()):
+                requested.add(template); references.append(template)
+                if parents.get(symbol) in shared_names: pairs[template] = shared_names[parents[symbol]]
+            inputs[str(source.resolve())] = {'sha256': hashlib.sha256(raw).hexdigest(), 'kind': 'Core3 concrete spice appearance reference'}
+        catalog['spice_assets'] = {'templates': sorted(set(references)), 'policy': 'Original appearance references only; crafting availability and spice effects remain native server authority'}
     if args.refresh:
         requested.update(catalog['items'])
         if not equipment_races:

@@ -26,6 +26,10 @@ class Live extends Node:
 	func fail(message: String) -> void: failure=message
 class Scenery extends Node3D:
 	var rows: Array=[]
+	var screen_requests:Array=[]
+	func terminal_basis(_record:Dictionary)->Basis:return Basis.IDENTITY
+	func screen_offsets(record:Dictionary)->Array:
+		screen_requests.append(str(record.id));return [Transform3D(Basis.IDENTITY,Vector3(0,20,0))]
 	func advance(_delta: float) -> void: pass
 	func reset() -> void: rows=[]
 	func configure(_origin: Vector3,_catalog_path: String="") -> void: pass
@@ -211,6 +215,18 @@ func run() -> void:
 	check(ui.terminal.is_empty(),"Delayed refresh does not bypass cell departure closure")
 	host.stage.current_cell={"building_object_id":"100","cell_id":"100:2"}
 	var scenery:=Scenery.new();host.add_child(scenery);coordinator.scenery=scenery
+	coordinator.state_age=0
+	coordinator.state={"terminals":[{"id":"barak","kind":"underworld","position":[3500,5,-4801],"building_id":"100","cell_index":2},{"id":"bank-screen","kind":"bank","position":[3500,5,-4802],"building_id":"100","cell_index":2}]}
+	var broker_rows:Array=coordinator.terminal_records()
+	check(broker_rows.size()==2 and not broker_rows[0].has("ui_anchors") and scenery.screen_requests==["bank-screen"],"Underworld NPC discovery skips terminal-screen offsets while original terminal screens remain")
+	var broker:Dictionary=ui.pointed_terminal(broker_rows,Vector3.ZERO,Vector3(0,1,0),Vector3.BACK)
+	check(broker.get("id","")=="barak","Controller targets broker at NPC torso height instead of a machine screen")
+	ui.set_pending(false);ui.close_interface();before=host.calls.size()
+	host.next_response=host.response();host.next_response.state.terminal={"id":"barak","kind":"underworld","dialogue":"A parcel needs delivery.","eligible":true,"confirm_action":"underworld_accept"}
+	ui.open_terminal(broker);await frames()
+	check(host.calls.size()==before+1 and host.calls.back().path=="/services/open" and host.calls.back().payload.terminal_id=="barak","Targeted broker opens original native service conversation")
+	check(ui.terminal.get("kind","")=="underworld" and ui.panel.delivery_dialogue.visible and ui.surface.global_position.y<2,"Broker dialogue uses NPC-facing panel at comfortable head height")
+	ui.close_interface()
 	var shuttle: Dictionary={"id":"600","position":[3500,5,-4800],"door_position":[3500,5,-4800],"departure":"Mos Eisley","landed":true,"doors_open":true,"boarding":true,"boarding_radius":1.2}
 	scenery.rows=[shuttle];coordinator.state_age=0
 	coordinator.state={"tickets":[{"id":"700","usable":true,"departure":"Mos Eisley","arrival":"Mos Espa"},{"id":"701","usable":true,"departure":"Mos Eisley","arrival":"Bestine"},{"id":"702","usable":true,"departure":"Bestine","arrival":"Mos Eisley"},{"id":"703","usable":false,"departure":"Mos Eisley"}]}

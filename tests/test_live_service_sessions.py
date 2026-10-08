@@ -26,6 +26,24 @@ class ServiceSessions(unittest.TestCase):
             self.hub.request('one', 'services', dict(character_id='2', session_id='session_two', service={}))
         self.assertEqual(self.hub.request('two', 'crafting', dict(character_id='2', session_id='session_two', crafting={}))['action'], 'crafting')
 
+    def test_movement_revision_reaches_direct_and_nested_native_pose(self):
+        for action, key in [('update', None), ('services', 'service'), ('session', 'session'),
+                            ('scout', 'scout'), ('medic', 'medic'), ('crafting', 'crafting'),
+                            ('vehicles', 'vehicles'), ('entertainer', 'entertainer'),
+                            ('gathering', 'gathering'), ('corpse', 'corpse')]:
+            data = dict(character_id='1', session_id='session_one', movement_revision=7)
+            pose = {'position': [1, 2, 3]}
+            data.update({key: pose} if key else pose)
+            self.hub.request('one', action, data)
+            command = self.hub._exchange.call_args.args[1]
+            self.assertEqual(command['movement_revision'], 7)
+            if key:self.assertNotIn('movement_revision', command[key])
+            self.assertNotIn('movement_revision', pose)
+        for invalid in (True, -1, 2**53, 1.5, '7'):
+            with self.assertRaises(ValueError):
+                self.hub.request('one', 'update', dict(character_id='1', session_id='session_one',
+                    position=[1, 2, 3], movement_revision=invalid))
+
     def test_closing_one_does_not_disconnect_the_other(self):
         self.hub.close('one')
         self.assertIsNone(self.hub.active_for('one'))
@@ -47,13 +65,13 @@ class ServiceSessions(unittest.TestCase):
 class SessionCapacity(unittest.TestCase):
     def test_bounded_configuration(self):
         with patch.dict('os.environ', {}, clear=True):
-            self.assertEqual(native_session_capacity(), 10)
-        for value in ('1', '10', '16'):
+            self.assertEqual(native_session_capacity(), 0)
+        for value in ('0', '1', '10', '16', '32', '128', '10000'):
             with patch.dict('os.environ', {'SWGXR_MAX_NATIVE_SESSIONS': value}):
                 self.assertEqual(native_session_capacity(), int(value))
-        for value in ('0', '17', '-1', '1.5', '', '10 ', 'unlimited'):
+        for value in ('-1', '1.5', '', '10 ', 'unlimited'):
             with self.subTest(value=value), patch.dict('os.environ', {'SWGXR_MAX_NATIVE_SESSIONS': value}):
-                with self.assertRaisesRegex(ValueError, 'integer from 1 to 16'):
+                with self.assertRaisesRegex(ValueError, 'non-negative'):
                     LiveCombatHub()
 
     def test_ten_owned_sessions_reject_eleventh_without_eviction(self):
@@ -102,6 +120,24 @@ class SessionCapacity(unittest.TestCase):
 
 
 class WorldResolution(unittest.TestCase):
+    def test_owner_spice_outlines_resolve_without_becoming_targetable_actors(self):
+        outline = {'id': '9', 'client_crc': 22, 'customization_hex': '',
+                   'outline_only': True, 'attackable': False, 'aggressive': True, 'cell_id': '42'}
+        result = {'snapshot': {'world': {'actors': [], 'players': [], 'spice_outlines': [outline]}}}
+        hub = LiveCombatHub()
+        try:
+            with patch('server.live_combat.template_names', return_value={22: 'shared_npc.iff'}):
+                world = hub._resolve(result)['snapshot']['world']
+            self.assertEqual(world['spice_outlines'][0]['shared_template'], 'shared_npc.iff')
+            self.assertEqual(world['spice_outlines'][0]['customization'], {})
+            self.assertEqual(world['spice_outlines'][0]['cell_id'], '42')
+            self.assertFalse(world['spice_outlines'][0]['attackable'])
+            self.assertTrue(world['spice_outlines'][0]['outline_only'])
+            self.assertEqual(world['actors'], [])
+            self.assertEqual(world['players'], [])
+        finally:
+            hub.close()
+
     def test_public_visuals_resolve_without_private_vehicle_devices(self):
         appearance = {'client_crc': 11, 'customization_hex': '', 'hair_customization_hex': '',
                       'hair_template': 'object/tangible/hair/human/hair.iff',

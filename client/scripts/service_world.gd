@@ -85,7 +85,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			actor.rigid_equipment = attached.items
 			errors.append_array(attached.failures)
 			if actor.animation_player != null: actor.animation_player.stop()
-			shuttles[id] = {"actor":actor,"source":descriptor,"row":{},"phase":"","time":0.0,"sample_clock":0.0,"door_local":Vector3.INF,"rate":1.0}
+			shuttles[id] = {"actor":actor,"source":descriptor,"complete":attached.failures.is_empty(),"row":{},"phase":"","time":0.0,"sample_clock":0.0,"door_local":Vector3.INF,"rate":1.0}
 		var entry: Dictionary = shuttles[id]
 		entry.actor.position = local_position(p)
 		entry.actor.rotation.y = heading(row)
@@ -112,7 +112,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 	keep.clear()
 	for row: Dictionary in snapshot.get("terminals", []):
 		# Trainers reuse the authored ambient/native NPC, never a terminal mesh.
-		if str(row.get("kind", "")) in ["trainer","vendor","recruiter"]: continue
+		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld"]: continue
 		var id := str(row.get("id", ""))
 		if id.is_empty() or static_ids.has(id): continue
 		var p := vec(row.get("position", []))
@@ -137,6 +137,19 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			terminals[id].node.queue_free()
 			terminals.erase(id)
 	advance(0.0)
+
+static func presents_actor(host:Node,row:Dictionary)->bool:
+	# Native shuttles also occur in general creature snapshots. Delegate only an
+	# exact identity already rendered successfully by the service animation owner.
+	if not is_instance_valid(host):return false
+	var services:Variant=host.get("services")
+	if not is_instance_valid(services):return false
+	var scenery:Variant=services.get("scenery")
+	return is_instance_valid(scenery) and scenery.has_method("owns_actor") and scenery.owns_actor(row)
+
+func owns_actor(row:Dictionary)->bool:
+	var entry:Dictionary=shuttles.get(str(row.get("id","")),{})
+	return not entry.is_empty() and bool(entry.get("complete",false)) and is_instance_valid(entry.actor) and not entry.actor.is_queued_for_deletion() and not entry.phase.is_empty() and str(entry.row.get("template",""))==str(row.get("template","")) and not bool(row.get("dead",false))
 
 func phase_for(row: Dictionary) -> String:
 	if bool(row.get("boarding", false)): return "loop_ground"

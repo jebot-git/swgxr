@@ -9,6 +9,7 @@ Type=exec
 User=blux
 Group=blux
 WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/runtime/remote/capacity.env
 ExecStart=/usr/bin/python3 @ROOT@/server/voice_relay.py --config @ROOT@/runtime/remote/gateway.json --bind 0.0.0.0 --port 18444
 Restart=on-failure
 RestartSec=5

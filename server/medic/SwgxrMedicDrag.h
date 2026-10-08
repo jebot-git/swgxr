@@ -1,6 +1,7 @@
 #ifndef SWGXR_MEDIC_DRAG_H
 #define SWGXR_MEDIC_DRAG_H
 #include "SwgxrVitalFeedback.h"
+#include "SwgxrSmuggler.h"
 #include "server/zone/managers/collision/CollisionManager.h"
 class SwgxrMedicDrag {
  using Json=JSONSerializationType;
@@ -23,7 +24,7 @@ public:
   if(!t || t==c || !t->isPlayerCreature() || t->getZone()!=c->getZone())throw std::runtime_error("Invalid drag target");
   Locker lock(t,c);auto own=load(c),patient=load(t);auto stamp=SwgxrVitalFeedback::now();auto owner=std::to_string(c->getObjectID());
   if(q.value("release",false)){if(patient.value("owner",std::string())==owner){patient["owner"]="";patient["lease"]=0;save(t,patient);}return {{"success",true}};}
-  if(!t->isIncapacitated() || t->isDead() || t->getPlayerObject()->isOffline() || !t->isHealableBy(c) || t->isAttackableBy(c))throw std::runtime_error("Only eligible incapacitated players can be dragged");
+  if((!t->isIncapacitated() && !SwgxrSmuggler::feigning(t)) || t->isDead() || t->getPlayerObject()->isOffline() || !t->isHealableBy(c) || t->isAttackableBy(c))throw std::runtime_error("Only eligible incapacitated players can be dragged");
   if(patient.value("blocked",true) || stamp-patient.value("seen",0.0)>2 || !own.value("grips",false) || stamp-own.value("seen",0.0)>2)throw std::runtime_error("Drag stopped by crossed arms, released hands or stale tracking");
   if(c->getParent().get()!=t->getParent().get() || !c->isInRange(t,3) || !CollisionManager::checkLineOfSight(c,t))throw std::runtime_error("Drag target obstructed or out of reach");
   if(patient.value("lease",0.0)>stamp && patient.value("owner",std::string())!=owner)throw std::runtime_error("Patient already being dragged");

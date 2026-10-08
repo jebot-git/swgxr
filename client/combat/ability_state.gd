@@ -92,6 +92,7 @@ func select(profile: Dictionary, id: String) -> bool:
 
 func costs(ability: Dictionary) -> Array:
 	if not pools_valid or ham.size() != 9: return []
+	if str(ability.get("id",""))=="last_ditch":return [0,maxf(0,float(ham[3])-1),maxf(0,float(ham[6])-1)]
 	var result: Array = []
 	var index := 0
 	for pool in ["health", "action", "mind"]:
@@ -130,6 +131,12 @@ func apply_to_attack(shot: Dictionary, profile: Dictionary) -> void:
 		ham[index * 3] = float(ham[index * 3]) - int(cost[index])
 	cooldowns[selected] = float(ability.cooldown_seconds)
 	shot["ability"] = ability.duplicate(true)
+	if str(ability.get("id",""))=="last_ditch":
+		var multiplier:=2.0
+		for index in range(3):
+			var before:=float(ham[index*3])+int(cost[index])
+			multiplier+=1.0-clampf(before/maxf(1,float(max_ham[index*3])),0,1)
+		shot.ability.damage_multiplier=multiplier
 	shot["sac_spent"] = cost.map(func(value): return int(value))
 	primed = false
 
@@ -159,5 +166,5 @@ func apply_authoritative(context: Dictionary) -> bool:
 	# HAM replication while the player reaches towards the creature.
 	# The entertainer owns its multi-frame gesture and consumes it on dispatch.
 	# Routine HAM replication must not cancel that noncombat selection.
-	if selection_owner != "entertainer" and (selected.is_empty() or selection.get("activation","")!="native_contact"): primed = false
+	if selection_owner != "entertainer" and (selected.is_empty() or selection.get("activation","") not in ["native_contact","native_ranged"]): primed = false
 	return true

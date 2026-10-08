@@ -147,7 +147,7 @@ public:
      auto cs=session(c,s["draft"]);if(cs==nullptr)throw std::runtime_error("Crafting session expired");Locker lock(cs,c);c->addActiveSession(SessionFacadeType::CRAFTING,cs);
      if(action=="select"){if(cs->getState()>2)throw std::runtime_error("Cancel assembled draft before changing schematic");int index=request.at("index").get<int>();auto choices=Json::parse(cs->swgxrSnapshot().toCharArray())["schematics"];if(index<0 || index>=int(choices.size()))throw std::runtime_error("Schematic is not usable with this tool");cs->selectDraftSchematic(index);}
      else if(action=="assemble"){assemble(c,s,cs,tool,request);if(cs->getState()==4)finish(c,s,cs,tool,request);}
-     else if(action=="finish")finish(c,s,cs,tool,request);
+     else if(action=="finish"){finish(c,s,cs,tool,request);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
      else throw std::runtime_error("Unknown crafting action");
     }
    }

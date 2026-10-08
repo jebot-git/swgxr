@@ -1,5 +1,5 @@
 extends Node3D
-## Wrist UI orchestration; native math owns constrained follow and finger hit tests.
+## Floating datapad and wrist minimap; native math owns follow and finger hits.
 signal factory_blueprint_draw_requested(entry:Dictionary, hand_pose:Transform3D)
 signal harvester_draw_requested(entry:Dictionary, hand_pose:Transform3D)
 signal vendor_draw_requested(entry:Dictionary, hand_pose:Transform3D)
@@ -13,6 +13,9 @@ const WristRadar = preload("res://scripts/wrist_radar.gd")
 var radar: Node3D
 var radar_contacts_provider: Callable
 var radar_eligible := false
+var radar_requested := false
+var pointer_visual:Node3D
+var summary_ui:Control
 var ui: Control
 var rig: XROrigin3D
 var body: CharacterBody3D
@@ -48,10 +51,13 @@ func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> v
 	ui = UI.new()
 	add_surface(ui,Vector2i(900,625),Vector2(0.36,0.25))
 	add_surface(ui.take_detail_panel(),Vector2i(550,625),Vector2(0.22,0.25))
+	summary_ui=preload("res://scripts/player_summary_ui.gd").new()
+	add_surface(summary_ui,Vector2i(550,625),Vector2(.22,.25))
 	ui.configure(load_catalog(),ProjectSettings.globalize_path("res://../runtime/assets/datapad"))
 	ui.new_waypoint_requested.connect(func(point: Vector3,label: String): new_waypoint_requested.emit(point,label))
 	ui.delete_entry_requested.connect(func(entry: Dictionary): delete_entry_requested.emit(entry))
 	ui.map_expansion_requested.connect(resize_map)
+	ui.close_requested.connect(func():set_open(false))
 	resize_map(false)
 	dot = MeshInstance3D.new()
 	var sphere := SphereMesh.new()
@@ -67,6 +73,7 @@ func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> v
 	radar = WristRadar.new()
 	add_child(radar)
 	radar.configure()
+	pointer_visual=preload("res://scripts/finger_pointer_visual.gd").new();add_child(pointer_visual)
 	sync_presentation()
 
 func load_catalog() -> Dictionary:
@@ -107,23 +114,30 @@ func resize_map(expanded: bool) -> void:
 	surfaces[0].meters = meters
 	surfaces[0].viewport.size = pixels
 	surfaces[0].mesh.mesh.size = meters
-	# Both screens remain tied to the dorsal wrist hinge when expanded.
-	surfaces[0].mesh.position.y = meters.y * 0.5
-	surfaces[1].mesh.position = Vector3(meters.x*0.5+0.12, meters.y*0.5, 0.025)
+	surfaces[0].mesh.rotation=Vector3.ZERO
+	# Center the whole interface ahead of the viewer, including the side panes.
+	surfaces[0].mesh.position.y = 0
+	surfaces[1].mesh.position = Vector3(meters.x*0.5+0.12, 0, 0.025)
 	surfaces[1].mesh.rotation.y = deg_to_rad(-25)
+	if surfaces.size()>2:
+		surfaces[2].mesh.position=Vector3(-meters.x*.5-.12,0,.025)
+		surfaces[2].mesh.rotation.y=deg_to_rad(25)
 
 func set_gesture_reserved(value: bool) -> void:
 	gesture_reserved = value
 	if value:
 		gesture_release_required = true
 		hold_time = 0.0
+		radar_requested=false
 		set_open(false)
+		sync_presentation()
 
 func set_allowed(value: bool) -> void:
 	if allowed == value: return
 	allowed = value
 	if not allowed:
 		hold_time = 0.0
+		radar_requested=false
 		set_open(false)
 	sync_presentation()
 
@@ -134,6 +148,9 @@ func set_open(value: bool) -> void:
 	if value:
 		released_trigger = false
 		follower.reset()
+		# Inventory/crafting/installation panels reuse input plumbing but retain
+		# their own placement and layouts.
+		if ui is UI:update_view_follow(rig.get_node("XRCamera3D").global_transform,0)
 		for side in ["LeftHand","RightHand"]:
 			var pointer = rig.get_node_or_null(side+"/FunctionPointer")
 			if pointer != null:
@@ -153,13 +170,15 @@ func sync_presentation() -> void:
 	for surface: Dictionary in surfaces:
 		if surface.mesh.visible != is_open: surface.mesh.visible = is_open
 		if surface.viewport.render_target_update_mode != mode: surface.viewport.render_target_update_mode = mode
-	if is_instance_valid(radar): radar.set_active(allowed and radar_eligible and not is_open)
+	if is_instance_valid(radar): radar.set_active(allowed and radar_eligible and radar_requested and not is_open)
+	if is_instance_valid(pointer_visual) and not is_open:pointer_visual.hide()
 	var presentation_visible: bool = is_open or (is_instance_valid(radar) and radar.active)
 	if visible != presentation_visible: visible = presentation_visible
 
 func update_tracking_state(head_tracked: bool, mount_tracked: bool, pointing_tracked: bool, grip: float, trigger: float, delta: float) -> void:
+	if not head_tracked:set_open(false)
 	radar_eligible = head_tracked and mount_tracked
-	update_activation(allowed and radar_eligible and pointing_tracked,grip,trigger,delta)
+	update_activation(allowed and radar_eligible,grip,trigger,delta)
 	sync_presentation()
 
 func _process(delta: float) -> void:
@@ -174,24 +193,32 @@ func _process(delta: float) -> void:
 	var head_tracked := head_pose != null and head_pose.has_tracking_data
 	var mount_tracked := HandInput.controller_tracked(mount_controller)
 	var pointing_tracked := HandInput.controller_tracked(hand)
-	var tracked := head_tracked and mount_tracked and pointing_tracked
-	var grip := mount_controller.get_float("grip") if tracked else 0.0
-	var trigger := mount_controller.get_float("trigger") if tracked else 0.0
+	var tracked := head_tracked and pointing_tracked
+	var grip := mount_controller.get_float("grip") if head_tracked and mount_tracked else 0.0
+	var trigger := mount_controller.get_float("trigger") if head_tracked and mount_tracked else 0.0
 	update_tracking_state(head_tracked,mount_tracked,pointing_tracked,grip,trigger,delta)
 	var stick := hand.get_vector2("primary") if tracked else Vector2.ZERO
 	var camera: Camera3D = rig.get_node("XRCamera3D")
-	if is_open or radar.active:
+	if is_open and head_tracked:
+		update_view_follow(camera.global_transform,delta)
+	elif radar.active:
 		var mount := wrist_mount(mount_controller)
 		var followed: Dictionary = follower.follow(mount,camera.global_position,delta)
 		if followed.get("valid",false): global_transform = followed.transform
 	if radar.active:
 		var center: Vector3 = body.global_position if is_instance_valid(body) else camera.global_position
 		radar.tick(delta,center,-camera.global_basis.z,radar_contacts_provider)
+		if pointing_tracked:touch_minimap(pointing_pose(hand))
 	if not is_open:
 		update_stick_capture(stick,{},delta)
 		return
+	if not tracked:
+		cancel_press();clear_hover();pointer_visual.hide();dot.hide()
+		update_stick_capture(Vector2.ZERO,{},delta)
+		return
 	var finger := pointing_pose(hand)
 	var hit := find_hit(finger)
+	pointer_visual.update_pointer(finger.get("tip",hand.global_position),hit)
 	if slider_frame(hit,hand.global_transform,hand.get_float("grip"),hand.get_float("trigger"),tracked):return
 	update_parcel_drag(hit,hand.global_transform,hand.get_float("grip"),tracked)
 	if not is_open:return
@@ -230,6 +257,8 @@ func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void
 			if ui.navigate_at(hit.pixel,steps):
 				if steps!=0:navigation_repeat=.18
 			else:ui.scroll_at(hit.pixel,Vector2(stick.x,-stick.y)*delta*650.0)
+		elif int(hit.surface)==2:
+			summary_ui.scroll.scroll_vertical-=int(stick.y*delta*650.0)
 		else:
 			ui.detail_description.get_v_scroll_bar().value -= stick.y*delta*650.0
 	apply_capture()
@@ -239,14 +268,37 @@ func update_activation(tracked_allowed: bool, grip: float, trigger: float, delta
 		gesture_release_required = false
 	if gesture_reserved or gesture_release_required:
 		hold_time = 0.0
+		radar_requested=false
 		set_open(false)
+		sync_presentation()
 		return
 	if not tracked_allowed or grip < 0.45 or trigger < 0.45:
 		hold_time = 0.0
-		set_open(false)
+		radar_requested=false
 	elif grip >= 0.65 and trigger >= 0.65:
 		hold_time += delta
-		if hold_time >= 0.25: set_open(true)
+		if hold_time >= 0.25:radar_requested=true
+	sync_presentation()
+
+func update_view_follow(head:Transform3D,delta:float)->void:
+	var main_size:Vector2=surfaces[0].meters
+	var distance:=.95 if ui.expanded else .75
+	var frozen:bool=pressed or not parcel_drag.is_empty() or not slider_dragger.capture.is_empty()
+	var result:Dictionary=follower.follow_view(head,Vector2(main_size.x+.46,main_size.y),delta,distance,frozen)
+	if result.get("valid",false):
+		global_transform=result.transform
+		orient_expanded_panels(result.anchor)
+
+func touch_minimap(finger:Dictionary)->bool:
+	if not allowed or not radar.active or finger.is_empty():return false
+	var hit:Dictionary=follower.point(radar.display.global_transform,Vector2.ONE*radar.DIAMETER_METERS,Vector2.ONE*radar.PIXELS,finger.tip,finger.direction,0.0,.018)
+	if not hit.get("valid",false) or not hit.get("touching",false):return false
+	set_open(true);return true
+
+func orient_expanded_panels(viewer:Vector3)->void:
+	if not is_open or not ui.expanded:return
+	for surface:Dictionary in surfaces:
+		if surface.mesh.global_position.distance_squared_to(viewer)>.001:surface.mesh.look_at(viewer,Vector3.UP,true)
 
 func apply_capture() -> void:
 	if is_instance_valid(body):
@@ -270,14 +322,14 @@ func wrist_mount(controller: XRController3D) -> Transform3D:
 	return Transform3D(Basis(up.cross(facing),up,facing),origin+dorsal*0.035)
 
 func pointing_pose(controller: XRController3D) -> Dictionary:
-	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"right" if offhand=="left" else "left",rig,controller)
+	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"right" if offhand=="left" else "left",rig,controller,false)
 
 func find_hit(finger: Dictionary) -> Dictionary:
 	if finger.is_empty(): return {}
 	var best: Dictionary = {}
 	for index in range(surfaces.size()):
 		var surface: Dictionary = surfaces[index]
-		var hit: Dictionary = follower.point(surface.mesh.global_transform,surface.meters,Vector2(surface.viewport.size),finger.get("ray_origin",finger.tip),finger.direction)
+		var hit: Dictionary = follower.point(surface.mesh.global_transform,surface.meters,Vector2(surface.viewport.size),finger.get("ray_origin",finger.tip),finger.direction,1.4)
 		if hit.get("valid",false) and (best.is_empty() or float(hit.distance)<float(best.distance)):
 			hit.surface = index
 			best = hit
@@ -295,10 +347,7 @@ func update_pointer(hit: Dictionary, trigger: float) -> void:
 	if trigger < 0.1:
 		aim_latch = {}
 		last_hover = hit.duplicate()
-	elif released_trigger and aim_latch.is_empty() and not last_hover.is_empty():
-		# Latch before the analog trigger curls the original index skeleton.
-		aim_latch = last_hover.duplicate()
-	if not aim_latch.is_empty(): hit = aim_latch
+	else:last_hover=hit.duplicate()
 	if trigger < 0.35: released_trigger = true
 	if pressed:
 		# Freeze target while the trigger curls the rendered index finger.

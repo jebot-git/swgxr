@@ -83,6 +83,24 @@ MAX_BODY = 16384
 class BackendError(Exception):
     pass
 
+class NativeMovementRejected(Exception):
+    """An owned native rejection still carries the authoritative corrected pose."""
+    def __init__(self, live):
+        super().__init__(live['error_code'])
+        self.live = live
+
+    def response(self):
+        return {'ok':False, 'backend':'core3', 'error':str(self),
+                'error_code':str(self), 'live_response':self.live}
+
+def check_live_error(live):
+    code=live.get('error_code')
+    if not code:return
+    if isinstance(code,str) and code.startswith('native_movement_'):
+        raise NativeMovementRejected(live)
+    raise ValueError(code)
+
+
 def prepare_secret():
     RUNTIME.mkdir(parents=True, exist_ok=True)
     secret_path = RUNTIME / 'adapter.secret'
@@ -112,6 +130,8 @@ def invoke(account, actions, timeout=60):
             reply=LIVE_COMBAT.request(account,'replication',data)
             if reply.get('error_code'):raise ValueError(reply['error_code'])
             variables=reply['native_variables'];loc=variables['session']['location'];variables.setdefault('scene',{})['characterOid']=active['character_id']
+            variables['spice']=reply.get('snapshot',{}).get('player',{}).get('spice',{})
+            variables['player_summary']=reply.get('snapshot',{}).get('player',{}).get('player_summary')
             return {'variables':variables,'zoneConnected':True,'zoneStats':{'sceneReady':True},'overallSuccess':True}
         LIVE_COMBAT.guard(account)
     username = account_name(account)
@@ -165,7 +185,9 @@ def health(force=False):
             except (BackendError, OSError) as exc:
                 detail = str(exc)
         value = {'status': 'ready' if ready else 'blocked', 'backend': 'core3',
+                 'backend_name': 'CoreCU', 'combat_policy_version': 1, 'upstream': 'SWGEmu Core3',
                  'core3': {'ready': ready, 'detail': detail},
+                 'population': {'limit': LIVE_COMBAT.max_sessions or None, 'target':32, 'scope':'server_wide', 'capacity_load_validated':False},
                  'movement': 'local_godot_prototype', 'stage': 'mos_eisley_starport'}
         HEALTH.update(time=time.monotonic(), value=value)
         return value
@@ -202,7 +224,7 @@ def read_inventory(account, oid, split=None, operation=None):
         command += f' split {item_id} {quantity}'
     if operation is not None:
         verb, item_id, arrangement = operation
-        if verb not in ('equip', 'consume') or not isinstance(item_id, str) or not item_id.isdigit() or int(item_id)>2**64-1:
+        if verb not in ('equip', 'unequip', 'consume') or not isinstance(item_id, str) or not item_id.isdigit() or int(item_id)>2**64-1:
             raise ValueError('Invalid inventory operation or item identifier.')
         if type(arrangement) is not int or not 0 <= arrangement < 32:
             raise ValueError('arrangement must be an integer from 0 to 31.')
@@ -210,7 +232,7 @@ def read_inventory(account, oid, split=None, operation=None):
     active=LIVE_COMBAT.active_for(account)
     if active:
         live=LIVE_COMBAT.request(account,'inventory',dict(character_id=oid,session_id=active['id'],inventory_command=command))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         result={'variables':{'inventory':live.get('mutation',{}).get('inventory',{}),'weaponAttributes':live.get('service_attributes',{})}}
     else:
         result = invoke(account, [{'action':'selectContext','characterOid':int(oid)},
@@ -233,6 +255,10 @@ def read_inventory(account, oid, split=None, operation=None):
             for displaced in mutation.get('displaced_item_ids', []):
                 if by_id.get(displaced, {}).get('container_id') != after['inventory']['id']:
                     raise BackendError('Displaced equipment is not in the inventory; refresh before retrying.')
+        elif verb == 'unequip':
+            selected = by_id.get(item_id, {})
+            if selected.get('equipped') or selected.get('container_id') != after['inventory']['id']:
+                raise BackendError('Unequip acknowledgement did not match fresh Core3 inventory.')
         elif mutation.get('removed'):
             if item_id in by_id: raise BackendError('Consumed item still exists in fresh Core3 inventory.')
         elif by_id.get(item_id, {}).get('use_count') != mutation.get('remaining_use_count'):
@@ -267,7 +293,7 @@ def gameplay_session(account,data,start=False,life=False):
         active=LIVE_COMBAT.active_for(account)
         if not active:raise LiveConflict('Native gameplay session is not active')
         reply=LIVE_COMBAT.request(account,'life'if life else 'update',dict(data,session_id=data.get('session_id',data.get('live_session_id',active['id']))))
-    if reply.get('error_code'):raise ValueError(reply['error_code'])
+    check_live_error(reply)
     player=reply.get('snapshot',{}).get('player',{})
     return {'backend':'core3','source_kind':'core3_gameplay_session','native_concurrency':reply.get('native_concurrency',''),'sequence':reply.get('sequence',0),'character_id':reply['character_id'],'session_id':reply['session_id'],'session_live':reply['session_live'],'location':{k:player.get(k)for k in('position','building_id','cell_id','cell_index','zone','heading_radians')},'snapshot':{'player':player,'vehicles':player.get('vehicles',{}),'transport':reply.get('snapshot',{}).get('transport',{}),'world':reply.get('snapshot',{}).get('world',{}),'weapon':reply.get('snapshot',{}).get('weapon')},'player':player,'vehicles':player.get('vehicles',{}),'transport':reply.get('snapshot',{}).get('transport',{}),'mutation':reply.get('mutation',{})}
 
@@ -279,7 +305,7 @@ def logout_session(account,oid,data):
         command['request_id']='logout_'+hashlib.sha256((str(identity)+json.dumps(command,sort_keys=True)).encode()).hexdigest()[:40]
     if active:
         live=LIVE_COMBAT.request(account,'session',dict(data,session=command,character_id=oid,session_id=data.get('live_session_id',active['id'])))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         out=session_snapshot(live.get('mutation',{}),oid)
         if not out.get('saved'):raise BackendError('Native position save was not acknowledged')
         LIVE_COMBAT.request(account,'stop',dict(character_id=oid,session_id=active['id']))
@@ -298,7 +324,7 @@ def vehicles_request(account, oid, action, data):
         raise LiveConflict("Creature Handler interactions need an owned native gameplay session")
     if active:
         live=LIVE_COMBAT.request(account,'vehicles',dict(data,vehicles=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         out=vehicles_snapshot(live['mutation'],oid);attributes=live.get('service_attributes',{})
         out['live_response']=live
     else:
@@ -313,9 +339,13 @@ def entertainer_request(account, oid, action, data):
     command=entertainer_command(action,data)
     active=LIVE_COMBAT.active_for(account)
     if not active:raise LiveConflict('Entertainer interactions need an owned native gameplay session')
+    if action=='group_bump':
+        proof=SERVICES_PRESENCE.authorize_group_bump(account,oid,command['target_id'],command['request_id'],command['group_bump_id'])
+        command['group_bump_authorized']=True
+        command['group_bump_receipt_only']=proof['receipt_only']
     live=LIVE_COMBAT.request(account,'entertainer',dict(data,entertainer=command,character_id=oid,
         session_id=data.get('live_session_id',active['id'])))
-    if live.get('error_code'):raise ValueError(live['error_code'])
+    check_live_error(live)
     out=entertainer_snapshot(live.get('mutation',{}),oid)
     state=out['state']
     if isinstance(state.get('appearance'),dict):state['appearance']=image_appearance_normalize(state['appearance'])
@@ -330,7 +360,7 @@ def medic_request(account, oid, action, data):
     command=medic_command(action,data)
     if LIVE_COMBAT.active_for(account):
         live=LIVE_COMBAT.request(account,'medic',dict(data,medic=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',LIVE_COMBAT.active_for(account)['id']))))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         return medic_snapshot(live['mutation'],oid)
     raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
         {'action':'zoneInCharacter','inventoryRequest':'swgxr_medic_v1 '+json.dumps(command,separators=(',',':'))}])
@@ -344,7 +374,7 @@ def scout_request(account, oid, action, data):
         raise LiveConflict('Ranger interactions need an owned native gameplay session')
     if active:
         live=LIVE_COMBAT.request(account,'scout',dict(data,scout=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         out=scout_snapshot(live['mutation'],oid,live.get('scout_attributes',{}))
     else:
         raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
@@ -360,7 +390,7 @@ def services_request(account, oid, action, data):
     temporary_recipient=None
     try:
         if action in ('pay','house_permission'):
-            proof=(SERVICES_PRESENCE.authorize_payment(account,oid,command['target_id'],command['request_id'],command['amount']) if action=='pay' else SERVICES_PRESENCE.authorize_house_permission(account,oid,command['target_id'],command['request_id'],command['arm_id']))
+            proof=(SERVICES_PRESENCE.authorize_payment(account,oid,command['target_id'],command['request_id'],(command['amount'],command.get('faction_points',{}))) if action=='pay' else SERVICES_PRESENCE.authorize_house_permission(account,oid,command['target_id'],command['request_id'],command['arm_id']))
             recipient_account=proof.get('target_account')
             if recipient_account and not LIVE_COMBAT.active_for(recipient_account):
                 native={'position':proof['target_position'],'zone':proof['target_zone'],'building_id':proof['target_building_id'],'cell_index':proof['target_cell_index']}
@@ -371,7 +401,7 @@ def services_request(account, oid, action, data):
         active=LIVE_COMBAT.active_for(account)
         if active:
             live=LIVE_COMBAT.request(account,'services',dict(data,service=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
-            if live.get('error_code'):raise ValueError(live['error_code'])
+            check_live_error(live)
             out=services_snapshot(live['mutation'],oid,live.get('service_attributes',{}))
             out['live_response']=live
         else:
@@ -395,7 +425,7 @@ def crafting_request(account, oid, action='status', data=None):
     if active:
         live_data=dict(data,crafting=command,character_id=oid,session_id=data.get('live_session_id',active['id']))
         live=LIVE_COMBAT.request(account,'crafting',live_data)
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         out=crafting_snapshot({'variables':{'crafting':live['mutation']}},oid)
         if live['mutation'].get('inventory'):
             out['inventory']=inventory_snapshot({'variables':{'inventory':live['mutation']['inventory'],'weaponAttributes':live.get('service_attributes',{})}},oid)
@@ -440,7 +470,7 @@ def gathering_request(account, oid, action='status', data=None):
     active=LIVE_COMBAT.active_for(account)
     if active:
         live=LIVE_COMBAT.request(account,'gathering',dict(data,gathering=command,character_id=oid,session_id=data.get('live_session_id',active['id'])))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        check_live_error(live)
         raw={'variables':{'gathering':live['mutation'],'weaponAttributes':live.get('service_attributes',{})}}
     else:
         live=None
@@ -474,8 +504,8 @@ def corpse_request(account, oid, action='corpses', data=None):
             command['kind']=data['kind']
     active=LIVE_COMBAT.active_for(account)
     if active:
-        live=LIVE_COMBAT.request(account,'corpse',dict(character_id=oid,session_id=active['id'],corpse=command))
-        if live.get('error_code'):raise ValueError(live['error_code'])
+        live=LIVE_COMBAT.request(account,'corpse',dict(data,character_id=oid,session_id=active['id'],corpse=command))
+        check_live_error(live)
         raw={'variables':{'gathering':live['mutation']}}
     else:
         raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
@@ -582,7 +612,6 @@ def voice_request(account,data,issue=False):
         elif state is None or time.time()-state['updated_at']>=5:
             for key,at in list(VOICE_ATTEMPTS.items()):
                 if now-at>60:VOICE_ATTEMPTS.pop(key,None)
-            if len(VOICE_ATTEMPTS)>=64 and account not in VOICE_ATTEMPTS:raise ValueError('Voice capacity reached')
             VOICE_ATTEMPTS[account]=now
             services_request(account,oid,'status',data)
             state=VOICE_STATE.owned(account,oid,'')
@@ -677,6 +706,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(404, {'error': 'Unknown endpoint.'})
         except BackendBusy as exc:self.respond(503,{'backend':'core3','error_code':'backend_busy','retry_after':1,'mutation_started':False,'error':str(exc)})
         except LiveConflict as exc: self.respond(409,{'backend':'core3','session_live':False,'error_code':'live_session_conflict','error':str(exc)})
+        except NativeMovementRejected as exc:self.respond(400,exc.response())
         except ValueError as exc: self.respond(400, {'error': str(exc)})
         except (BackendError, OSError) as exc: self.respond(503, {'backend': 'core3', 'error': str(exc)})
 
@@ -698,6 +728,11 @@ class Handler(BaseHTTPRequestHandler):
                 # old binaries behind the global lane to avoid player deadlock.
                 self.respond(200,gameplay_session(account,data))
                 return
+            if self.path in ('/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact') and LIVE_COMBAT.parallel_update_allowed(account,data):
+                # Cross-account native waits may overlap; the owned IPC gate
+                # still serializes every mutation for one player.
+                self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
+                return
             if self.path == '/services/presence':
                 self.respond(200,SERVICES_PRESENCE.update(account,str(data.get('character_id','')),data.get('token',''),data))
                 return
@@ -718,7 +753,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200,logout_session(account,str(data.get('character_id','')),data))
                 elif self.path == '/combat/session/start':
                     self.respond(200,LIVE_COMBAT.start(account,data,SECRET,CONTAINER,characters))
-                elif self.path in ('/combat/session/update','/combat/session/fire','/combat/session/impact','/combat/session/stop','/combat/session/life'):
+                elif self.path in ('/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact','/combat/session/stop','/combat/session/life'):
                     self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
                 elif self.path in ('/gathering/corpse/inspect','/gathering/corpse/harvest','/gathering/corpse/loot'):
                     self.respond(200,corpse_request(account,str(data.get('character_id','')),'corpse_'+self.path.rsplit('/',1)[-1],data))
@@ -736,7 +771,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200,crafting_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path in ('/gathering/status','/gathering/survey','/gathering/deploy','/gathering/collect','/gathering/holster','/gathering/return_tool'):
                     self.respond(200,gathering_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
-                elif self.path in ('/inventory/equip', '/inventory/consume'):
+                elif self.path in ('/inventory/equip', '/inventory/unequip', '/inventory/consume'):
                     self.respond(200, read_inventory(account, str(data.get('character_id','')),
                                                      operation=(self.path.rsplit('/',1)[-1],data.get('item_id'),data.get('arrangement',0))))
                 elif self.path == '/inventory/split':
@@ -778,6 +813,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(503,{'backend':'core3','error_code':'backend_busy','retry_after':1,'mutation_started':False,'error':str(exc)})
         except LiveConflict as exc:
             self.respond(409, {'backend':'core3','session_live':False,'error_code':'live_session_conflict','error':str(exc)})
+        except NativeMovementRejected as exc:
+            self.respond(400,exc.response())
         except (ValueError, TypeError, KeyError, StopIteration) as exc:
             self.respond(400, dict({'error': str(exc) or 'Invalid Core3 result.'}, **({'mutation_started':False,'confirmed_rejection':True} if getattr(exc,'confirmed_rejection',False) else {})))
         except (BackendError, OSError) as exc:

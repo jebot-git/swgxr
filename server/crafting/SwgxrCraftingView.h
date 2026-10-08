@@ -11,6 +11,7 @@ public:
  static std::string text(const String& s){return s.toCharArray();}
  static Json draft(DraftSchematic* d,int index){
   Json out={{"index",index},{"id",id(d)},{"name",text(d->getCustomName())},{"name_table",text(d->getObjectNameStringIdFile())},{"name_key",text(d->getObjectNameStringIdName())},{"template",text(TemplateManager::instance()->getTemplateFile(d->getTanoCRC()))},{"complexity",d->getComplexity()},{"slots",Json::array()},{"weights",Json::array()}};
+  out["category_id"]=std::to_string(d->getToolTab());out["tool_compatible"]=true;auto product=TemplateManager::instance()->getTemplate(d->getTanoCRC());out["description"]=product?text(product->getDetailedDescription()):"";
   for(int i=0;i<d->getDraftSlotCount();++i){auto slot=d->getDraftSlot(i);out["slots"].push_back({{"index",i},{"name_table",text(slot->getStringIdFile())},{"name_key",text(slot->getStringIdName())},{"type",text(slot->getResourceType())},{"quantity",slot->getQuantity()},{"kind",slot->getSlotType()},{"optional",slot->getSlotType()>=3}});}
   for(int i=0;i<d->getResourceWeightCount();++i){auto w=d->getResourceWeight(i);if(w->isFiller())continue;Json weights=Json::array();for(int j=0;j<w->getPropertyListSize();++j)weights.push_back({{"property",w->getTypeAndWeight(j)>>4},{"weight",w->getPropertyPercentage(j)}});out["weights"].push_back({{"name",text(w->getPropertyName())},{"group",text(w->getExperimentalTitle())},{"weights",weights}});}
   return out;

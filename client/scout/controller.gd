@@ -1,6 +1,7 @@
 extends "res://scripts/xr_datapad.gd"
 ## VR scout orchestration around authoritative native commands and camp objects.
 var ranger:Node3D
+var inspection:Node3D
 var app: Node
 var bag: Node3D
 var state: Dictionary={}
@@ -30,11 +31,15 @@ func setup(host: Node, inventory: Node3D) -> void:
 	dot=MeshInstance3D.new();var sphere:=SphereMesh.new();sphere.radius=0.003;sphere.height=0.006;dot.mesh=sphere;add_child(dot);dot.visible=false
 	bag.scout_requested.connect(use_item)
 	ranger=preload("res://scout/ranger.gd").new();add_child(ranger);ranger.setup(self)
+	inspection=preload("res://scout/creature_inspection.gd").new();add_child(inspection);inspection.setup(self)
 	body.combat_pools.selection_replaced.connect(selection_replaced)
 	RenderingServer.frame_pre_draw.connect(update_reticle)
 func reset() -> void:
 	if is_instance_valid(ranger):ranger.reset()
+	if is_instance_valid(inspection):inspection.reset()
 	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();dna_input.reset();camp_id="";cooldown_queue.clear()
+	var terrain:Variant=app.get("terrain")
+	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):terrain.set_modification_group("camps",[])
 	for node in models.values():node.queue_free()
 	models.clear();surfaces[0].mesh.visible=false;movement.state={}
 func mask_entry() -> Dictionary:
@@ -229,6 +234,9 @@ func ground_distance(point: Vector3) -> float:
 	if hit.is_empty() or Vector3(hit.normal).dot(Vector3.UP)<0.65:return INF
 	return point.y-Vector3(hit.position).y
 func sync_camps() -> void:
+	var terrain:Variant=app.get("terrain")
+	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):
+		terrain.set_modification_group("camps",state.get("camps",[]))
 	var live_ids: Array=[]
 	for camp: Dictionary in state.get("camps",[]):
 		for entry: Dictionary in [camp]+camp.get("objects",[]):

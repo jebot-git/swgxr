@@ -1,5 +1,5 @@
 [Unit]
-Description=SWGXR Tatooine Core3
+Description=SWGXR CoreCU ground-world server
 Requires=swgxr-db.service
 After=swgxr-db.service
 PartOf=swgxr.target swgxr-db.service
@@ -11,6 +11,7 @@ ExecStartPre=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py prepare-core
 ExecStart=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py run-core
 ExecStartPost=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py ready-core
 ExecStop=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py stop-core
+ExecStopPost=/usr/bin/python3 @ROOT@/tools/deploy/runtime.py stop-core
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=650

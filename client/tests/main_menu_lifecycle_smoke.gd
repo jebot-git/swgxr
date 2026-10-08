@@ -26,6 +26,8 @@ func run()->void:
 	var old_stage:Node=app.stage
 	app.inventory_snapshot={"items":[{"id":"fixture"}]}
 	app.clear_character_world();app.update_buttons()
+	check(old_stage.is_queued_for_deletion() and old_stage.process_mode==Node.PROCESS_MODE_DISABLED and not old_stage.visible,"World presentation is disabled immediately while callback-safe teardown is queued")
+	await process_frame
 	check(not is_instance_valid(old_stage) and app.stage==null and app.avatar==null and app.world_stream==null,"Actual teardown removes world, avatar and streaming workers")
 	check(app.datapad_character_id.is_empty() and app.inventory_snapshot.is_empty() and not app.world_ready,"Actual teardown clears character-owned client state")
 	check(app.menu.visible and not app.resume_button.visible and not app.action_row.visible and app.logoff_button.disabled and not app.quit_button.disabled,"Roster remains usable after teardown with quit available")

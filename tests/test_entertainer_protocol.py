@@ -49,3 +49,18 @@ class NativePerformanceProjectionTests(unittest.TestCase):
         stale=dict(envelope,sequence=9,mutation=dict(success=True,operation='flourish',command='flourish',index=8))
         hub.observe_native('player','1',stale)
         self.assertEqual(hub.bands['1']['flourish'],cue)
+
+
+class NativePlacedInstrumentProjectionTests(unittest.TestCase):
+    def test_native_placed_whitelist_survives_inventory_refresh(self):
+        from server.entertainment import PerformanceHub
+        hub=PerformanceHub(lambda:100.)
+        session=hub.register_observation('player',{'character_id':'1','skills':['social_entertainer_novice'],'entertainer':True},{'10':'object/tangible/instrument/slitherhorn.iff'},[0,0,0])
+        native={'source_kind':'core3_entertainer','character_id':'1','sequence':1,'state':{'character_id':'1','skills':['social_entertainer_novice'],'placed_instruments':[{'id':'20','template':'object/tangible/instrument/nalargon.iff','playable':True}]},'mutation':{}}
+        hub.observe_native('player','1',native)
+        hub.update('player',{'token':session['token'],'seq':1,'position':[0,0,0],'item_id':'20'})
+        hub.refresh_inventory('player','1',[{'id':'10','template':'object/tangible/instrument/slitherhorn.iff','equipped':True}])
+        actor=hub._actor('1');self.assertEqual(actor['item'],'20');self.assertIn('10',actor['items'])
+        with self.assertRaises(ValueError):hub.update('player',{'token':session['token'],'seq':2,'position':[0,0,0],'item_id':'999'})
+        native['sequence']=2;native['state']['placed_instruments']=[];hub.observe_native('player','1',native)
+        with self.assertRaises(ValueError):hub.update('player',{'token':session['token'],'seq':3,'position':[0,0,0],'item_id':'20'})

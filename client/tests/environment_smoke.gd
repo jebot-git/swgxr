@@ -32,6 +32,7 @@ func run() -> void:
 	root.add_child(terrain)
 	var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/terrain/tatooine.json"))
 	terrain.evaluator.configure(source)
+	terrain.source_manifest = source
 	terrain.origin = Vector3(3618.9838867,5,-4801.0859375)
 	terrain.configured = true
 	presentation.bind_world(terrain,null)

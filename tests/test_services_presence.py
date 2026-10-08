@@ -42,6 +42,15 @@ class PresenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.hub.authorize_payment('account1', '1', '2', 'payment_001', 5)
 
+    def test_handshake_binds_all_currencies(self):
+        self.shake()
+        amount = (5, {'imperial': 0, 'rebel': 20})
+        first = self.hub.authorize_payment('account1', '1', '2', 'payment_001', amount)
+        self.assertEqual(first, self.hub.authorize_payment('account1', '1', '2', 'payment_001', amount))
+        for changed in ((5, {'imperial': 0, 'rebel': 21}), (6, {'imperial': 0, 'rebel': 20})):
+            with self.assertRaises(ValueError):
+                self.hub.authorize_payment('account1', '1', '2', 'payment_001', changed)
+
     def test_lost_tracking_or_distance_blocks_issued_proof(self):
         self.shake()
         self.pose('2', hand=dict(position=[0, 1, 0], grip=True, tracked=False))

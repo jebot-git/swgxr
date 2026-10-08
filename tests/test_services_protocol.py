@@ -14,6 +14,14 @@ class ServicesProtocolTests(unittest.TestCase):
    with self.assertRaises(ValueError):command(action,d)
   for pair in [('0',1),('12',0),('12',True),('12',257)]:
    with self.assertRaises(ValueError):command('status',self.data(building_id=pair[0],cell_index=pair[1]))
+ def test_smuggler_multi_currency_payment(self):
+  request=self.data(target_id='42',amount=0,faction_points={'rebel':50})
+  self.assertEqual(command('pay',request)['faction_points'],{'imperial':0,'rebel':50})
+  request['amount']=17;request['faction_points']['imperial']=25
+  self.assertEqual(command('pay',request)['amount'],17)
+  for points in ({'underworld':1},{'rebel':True},{'rebel':-1},{'rebel':1.5},{'rebel':2000000001},[],None):
+   with self.subTest(points=points),self.assertRaises(ValueError):command('pay',dict(request,faction_points=points))
+  with self.assertRaises(ValueError):command('pay',dict(request,amount=0,faction_points={}))
  def test_positions(self):
   for p in ([0,float('nan'),0],[0,9000,0],[True,0,0],[0,0]):
    with self.assertRaises(ValueError):command('status',{'position':p})

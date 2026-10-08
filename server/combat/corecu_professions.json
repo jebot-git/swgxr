@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "note": "CoreCU tuning inspired by CU profession roles; values are not recovered historical bonuses. Progress: novice 10%, each of 16 branch boxes 5%, master 10%. Strongest profession plus 25% of other contributions, capped at 100 rating.",
+  "statuses": ["stun", "blind", "dizzy", "intimidate", "knockdown", "snare", "bleed", "poison", "disease", "fire"],
+  "professions": {
+    "combat_brawler": [20,10,20,20,20,10,10,0,0,0],
+    "combat_marksman": [10,20,10,10,10,10,0,0,0,0],
+    "outdoors_scout": [10,10,10,10,10,20,20,20,20,10],
+    "science_medic": [10,10,10,10,10,10,20,20,20,10],
+    "combat_unarmed": [60,40,60,60,60,40,40,20,20,20],
+    "combat_1hsword": [40,60,60,40,60,60,40,20,20,20],
+    "combat_2hsword": [60,40,40,60,60,40,60,20,20,20],
+    "combat_polearm": [60,40,60,60,60,40,40,20,20,20],
+    "combat_rifleman": [40,60,40,40,40,40,20,20,20,20],
+    "combat_pistol": [40,60,60,40,40,60,20,20,20,20],
+    "combat_carbine": [60,40,40,40,60,40,20,20,20,40],
+    "combat_commando": [60,40,40,60,60,40,40,60,40,60],
+    "combat_bountyhunter": [60,60,40,60,40,60,40,40,40,40],
+    "combat_smuggler": [40,60,60,60,40,60,20,40,20,20],
+    "outdoors_ranger": [40,40,40,40,40,60,60,60,60,40],
+    "outdoors_creaturehandler": [40,40,60,60,40,40,40,40,40,20],
+    "outdoors_squadleader": [60,40,40,60,60,40,40,40,40,40],
+    "science_combatmedic": [40,40,40,40,40,40,60,60,60,40],
+    "science_doctor": [40,40,40,40,40,40,60,60,60,40]
+  }
+}

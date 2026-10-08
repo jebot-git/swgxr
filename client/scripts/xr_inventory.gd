@@ -8,6 +8,7 @@ signal item_held_changed(item: Dictionary)
 signal item_drop_requested(item: Dictionary, pose: Transform3D)
 signal stack_split_requested(item: Dictionary, amount: int)
 signal equip_requested(item: Dictionary, arrangement: int)
+signal unequip_requested(item: Dictionary, side: String)
 signal consume_requested(item: Dictionary)
 signal tool_context_requested(tool: Dictionary)
 signal crafting_requested(tool: Dictionary)
@@ -50,9 +51,13 @@ var shoulder_candidate := false
 var grip_armed := false
 var main_grip_armed := false
 var held_item: Dictionary = {}
+var equipment_drag:Dictionary={}
+var equipment_drag_model:Node3D
+var equipment_grip_armed:=false
 var held_side := ""
 var open_bag_side := ""
 var open_bag_binding := ""
+var cross_shoulder_armed := false
 var off_hip_grip_armed := false
 var held_revision := 0
 var action_pending := false
@@ -83,6 +88,7 @@ func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> v
 	ui=InventoryUI.new()
 	add_surface(ui,Vector2i(1024,640),Vector2(0.56,0.35))
 	add_surface(ui.configure_details(),Vector2i(420,640),Vector2(0.23,0.35))
+	ui.unequip_requested.connect(func(item):unequip_requested.emit(item,""))
 	for surface: Dictionary in surfaces: surface.viewport.gui_embed_subwindows=true
 	survey_ui=SurveyUI.new(); survey_ui.configure()
 	add_surface(survey_ui,Vector2i(1050,680),Vector2(0.46,0.30)); survey_surface=surfaces.size()-1
@@ -148,8 +154,8 @@ func sync_presentation() -> void:
 	if is_instance_valid(survey_ui): survey_ui.set_active(show_survey)
 	if not show_survey and is_instance_valid(resource_preview_viewport): resource_preview_viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
 	if is_instance_valid(hip_model): hip_model.visible=allowed and str(hip_tool.get("id",""))!=str(held_item.get("id",""))
-	visible=is_open or not held_item.is_empty() or (allowed and not hip_tool.is_empty())
-	interaction_active=is_open or not held_item.is_empty() or shoulder_candidate or hip_candidate
+	visible=is_open or not held_item.is_empty() or not equipment_drag.is_empty() or hologram.active or (allowed and not hip_tool.is_empty())
+	interaction_active=is_open or not held_item.is_empty() or not equipment_drag.is_empty() or hologram.active or shoulder_candidate or hip_candidate
 	if not show_bag_ui:
 		if is_instance_valid(slot_viewport): slot_viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
 		if is_instance_valid(preview_viewport): preview_viewport.render_target_update_mode=SubViewport.UPDATE_DISABLED
@@ -172,15 +178,15 @@ func set_open(value: bool) -> void:
 	sync_pointers(); sync_presentation()
 
 func sync_pointers() -> void:
-	var suspend:=is_open or not held_item.is_empty()
+	var suspend:bool=is_open or not held_item.is_empty() or not equipment_drag.is_empty() or hologram.active
 	if suspend==pointers_suspended: return
 	pointers_suspended=suspend
 	preload("res://scripts/pointer_capture.gd").suspend(self,rig,suspend)
 
 func cancel_interaction() -> void:
 	# Cancellation never means a world-drop request.
-	shoulder_candidate=false; hip_candidate=false; grip_armed=false; main_grip_armed=false; off_hip_grip_armed=false
-	clear_held(); set_open(false); sync_pointers(); sync_presentation()
+	shoulder_candidate=false; hip_candidate=false; grip_armed=false; main_grip_armed=false; off_hip_grip_armed=false;cross_shoulder_armed=false
+	clear_equipment_drag(); clear_held(); set_open(false); sync_pointers(); sync_presentation()
 
 func main_side() -> String: return "right" if offhand=="left" else "left"
 func held_hand_side() -> String: return held_side if held_side in ["left","right"] else main_side()
@@ -195,7 +201,7 @@ func shoulder_contains(head: Transform3D, hand_position: Vector3) -> bool:
 	var forward:=(-head.basis.z).slide(Vector3.UP).normalized()
 	if forward.length_squared()<0.5: forward=-rig.global_basis.z.slide(Vector3.UP).normalized()
 	var right:=forward.cross(Vector3.UP)
-	var shoulder:=head.origin+right*(-0.19 if bag_hand_side()=="left" else 0.19)-Vector3.UP*0.16-forward*0.12
+	var shoulder:=head.origin+right*(-0.19 if offhand=="left" else 0.19)-Vector3.UP*0.16-forward*0.12
 	return hand_position.distance_to(shoulder)<0.24
 
 func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_grip: float, main_grip: float, hit: Dictionary, main_pose: Variant = null) -> void:
@@ -203,6 +209,13 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 		cancel_interaction(); return
 	var main_hand:=controller_for(main_side())
 	var current_main_pose: Transform3D=main_pose if main_pose is Transform3D else main_hand.global_transform
+	if update_equipment_drag(head,hand,current_main_pose,off_grip,main_grip):return
+	if main_grip<.35:cross_shoulder_armed=true
+	elif main_grip>=.65 and cross_shoulder_armed:
+		cross_shoulder_armed=false
+		if not is_open and not action_pending and (held_item.is_empty() or held_hand_side()!=main_side()) and shoulder_contains(head,current_main_pose.origin):
+			set_open(true);open_bag_side=main_side();open_bag_binding=offhand;grip_armed=false;main_grip_armed=false
+			sync_presentation();return
 	var main_hip:=not hip_tool.is_empty() and current_main_pose.origin.distance_to(hip_transform().origin)<0.20
 	var off_hip:=not hip_tool.is_empty() and hand.origin.distance_to(hip_transform().origin)<0.20
 	hip_candidate=main_hip or off_hip
@@ -265,6 +278,11 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 	sync_pointers(); sync_presentation()
 
 func take_item(item: Dictionary, side := "") -> void:
+	if item.get("equipped",false):
+		if not item.get("unequip_available",false):set_busy(false,str(item.get("unequip_block_reason","This item cannot be removed.")));return
+		begin_mutation("Removing equipment in Core3…")
+		unequip_requested.emit(item.duplicate(true),side if side in ["left","right"] else main_side())
+		return
 	var presentation:=assets.instance(str(item.get("template","")),0.28,item.get("customization",{}))
 	# Manufacturing schematics are native datapad records with no source mesh.
 	# Display a labeled holographic record, never claim it is original geometry.
@@ -373,6 +391,9 @@ func item_hand_pose(controller: XRController3D, grip: Transform3D) -> Transform3
 		pose.basis=(rig.global_transform*aim.get_adjusted_transform()).basis.orthonormalized()
 	else:
 		pose.basis=(grip.basis*XRTools.get_palm_offset(XRTools.HandOffsetMode.HAND_OFFSET_AUTO,controller).basis).orthonormalized()
+	if is_instance_valid(body) and body.get("feedback")!=null:
+		var head:Node3D=rig.get_node_or_null("XRCamera3D")
+		if head!=null:pose=body.feedback.spice.hand_pose(pose,head.global_transform,"left" if controller.name=="LeftHand" else "right")
 	return pose
 
 func refresh_hand_presentations() -> void:
@@ -380,6 +401,7 @@ func refresh_hand_presentations() -> void:
 	pose_bag()
 	var main:=held_controller()
 	if main!=null and is_instance_valid(held_model): held_model.global_transform=item_hand_pose(main,main.global_transform)
+	if is_instance_valid(equipment_drag_model):equipment_drag_model.global_transform=controller_for(main_side()).global_transform
 
 func rebuild_slots() -> void:
 	if not is_instance_valid(slot_scene): return
@@ -497,7 +519,7 @@ func set_busy(value: bool, message := "") -> void:
 
 func blocks_services() -> bool:
 	# Hovering over a shoulder/hip is not ownership of the free hand.
-	return is_open or not held_item.is_empty() or action_pending
+	return is_open or not held_item.is_empty() or not equipment_drag.is_empty() or hologram.active or action_pending
 
 func blocks_combat() -> bool:
 	if not allowed: return false
@@ -506,7 +528,7 @@ func blocks_combat() -> bool:
 		# near its hip must not prevent drawing the opposite-side weapon.
 		var hand:=controller_for(main_side())
 		if HandInput.controller_tracked(hand) and hand.global_position.distance_to(hip_transform().origin)<0.20:return true
-	if is_open or action_pending: return true
+	if is_open or action_pending or hologram.active or not equipment_drag.is_empty(): return true
 	if not held_item.is_empty() and not str(held_item.get("tool_kind","")).is_empty(): return true
 	# A released offhand near its shoulder is only a candidate. The real bag
 	# draw claims ownership through is_open above, never through idle proximity.
@@ -521,15 +543,18 @@ func statistics() -> Dictionary:
 
 func set_equipment_context(source: Node3D, equipment: Array) -> void:
 	equipment_avatar=source; current_equipment=equipment.duplicate(true)
-	if not is_instance_valid(hologram) or not hologram.active or held_item.is_empty(): return
+	if not equipment_drag.is_empty() and not current_equipment.any(func(item):return str(item.get("id",""))==str(equipment_drag.get("id",""))):clear_equipment_drag()
+	if not is_instance_valid(hologram) or not hologram.active:return
 	var key:=equipment_context_key()
 	if key==hologram_context_key: return
 	var pose: Transform3D=hologram.global_transform
 	var prior_page: int=hologram.page
+	var was_browsing:bool=hologram.browsing
 	hologram.configure(equipment_avatar,current_equipment+([hip_tool] if not hip_tool.is_empty() else []))
 	hologram.offhand=offhand
 	var display_item: Dictionary=held_item.duplicate(true); display_item["tool_hip_displaced_ids"]=[str(hip_tool.get("id",""))] if not hip_tool.is_empty() else []
-	if not hologram.show_item(display_item,Transform3D.IDENTITY): close_equipment_hologram(); return
+	var shown:bool=hologram.show_equipment(Transform3D.IDENTITY) if was_browsing else hologram.show_item(display_item,Transform3D.IDENTITY)
+	if not shown:close_equipment_hologram();return
 	hologram.global_transform=pose
 	hologram.page=prior_page
 	hologram_context_key=key
@@ -556,12 +581,56 @@ func show_equipment_hologram(head: Transform3D = Transform3D.IDENTITY) -> bool:
 	cancel_press(); clear_hover(); dot.visible=false; stick_captured=false; apply_capture(); sync_presentation()
 	return shown
 
+func browse_equipment(head:Transform3D)->bool:
+	if action_pending or not held_item.is_empty() or not equipment_drag.is_empty() or not is_instance_valid(equipment_avatar):return false
+	hologram.configure(equipment_avatar,current_equipment)
+	hologram.offhand=offhand
+	hologram_context_key=equipment_context_key()
+	equipment_grip_armed=false
+	var shown:bool=hologram.show_equipment(head)
+	sync_pointers();sync_presentation()
+	return shown
+
+func clear_equipment_drag()->void:
+	clear_model(equipment_drag_model);equipment_drag_model=null;equipment_drag={}
+	equipment_grip_armed=false
+
+func update_equipment_drag(head:Transform3D,off_pose:Transform3D,main_pose:Transform3D,off_grip:float,main_grip:float)->bool:
+	if equipment_drag.is_empty() and not (hologram.active and hologram.browsing):return false
+	if action_pending:return true
+	if main_grip<.35:equipment_grip_armed=true
+	if equipment_drag.is_empty():
+		var target:Dictionary=hologram.equipped_at(main_pose.origin)
+		if main_grip>=.65 and equipment_grip_armed and not target.is_empty():
+			equipment_grip_armed=false
+			if not target.get("unequip_available",false):return true
+			var model:=assets.instance(str(target.get("template","")),.22,target.get("customization",{}))
+			if model==null:hologram.set_status("Original item appearance is unavailable.");return true
+			equipment_drag=target.duplicate(true);equipment_drag_model=model;add_child(model);model.global_transform=main_pose
+			var preview_material:=ShaderMaterial.new();preview_material.shader=preload("res://shaders/equipment_hologram.gdshader");model.material_override=preview_material
+			hologram.close();grip_armed=off_grip<.35
+	else:
+		equipment_drag_model.global_transform=main_pose
+		if off_grip<.35:
+			grip_armed=true
+			if is_open:set_open(false)
+		elif off_grip>=.65 and grip_armed and shoulder_contains(head,off_pose.origin):
+			grip_armed=false;set_open(true)
+		if main_grip<.35:
+			var inside:bool=is_open and is_instance_valid(bag_model) and bag_model.global_position.distance_to(main_pose.origin)<=.30
+			var item:=equipment_drag.duplicate(true);clear_equipment_drag()
+			if inside:
+				begin_mutation("Returning equipment to inventory…");unequip_requested.emit(item,"")
+			else:browse_equipment(head) # Cancel without changing native equipment.
+	sync_pointers();sync_presentation()
+	return true
+
 func close_equipment_hologram() -> void:
 	if is_instance_valid(hologram): hologram.close()
 	sync_presentation()
 
 func update_held_trigger(trigger: float, head: Transform3D) -> void:
-	if held_item.is_empty() or not allowed or is_open or held_item.get("tool_kind","")=="fishing" or not str(held_item.get("structure_template","")).is_empty(): return
+	if held_item.is_empty() or not allowed or is_open or held_item.get("tool_kind","") in ["fishing","slicing"] or not str(held_item.get("structure_template","")).is_empty(): return
 	if trigger<0.35: held_trigger_armed=true; return
 	if trigger<0.55 or not held_trigger_armed or action_pending: return
 	held_trigger_armed=false

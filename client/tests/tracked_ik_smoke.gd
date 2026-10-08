@@ -84,6 +84,26 @@ func run() -> void:
 		passed = passed and report.left.valid and report.left.clamped and float(report.left.solver_error) < 0.0001
 		for i in range(skeleton.get_bone_count()):
 			passed = passed and skeleton.get_bone_pose_position(i).is_equal_approx(initial_positions[i]) and skeleton.get_bone_pose_scale(i).is_equal_approx(initial_scales[i])
+		# Vehicle attachment distributes the extra length across both source arm
+		# segments. Repeated binding must not accumulate translations or hand scale.
+		var upper_index:=skeleton.find_bone("larm")
+		var lower_index:=skeleton.find_bone("lforearm")
+		var wrist_index:=skeleton.find_bone("lwrist")
+		var first_length:=skeleton.get_bone_global_rest(upper_index).origin.distance_to(skeleton.get_bone_global_rest(lower_index).origin)
+		var second_length:=skeleton.get_bone_global_rest(lower_index).origin.distance_to(skeleton.get_bone_global_rest(wrist_index).origin)
+		targets.left_hand_attached=true
+		for frame in range(30):
+			target.origin=skeleton.get_bone_global_pose(upper_index).origin+Vector3(-.2,.1,-(first_length+second_length)*(1.2+frame*.01))
+			targets.left_hand=target
+			report=solver.solve(targets,1.0/90)
+			var first_now:=skeleton.get_bone_global_pose(upper_index).origin.distance_to(skeleton.get_bone_global_pose(lower_index).origin)
+			var second_now:=skeleton.get_bone_global_pose(lower_index).origin.distance_to(skeleton.get_bone_global_pose(wrist_index).origin)
+			passed=passed and report.left.attached and report.left.stretch>1 and report.left.error<.0001
+			passed=passed and absf(first_now/first_length-second_now/second_length)<.001 and skeleton.get_bone_pose_scale(wrist_index).is_equal_approx(initial_scales[wrist_index])
+		targets.left_tracked=false
+		report=solver.solve(targets,1.0/90)
+		passed=passed and not report.has("left") and skeleton.get_bone_pose_position(lower_index).is_equal_approx(initial_positions[lower_index]) and skeleton.get_bone_pose_position(wrist_index).is_equal_approx(initial_positions[wrist_index])
+		targets.left_hand_attached=false;targets.left_tracked=true
 		# Scale/world placement changes belong to the wrapper, not the solver.
 		skeleton.scale = Vector3.ONE * 1.4
 		skeleton.position = Vector3(35, 4, -78)

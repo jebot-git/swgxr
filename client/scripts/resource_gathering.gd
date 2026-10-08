@@ -92,7 +92,7 @@ func refresh(tool_id: String="") -> bool:
 	return accepted
 
 func refresh_tool(tool: Dictionary) -> void:
-	if tool.get("tool_kind","") in ["crafting","camp","trap","medical","fishing"]: return
+	if tool.get("tool_kind","") in ["crafting","camp","trap","medical","fishing","slicing"]: return
 	var id:=str(tool.get("id","")); var epoch: int=app.datapad_epoch
 	var held_revision: int=bag.held_revision
 	bag.set_busy(true,"Reading current planetary resources…")

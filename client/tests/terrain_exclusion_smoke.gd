@@ -57,6 +57,8 @@ func run() -> void:
 			var v:=clampf(-point.z/2-row,0,1)
 			var a:=row*17+col;var b:=a+1;var c:=a+17;var d:=c+1
 			var plane:=points[a].y+u*(points[b].y-points[a].y)+v*(points[c].y-points[a].y) if u+v<=1 else points[d].y+(1-v)*(points[b].y-points[d].y)+(1-u)*(points[c].y-points[d].y)
+			if (roundi(corner.x/2)+col+roundi(corner.y/2)+row)%2==0:
+				plane=points[a].y+u*(points[b].y-points[a].y)+v*(points[d].y-points[b].y) if u>=v else points[a].y+v*(points[c].y-points[a].y)+u*(points[d].y-points[c].y)
 			maximum_error=maxf(maximum_error,absf(point.y-plane))
 		assert(maximum_error<.001,"Adaptive exclusion vertices split original terrain surface")
 		crack_cases.append({"source_corner":str(corner),"height_span_m":high-low,"inserted_vertices":points.size()-17*17,"maximum_coarse_surface_error_m":maximum_error})

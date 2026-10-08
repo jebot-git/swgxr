@@ -37,6 +37,7 @@ var page:=0
 var has_more:=false
 var target_id := ""
 var slider: Control
+var faction_sliders: Dictionary={}
 var pointer_down := false
 var drag_scrolling := false
 var down_pixel := Vector2.ZERO
@@ -58,6 +59,11 @@ func _ready() -> void:
 	slider.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	slider.amount_changed.connect(func(_amount): queue_redraw())
 	slider.visible=false
+	for faction in ["imperial","rebel"]:
+		var currency:=AmountSlider.new();add_child(currency);faction_sliders[faction]=currency
+		currency.currency_unit=faction.capitalize()+" FP";currency.position=Vector2(148,290 if faction=="imperial" else 380)
+		currency.mouse_filter=Control.MOUSE_FILTER_IGNORE;currency.hide()
+		currency.amount_changed.connect(func(_amount):queue_redraw())
 	delivery_dialogue=RichTextLabel.new();add_child(delivery_dialogue);delivery_dialogue.position=Vector2(40,125);delivery_dialogue.size=Vector2(770,270);delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_IGNORE;delivery_dialogue.add_theme_font_override("normal_font",FONT);delivery_dialogue.add_theme_font_size_override("normal_font_size",24);delivery_dialogue.add_theme_color_override("default_color",Color("d2f6ff"));delivery_dialogue.hide()
 
 func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[]) -> void:
@@ -68,8 +74,9 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 	if upkeep_mode and terminal.get("kind","")=="house":terminal.kind="house_deposit"
 	if terminal.get("kind","")=="vendor":terminal.kind="bazaar";terminal.market_kind="vendor"
 	if is_instance_valid(delivery_dialogue):
-		delivery_dialogue.visible=terminal.get("kind","")=="delivery"
+		delivery_dialogue.visible=terminal.get("kind","") in ["delivery","underworld"]
 		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
+		if terminal.get("kind","")=="underworld" and not terminal.get("eligible",false) and not str(terminal.get("blocked_reason","")).is_empty():delivery_dialogue.text+="\n\n"+str(terminal.blocked_reason)
 	if terminal.get("kind","")=="bazaar":
 		var source_categories: Array=terminal.get("categories",[])
 		if previous_id!=str(terminal.get("id","")) or source_categories!=categories:
@@ -93,11 +100,19 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 	bid_mode=false
 	cancel_pointer()
 	slider.visible=str(terminal.get("kind","")) in ["bank","payment","house_deposit"]
+	if previous_id!=str(terminal.get("id","")):
+		slider.amount=0
+		for currency in faction_sliders.values():currency.amount=0
 	update_limit()
 	queue_redraw()
 
 func update_limit() -> void:
 	if not is_instance_valid(slider): return
+	var delegation:bool=terminal.get("kind","")=="payment" and bool(wallet.get("faction_delegation",false))
+	slider.position.y=200 if delegation else 290
+	for faction in faction_sliders:
+		var currency:Control=faction_sliders[faction];currency.visible=delegation
+		currency.configure(int(wallet.get("faction_limits",{}).get(faction,0)),currency.amount if delegation else 0)
 	if bid_mode and selected>=0 and selected<rows.size():
 		var minimum:=int(rows[selected].get("min_bid",int(rows[selected].get("price",0))+1))
 		slider.configure_range(minimum,maxi(minimum,int(wallet.get("cash",0))+int(wallet.get("bank",0))),maxi(minimum,slider.amount))
@@ -108,6 +123,7 @@ func update_limit() -> void:
 func set_pending(value: bool) -> void:
 	pending=value
 	slider.enabled=not value
+	for currency in faction_sliders.values():currency.enabled=not value
 	if value: cancel_pointer()
 	queue_redraw()
 
@@ -125,6 +141,9 @@ func pointer_begin(pixel: Vector2) -> void:
 	down_row=row_at(pixel)
 	dragged=false
 	scroll_residual=0
+	for currency in faction_sliders.values():
+		if currency.visible and currency.begin_drag(pixel-currency.position):
+			dragged=true;drag_scrolling=false;return
 	if slider.visible and slider.begin_drag(pixel-slider.position):
 		dragged=true
 		drag_scrolling=false
@@ -135,6 +154,8 @@ func pointer_begin(pixel: Vector2) -> void:
 func pointer_move(pixel: Vector2) -> void:
 	if not pointer_down or pending: return
 	if pixel.distance_to(down_pixel)>12: dragged=true
+	for currency in faction_sliders.values():
+		if currency.dragging:currency.drag_to(pixel-currency.position);last_pixel=pixel;return
 	if slider.dragging: slider.drag_to(pixel-slider.position)
 	elif drag_scrolling and dragged:
 		scroll_residual+=last_pixel.y-pixel.y
@@ -156,6 +177,7 @@ func cancel_pointer() -> void:
 	pointer_down=false
 	drag_scrolling=false
 	if is_instance_valid(slider): slider.cancel_drag()
+	for currency in faction_sliders.values():currency.cancel_drag()
 
 func scroll_at(pixel: Vector2, steps: int) -> void:
 	if pending or slider.visible or not ROWS_RECT.has_point(pixel):return
@@ -280,7 +302,12 @@ func confirm() -> void:
 	var action:=""
 	if kind=="bazaar": payload.merge(browse_payload(),true)
 	if kind in ["bank","payment","house_deposit"]:
-		if slider.amount<=0: return
+		var points:Dictionary={}
+		if kind=="payment" and wallet.get("faction_delegation",false):
+			for faction in faction_sliders:
+				if faction_sliders[faction].amount>0:points[faction]=faction_sliders[faction].amount
+		if slider.amount<=0 and points.is_empty(): return
+		if not points.is_empty():payload.faction_points=points
 		payload.amount=slider.amount
 		if kind=="house_deposit":action="house_deposit"
 		elif kind=="bank": action="bank_transfer";payload.direction=direction
@@ -293,6 +320,9 @@ func confirm() -> void:
 		if choice.get("id","")=="deposit":
 			terminal.kind="house_deposit";slider.visible=true;slider.amount=0;update_limit();queue_redraw();return
 		action="house_permission_arm";payload.permission_list=choice.permission_list;payload.permission_action=choice.permission_action
+	elif kind=="underworld":
+		if not terminal.get("eligible",false) or terminal.get("confirm_action","")!="underworld_accept":return
+		action="underworld_accept"
 	elif kind=="delivery":
 		if str(terminal.get("confirm_action",""))!="delivery_pickup":
 			message="Grip and pull the parcel from Data, present it to the recipient, and press trigger.";queue_redraw();return
@@ -384,7 +414,9 @@ func _draw() -> void:
 	draw_string(FONT,Vector2(30,50),str(terminal.get("name",kind.to_upper())),HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("d2f6ff"))
 	draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("d2f6ff"))
 	draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("9ac7da"))
-	if kind=="delivery":
+	if kind=="underworld":
+		draw_multiline_string(FONT,Vector2(40,408),"Front money: %d cr · Underworld reputation: %d\nReward: %d cr + %d reputation\nTime limit: %d minutes · Shuttle travel restricted"%[int(terminal.get("front_money",0)),int(terminal.get("reputation",0)),int(terminal.get("reward_credits",0)),int(terminal.get("reward_faction",0)),int(terminal.get("duration_seconds",1800))/60],HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("9ac7da"))
+	elif kind=="delivery":
 		var hint:=("Confirm to receive the mission recipe and components." if terminal.get("mission_kind","")=="crafting" else "Confirm to receive the mission parcel in Data.") if terminal.get("confirm_action","")=="delivery_pickup" else "Grip and pull the parcel from Data.\nPresent it to the recipient and press trigger.\nRelease grip to return it to the datapad."
 		draw_multiline_string(FONT,Vector2(40,408),hint,HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("9ac7da"))
 	elif kind in ["bank","payment","house_deposit"] or bid_mode:
@@ -396,8 +428,10 @@ func _draw() -> void:
 				draw_style_box(Holo.button("pressed" if active else "normal"),Rect2(170+index*260,192,250,60))
 				draw_string(FONT,Vector2(180+index*260,229),"Deposit to bank" if index==0 else "Withdraw to wallet",HORIZONTAL_ALIGNMENT_LEFT,240,21,Color("d2f6ff"))
 		elif kind=="house_deposit":draw_string(FONT,Vector2(170,228),"Deposit house upkeep · %d credits in reserve"%int(terminal.get("maintenance",0)),HORIZONTAL_ALIGNMENT_LEFT,630,24,Color("d2f6ff"))
-		else: draw_string(FONT,Vector2(170,228),"Pay "+str(terminal.get("recipient_name",target_id)),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2f6ff"))
-		draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("9ac7da"))
+		else: draw_string(FONT,Vector2(170,178 if wallet.get("faction_delegation",false) else 228),"Pay "+str(terminal.get("recipient_name",target_id)),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2f6ff"))
+		if kind=="payment" and wallet.get("faction_delegation",false):
+			draw_string(FONT,Vector2(170,122),"Imperial %d FP · Rebel %d FP · delegation cost ×%.2f"%[int(wallet.get("faction_points",{}).get("imperial",0)),int(wallet.get("faction_points",{}).get("rebel",0)),float(wallet.get("delegation_ratio",1.0))],HORIZONTAL_ALIGNMENT_LEFT,650,17,Color("9ac7da"))
+		else:draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("9ac7da"))
 	else:
 		var item_region:=BAZAAR_ROWS_RECT if kind=="bazaar" else ROWS_RECT
 		if kind=="bazaar":
@@ -440,8 +474,10 @@ func _draw() -> void:
 			draw_string(FONT,item.rect.position+Vector2(5,33),item.label,HORIZONTAL_ALIGNMENT_CENTER,item.rect.size.x-10,20,Color("d2f6ff"))
 		draw_string(FONT,Vector2(590,115),"Page %d · %d listings"%[page+1,rows.size()],HORIZONTAL_ALIGNMENT_LEFT,240,14,Color("9ac7da"))
 	var button: String={"bazaar":"Purchase","mission":"Accept mission","travel":"Buy ticket","boarding":"Board shuttle","bank":"Transfer","payment":"Send credits","crafting":"Use station","trainer":"Train skill"}.get(kind,"Confirm")
+	if kind=="underworld":button="Accept smuggling job"
+	if kind=="payment" and wallet.get("faction_delegation",false):button="Send currencies"
 	if kind=="delivery":button=("Receive recipe" if terminal.get("mission_kind","")=="crafting" else "Receive parcel") if terminal.get("confirm_action","")=="delivery_pickup" else "Present parcel by hand"
-	var confirmation_disabled:bool=(kind=="delivery" and terminal.get("confirm_action","")!="delivery_pickup") or pending or (kind=="trainer" and (selected<0 or selected>=rows.size()))
+	var confirmation_disabled:bool=(kind=="underworld" and not terminal.get("eligible",false)) or (kind=="delivery" and terminal.get("confirm_action","")!="delivery_pickup") or pending or (kind=="trainer" and (selected<0 or selected>=rows.size()))
 	if selected>=0 and selected<rows.size():
 		if kind=="trainer" and not trainer_blocked_reason(rows[selected]).is_empty():
 			confirmation_disabled=true;button="Already learned" if bool(rows[selected].get("learned",false)) else "Unavailable"

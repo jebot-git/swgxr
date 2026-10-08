@@ -16,6 +16,8 @@ func setup(host:Node)->void:
 		var parsed:Variant=JSON.parse_string(FileAccess.get_file_as_string(path))
 		if parsed is Dictionary:catalog=parsed
 func clear()->void:
+	var terrain:Variant=app.get("terrain") if is_instance_valid(app) else null
+	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):terrain.set_modification_group("housing",[])
 	for id:String in structures:
 		if is_instance_valid(app.stage):app.stage.unregister_cell_region("house:"+id)
 		structures[id].queue_free()
@@ -55,6 +57,8 @@ func color_preview(node:Node3D,valid:bool)->void:
 func mirror_quaternion(q:Array)->Quaternion:return Quaternion(-float(q[0]),-float(q[1]),float(q[2]),float(q[3])).normalized()
 func apply(state:Dictionary)->void:
 	if not is_instance_valid(app.stage):return
+	var terrain:Variant=app.get("terrain")
+	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):terrain.set_modification_group("housing",state.get("structures",[]))
 	var keep:Dictionary={}
 	for row:Dictionary in state.get("structures",[]):
 		var id:=str(row.id);keep[id]=true

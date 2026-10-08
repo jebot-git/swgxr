@@ -7,6 +7,9 @@
 #include <godot_cpp/variant/packed_vector3_array.hpp>
 #include <vector>
 #include <cmath>
+#include <map>
+#include <set>
+#include <limits>
 using namespace godot;
 namespace {
 Vector3 vec(const Array &a) {return a.size()==3?Vector3(a[0],a[1],a[2]):Vector3();}
@@ -39,10 +42,87 @@ void append(const Dictionary &def,const Transform3D &parent,Array &out,int depth
     } else if(type=="mesh") shape=mesh_shape(def.get("vertices",Array()),def.get("indices",Array()));
     if(shape.is_valid()) {Dictionary item;item["shape"]=shape;item["transform"]=transform;out.push_back(item);}
 }
+
+// Follow the portal centreline through the original open FLR adjacency, ending
+// at an open terrain handoff. A floor elsewhere in the same connected component
+// is insufficient: closed side walls and gaps must terminate this exact route.
+struct FloorApproach {double depth=0,minimum_height=std::numeric_limits<double>::infinity();};
+FloorApproach floor_approach(const Dictionary &floor,int portal_id,const Vector3 &center,const Vector3 &direction) {
+    const Array vertices=floor.get("floor_vertices",Array()),triangles=floor.get("floor_triangles",Array());
+    if(portal_id<0||vertices.size()%3)return {};
+    struct Segment {double lo,hi;Vector3 p[3];Array neighbors,edges,portals;};
+    std::map<int,Segment> segments;
+    auto vertex=[&](int id){return Vector3(vertices[id*3],vertices[id*3+1],vertices[id*3+2]);};
+    int first=-1;
+    for(int i=0;i<triangles.size();i++) {
+        const Dictionary t=triangles[i];if(bool(t.get("fallthrough",false)))continue;
+        const Array ids=t.get("indices",Array());if(ids.size()!=3)continue;
+        Segment s;s.lo=-std::numeric_limits<double>::infinity();s.hi=-s.lo;bool usable=true;
+        for(int j=0;j<3;j++){const int id=ids[j];if(id<0||id>=vertices.size()/3){usable=false;break;}s.p[j]=vertex(id);}
+        if(!usable)continue;
+        const Vector3 normal=(s.p[1]-s.p[0]).cross(s.p[2]-s.p[0]).normalized();
+        if(std::abs(normal.y)<0.707106)continue;
+        for(int e=0;e<3;e++) {
+            const Vector3 edge=s.p[(e+1)%3]-s.p[e];Vector3 inward(-edge.z,0,edge.x);
+            if(inward.dot(s.p[(e+2)%3]-s.p[e])<0)inward=-inward;
+            const double distance=inward.dot(center-s.p[e]),along=inward.dot(direction);
+            if(std::abs(along)<1e-9){if(distance< -1e-5)usable=false;continue;}
+            const double crossing=-distance/along;
+            if(along>0)s.lo=std::max(s.lo,crossing);else s.hi=std::min(s.hi,crossing);
+        }
+        if(!usable||s.hi-s.lo<1e-6)continue;
+        s.neighbors=t.get("neighbors",Array());s.edges=t.get("edge_flags",Array());s.portals=t.get("portal_ids",Array());
+        if(s.neighbors.size()!=3||s.edges.size()!=3||s.portals.size()!=3)continue;
+        const int id=t.get("id",i);segments[id]=s;
+        // JSON numbers are FLOAT Variants. Array::has is type-strict, so
+        // compare converted source indices rather than an INT Variant key.
+        bool touches_portal=false;
+        for(int edge=0;edge<3;edge++)if(int(s.portals[edge])==portal_id)touches_portal=true;
+        if(touches_portal&&s.lo<=0.1&&s.hi>=-0.1)first=id;
+    }
+    std::set<int> visited;double minimum_height=std::numeric_limits<double>::infinity();
+    while(first>=0&&segments.count(first)&&visited.insert(first).second) {
+        const Segment &s=segments.at(first);const double end=s.hi;
+        const Vector3 floor_normal=(s.p[1]-s.p[0]).cross(s.p[2]-s.p[0]);
+        for(double distance:{std::max(0.0,s.lo),end}) {
+            const Vector3 sample=center+direction*distance;
+            const double height=s.p[0].y-(floor_normal.x*(sample.x-s.p[0].x)+floor_normal.z*(sample.z-s.p[0].z))/floor_normal.y;
+            minimum_height=std::min(minimum_height,height);
+        }
+        const Vector3 point=center+direction*end;int next=-1;bool open_end=false;
+        for(int e=0;e<3;e++) {
+            const Vector3 edge=s.p[(e+1)%3]-s.p[e];Vector3 inward(-edge.z,0,edge.x);const double length=inward.length();
+            if(length<1e-9)continue;inward/=length;
+            if(inward.dot(s.p[(e+2)%3]-s.p[e])<0)inward=-inward;
+            if(std::abs(inward.dot(point-s.p[e]))>0.01||inward.dot(direction)>=-1e-6)continue;
+            // Only FET_Crossable proves an open approach. WallBase and
+            // WallTop require separate source entry/exit tests and cannot
+            // justify removing a shell merely because they are nonzero.
+            if(int(s.edges[e])!=1||int(s.portals[e])>=0)continue;
+            const int neighbor=s.neighbors[e];
+            if(segments.count(neighbor)) {
+                const Segment &following=segments.at(neighbor);
+                if(following.lo<=end+0.01&&following.hi>end+1e-5)next=neighbor;
+            } else {
+                // Only missing support or explicit fallthrough is a terrain
+                // exit. An unwalkable neighbour is not permission to cut walls.
+                if(neighbor<0)open_end=true;
+                for(int i=0;i<triangles.size();i++){const Dictionary t=triangles[i];if(int(t.get("id",i))==neighbor&&bool(t.get("fallthrough",false)))open_end=true;}
+            }
+        }
+        if(next>=0){first=next;continue;}
+        // Include the standard walking capsule's 25cm toe at this open edge.
+        // Slightly tilted coarse sheets span more depth than their centre hit;
+        // closed boundaries never receive this finite handoff allowance.
+        if(open_end&&std::isfinite(end)&&end>0)return {end+0.25,minimum_height};
+        return {};
+    }
+    return {};
+}
 }
 void SwgCollisionBuilder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("build_extent","definition"),&SwgCollisionBuilder::build_extent);
-    ClassDB::bind_method(D_METHOD("build_cell_extent","definition","portals"),&SwgCollisionBuilder::build_cell_extent);
+    ClassDB::bind_method(D_METHOD("build_cell_extent","definition","portals","floor"),&SwgCollisionBuilder::build_cell_extent,DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("build_floor","cell"),&SwgCollisionBuilder::build_floor);
 }
 Array SwgCollisionBuilder::build_extent(const Dictionary &definition) const {
@@ -58,7 +138,7 @@ Ref<ConcavePolygonShape3D> SwgCollisionBuilder::build_floor(const Dictionary &ce
 // Godot does not perform the source client's portal-before-cell-extent query.
 // Subtract only a finite authored doorway aperture from near-coplanar CMSH
 // closure faces. Floors, lintels, side jambs and unrelated shell faces remain.
-Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const Array &portals) const {
+Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const Array &portals,const Dictionary &floor) const {
     Array result=build_extent(definition);
     using Polygon=std::vector<Vector3>;
     auto split=[](const Polygon &poly,const Vector3 &normal,double offset,bool inside) {
@@ -102,8 +182,15 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
             // never be perforated simply because a doorway faces them.
             double behind=0.1,ahead=0.1;
             std::vector<double> selected;
+            FloorApproach back_approach,front_approach;
             if(bool(portal.get("exterior_shell",false))) {
                 const double limit=std::max(0.1,std::min(1.5,inradius*0.5));
+                const Vector3 horizontal=Vector3(normal.x,0,normal.z).normalized();
+                const int floor_portal=portal.get("floor_portal_index",-1);
+                back_approach=floor_approach(floor,floor_portal,center,-horizontal);
+                front_approach=floor_approach(floor,floor_portal,center,horizontal);
+                const double back_limit=std::max(limit,back_approach.depth);
+                const double front_limit=std::max(limit,front_approach.depth);
                 std::vector<double> candidates;
                 for(const Polygon &piece:pieces) {
                     if(piece.size()<3)continue;
@@ -111,7 +198,7 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
                     const double alignment=fn.dot(normal);
                     if(std::abs(alignment)<0.95)continue;
                     const double distance=fn.dot(piece[0]-center)/alignment;
-                    if(std::abs(distance)>limit)continue;
+                    if(distance< -back_limit||distance>front_limit)continue;
                     const Vector3 hit=center+normal*distance;bool covered=true;
                     for(size_t edge=0;edge<piece.size();edge++) {
                         if((piece[(edge+1)%piece.size()]-piece[edge]).cross(hit-piece[edge]).dot(fn)<-1e-5){covered=false;break;}
@@ -137,7 +224,7 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
                         area+=projected_area(projected);
                         for(const Vector3 &v:projected){const double depth=normal.dot(v)-offset;lo=std::min(lo,depth);hi=std::max(hi,depth);}
                     }
-                    return aperture_area>1e-8&&area/aperture_area>=0.9&&lo>=-limit&&hi<=limit;
+                    return aperture_area>1e-8&&area/aperture_area>=0.9&&lo>=-back_limit&&hi<=front_limit;
                 };
                 // A small jamb or nearby prop is not a closure sheet. Source
                 // shell closures cover essentially the whole authored opening.
@@ -154,8 +241,20 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
                 bool closure=std::abs(face_distance)<=0.1;
                 for(double candidate:selected)if(std::abs(face_distance-candidate)<=0.01){closure=true;break;}
                 if(!closure){next.push_back(piece);continue;}
+                // A descending exterior approach can lie below the doorway
+                // sill. Only a proven connected open FLR route authorizes
+                // lowering the cut, and never beneath that route's floor.
+                auto clipping_planes=planes;
+                const FloorApproach &approach=face_distance<0?back_approach:front_approach;
+                if(approach.depth>0&&std::abs(face_distance)<=approach.depth&&std::isfinite(approach.minimum_height)) {
+                    const Vector3 floor_point(center.x,approach.minimum_height-0.005,center.z);
+                    for(size_t side=2;side<clipping_planes.size();side++) {
+                        auto &plane=clipping_planes[side];
+                        if(plane.first.y>0.95)plane.second=std::min(plane.second,double(plane.first.dot(floor_point)));
+                    }
+                }
                 Polygon remainder=piece;
-                for(const auto &plane:planes) {
+                for(const auto &plane:clipping_planes) {
                     Polygon outside=split(remainder,plane.first,plane.second,false);
                     if(outside.size()>=3)next.push_back(std::move(outside));
                     remainder=split(remainder,plane.first,plane.second,true);

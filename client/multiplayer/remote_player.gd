@@ -76,7 +76,7 @@ func apply_peer(value: Dictionary) -> void:
 func life_state() -> String:
 	if bool(row.get("dead", false)) or str(row.get("life_state", "")).to_lower() == "dead" or int(row.get("posture", 0)) == 14:
 		return "dead"
-	if bool(row.get("incapacitated", false)) or str(row.get("life_state", "")).to_lower() == "incapacitated" or int(row.get("posture", 0)) == 13:
+	if bool(row.get("feigning_death",false)) or bool(row.get("incapacitated", false)) or str(row.get("life_state", "")).to_lower() == "incapacitated" or int(row.get("posture", 0)) == 13:
 		return "incapacitated"
 	return ""
 
@@ -112,15 +112,16 @@ func advance(delta: float) -> void:
 		pose_report = avatar.sample_life_pose(state, life_pose_time)
 		if not bool(pose_report.get("valid", false)):
 			label.text = str(row.get("name", "Player")) + "\n" + state.capitalize() + " · original pose unavailable"
-		return # Native incapacitation/death always defeats transient tracked pose.
-	var motion := velocity if sample_age < 0.5 else Vector3.ZERO
-	var posture := clampi(int(row.get("posture", 0)), 0, 3)
-	if posture == 0 and not tracking_goal.is_empty() and pose_age <= 0.75:
-		posture = clampi(int(row.get("physical_posture", 0)), 0, 2)
-	avatar.update_motion(step, motion.length(), {"velocity": global_basis.inverse() * motion, "grounded": bool(row.get("grounded", true)), "posture": posture})
-	if avatar.animation_player != null: avatar.animation_player.advance(step)
-	if avatar.face_player != null: avatar.face_player.advance(step)
-	pose_report = {"tracked": false, "motion_state": avatar.motion_state}
+		if not bool(row.get("feigning_death",false)) or state=="dead":return
+	else:
+		var motion := velocity if sample_age < 0.5 else Vector3.ZERO
+		var posture := clampi(int(row.get("posture", 0)), 0, 3)
+		if posture == 0 and not tracking_goal.is_empty() and pose_age <= 0.75:
+			posture = clampi(int(row.get("physical_posture", 0)), 0, 2)
+		avatar.update_motion(step, motion.length(), {"velocity": global_basis.inverse() * motion, "grounded": bool(row.get("grounded", true)), "posture": posture})
+		if avatar.animation_player != null: avatar.animation_player.advance(step)
+		if avatar.face_player != null: avatar.face_player.advance(step)
+		pose_report = {"tracked": false, "motion_state": avatar.motion_state}
 	if not ik_ready or pose_age > 0.75 or tracking_goal.is_empty(): return
 	var targets: Dictionary = {}
 	var inverse: Transform3D = avatar.skeleton.global_transform.affine_inverse()

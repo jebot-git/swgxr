@@ -1,0 +1,827 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1,4 +1,5 @@
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
++#include "server/zone/objects/creature/commands/SwgxrSpiceMedicine.h"
+ #include "server/zone/objects/creature/commands/SwgxrVitalFeedback.h"
+ /*
+  				Copyright <SWGEmu>
+@@ -1291,6 +1292,15 @@
+ 		return 0;
+ 	}
+ 
++	if (damageType % 3 == 0 && SwgxrSpice::pinnedHam(asCreatureObject())) {
++		setHAM(damageType, 1, notifyClient);
++		return 0;
++	}
++	damage = SwgxrSpiceMedicine::power(healer, damage);
++	int wouldHeal = Math::max(0, Math::min(damage, maxHamList.get(damageType) - wounds.get(damageType) - hamList.get(damageType)));
++	if (SwgxrSpiceMedicine::reverse(asCreatureObject(), healer, damageType, wouldHeal, notifyClient))
++		return wouldHeal;
++
+ 	int returnValue = damage;
+ 
+ 	int currentValue = hamList.get(damageType);
+@@ -1358,6 +1368,11 @@
+ 		error("incorrect damage type in CreatureObjectImplementation::healWound");
+ 		return 0;
+ 	}
++
++	damage = SwgxrSpiceMedicine::power(healer, damage);
++	int wouldHeal = Math::max(0, Math::min(damage, wounds.get(damageType)));
++	if (SwgxrSpiceMedicine::reverse(asCreatureObject(), healer, damageType, wouldHeal, notifyClient))
++		return wouldHeal;
+ 
+ 	int currentValue = wounds.get(damageType);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
+@@ -1,3 +1,8 @@
++#include <cmath>
++#include "server/zone/objects/player/sessions/EntertainingSession.h"
++#include "server/zone/managers/objectcontroller/ObjectController.h"
++#include "server/zone/objects/creature/commands/QueueCommand.h"
++#include "engine/util/JSONSerializationType.h"
+ /*
+  * LuaCreatureObject.cpp
+  *
+@@ -53,6 +58,9 @@
+ 		{ "getTargetID", &LuaCreatureObject::getTargetID },
+ 		{ "clearCombatState", &LuaCreatureObject::clearCombatState },
+ 		{ "setBuffDuration", &LuaCreatureObject::setBuffDuration },
++		{ "getWounds", &LuaCreatureObject::getWounds },
++		{ "getEntertainerPatronData", &LuaCreatureObject::getEntertainerPatronData },
++		{ "executeCommand", &LuaCreatureObject::executeCommand },
+ 		{ "getParent", &LuaSceneObject::getParent },
+ 		{ "getZoneName", &LuaSceneObject::getZoneName },
+ 		{ "getObjectID", &LuaSceneObject::getObjectID },
+@@ -1631,3 +1639,26 @@
+  Locker lock(realObject);if(realObject->getBuff(uint32(crc))==nullptr){lua_pushboolean(L,false);return 1;}
+  auto buff=realObject->getBuff(uint32(crc));Locker buffLock(buff,realObject);buff->renew(float(duration));buff->sendTo(realObject);lua_pushboolean(L,true);return 1;
+ }
++
++// Trusted screenplay access to original native operations; no player RPC route.
++int LuaCreatureObject::getWounds(lua_State* L) {
++ int attribute=lua_tointeger(L,-1);if(!realObject || attribute<0 || attribute>8){lua_pushnil(L);return 1;}
++ Locker lock(realObject);lua_pushinteger(L,realObject->getWounds(attribute));return 1;
++}
++int LuaCreatureObject::getEntertainerPatronData(lua_State* L) {
++ if(!realObject || !lua_islightuserdata(L,-1)){lua_pushnil(L);return 1;}
++ auto object=static_cast<SceneObject*>(lua_touserdata(L,-1));if(!object || !object->isCreatureObject()){lua_pushnil(L);return 1;}
++ auto patron=object->asCreatureObject();Locker lock(realObject);Locker patronLock(patron,realObject);
++ auto session=realObject->getActiveSession(SessionFacadeType::ENTERTAINING).castTo<EntertainingSession*>();
++ JSONSerializationType result={{"performing",session!=nullptr},{"strength",0},{"duration",0}};
++ if(session){result["strength"]=session->getEntertainerBuffStrength(patron,session->getPerformanceIndex());result["duration"]=session->getEntertainerBuffDuration(patron,session->getPerformanceIndex());}
++ auto text=result.dump();lua_pushstring(L,text.c_str());return 1;
++}
++int LuaCreatureObject::executeCommand(lua_State* L) {
++ if(!realObject || !realObject->isPlayerCreature() || !realObject->getZoneServer() || lua_gettop(L)!=4 || !lua_isstring(L,-3) || !lua_isnumber(L,-2) || !lua_isstring(L,-1)){lua_pushinteger(L,-1);return 1;}
++ String name=lua_tostring(L,-3),args=lua_tostring(L,-1);double target=lua_tonumber(L,-2);
++ if(name.isEmpty() || name.length()>64 || args.length()>1024 || !std::isfinite(target) || target<0 || target>9007199254740991.0){lua_pushinteger(L,-1);return 1;}
++ Locker lock(realObject);auto command=realObject->getZoneServer()->getObjectController()->getQueueCommand(name);
++ if(!command){lua_pushinteger(L,-1);return 1;}
++ lua_pushinteger(L,command->doQueueCommand(realObject,uint64(target),UnicodeString(args)));return 1;
++}
+--- a/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.h
+@@ -50,6 +50,9 @@
+ 		int getTargetID(lua_State* L);
+ 		int clearCombatState(lua_State* L);
+ 		int setBuffDuration(lua_State* L);
++		int getWounds(lua_State* L);
++		int getEntertainerPatronData(lua_State* L);
++		int executeCommand(lua_State* L);
+ 		int getHAM(lua_State* L);
+ 		int getBaseHAM(lua_State* L);
+ 		int getMaxHAM(lua_State* L);
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/crafting/CraftingSessionImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrMissionItems.h"
+ /*
+  * CraftingSessionImplementation.cpp
+@@ -761,7 +762,7 @@
+ 	manufactureSchematic->setCrafter(crafter);
+ 
+ 	String expskill = draftSchematic->getExperimentationSkill();
+-	experimentationPointsTotal = int(crafter->getSkillMod(expskill) / 10);
++	experimentationPointsTotal = int(crafter->getSkillMod(expskill) / 10) + (SwgxrSpice::active(crafter, "yarrock") ? 2 : 0);
+ 	experimentationPointsUsed = 0;
+ 
+ 	// Calculate exp failure for red bars
+@@ -1105,7 +1106,12 @@
+ 			// Set the experimentation result ie:  Amazing Success
+ 			experimentationResult = craftingManager->calculateExperimentationSuccess(crafter, manufactureSchematic->getDraftSchematic(), failure);
+ 
+-			if (experimentationResult != CraftingManager::AMAZINGSUCCESS && craftingTool->getForceCriticalExperiment() > 0) {
++			const bool spiceFailure = SwgxrSpice::withdrawing(crafter, "yarrock") || SwgxrSpice::withdrawing(crafter, "muon_gold");
++			const bool spiceAmazing = SwgxrSpice::active(crafter, "muon_gold");
++			if (spiceFailure) experimentationResult = CraftingManager::CRITICALFAILURE;
++			else if (spiceAmazing) experimentationResult = CraftingManager::AMAZINGSUCCESS;
++
++			if (!spiceFailure && experimentationResult != CraftingManager::AMAZINGSUCCESS && craftingTool->getForceCriticalExperiment() > 0) {
+ 				// We are going to mutute the tool, lock it
+ 				Locker toolLock(craftingTool, crafter);
+ 
+@@ -1604,7 +1610,7 @@
+ #include "templates/params/PaletteColorCustomizationVariable.h"
+ String CraftingSessionImplementation::swgxrSnapshot() {
+  using View=SwgxrCraftingView;using Json=JSONSerializationType;
+- Json out={{"stage",state},{"points",experimentationPointsTotal-experimentationPointsUsed},{"schematics",Json::array()},{"rows",Json::array()},{"statistics",Json::array()},{"colors",Json::array()},{"station_id",View::id(craftingStation.get())}};
++ Json out={{"experimentation_result",experimentationPointsUsed > 0 ? int(experimentationResult) : -1},{"stage",state},{"points",experimentationPointsTotal-experimentationPointsUsed},{"schematics",Json::array()},{"rows",Json::array()},{"statistics",Json::array()},{"colors",Json::array()},{"station_id",View::id(craftingStation.get())}};
+  for(int i=0;i<currentSchematicList.size();++i)out["schematics"].push_back(View::draft(currentSchematicList.get(i),i));
+  auto manu=manufactureSchematic.get();auto proto=prototype.get();
+  if(manu!=nullptr){out["schematic"]=View::draft(manu->getDraftSchematic(),-1);auto values=manu->getCraftingValues();
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/EntertainingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/EntertainingSessionImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpiceEntertainer.h"
+ /*
+  * EntertainingSessionImplementation.cpp
+  *
+@@ -146,6 +147,7 @@
+ 	float amountHealed = 0;
+ 
+ 	ManagedReference<CreatureObject*> entertainer = this->entertainer.get();
++	if (SwgxrSpice::active(entertainer, "neutron_pixey")) woundHeal *= 2.f;
+ 
+ 	Locker clocker(creature, entertainer);
+ 
+@@ -212,6 +214,7 @@
+ 		return;
+ 
+ 	Locker locker(entertainer);
++	if (SwgxrSpiceEntertainer::blockAttempt(entertainer)) return;
+ 
+ 	if (!isDancing() && !isPlayingMusic()) {
+ 		return; // don't tick action if they aren't doing anything
+@@ -401,6 +404,7 @@
+ 
+ 	if (entertainer == nullptr)
+ 		return;
++	if (SwgxrSpiceEntertainer::blockAttempt(entertainer)) return;
+ 
+ 	performanceIndex = perfIndex;
+ 
+@@ -482,10 +486,12 @@
+ 
+ 	performanceManager->performanceMessageToSelf(entertainer, nullptr, "performance", effectMessage);
+ 
+-	entertainer->inflictDamage(entertainer, CreatureAttribute::ACTION, effectCost, true);
++	{ SwgxrSpice::HamAdjustment adjustment;
++	  entertainer->inflictDamage(entertainer, CreatureAttribute::ACTION, effectCost, true);
++	}
+ 
+ 	uint64 effectDuration = (uint64)(effect->getEffectDuration() * 1000);
+-	entertainer->addCooldown("performing_entertainer_effect", effectDuration);
++	entertainer->addCooldown("performing_entertainer_effect", uint64(effectDuration * SwgxrSpice::cooldownScale(entertainer)));
+ }
+ 
+ void EntertainingSessionImplementation::startPlayingMusic(int perfIndex, Instrument* instrument) {
+@@ -493,6 +499,7 @@
+ 
+ 	if (entertainer == nullptr)
+ 		return;
++	if (SwgxrSpiceEntertainer::blockAttempt(entertainer)) return;
+ 
+ 	if (instrument == nullptr) {
+ 		entertainer->sendSystemMessage("@performance:music_no_instrument"); // You must have an instrument equipped to play music.
+@@ -631,6 +638,7 @@
+ 
+ 	if (entertainer == nullptr)
+ 		return;
++	if (SwgxrSpiceEntertainer::blockAttempt(entertainer)) return;
+ 
+ 	if (!isDancing() && !isPlayingMusic()) {
+ 		entertainer->sendSystemMessage("@performance:flourish_not_performing");
+@@ -708,6 +716,8 @@
+ 	int buffStrength = getEntertainerBuffStrength(creature, performanceType);
+ 
+ 
++	const float spiceScale = SwgxrSpice::active(entertainer, "neutron_pixey") ? 2.f : 1.f;
++	strength *= spiceScale;
+ 	float newBuffStrength = buffStrength + strength;
+ 
+ 	float maxBuffStrength = 0.0f;	//cap based on enhancement skill
+@@ -734,11 +744,12 @@
+ 		}
+ 	}
+ 
++	maxBuffStrength *= spiceScale;
+ 	//add xp based on % added to buff strength
+ 	if (newBuffStrength  < maxBuffStrength) {
+ 		healingXp += strength;
+ 	} else {
+-		healingXp += maxBuffStrength - buffStrength;
++		healingXp += Math::max(0.f, maxBuffStrength - buffStrength);
+ 		newBuffStrength = maxBuffStrength;
+ 	}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/tangible/consumable/ConsumableImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/consumable/ConsumableImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpiceMedicine.h"
+ /*
+  * ConsumableImplementation.cpp
+  *
+@@ -226,6 +227,7 @@
+ 		return 1;
+ 	}
+ 	case EFFECT_HEALING: {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 		int healthHealed = 0, actionHealed = 0, mindHealed = 0;
+ 
+ 		for (int i = 0; i < modifiers.size(); ++i) {
+@@ -449,6 +451,7 @@
+ 
+ 	switch (effectType) {
+ 		case EFFECT_HEALING: {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 			if (filling > 0) {
+ 				if (isFood()) {
+ 					alm->insertAttribute("stomach_food", filling);
+--- a/MMOCoreORB/src/server/zone/objects/tangible/components/HeroRingMenuComponent.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/components/HeroRingMenuComponent.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpiceMedicine.h"
+ #include "HeroRingMenuComponent.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "templates/params/creature/CreatureAttribute.h"
+@@ -65,6 +66,7 @@
+ 			return 0;
+ 		}
+ 
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 		player->healDamage(player, CreatureAttribute::HEALTH, 200);
+ 		player->healDamage(player, CreatureAttribute::ACTION, 200);
+ 		player->healDamage(player, CreatureAttribute::MIND, 200);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSpiceMedicine.h
+@@ -0,0 +1,38 @@
++#ifndef SWGXR_SPICE_MEDICINE_H
++#define SWGXR_SPICE_MEDICINE_H
++#include "SwgxrSpice.h"
++#include "SwgxrVitalFeedback.h"
++#include "server/zone/Zone.h"
++#include "server/zone/packets/object/PlayClientEffectObjectMessage.h"
++#include "templates/params/creature/CreatureAttribute.h"
++#include <limits>
++// Explicit medical scopes exclude regeneration, equipment refunds and buff HAM
++// changes. The native healer remains authoritative for both HAM and feedback.
++class SwgxrSpiceMedicine {
++public:
++ static CreatureObject* actor(TangibleObject* healer){return healer && healer->isCreatureObject()?healer->asCreatureObject():nullptr;}
++ static bool inverted(CreatureObject* healer){return SwgxrSpice::withdrawing(healer,"crash_n_burn");}
++ static int power(TangibleObject* healer,int amount){auto c=actor(healer);if(amount>0 && SwgxrVitalFeedback::medical() && SwgxrSpice::active(c,"crash_n_burn"))return int(std::min<long long>(std::numeric_limits<int>::max()/2,3LL*amount));return amount;}
++ static bool reverse(CreatureObject* target,TangibleObject* healer,int attribute,int amount,bool notify){
++  auto c=actor(healer);if(amount<=0 || !SwgxrVitalFeedback::medical() || !inverted(c))return false;
++  const int pool=attribute-attribute%3;
++  target->inflictDamage(healer,pool,amount,true,notify,false);
++  // The actor retains the healing presentation, even for self-treatment. The
++  // recipient's real damage event and actual HAM are never hidden from others.
++  if(c->isPlayerCreature())SwgxrVitalFeedback::record(c->getObjectID(),true);
++  if(c!=target && target->isPlayerCreature()){
++   StringBuffer message;message << c->getDisplayedName() << "'s treatment causes " << amount << " " << CreatureAttribute::getName(pool) << " damage.";
++   target->sendSystemMessage(message.toString());
++  }
++  return true;
++ }
++ static void effect(CreatureObject* healer,CreatureObject* target,const String& name){
++  if(!inverted(healer)){target->playEffect(name,"");return;}
++  healer->sendMessage(new PlayClientEffectObjectMessage(target,name,""));
++  auto zone=target->getZone();if(!zone)return;
++  SortedVector<TreeEntry*> nearby(128,128);auto pos=target->getWorldPosition();
++  zone->getInRangeObjects(pos.getX(),pos.getZ(),pos.getY(),64,&nearby,true);
++  for(int i=0;i<nearby.size();++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(o!=healer && o->isPlayerCreature())o->asCreatureObject()->sendMessage(new PlayClientEffectObjectMessage(target,"clienteffect/dot_bleeding.cef",""));}
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSpiceEntertainer.h
+@@ -0,0 +1,14 @@
++#ifndef SWGXR_SPICE_ENTERTAINER_H
++#define SWGXR_SPICE_ENTERTAINER_H
++#include "SwgxrSpice.h"
++#include "templates/params/creature/CreaturePosture.h"
++class SwgxrSpiceEntertainer {
++public:
++ static bool blockAttempt(CreatureObject* c){
++  if(!c || c->isDead() || c->isIncapacitated() || !SwgxrSpice::withdrawing(c,"neutron_pixey"))return false;
++  // The original posture observer also stops an existing performance.
++  c->setPosture(CreaturePosture::KNOCKEDDOWN);
++  return true;
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
+@@ -4,6 +4,7 @@
+ #include "SwgxrGathering.h"
+ #include "HealDamageCommand.h"
+ #include "SwgxrVitalFeedback.h"
++#include "SwgxrSpice.h"
+ #include "SwgxrMedicDrag.h"
+ class SwgxrMedic {
+  using Json=JSONSerializationType;
+@@ -76,7 +77,7 @@
+        if(!target || !target->isPlayerCreature() || target->getZone()!=c->getZone() || target->isDead() || target->isAttackableBy(c) || !target->isHealableBy(c))throw std::runtime_error("Invalid healing target");
+        auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str()));
+        int result=cmd->doQueueCommand(c,target->getObjectID(),UnicodeString(""));if(result!=QueueCommand::SUCCESS)throw std::runtime_error("Core3 rejected healing: supply, range, state, environment or HAM requirement");
+-       c->addCooldown(String(("swgxr_medic_"+name).c_str()),int(std::max(0.f,cmd->getCommandDuration(c,UnicodeString("")))*1000));mutation["target_id"]=id(target);
++       c->addCooldown(String(("swgxr_medic_"+name).c_str()),int(std::max(0.f,cmd->getCommandDuration(c,UnicodeString("")))*1000*SwgxrSpice::cooldownScale(c)));mutation["target_id"]=id(target);
+       }else throw std::runtime_error("Unsupported medical action");
+      }
+     }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
+@@ -147,7 +147,7 @@
+      auto cs=session(c,s["draft"]);if(cs==nullptr)throw std::runtime_error("Crafting session expired");Locker lock(cs,c);c->addActiveSession(SessionFacadeType::CRAFTING,cs);
+      if(action=="select"){if(cs->getState()>2)throw std::runtime_error("Cancel assembled draft before changing schematic");int index=request.at("index").get<int>();auto choices=Json::parse(cs->swgxrSnapshot().toCharArray())["schematics"];if(index<0 || index>=int(choices.size()))throw std::runtime_error("Schematic is not usable with this tool");cs->selectDraftSchematic(index);}
+      else if(action=="assemble"){assemble(c,s,cs,tool,request);if(cs->getState()==4)finish(c,s,cs,tool,request);}
+-     else if(action=="finish")finish(c,s,cs,tool,request);
++     else if(action=="finish"){finish(c,s,cs,tool,request);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
+      else throw std::runtime_error("Unknown crafting action");
+     }
+    }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ #ifndef SWGXR_ENTERTAINER_H
+ #define SWGXR_ENTERTAINER_H
+ #include "SwgxrServices.h"
+@@ -89,13 +90,14 @@
+   }else if(action=="register_location"){
+    auto before=registration(c);if(!before["eligible"].get<bool>())throw std::runtime_error(before["reason"].get<std::string>());invoke(c,"registerwithlocation");auto after=registration(c);if(!after["registered"].get<bool>())throw std::runtime_error("native_registration_not_confirmed");mutation["registration"]=after;
+   }else if(action=="flourish"){
++   if(SwgxrSpiceEntertainer::blockAttempt(c))throw std::runtime_error("native_performance_not_started");
+    auto s=session(c);if(!s || (!s->isDancing() && !s->isPlayingMusic()))throw std::runtime_error("native_performance_required");if(!c->checkCooldownRecovery("swgxr_entertainer_flourish"))throw std::runtime_error("native_flourish_cooldown");
+    auto available=choices(c),eligible=Json::array();auto pm=SkillManager::instance()->getPerformanceManager();
+    for(auto choice:available){auto cmd=choice["command"].get<std::string>();if(cmd=="flourish")eligible.push_back(choice);else{auto effect=pm->getPerformEffect(choice["effect_id"].get<int>(),choice["level"].get<int>());int cost=c->calculateCostAdjustment(CreatureAttribute::QUICKNESS,effect->getEffectActionCost());if(c->checkCooldownRecovery("performing_entertainer_effect") && c->getHAM(CreatureAttribute::ACTION)>cost)eligible.push_back(choice);}}
+    if(eligible.empty())throw std::runtime_error("no_available_learned_flourishes");auto choice=eligible[System::random(int(eligible.size())-1)];auto cmd=choice["command"].get<std::string>();std::string args=std::to_string(choice.value("index",choice.value("level",0)));double duration=0;
+    if(cmd=="flourish"){auto p=pm->getPerformanceFromIndex(s->getPerformanceIndex());if(!p)throw std::runtime_error("native_performance_missing");float base=std::max(0,p->getActionPointsPerLoop()-int(c->getHAM(CreatureAttribute::QUICKNESS)/35.f));int cost=int(round((base*.5f*10+.5f)/10.f));if(c->getHAM(CreatureAttribute::ACTION)<=cost)throw std::runtime_error("insufficient_flourish_action");duration=command(c,cmd)->getCommandDuration(c,UnicodeString(String(args.c_str())));}
+    else duration=choice["duration"].get<double>();
+-   invoke(c,cmd,args);if(cmd!="flourish" && c->checkCooldownRecovery("performing_entertainer_effect"))throw std::runtime_error("native_effect_not_confirmed");c->addCooldown("swgxr_entertainer_flourish",uint64(std::max(.1,duration)*1000));mutation.update(choice);mutation["cooldown_seconds"]=duration;
++   duration*=SwgxrSpice::cooldownScale(c);invoke(c,cmd,args);if(cmd!="flourish" && c->checkCooldownRecovery("performing_entertainer_effect"))throw std::runtime_error("native_effect_not_confirmed");c->addCooldown("swgxr_entertainer_flourish",uint64(std::max(.1,duration)*1000));mutation.update(choice);mutation["cooldown_seconds"]=duration;
+    SceneObject* effectAt=c;if(cmd!="flourish" && pm->getPerformEffect(choice["effect_id"].get<int>(),choice["level"].get<int>())->getTargetType()==PerformEffect::TARGET_OTHER)effectAt=c->getZoneServer()->getObject(c->getTargetID());auto ep=effectAt->getWorldPosition();mutation["effect_position"]=Json::array({ep.getX(),ep.getZ(),ep.getY()});mutation["target_id"]=id(effectAt);
+   }else if(action!="status")throw std::runtime_error("unsupported_entertainer_action");
+   if(action!="status"){mutation["request_id"]=key;receipts.push_back({{"id",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_entertainer","receipts",String(receipts.dump().c_str()));}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ #include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+@@ -53,11 +54,11 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "injuryTreatment");
+-		creature->addPendingTask("injuryTreatment", task, delay * 1000);
++		creature->addPendingTask("injuryTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+-		creatureTarget->playEffect("clienteffect/healing_healdamage.cef", "");
++		SwgxrSpiceMedicine::effect(creature, creatureTarget, "clienteffect/healing_healdamage.cef");
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -236,7 +237,7 @@
+ 			player->sendSystemMessage(msgPlayer.toString());
+ 
+ 			msgTarget << player->getFirstName() << " heals you for " << msgBody.toString() << msgTail.toString();
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgBody.toString() << msgTail.toString();
+ 			player->sendSystemMessage(msgPlayer.toString());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealWoundCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ #include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+@@ -46,11 +47,11 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_59");
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "woundTreatment");
+-		creature->addPendingTask("woundTreatment", task, delay * 1000);
++		creature->addPendingTask("woundTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+-		creatureTarget->playEffect("clienteffect/healing_healwound.cef", "");
++		SwgxrSpiceMedicine::effect(creature, creatureTarget, "clienteffect/healing_healwound.cef");
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -88,13 +89,13 @@
+ 
+ 		if (creature == creatureTarget) {
+ 			msgTarget << "You heal yourself for " << msgTail.toString();
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else if (creatureTarget->isPlayerCreature()) {
+ 			msgPlayer << "You heal " << creatureTarget->getFirstName() << " for " << msgTail.toString();
+ 			msgTarget << creature->getFirstName() << " heals you for " << msgTail.toString();
+ 
+ 			creature->sendSystemMessage(msgPlayer.toString());
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgTail.toString();
+ 			creature->sendSystemMessage(msgPlayer.toString());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/QuickHealCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/QuickHealCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ #include "SwgxrVitalFeedback.h"
+ /*
+ 				Copyright <SWGEmu>
+@@ -37,7 +38,7 @@
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+-		creatureTarget->playEffect("clienteffect/healing_healdamage.cef", "");
++		SwgxrSpiceMedicine::effect(creature, creatureTarget, "clienteffect/healing_healdamage.cef");
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -73,7 +74,7 @@
+ 			msgTarget << player->getFirstName() << " heals you for " << msgBody.toString() << msgTail.toString();
+ 
+ 			player->sendSystemMessage(msgPlayer.toString());
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgBody.toString() << msgTail.toString();
+ 			player->sendSystemMessage(msgPlayer.toString());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealMindCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealMindCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -23,7 +24,7 @@
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+-		creatureTarget->playEffect("clienteffect/healing_healenhance.cef", "");
++		SwgxrSpiceMedicine::effect(creature, creatureTarget, "clienteffect/healing_healenhance.cef");
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -52,7 +53,7 @@
+ 			msgTarget << player->getFirstName() << " heals you for " << msgBody.toString() << msgTail.toString();
+ 
+ 			player->sendSystemMessage(msgPlayer.toString());
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgBody.toString() << msgTail.toString();
+ 			player->sendSystemMessage(msgPlayer.toString());
+@@ -65,6 +66,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDroidDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDroidDamageCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -27,11 +28,11 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "injuryTreatment");
+-		creature->addPendingTask("injuryTreatment", task, delay * 1000);
++		creature->addPendingTask("injuryTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* droid) const {
+-		droid->playEffect("clienteffect/healing_healdamage.cef", "");
++		SwgxrSpiceMedicine::effect(creature, droid, "clienteffect/healing_healdamage.cef");
+ 
+ 		creature->doAnimation("heal_other");
+ 	}
+@@ -123,6 +124,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDroidWoundCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDroidWoundCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -26,11 +27,11 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_59");
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "woundTreatment");
+-		creature->addPendingTask("woundTreatment", task, delay * 1000);
++		creature->addPendingTask("woundTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* droid) const {
+-		droid->playEffect("clienteffect/healing_healwound.cef", "");
++		SwgxrSpiceMedicine::effect(creature, droid, "clienteffect/healing_healwound.cef");
+ 
+ 		creature->doAnimation("heal_other");
+ 	}
+@@ -155,6 +156,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		if (!creature->hasSkill("crafting_droidengineer_novice")) {
+ 			creature->sendSystemMessage("@error_message:droid_repair_not_droid_engineer"); //You must be a droid engineer to use this tool kit.
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealPetCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealPetCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -26,11 +27,11 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "injuryTreatment");
+-		creature->addPendingTask("injuryTreatment", task, delay * 1000);
++		creature->addPendingTask("injuryTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* pet) const {
+-		pet->playEffect("clienteffect/healing_healdamage.cef", "");
++		SwgxrSpiceMedicine::effect(creature, pet, "clienteffect/healing_healdamage.cef");
+ 
+ 		creature->doAnimation("heal_other");
+ 	}
+@@ -128,6 +129,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/RevivePlayerCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/RevivePlayerCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -137,7 +138,7 @@
+ 	}
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+-		creatureTarget->playEffect("clienteffect/healing_healwound.cef", "");
++		SwgxrSpiceMedicine::effect(creature, creatureTarget, "clienteffect/healing_healwound.cef");
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -146,6 +147,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 
+ 		int result = doCommonMedicalCommandChecks(creature);
+ 
+@@ -218,7 +220,7 @@
+ 		int healedAction = creatureTarget->healDamage(creature, CreatureAttribute::ACTION, actionToHeal);
+ 		int healedMind = creatureTarget->healDamage(creature, CreatureAttribute::MIND, mindToHeal);
+ 
+-		creatureTarget->setPosture(CreaturePosture::UPRIGHT);
++		if (!SwgxrSpiceMedicine::inverted(creature)) creatureTarget->setPosture(CreaturePosture::UPRIGHT);
+ 		
+ 		creatureTarget->removeFeignedDeath();
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TendCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ #include "SwgxrVitalFeedback.h"
+ /*
+  * TendCommand.h
+@@ -57,7 +58,7 @@
+ 
+ 	void doAnimations(CreatureObject* creature, CreatureObject* creatureTarget) const {
+ 		if (!effectName.isEmpty())
+-			creatureTarget->playEffect(effectName, "");
++			SwgxrSpiceMedicine::effect(creature, creatureTarget, effectName);
+ 
+ 		if (creature == creatureTarget)
+ 			creature->doAnimation("heal_self");
+@@ -93,7 +94,7 @@
+ 			msgTarget << player->getFirstName() << " heals you for " << msgBody.toString() << msgTail.toString();
+ 
+ 			player->sendSystemMessage(msgPlayer.toString());
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgBody.toString() << msgTail.toString();
+ 			player->sendSystemMessage(msgPlayer.toString());
+@@ -112,13 +113,13 @@
+ 
+ 		if (creature == creatureTarget) {
+ 			msgTarget << "You heal yourself for " << msgTail.toString();
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else if (creatureTarget->isPlayerCreature()){
+ 			msgPlayer << "You heal " << creatureTarget->getFirstName() << " for "  << msgTail.toString();
+ 			msgTarget << creature->getFirstName() << " heals you for "  << msgTail.toString();
+ 
+ 			creature->sendSystemMessage(msgPlayer.toString());
+-			creatureTarget->sendSystemMessage(msgTarget.toString());
++			if (creature == creatureTarget || !SwgxrSpiceMedicine::inverted(creature)) creatureTarget->sendSystemMessage(msgTarget.toString());
+ 		} else {
+ 			msgPlayer << "You heal " << creatureTarget->getDisplayedName() << " for " << msgTail.toString();
+ 			creature->sendSystemMessage(msgPlayer.toString());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealStateCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealStateCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -50,7 +51,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "stateTreatment");
+-		creature->addPendingTask("stateTreatment", task, delay * 1000);
++		creature->addPendingTask("stateTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void awardXp(CreatureObject* creature, String type, int power) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -45,7 +46,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_59"); // You are now ready to heal more wounds or apply more enhancements.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "woundTreatment");
+-		creature->addPendingTask("woundTreatment", task, delay * 1000);
++		creature->addPendingTask("woundTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	EnhancePack* findEnhancePack(CreatureObject* enhancer, uint8 attribute) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CurePackCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CurePackCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+  * CureStateCommand.h
+  *
+@@ -140,7 +141,7 @@
+ 
+ 		StringIdChatParameter message("healing_response", "healing_response_58"); //You are now ready to heal more damage.
+ 		Reference<InjuryTreatmentTask*> task = new InjuryTreatmentTask(creature, message, "conditionTreatment");
+-		creature->addPendingTask("conditionTreatment", task, delay * 1000);
++		creature->addPendingTask("conditionTreatment", task, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 	}
+ 
+ 	void awardXp(CreatureObject* creature, const String& type, int power) const {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+  * DotPackCommand.h
+  *
+@@ -379,7 +380,7 @@
+ 		// If the delay is less that 4 seconds, use the default time
+ 		delay = (delay < 4) ? defaultTime : delay;
+ 
+-		creature->addCooldown(skillName, delay * 1000);
++		creature->addCooldown(skillName, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+ 
+ 		applyCost(creature, cost);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ForceHealQueueCommand.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ForceHealQueueCommand.cpp
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceMedicine.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -46,6 +47,7 @@
+ }
+ 
+ int ForceHealQueueCommand::runCommand(CreatureObject* creature, CreatureObject* targetCreature) const {
++	SwgxrVitalFeedback::MedicalAction feedbackScope;
+ 	ManagedReference<PlayerObject*> playerObject = creature->getPlayerObject();
+ 
+ 	if (playerObject == nullptr)
+@@ -245,7 +247,7 @@
+ 
+ 	if (healPerformed) {
+ 		if (selfHeal)
+-			creature->playEffect(clientEffect, "");
++			SwgxrSpiceMedicine::effect(creature, targetCreature, clientEffect);
+ 		else
+ 			creature->doCombatAnimation(targetCreature, animationCRC, 0, 0xFF);
+ 
+@@ -304,7 +306,7 @@
+ 			message.setTT(targetID);
+ 			creature->sendSystemMessage(message);
+ 
+-			if (target->isPlayerCreature()) {
++			if (target->isPlayerCreature() && !(SwgxrSpiceMedicine::inverted(creature) && (healType == HEAL_DAMAGE || healType == HEAL_WOUNDS))) {
+ 				StringIdChatParameter message("jedi_spam", "heal_other_other");
+ 				message.setTO(statStr);
+ 				message.setDI(amount);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/StartDanceCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/StartDanceCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ /*
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -31,6 +32,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (SwgxrSpiceEntertainer::blockAttempt(creature)) return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/StartMusicCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/StartMusicCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ /*
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -34,6 +35,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (SwgxrSpiceEntertainer::blockAttempt(creature)) return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ChangeDanceCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ChangeDanceCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -16,6 +17,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (SwgxrSpiceEntertainer::blockAttempt(creature)) return GENERALERROR;
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ChangeMusicCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ChangeMusicCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -16,6 +17,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (SwgxrSpiceEntertainer::blockAttempt(creature)) return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/FlourishCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/FlourishCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpiceEntertainer.h"
+ /*
+  				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -16,6 +17,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		if (SwgxrSpiceEntertainer::blockAttempt(creature)) return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;

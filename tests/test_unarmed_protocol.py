@@ -1,5 +1,6 @@
 import struct
 import unittest
+from unittest.mock import patch
 from server.unarmed_protocol import player_stats, resolve, unarmed_snapshot
 
 def baseline(strength=300, quickness=250, modifiers=None):
@@ -13,6 +14,21 @@ def baseline(strength=300, quickness=250, modifiers=None):
     return {'type':0x4352454f,'baseline1':first.hex(),'baseline4':fourth.hex()}
 
 class UnarmedProtocolTests(unittest.TestCase):
+    def test_native_spice_modifiers_apply_once_and_expire_for_unarmed(self):
+        result = {'variables': {'replication': {'objects': {'o42': baseline()}}, 'spice': {}}}
+        with patch('server.unarmed_protocol.skills', return_value=[]):
+            plain = unarmed_snapshot(result, '42')
+            for scale in (1.2, .5, 1.0):
+                result['variables']['spice'] = {'modifiers': {'melee_power_scale': scale, 'melee_recovery_scale': scale}}
+                first = unarmed_snapshot(result, '42')
+                second = unarmed_snapshot(result, '42')
+                for field in ('power', 'stance_recovery'):
+                    self.assertAlmostEqual(first[field], plain[field]*scale)
+                    self.assertEqual(first[field], second[field])
+            for scale in (True, 0, -1, 2, float('nan'), '1.2'):
+                result['variables']['spice']['modifiers']['melee_power_scale'] = scale
+                with self.assertRaises(ValueError): unarmed_snapshot(result, '42')
+
     def test_real_layout_and_signed_bonus(self):
         stats=player_stats(baseline(modifiers={'unarmed_damage':(85,5),'unarmed_speed':(15,-2)}))
         self.assertEqual(stats,{'strength':300,'quickness':250,

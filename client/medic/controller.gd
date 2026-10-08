@@ -203,7 +203,7 @@ func _process(delta: float) -> void:
 	if is_instance_valid(app.combat_rig):app.combat_rig.offhand_occupied=not held.is_empty()
 	for person: Dictionary in state.get("players",[]):
 		var avatar: Node3D=people.get(str(person.id))
-		if is_instance_valid(avatar):avatar.update_motion(delta,0,{"posture":2 if int(person.posture)==2 else 1 if int(person.posture)==1 else 0,"presentation":{"life_locked":int(person.posture) in [13,14],"life_animation":"dead" if int(person.posture)==14 else "incapacitated"}})
+		if is_instance_valid(avatar):avatar.update_motion(delta,0,{"posture":2 if int(person.posture)==2 else 1 if int(person.posture)==1 else 0,"presentation":{"life_locked":int(person.posture) in [13,14] or bool(person.get("feigning_death",false)),"life_animation":"dead" if int(person.posture)==14 else "incapacitated"}})
 	pose_tool();update_target(delta)
 func _exit_tree() -> void:
 	if RenderingServer.frame_pre_draw.is_connected(pose_tool):RenderingServer.frame_pre_draw.disconnect(pose_tool)
@@ -219,7 +219,7 @@ func observe_drag(value: Dictionary) -> void:
 	var revision:=int(value.get("revision",0))
 	if revision<=drag_revision:return
 	drag_revision=revision
-	if crossed or not body.feedback.life_locked or value.get("position",[]).size()!=3:return
+	if crossed or not (body.feedback.life_locked or body.feedback.feigning_death) or value.get("position",[]).size()!=3:return
 	var destination: Vector3=app.scout.world(value.position)
 	var movement:=destination-body.global_position
 	if movement.length()>3:return
@@ -238,7 +238,7 @@ func update_drag(delta: float) -> void:
 	if drag_target.is_empty() and drag_grips_released:
 		for person: Dictionary in state.get("players",[]):
 			var avatar: Node3D=people.get(str(person.id))
-			if int(person.posture)!=13 or person.get("drag",{}).get("blocked",true) or not is_instance_valid(avatar):continue
+			if (int(person.posture)!=13 and not bool(person.get("feigning_death",false))) or person.get("drag",{}).get("blocked",true) or not is_instance_valid(avatar):continue
 			if SwgMedicDrag.both_touch(bounds(avatar),left.global_position,right.global_position):
 				drag_target=str(person.id);drag_grips_released=false;next_drag=0;break
 	if not drag_target.is_empty():

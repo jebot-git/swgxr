@@ -19,6 +19,8 @@ var jump_in_progress := false
 # Persistent cell authority owns membership; native floor evaluation owns geometry.
 var ground_provider: Node3D
 var support_state: Dictionary = {"valid": false}
+var source_movement_active:=false
+var source_movement_velocity:=Vector2.ZERO
 var support_snap_distance := 0.35
 var support_contact_distance := 0.1
 var roomscale_steps := 0
@@ -145,17 +147,22 @@ func prepare_tracked_body() -> void:
 func _source_support(point: Vector3, max_up: float, max_down: float) -> Dictionary:
 	var context: Dictionary = ground_provider.collision_context(point) if is_instance_valid(ground_provider) else {}
 	var allowed: Array = context.get("allowed_cell_ids", [])
+	var found:Dictionary={"valid":false}
 	if not allowed.is_empty():
-		var found: Dictionary = ground_provider.ground_support.sample_support(point, allowed, max_up, max_down, support_state)
+		found = ground_provider.ground_support.sample_support(point, allowed, max_up, max_down, support_state)
 		if bool(found.get("valid", false)):
-			var capsule: Dictionary = ground_provider.ground_support.capsule_support(point, player_radius * XRServer.world_scale, allowed, max_up, max_down)
+			var capsule: Dictionary = ground_provider.ground_support.capsule_support(point, player_radius * XRServer.world_scale, allowed, max_up, max_down, found)
 			found["body_height"] = float(capsule.get("body_height", found.height))
-			return found
 	# Imported terrain supplies exterior support only. Interior ground never
 	# queries through its authored floors to exterior terrain below/above it.
 	if int(context.get("building_object_id",0)) == 0 and collision_mask & 2:
-		return step_solver.terrain_support(self,point,max_up,max_down)
-	return {"valid":false}
+		var terrain:Dictionary=step_solver.terrain_support(self,point,max_up,max_down)
+		# Footprint::snapToSurface keeps the higher attached solid floor or
+		# logical terrain/water surface. Capsule clearance does not change the
+		# floor's physical height for this comparison.
+		if bool(terrain.get("valid",false)) and (not bool(found.get("valid",false)) or float(terrain.height)>float(found.height)):
+			return terrain
+	return found
 
 func _update_ground_information(delta: float) -> void:
 	super(delta)
@@ -206,6 +213,8 @@ func _constrain_source_motion(start: Vector3, motion: Vector3) -> Vector3:
 	return constrained.get("motion", motion)
 
 func _update_body_under_camera(delta: float) -> void:
+	# Physical head/hands keep tracking while the authoritative body is anchored.
+	if feedback.feigning_death or not bool(feedback.locomotion.get("movement_allowed",true)) or bool(feedback.locomotion.get("frozen",false)):return
 	var before := global_position
 	var previous := _source_support(before, support_contact_distance, support_contact_distance + player_radius)
 	var supported: bool = (bool(previous.get("valid", false)) and absf(float(previous.body_height) - before.y) <= support_contact_distance) or step_solver.has_support(self, support_contact_distance)
@@ -214,11 +223,24 @@ func _update_body_under_camera(delta: float) -> void:
 	if terrain_tracking: collision_mask &= ~2
 	super(delta)
 	collision_mask = saved_mask
+	var world_cell:bool=not is_instance_valid(ground_provider) or int(ground_provider.collision_context(before).get("building_object_id",0))==0
+	if world_cell:
+		var clipped:Vector3=global_position-before
+		global_position=before
+		var permitted:Vector3=step_solver.constrain_terrain_motion(self,clipped)
+		global_position=before+permitted
 	if terrain_tracking and _in_physics_movement:
 		var tracked_motion := global_position-before
 		var tracked_height := global_position.y
 		global_position = before
-		var followed: Dictionary = step_solver.move_on_terrain(self,tracked_motion,support_snap_distance)
+		# The addon has already clipped body motion against the ramp toe. Pass
+		# the tracked body's full intent to the native sweep so it can hand the
+		# remaining movement to the stair solver, even when that clip was zero.
+		var terrain_target := camera_node.global_position
+		var terrain_forward := _estimate_body_forward_dir()
+		if terrain_forward.length() > 0.01:
+			terrain_target -= terrain_forward.normalized() * eye_forward_offset * player_radius * XRServer.world_scale
+		var followed: Dictionary = step_solver.move_on_terrain(self,step_solver.constrain_terrain_motion(self,terrain_target-before),support_snap_distance)
 		if followed.get("handled",false):
 			support_state = followed.support
 			origin_node.global_position.y += global_position.y-tracked_height
@@ -238,6 +260,7 @@ func _update_body_under_camera(delta: float) -> void:
 		target -= forward.normalized() * eye_forward_offset * player_radius * XRServer.world_scale
 	var remaining := target - global_position
 	remaining.y = 0
+	if world_cell:remaining=step_solver.constrain_terrain_motion(self,remaining)
 	if bool(previous.get("valid", false)):
 		remaining = _constrain_source_motion(global_position, remaining)
 	# Physical translation uses the same bounded stair sweep as controller
@@ -252,6 +275,8 @@ func _update_body_under_camera(delta: float) -> void:
 	origin_node.global_position.y += global_position.y - after_tracking.y
 
 func move_player(requested_velocity: Vector3) -> Vector3:
+	if feedback.feigning_death or not bool(feedback.locomotion.get("movement_allowed",true)) or bool(feedback.locomotion.get("frozen",false)):
+		requested_velocity.x=0;requested_velocity.z=0;ground_control_velocity=Vector2.ZERO;source_movement_velocity=Vector2.ZERO
 	var supported: bool = on_ground or bool(support_state.get("valid", false)) or step_solver.has_support(self, support_contact_distance)
 	if on_ground and requested_velocity.y <= 0:
 		jump_in_progress = false
@@ -267,8 +292,18 @@ func move_player(requested_velocity: Vector3) -> Vector3:
 		# The source plane already provides vertical support. Do not turn the
 		# addon gravity impulse into tangential downhill motion when resting.
 		step_velocity = Vector3.ZERO
+	if source_movement_active:
+		# Source acceleration already produced this velocity. Do not apply the
+		# addon's traction interpolation or a second terrain penalty to it.
+		var forward:Vector3=-camera_node.global_basis.z.slide(up_gravity).normalized()
+		var right:Vector3=camera_node.global_basis.x.slide(up_gravity).normalized()
+		step_velocity=(right*source_movement_velocity.x+forward*source_movement_velocity.y)*XRServer.world_scale
+		requested_velocity.x=step_velocity.x;requested_velocity.z=step_velocity.z
 	var horizontal := step_velocity * delta
 	var exterior_context: Dictionary = ground_provider.collision_context(before) if is_instance_valid(ground_provider) else {}
+	if int(exterior_context.get("building_object_id",0))==0:
+		horizontal=step_solver.constrain_terrain_motion(self,horizontal)
+		step_velocity=horizontal/delta;requested_velocity.x=step_velocity.x;requested_velocity.z=step_velocity.z
 	var can_follow_terrain: bool = supported and not jump_in_progress and collision_mask & 2 and int(exterior_context.get("building_object_id",0)) == 0 and (not support_state.get("valid",false) or support_state.get("terrain",false))
 	if can_follow_terrain:
 		var followed: Dictionary = step_solver.move_on_terrain(self,horizontal,support_snap_distance)

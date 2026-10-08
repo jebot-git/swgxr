@@ -1,0 +1,328 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -0,0 +1,64 @@
++#ifndef SWGXR_SMUGGLER_H
++#define SWGXR_SMUGGLER_H
++#include "CombatQueueCommand.h"
++#include <algorithm>
++#include "SwgxrSmugglerPolicy.h"
++class SwgxrPreparedRangedCommand : public CombatQueueCommand {
++public:
++ explicit SwgxrPreparedRangedCommand(const CombatQueueCommand& source):CombatQueueCommand(source){}
++ int doQueueCommand(CreatureObject* creature,const uint64& target,const UnicodeString& arguments) const override {return doCombatAction(creature,target,arguments);}
++};
++class SwgxrSmuggler {
++ using Json=JSONSerializationType;
++public:
++ static bool feigning(CreatureObject* c){return !c->isDead() && (c->isFeigningDeath() || c->hasBuff(STRING_HASHCODE("private_feign_buff")));}
++ static bool feignAvailable(CreatureObject* c){return c->getPlayerObject()!=nullptr && c->getPlayerObject()->hasAbility("feigndeath");}
++ static void pose(CreatureObject* c,const Json& p){
++  if(!p.value("tracked",false))return;
++  if(p.value("upright",false) && feigning(c)){
++   if(c->isFeigningDeath())c->removeFeignedDeath();else c->removeBuff(STRING_HASHCODE("private_feign_buff"));return;
++  }
++  if(!p.value("feign",false) || feigning(c) || !feignAvailable(c) || c->isDead() || c->isIncapacitated() || c->isRidingMount())return;
++  auto command=c->getZoneServer()->getObjectController()->getQueueCommand("feigndeath");
++  if(command==nullptr || command->doQueueCommand(c,0,UnicodeString(""))!=QueueCommand::SUCCESS)throw std::runtime_error("native_feign_rejected");
++ }
++ static std::string commandName(const std::string& ability){
++  if(ability=="lethal_shot")return "overchargeshot2";if(ability=="last_ditch")return "lastditch";if(ability=="low_blow")return "lowblow";
++  if(ability=="restraining_shot" || ability=="concussion_shot_improved" || ability.empty())return "attack";
++  throw std::runtime_error("unsupported_native_ability");
++ }
++ static const CombatQueueCommand* command(CreatureObject* c,const std::string& ability){
++  auto name=commandName(ability);auto cmd=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str())));
++  if(!cmd)throw std::runtime_error("native_ability_unavailable");return cmd;
++ }
++ static bool learned(CreatureObject* c,const std::string& ability){
++  if(ability.empty())return true;
++  if(ability=="lethal_shot")return c->hasSkill("combat_marksman_master");
++  if(ability=="restraining_shot")return c->hasSkill("combat_smuggler_novice");
++  if(ability=="concussion_shot_improved")return c->hasSkill("combat_smuggler_master");
++  auto cmd=command(c,ability);return c->hasSkill("combat_smuggler_novice") && !cmd->getCharacterAbility().isEmpty() && c->getPlayerObject()->hasAbility(cmd->getCharacterAbility());
++ }
++ static double multiplier(CreatureObject* c){return SwgxrSmugglerPolicy::lastDitch(c->getHAM(0),c->getMaxHAM(0),c->getHAM(3),c->getMaxHAM(3),c->getHAM(6),c->getMaxHAM(6));}
++ static double cooldown(CreatureObject* c,const std::string& ability){auto t=c->getCooldownTime(String(("swgxr_smuggler_"+ability).c_str()));return t?std::max(0.0,-t->miliDifference()/1000.0):0;}
++ static void effects(CreatureObject* attacker,CreatureObject* target,const std::string& ability){
++  if(!target || target->isDead() || target->isIncapacitated())return;
++  if(ability=="restraining_shot"){
++   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_restraining_shot"),SwgxrSmugglerPolicy::snareSeconds,BuffType::STATE);Locker lock(buff,target);buff->setSkillModifier("private_swgxr_snare",SwgxrSmugglerPolicy::snarePercent);target->addBuff(buff);
++  }else if(ability=="concussion_shot_improved"){
++   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_concussion"),SwgxrSmugglerPolicy::concussionSeconds,BuffType::STATE);Locker lock(buff,target);
++   if(!target->isRooted()){target->setRootedState(SwgxrSmugglerPolicy::concussionSeconds);buff->setSkillModifier("private_swgxr_concussion_root",1);}
++   if(!target->isDizzied()){target->setDizziedState(SwgxrSmugglerPolicy::concussionSeconds);buff->setSkillModifier("private_swgxr_concussion_daze",1);}
++   if(target->setNextAttackDelay(attacker,"swgxr_concussion",0,SwgxrSmugglerPolicy::concussionSeconds))buff->setSkillModifier("private_swgxr_concussion_delay",1);
++   target->addBuff(buff);
++  }
++ }
++ static Json abilities(CreatureObject* c){
++  Json out=Json::array();auto w=c->getWeapon();if(!w || !w->isRangedWeapon())return out;
++  for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
++   if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
++   bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
++   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()}}},{"cooldown_seconds",30.0},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
++  }return out;
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmugglerPolicy.h
+@@ -0,0 +1,11 @@
++#ifndef SWGXR_SMUGGLER_POLICY_H
++#define SWGXR_SMUGGLER_POLICY_H
++#include <algorithm>
++// CU effect types; timing/strength are explicit prototype tuning pending NGE provenance.
++struct SwgxrSmugglerPolicy {
++ static constexpr int snarePercent=25, snareSeconds=20, concussionSeconds=40;
++ static constexpr double concussionDamage=.25;
++ static double deficit(int current,int maximum){return 1.0-std::max(0.0,std::min(1.0,double(current)/std::max(1,maximum)));}
++ static double lastDitch(int h,int mh,int a,int ma,int m,int mm){return 2.0+deficit(h,mh)+deficit(a,ma)+deficit(m,mm);}
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -3,6 +3,7 @@
+ #include "SwgxrNpcSpeech.h"
+ #include "SwgxrPlanets.h"
+ #include "AttackCommand.h"
++#include "SwgxrSmuggler.h"
+ #include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
+ #include "server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+@@ -24,7 +25,7 @@
+ #include "system/thread/Mutex.h"
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+- struct Shot {std::string item;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
++ struct Shot {std::string item,ability;double multiplier=1;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
+  struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+@@ -107,7 +108,7 @@
+    if(rows.size()>=(player?16:96)){out["truncated"]=true;continue;}
+    Json row=actor(c,o->asTangibleObject(),session);auto op=o->getParent().get();auto root=o->getRootParent();row["cell_id"]=cell?std::to_string(cell):"0";
+    row["heading_radians"]=std::fmod(o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0.f),6.283185307179586);
+-   if(o->isCreatureObject()){auto pc=o->asCreatureObject();row["posture"]=int(pc->getPosture());row["dead"]=pc->isDead();row["incapacitated"]=pc->isIncapacitated();row["in_combat"]=pc->isInCombat();row["target_id"]=std::to_string(pc->getTargetID());row["scale"]=pc->getHeight(false);row["ham"]=ham(pc);row["max_ham"]=ham(pc,true);}
++   if(o->isCreatureObject()){auto pc=o->asCreatureObject();row["posture"]=int(pc->getPosture());row["dead"]=pc->isDead();row["feigning_death"]=SwgxrSmuggler::feigning(pc);row["incapacitated"]=pc->isIncapacitated() && !pc->isFeigningDeath();row["in_combat"]=pc->isInCombat();row["target_id"]=std::to_string(pc->getTargetID());row["scale"]=pc->getHeight(false);row["ham"]=ham(pc);row["max_ham"]=ham(pc,true);}
+    if(player){if(!cell)publicDeployments(c,o->asCreatureObject(),out);row["kind"]="player";row["appearance"]=publicAppearance(o->asCreatureObject());row["equipment_complete"]=row["appearance"]["equipment_complete"];}
+    rows.push_back(row);
+   }return out;
+@@ -130,6 +131,8 @@
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
++  if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
++  out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+@@ -138,7 +141,7 @@
+  }
+  static void move(CreatureObject* c,const Json& request){
+   auto p=vector(request.at("position"));double heading=request.value("heading_radians",0.0);if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");
+-  if(c->isDead() || c->isIncapacitated() || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");SwgxrPlanets::require(c,request);
++  if(c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c) || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");SwgxrPlanets::require(c,request);
+   ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> building=c->getRootParent();
+   if(request.contains("building_id")){
+    auto buildingID=std::stoull(request.at("building_id").get<std::string>());int index=request.value("cell_index",0);
+@@ -165,15 +168,19 @@
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   SwgxrPlanets::require(c,request);  const auto verb=request.at("action").get<std::string>();Json result={{"success",true},{"operation",verb}};auto stamp=now();
+   if(verb=="update"){
++   if(request.contains("smuggler_pose") && !SwgxrVehicles::seated(c))SwgxrSmuggler::pose(c,request.at("smuggler_pose"));
+    if(request.contains("medic_pose"))SwgxrMedicDrag::observe(c,request.at("medic_pose"));
+    if(!s.transport.empty()){
+     auto ack=request.value("transport_ack",std::string());if(ack.empty()){result["movement_accepted"]=false;return result;}if(ack!=s.transport["id"].get<std::string>())throw std::runtime_error("transport_ack_mismatch");
+     const auto& dest=s.transport["destination"];if(dest.value("zone",std::string())!=SwgxrPlanets::name(c))throw std::runtime_error("transport_zone_mismatch");if(distance(vector(request.at("position")),dest["position"])>3 || request.value("building_id",std::string("0"))!=dest["building_id"].get<std::string>() || request.value("cell_index",0)!=dest["cell_index"].get<int>())throw std::runtime_error("transport_destination_mismatch");
+     c->getPlayerObject()->notifySceneReady();s.ready=true;s.transport=Json::object();result["transport_acknowledged"]=true;result["movement_accepted"]=false;return result;
+    }
+-   if(SwgxrVehicles::update(c,request.value("vehicle_controls",Json::object()))){result["vehicle_movement"]=true;result["movement_accepted"]=false;}else if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12){move(c,request);result["movement_accepted"]=true;}else result["movement_accepted"]=false;
+-   if(request.value("ready",false) && !s.ready){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;
+-  }
++   if(!SwgxrSmuggler::feigning(c) && SwgxrVehicles::update(c,request.value("vehicle_controls",Json::object()))){result["vehicle_movement"]=true;result["movement_accepted"]=false;}else if(!c->isDead() && !c->isIncapacitated() && !SwgxrSmuggler::feigning(c) && c->getPosture()!=12){move(c,request);result["movement_accepted"]=true;}else result["movement_accepted"]=false;
++   // A native zone transfer can restore loading protection after this session
++   // was ready. Only explicit readiness clears it; transport ACKs returned above.
++   if(request.value("ready",false) && (!s.ready || c->getPlayerObject()->isOnLoadScreen())){c->getPlayerObject()->notifySceneReady();s.ready=true;}return result;
++  }
++  if(SwgxrSmuggler::feigning(c) && verb!="snapshot" && verb!="inventory" && verb!="replication" && verb!="services" && verb!="session" && !(verb=="medic" && request.at("medic").value("action",std::string("status"))=="status"))throw std::runtime_error("native_player_feigning");
+   if(verb=="snapshot")return result;
+   if(verb=="inventory")return {{"inventory",SwgxrInventory::snapshot(c,String(request.value("inventory_command",std::string("swgxr_inventory_v1")).c_str()))}};
+   if(verb=="replication")return replication(c,request);
+@@ -204,21 +211,29 @@
+   if(!s.transport.empty())throw std::runtime_error("native_transport_pending");
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+-  auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
++  auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
+   if(verb=="fire"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");
+    auto weapon=c->getWeapon();if(weapon==nullptr || !weapon->isRangedWeapon() || id(weapon)!=request.at("item_id").get<std::string>() || !weapon->isASubChildOf(c))throw std::runtime_error("weapon_identity_mismatch");if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);double length=distance(direction,Json::array({0,0,0}));if(length<.9 || length>1.1 || distance(origin,position(c))>SwgxrVehicles::launchReach(c))throw std::runtime_error("invalid_launch_pose");for(int axis=0;axis<3;++axis)direction[axis]=direction[axis].get<double>()/length;
+-   CreatureAttackData costs("",command,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");
+-   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
++   auto ability=request.value("ability_id",std::string());auto skill=SwgxrSmuggler::command(c,ability);
++   if(!SwgxrSmuggler::learned(c,ability))throw std::runtime_error("native_ability_not_learned");
++   if(!(skill->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_ability_wrong_weapon");
++   if(!ability.empty() && SwgxrSmuggler::cooldown(c,ability)>0)throw std::runtime_error("native_ability_cooldown");
++   double multiplier=ability=="last_ditch"?SwgxrSmuggler::multiplier(c):(ability=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:skill->getDamageMultiplier());
++   if(ability=="last_ditch"){if(c->getHAM(3)<1 || c->getHAM(6)<1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
++   else {CreatureAttackData costs("",skill,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
++   if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),30000);
++   result["ability_id"]=ability;result["damage_multiplier"]=multiplier;
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
+   }
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+   if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3 || travel>160*(stamp-shot.time+.10)+3)throw std::runtime_error("projectile_range_or_time");
+   double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
+   auto targetID=request.at("target_id").get<std::string>();auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["impact_bounds"]=impactBounds(target);if(!withinImpactBounds(target,hit))throw std::runtime_error("impact_outside_target");
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage)throw std::runtime_error("launch_weapon_changed");
+-  AttackCommand prepaid(*command);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+-  Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,tangible,s);
++  SwgxrPreparedRangedCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));prepaid.setDamageMultiplier(shot.multiplier);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
++  Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
+   result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;
+  }
+ public:
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedic.h
+@@ -40,7 +40,7 @@
+   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),80,&objects,true);
+   for(int i=0;i<objects.size() && out["players"].size()<32;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isPlayerCreature() || o==c)continue;auto p=o->asCreatureObject();Locker lock(p,c);if(p->getPlayerObject()->isOffline())continue;
+    String custom;p->getCustomizationString(custom);std::string hex;const char* digits="0123456789abcdef";for(int n=0;n<custom.length();++n){unsigned char v=custom[n];hex+=digits[v>>4];hex+=digits[v&15];}
+-   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
++   out["players"].push_back({{"id",id(p)},{"name",std::string(p->getDisplayedName().toCharArray())},{"template",std::string(p->getObjectTemplate()->getFullTemplateString().toCharArray())},{"position",position(p)},{"heading_radians",p->getDirection()->getRadians()},{"customization_hex",hex},{"height",p->getHeight(false)},{"posture",int(p->getPosture())},{"feigning_death",SwgxrSmuggler::feigning(p)},{"needs",needs(p)},{"drag",SwgxrMedicDrag::snapshot(p)},{"healable",!p->isDead() && p->isHealableBy(c) && !p->isAttackableBy(c)}});
+   }return out;
+  }
+ public:
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedicDrag.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedicDrag.h
+@@ -1,6 +1,7 @@
+ #ifndef SWGXR_MEDIC_DRAG_H
+ #define SWGXR_MEDIC_DRAG_H
+ #include "SwgxrVitalFeedback.h"
++#include "SwgxrSmuggler.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
+ class SwgxrMedicDrag {
+  using Json=JSONSerializationType;
+@@ -23,7 +24,7 @@
+   if(!t || t==c || !t->isPlayerCreature() || t->getZone()!=c->getZone())throw std::runtime_error("Invalid drag target");
+   Locker lock(t,c);auto own=load(c),patient=load(t);auto stamp=SwgxrVitalFeedback::now();auto owner=std::to_string(c->getObjectID());
+   if(q.value("release",false)){if(patient.value("owner",std::string())==owner){patient["owner"]="";patient["lease"]=0;save(t,patient);}return {{"success",true}};}
+-  if(!t->isIncapacitated() || t->isDead() || t->getPlayerObject()->isOffline() || !t->isHealableBy(c) || t->isAttackableBy(c))throw std::runtime_error("Only eligible incapacitated players can be dragged");
++  if((!t->isIncapacitated() && !SwgxrSmuggler::feigning(t)) || t->isDead() || t->getPlayerObject()->isOffline() || !t->isHealableBy(c) || t->isAttackableBy(c))throw std::runtime_error("Only eligible incapacitated players can be dragged");
+   if(patient.value("blocked",true) || stamp-patient.value("seen",0.0)>2 || !own.value("grips",false) || stamp-own.value("seen",0.0)>2)throw std::runtime_error("Drag stopped by crossed arms, released hands or stale tracking");
+   if(c->getParent().get()!=t->getParent().get() || !c->isInRange(t,3) || !CollisionManager::checkLineOfSight(c,t))throw std::runtime_error("Drag target obstructed or out of reach");
+   if(patient.value("lease",0.0)>stamp && patient.value("owner",std::string())!=owner)throw std::runtime_error("Patient already being dragged");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainerCatalog.h
+@@ -27,6 +27,7 @@
+   {"trainer_creaturehandler", {"outdoors_creaturehandler_novice", "outdoors_creaturehandler_master", "outdoors_creaturehandler_taming_01", "outdoors_creaturehandler_taming_02", "outdoors_creaturehandler_taming_03", "outdoors_creaturehandler_taming_04", "outdoors_creaturehandler_training_01", "outdoors_creaturehandler_training_02", "outdoors_creaturehandler_training_03", "outdoors_creaturehandler_training_04", "outdoors_creaturehandler_healing_01", "outdoors_creaturehandler_healing_02", "outdoors_creaturehandler_healing_03", "outdoors_creaturehandler_healing_04", "outdoors_creaturehandler_support_01", "outdoors_creaturehandler_support_02", "outdoors_creaturehandler_support_03", "outdoors_creaturehandler_support_04"}},
+   {"trainer_bioengineer", {"outdoors_bio_engineer_novice", "outdoors_bio_engineer_master", "outdoors_bio_engineer_creature_01", "outdoors_bio_engineer_creature_02", "outdoors_bio_engineer_creature_03", "outdoors_bio_engineer_creature_04", "outdoors_bio_engineer_tissue_01", "outdoors_bio_engineer_tissue_02", "outdoors_bio_engineer_tissue_03", "outdoors_bio_engineer_tissue_04", "outdoors_bio_engineer_dna_harvesting_01", "outdoors_bio_engineer_dna_harvesting_02", "outdoors_bio_engineer_dna_harvesting_03", "outdoors_bio_engineer_dna_harvesting_04", "outdoors_bio_engineer_production_01", "outdoors_bio_engineer_production_02", "outdoors_bio_engineer_production_03", "outdoors_bio_engineer_production_04"}},
+   {"trainer_ranger", {"outdoors_ranger_novice", "outdoors_ranger_master", "outdoors_ranger_movement_01", "outdoors_ranger_movement_02", "outdoors_ranger_movement_03", "outdoors_ranger_movement_04", "outdoors_ranger_tracking_01", "outdoors_ranger_tracking_02", "outdoors_ranger_tracking_03", "outdoors_ranger_tracking_04", "outdoors_ranger_harvest_01", "outdoors_ranger_harvest_02", "outdoors_ranger_harvest_03", "outdoors_ranger_harvest_04", "outdoors_ranger_support_01", "outdoors_ranger_support_02", "outdoors_ranger_support_03", "outdoors_ranger_support_04"}},
++  {"trainer_smuggler", {"combat_smuggler_novice", "combat_smuggler_master", "combat_smuggler_underworld_01", "combat_smuggler_underworld_02", "combat_smuggler_underworld_03", "combat_smuggler_underworld_04", "combat_smuggler_slicing_01", "combat_smuggler_slicing_02", "combat_smuggler_slicing_03", "combat_smuggler_slicing_04", "combat_smuggler_combat_01", "combat_smuggler_combat_02", "combat_smuggler_combat_03", "combat_smuggler_combat_04", "combat_smuggler_spice_01", "combat_smuggler_spice_02", "combat_smuggler_spice_03", "combat_smuggler_spice_04"}},
+  };return catalog;
+ }
+ #endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/FeignDeathCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/FeignDeathCommand.h
+@@ -19,10 +19,7 @@
+ 		if (!checkInvalidLocomotions(creature))
+ 			return INVALIDLOCOMOTION;
+ 
+-		if (!creature->isInCombat()) {
+-			creature->sendSystemMessage("@combat_effects:feign_no_combat");
+-			return GENERALERROR;
+-		}
++		if (creature->isFeigningDeath() || creature->hasBuff(STRING_HASHCODE("private_feign_buff"))) return SUCCESS;
+ 
+ 		Vector<uint32> observerTypes;
+ 		observerTypes.add(ObserverEventType::DAMAGERECEIVED);
+@@ -42,7 +39,7 @@
+ 	}
+ 
+ 	void handleBuff(SceneObject* creature, ManagedObject* object, int64 param) const override {
+-		if (creature == nullptr || !creature->isCreatureObject())
++		if (param <= 0 || creature == nullptr || !creature->isCreatureObject())
+ 			return;
+ 
+ 		ManagedReference<CreatureObject*> creo = creature->asCreatureObject();
+@@ -52,14 +49,11 @@
+ 
+ 		Locker lock(creo);
+ 
+-		if (creo->hasState(CreatureState::FEIGNDEATH)) {
+-			creo->removeFeignedDeath();
+-		} else {
+-			if (creo->canFeignDeath()) {
+-				creo->feignDeath();
+-			} else {
+-				creo->sendSystemMessage("@cbt_spam:feign_fail_single");
+-			}
++		// The extra blow is deterministic. A lethal/real incapacitating hit stays real.
++		if (!creo->isDead() && !creo->isIncapacitated()) {
++			creo->setFeignedDeathState();
++			creo->setPosture(CreaturePosture::INCAPACITATED, true, true);
++			CombatManager::instance()->forcePeace(creo);
+ 		}
+ 
+ 		creo->removeBuff(STRING_HASHCODE("private_feign_buff"));
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DeathBlowCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DeathBlowCommand.h
+@@ -61,7 +61,7 @@
+ 				return GENERALERROR;
+ 			}
+ 
+-			if (!player->isIncapacitated() || player->isFeigningDeath()){
++			if (!player->isIncapacitated() || (player->isFeigningDeath() && !creature->isAiAgent())){
+ 				creature->sendSystemMessage("@error_message:target_not_incapacitated"); //You cannot perform the death blow. Your target is not incapacitated.
+ 				return GENERALERROR;
+ 			}
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1250,6 +1250,13 @@
+ 		}
+ 	}
+ 
++	// Smuggler concussion root and daze break on the next actual damaging hit.
++	if (newValue < currentValue && hasBuff(STRING_HASHCODE("swgxr_concussion"))) {
++		if (getSkillMod("private_swgxr_concussion_root")) removeBuff(Long::hashCode(CreatureState::FROZEN));
++		if (getSkillMod("private_swgxr_concussion_daze")) removeBuff(Long::hashCode(CreatureState::DIZZY));
++		if (getSkillMod("private_swgxr_concussion_delay")) removeAttackDelay();
++		removeBuff(STRING_HASHCODE("swgxr_concussion"));
++	}
+ 	setHAM(damageType, newValue, notifyClient);
+ 	// Exclude self-paid HAM costs; include real hits and environmental damage.
+ 	if (isPlayerCreature() && newValue < currentValue && (attacker == nullptr || attacker->getObjectID() != getObjectID() || destroy))
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -2663,6 +2663,8 @@
+ 	if ((walk && movementState != AiAgent::FLEEING) || posture == CreaturePosture::PRONE)
+ 		newSpeed = walkSpeed;
+ 
++	newSpeed *= 1.f - std::min(100, std::max(0, getSkillMod("private_swgxr_snare"))) / 100.f;
++
+ 	if (hasState(CreatureState::IMMOBILIZED))
+ 		newSpeed = newSpeed / 2.f;
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/bt/decorator/LookForTarget.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/bt/decorator/LookForTarget.h
+@@ -94,7 +94,7 @@
+ 			return true;
+ 		}
+ 
+-		if (target->isDead() || target->isFeigningDeath() || (!agent->isKiller() && target->isIncapacitated()) || target->isInvisible() || !target->isAttackableBy(agent)) {
++		if (target->isDead() || (target->isFeigningDeath() && !agent->isKiller()) || (!agent->isKiller() && target->isIncapacitated()) || target->isInvisible() || !target->isAttackableBy(agent)) {
+ 			return true;
+ 		}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/bt/decorator/LookForPlayer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/bt/decorator/LookForPlayer.h
+@@ -65,7 +65,7 @@
+ 	}
+ 
+ 	bool isInvalidTarget(CreatureObject* target, AiAgent* agent) const {
+-		if (target == nullptr || target->isDead() || target->isFeigningDeath() || target->isInvisible())
++		if (target == nullptr || target->isDead() || (target->isFeigningDeath() && !agent->isKiller()) || target->isInvisible())
+ 			return true;
+ 
+ 		SceneObject* agentParent = agent->getParent().get();

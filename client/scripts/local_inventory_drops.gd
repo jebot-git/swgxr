@@ -79,6 +79,7 @@ func nearest(world_position: Vector3, radius: float=0.22) -> Dictionary:
 	var closest:=radius
 	for id: String in records:
 		var record: Dictionary=records[id]
+		if record.get("slicing_reserved",false):continue
 		var body: RigidBody3D=record.body
 		if not is_instance_valid(body): continue
 		var distance:=body.global_position.distance_to(world_position)
@@ -96,6 +97,7 @@ func pickup_candidate(hand_pose: Transform3D) -> Dictionary:
 	var best_score := INF
 	for id: String in records:
 		var record: Dictionary=records[id]
+		if record.get("slicing_reserved",false):continue
 		var body: RigidBody3D=record.body
 		if not is_instance_valid(body): continue
 		var offset := body.global_position-hand_pose.origin
@@ -112,6 +114,15 @@ func pickup_candidate(hand_pose: Transform3D) -> Dictionary:
 		best_score=score
 		selected={"id":id,"item":record.item.duplicate(true),"body":body,"position":body.global_position,"distance":distance,"remote_grab":distance>0.22}
 	return selected
+
+func lock_for_slicing(id:String,pose:Transform3D)->bool:
+	if not records.has(id) or not pose.is_finite():return false
+	var record:Dictionary=records[id]
+	if not is_instance_valid(record.body):return false
+	record.slicing_reserved=true
+	record.body.freeze=true;record.body.linear_velocity=Vector3.ZERO;record.body.angular_velocity=Vector3.ZERO
+	record.body.collision_layer=0;record.body.collision_mask=0;record.body.global_transform=pose
+	return true
 
 func remove(id: String) -> void:
 	if not records.has(id): return

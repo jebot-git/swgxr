@@ -1,4 +1,5 @@
 extends Node3D
+var action_haptics=preload("res://scripts/action_haptics.gd").new()
 const FrontendChoice=preload("res://scripts/frontend_choice.gd")
 
 const PlayerScript = preload("res://scripts/player.gd")
@@ -59,6 +60,8 @@ var pets: Node
 var scout: Node3D
 var housing: Node3D
 var fishing: Node3D
+var slicing: Node3D
+var spice_world:Node3D
 var crafting: Node3D
 var services: Node3D
 var gathering: Node
@@ -82,6 +85,8 @@ var xr_origin: XROrigin3D
 var xr_start: XRToolsStartXR
 var xr_menu: Node3D
 var ui_root: Control
+var login_presentation:ColorRect
+var audio_preferences=preload("res://audio/preferences.gd").new()
 var creator: Control
 var avatar: Node3D
 var creation_options: Dictionary = {}
@@ -260,6 +265,7 @@ func make_environment() -> void:
 		environment_presentation.cycle_seconds = maxf(60,float(args["day-seconds"]))
 
 func make_ui() -> void:
+	audio_preferences.load_preferences()
 	var canvas := CanvasLayer.new()
 	add_child(canvas)
 	var ui := Control.new()
@@ -268,6 +274,7 @@ func make_ui() -> void:
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	canvas.add_child(ui)
 	ui.theme = preload("res://scripts/frontend_theme.gd").build()
+	login_presentation=preload("res://scripts/login_presentation.gd").new();ui.add_child(login_presentation);login_presentation.configure(self)
 	mode_label = Label.new()
 	mode_label.position = Vector2(28, 24)
 	mode_label.text = "SWG XR   /   GALACTIC CONNECTION"
@@ -301,9 +308,9 @@ func make_ui() -> void:
 	var heading := VBoxContainer.new()
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(heading)
-	add_label(heading, "TATOOINE  /  MOS EISLEY", 16, Color("67dcea"))
+	add_label(heading, "GALAXY  /  CHARACTER SELECT", 16, Color("67dcea"))
 	add_label(heading, "Choose your character", 34, Color("c9fbff"))
-	var location := add_label(header, "STARPORT\nYour journey starts here", 18, Color("91bdcc"))
+	var location := add_label(header, "CHARACTERS\nContinue your journey", 18, Color("91bdcc"))
 	location.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(HSeparator.new())
 	var columns := HBoxContainer.new()
@@ -346,7 +353,7 @@ func make_ui() -> void:
 	roster.add_child(buttons)
 	create_button = add_button(buttons, "Create character", open_creator)
 	create_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	enter_button = add_button(buttons, "Enter Mos Eisley", enter_character)
+	enter_button = add_button(buttons, "Enter Galaxy", enter_character)
 	enter_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	resume_button = add_button(roster, "Resume exploration", close_menu)
 	resume_button.visible = false
@@ -382,19 +389,15 @@ func make_ui() -> void:
 		var caption := add_label(audio_row, channel, 18, Color("c9fbff"))
 		caption.custom_minimum_size.x = 100
 		var slider := HSlider.new()
+		slider.name=channel+"Volume"
 		slider.min_value = 0
 		slider.max_value = 1
 		slider.step = 0.05
-		slider.value = 0.65 if channel == "Music" else 0.8
+		slider.value = audio_preferences.music if channel == "Music" else audio_preferences.ambience
 		slider.custom_minimum_size.y = 36
 		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		audio_row.add_child(slider)
-		if channel == "Music":
-			slider.value_changed.connect(func(value):
-				if is_instance_valid(environment_presentation): environment_presentation.set_music_volume(value))
-		else:
-			slider.value_changed.connect(func(value):
-				if is_instance_valid(environment_presentation): environment_presentation.set_ambient_volume(value))
+		slider.value_changed.connect(func(value):audio_preferences.set_volume(channel,value))
 	if xr_requested:
 		settings.add_child(HSeparator.new())
 		make_vr_settings(settings)
@@ -554,12 +557,22 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if session_leaving and path!="/session/logout":return {"ok":false,"error":"Logging off; background request cancelled.","cancelled":true}
 	if body is Dictionary and str(body.get("character_id",""))==datapad_character_id and not datapad_character_id.is_empty():
 		body=body.duplicate(true);body.zone=active_planet
+		# Capture before any asynchronous request. Already queued commands retain
+		# their original revision instead of borrowing newer movement authority.
+		if body.get("position") is Array and not path.ends_with("/start"):
+			if is_instance_valid(gameplay_session) and gameplay_session.live and gameplay_session.character_id==datapad_character_id:
+				body=preload("res://combat/movement_reconciliation.gd").stamp_request(body,gameplay_session.player_state)
+			elif live_combat_reserved and is_instance_valid(live_combat) and live_combat.live and live_combat.owner_character==datapad_character_id:
+				body=preload("res://combat/movement_reconciliation.gd").stamp_request(body,live_combat.player_state)
 	var revision:=auth_revision
+	var haptic_character:=datapad_character_id
+	var haptic_hand:=action_haptics.choose_hand(xr_origin,"right" if vr_settings.offhand=="left" else "left")
 	if path not in remote_connection.PUBLIC_AUTH and remote_connection.configured and remote_connection.authenticated and remote_connection.expires_at>0 and Time.get_unix_time_from_system()>=remote_connection.expires_at:
 		expire_account()
 		return {"ok":false,"error":"Your session expired. Sign in again."}
 	# Legacy RPCs reconnect this character and would evict its persistent zone session.
-	if live_combat_reserved and path!="/session/logout" and path!="/session/sync" and path!="/inventory/status" and not path.begins_with("/voice/") and not path.begins_with("/auth/") and not path.begins_with("/combat/session") and not path.begins_with("/vehicles/") and not path.begins_with("/medic/") and not path.begins_with("/scout/") and not path.begins_with("/services/") and not path.begins_with("/crafting/") and not path.begins_with("/gathering/"):
+	# The owner weapon-profile read borrows the existing native session in the adapter.
+	if live_combat_reserved and not (method==HTTPClient.METHOD_GET and path.begins_with("/weapons?")) and not (method==HTTPClient.METHOD_POST and (path.begins_with("/entertainer/") or path in ["/performance","/inventory/equip","/inventory/unequip"])) and path!="/session/logout" and path!="/session/sync" and path!="/inventory/status" and not path.begins_with("/voice/") and not path.begins_with("/auth/") and not path.begins_with("/combat/session") and not path.begins_with("/vehicles/") and not path.begins_with("/medic/") and not path.begins_with("/scout/") and not path.begins_with("/services/") and not path.begins_with("/crafting/") and not path.begins_with("/gathering/"):
 		return {"ok":false,"error":"Inventory and character RPCs are suspended during the live ranged test."}
 	var request := HTTPRequest.new()
 	request.timeout = (30.0 if path.ends_with("/start") else 4.0) if path.begins_with("/combat/session") else 75.0
@@ -584,7 +597,7 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 		request.queue_free()
 		return {"ok": false, "error": "Cannot request Core3 service: " + error_string(error)}
 	api_requests_in_flight += 1
-	var realtime:=path in ["/session/sync","/services/presence"]
+	var realtime:=path in ["/session/sync","/services/presence","/performance"]
 	if realtime:api_realtime_requests_in_flight+=1
 	var result: Array = await request.request_completed
 	api_requests_in_flight -= 1
@@ -604,7 +617,29 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	data["http_status"] = int(result[1])
 	if not data.ok and not data.has("error"):
 		data.error = "Service returned HTTP " + str(result[1])
+	if consume_movement_rejection(data):data["_movement_correction_consumed"]=true
+	if method==HTTPClient.METHOD_POST and haptic_character==datapad_character_id and revision==auth_revision:
+		action_haptics.receipt(xr_origin,xr_requested and xr_focused,path,body,data,haptic_hand)
 	return data
+
+func consume_movement_rejection(data:Dictionary)->bool:
+	var original:Variant=data.get("live_response")
+	if data.get("backend","")!="core3" or not original is Dictionary:return false
+	var mutation:Dictionary=original.get("mutation",{})
+	var reason:=str(mutation.get("error_code",original.get("error_code","")))
+	if not mutation.get("movement_accepted") is bool or mutation.movement_accepted or not reason.begins_with("native_movement_"):return false
+	if original.get("backend","")!="core3" or original.get("source_kind","")!="core3_live_combat" or not original.get("session_live",false) or str(original.get("character_id",""))!=datapad_character_id:return false
+	# A rejected action still carries authoritative placement. Adopt only its
+	# explicitly fenced snapshot; never turn the outer mutation into success.
+	var snapshot:Dictionary=original.duplicate(true);snapshot.ok=true
+	if is_instance_valid(gameplay_session) and gameplay_session.live:return gameplay_session.accept_native_response(snapshot)
+	if live_combat_reserved and is_instance_valid(live_combat) and live_combat.live:
+		# A newer owned service snapshot may already have superseded this failed
+		# movement receipt. Settle it without rolling back or closing the session.
+		var sequence_value:=int(snapshot.get("sequence",-1))
+		if str(snapshot.get("session_id",""))==live_combat.session_id and sequence_value>=0 and sequence_value<live_combat.sequence:return true
+		return live_combat.accept_response(snapshot)
+	return false
 
 func native_requests_in_flight() -> int:
 	return maxi(0,api_requests_in_flight-api_realtime_requests_in_flight)
@@ -612,11 +647,22 @@ func native_requests_in_flight() -> int:
 func try_background_poll(family: String) -> bool:
 	if is_instance_valid(gameplay_combat) and gameplay_combat.has_pending_commands():return false
 	if not world_ready or session_leaving or loading_stage or busy or menu.visible:return false
-	if live_combat_reserved:return true
-	if is_instance_valid(gameplay_session):
+	var occupied:bool=native_requests_in_flight()>0 or inventory_request_pending or datapad_request_pending
+	if live_combat_reserved:
+		if not is_instance_valid(live_combat):return false
+		occupied=occupied or live_combat.busy or live_combat.backend_retry_usec>Time.get_ticks_usec()
+		native_poll_budget.interval_ms=1000
+	elif is_instance_valid(gameplay_session):
 		if gameplay_session.busy or (gameplay_session.live and is_instance_valid(vehicles) and vehicles.seated()):return false
 		native_poll_budget.interval_ms=1000 if gameplay_session.live else 3000
-	return native_poll_budget.admit(family,Time.get_ticks_msec(),native_requests_in_flight()>0 or inventory_request_pending or datapad_request_pending)
+	return native_poll_budget.admit(family,Time.get_ticks_msec(),occupied)
+
+func yield_live_poll_to_background() -> bool:
+	# A slower-than-POLL_INTERVAL heartbeat otherwise retakes the gate every
+	# frame before later-priority service controllers can receive a fair slot.
+	if not live_combat_reserved or not world_ready or session_leaving or loading_stage or busy or menu.visible:return false
+	if native_requests_in_flight()>0 or inventory_request_pending or datapad_request_pending:return false
+	return native_poll_budget.has_ready_waiters(Time.get_ticks_msec())
 
 func ensure_gameplay_session() -> bool:
 	if is_instance_valid(live_combat) and live_combat.live:return true
@@ -763,6 +809,8 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if is_instance_valid(crafting): crafting.reset()
 	if is_instance_valid(housing): housing.reset()
 	if is_instance_valid(fishing): fishing.reset()
+	if is_instance_valid(slicing): slicing.reset()
+	if is_instance_valid(spice_world):spice_world.reset()
 	if is_instance_valid(medic): medic.reset()
 	if is_instance_valid(vehicles): vehicles.reset()
 	if is_instance_valid(pets): pets.reset()
@@ -787,8 +835,10 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		entertainer = preload("res://entertainment/controller.gd").new()
 		add_child(entertainer)
 	entertainer.configure(self,player,xr_origin if xr_requested else null,entry.get("entertainment",{}),datapad_account)
+	entertainer.sync_equipment(inventory_snapshot.get("equipment",[]))
 	if is_instance_valid(datapad):
 		datapad.set_allowed(false)
+		update_datapad_summary({})
 		datapad.ui.set_entries([])
 		datapad.ui.set_skills([], false)
 		datapad.ui.set_experience({}, false)
@@ -853,6 +903,9 @@ func enter_stage(offline: bool, entry := {}) -> void:
 			return
 	if terrain != null:
 		terrain.set_cell_source(stage)
+		if player.get("step_solver") != null:
+			player.step_solver.configure_terrain(terrain.evaluator,terrain.origin,0.0)
+			terrain.bind_movement_solver(player.step_solver)
 		player.void_floor_y = -4096.0
 		if args.has("world-position"):
 			var swg_coordinates := str(args["world-position"]).split(",")
@@ -1154,6 +1207,7 @@ func _process(_delta: float) -> void:
 		var factory_datapad_overlay:bool=is_instance_valid(housing.factory_panel) and housing.factory_panel.is_open and is_instance_valid(datapad) and datapad.is_open
 		housing.set_allowed(is_instance_valid(inventory) and inventory_available and (inventory.allowed or factory_datapad_overlay) and not player.feedback.life_locked)
 	if is_instance_valid(fishing):fishing.set_allowed(is_instance_valid(inventory) and inventory.allowed and not player.feedback.life_locked)
+	if is_instance_valid(slicing):slicing.set_allowed(is_instance_valid(inventory) and inventory.allowed and not session_leaving)
 	if is_instance_valid(pets):
 		pets.set_allowed(not service_blocks and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active))
 	if is_instance_valid(corpse_gathering):
@@ -1455,6 +1509,7 @@ func initialize_xr() -> bool:
 	inventory = load("res://scripts/xr_inventory.gd").new()
 	add_child(inventory)
 	inventory.configure(xr_origin,player,vr_settings.offhand)
+	datapad.summary_ui.equipment_requested.connect(open_datapad_equipment)
 	inventory.external_grab_blocker=func()->bool:return is_instance_valid(services) and services.blocks_inventory()
 	inventory_drops = load("res://scripts/local_inventory_drops.gd").new()
 	add_child(inventory_drops)
@@ -1463,6 +1518,7 @@ func initialize_xr() -> bool:
 	inventory.refresh_requested.connect(refresh_inventory)
 	inventory.stack_split_requested.connect(split_inventory_stack)
 	inventory.equip_requested.connect(equip_inventory_item)
+	inventory.unequip_requested.connect(unequip_inventory_item)
 	inventory.consume_requested.connect(consume_inventory_item)
 	inventory.vehicle_deed_requested.connect(activate_inventory_vehicle_deed)
 	inventory.item_drop_requested.connect(drop_inventory_item)
@@ -1480,6 +1536,8 @@ func initialize_xr() -> bool:
 	crafting.setup(self,inventory)
 	housing=load("res://housing/controller.gd").new();add_child(housing);housing.setup(self,inventory)
 	fishing=load("res://fishing/controller.gd").new();add_child(fishing);fishing.setup(self,inventory)
+	slicing=load("res://slicing/controller.gd").new();add_child(slicing);slicing.setup(self,inventory)
+	spice_world=preload("res://spice/world_effects.gd").new();add_child(spice_world);spice_world.setup(self)
 	scout=load("res://scout/controller.gd").new();add_child(scout);scout.setup(self,inventory)
 	medic=load("res://medic/controller.gd").new();add_child(medic);medic.setup(self,inventory)
 	vehicles=load("res://vehicles/controller.gd").new();add_child(vehicles);vehicles.setup(self,inventory)
@@ -1564,6 +1622,21 @@ func seed_spawn_membership() -> void:
 	stage.seed_membership_at(Vector3(point.x, floor_y, point.z), str(candidate.cell_id))
 
 func ground_xr_spawn() -> bool:
+	# Terrain is a height field, including logical swimming support. A rounded
+	# capsule's contact on a steep hill must not impose a separate slope limit.
+	var source:Dictionary=player._source_support(player.global_position,0.1,8.0)
+	if source.get("valid",false) and source.get("terrain",false):
+		var delta:=Vector3(0,float(source.body_height)-player.global_position.y,0)
+		var mask:int=player.collision_mask
+		player.collision_mask=mask & ~2
+		var obstructed:bool=player.test_move(player.global_transform,delta)
+		player.collision_mask=mask
+		if not obstructed:
+			player.apply_world_correction(delta)
+			player.velocity=Vector3.ZERO
+			player.ground_control_velocity=Vector2.ZERO
+			player.spawn_point=player.global_position
+			return true
 	# Sweep the actual tracked-body capsule, using the cell's collision mask so
 	# interior floors below terrain are selected correctly. No visible gravity settle.
 	var hit := KinematicCollision3D.new()
@@ -1625,6 +1698,7 @@ func update_inventory_presentation() -> void:
 	if not is_instance_valid(inventory): return
 	var value := inventory_snapshot.duplicate(true)
 	var reserved: Array = Array(inventory_drops.reserved_ids()) if is_instance_valid(inventory_drops) else []
+	if is_instance_valid(slicing) and not slicing.locked_target.is_empty():reserved.append(slicing.locked_target)
 	var held_id := str(inventory.held_item.get("id",""))
 	var medical_id := str(medic.held.get("id","")) if is_instance_valid(medic) else ""
 	if not medical_id.is_empty():reserved.append(medical_id)
@@ -1762,6 +1836,28 @@ func ready_inventory_item(item: Dictionary) -> void:
 func equip_inventory_item(item: Dictionary, arrangement: int) -> void:
 	await mutate_inventory_item("equip",item,{"arrangement":arrangement})
 
+func unequip_inventory_item(item: Dictionary, side: String="") -> void:
+	if not is_instance_valid(inventory) or inventory_request_pending:return
+	var id:=str(item.get("id",""));var current:=owned_inventory_item(id)
+	if current.is_empty() or not current.get("equipped",false) or not current.get("unequip_available",false):
+		inventory.set_busy(false,str(current.get("unequip_block_reason","This item is no longer equipped.")));return
+	var epoch:=datapad_epoch
+	inventory_request_pending=true;inventory.begin_mutation("Removing equipment in Core3…")
+	var result:=await api(HTTPClient.METHOD_POST,"/inventory/unequip",{"account":datapad_account,"character_id":datapad_character_id,"item_id":id})
+	if epoch!=datapad_epoch:inventory_request_pending=false;return
+	var confirmed:bool=result.get("ok",false) and result.get("source_kind","")=="core3_inventory_unequip" and result.get("mutation",{}).get("success",false) and str(result.get("inventory",{}).get("character_id",""))==datapad_character_id
+	if confirmed:
+		inventory_snapshot=result.inventory.duplicate(true);inventory.finish_item_action(true)
+		reconcile_inventory_presentations();update_inventory_presentation();await sync_inventory_equipment(true)
+		if epoch!=datapad_epoch:inventory_request_pending=false;return
+		var returned:=owned_inventory_item(id)
+		if side in ["left","right"] and not returned.is_empty() and not returned.get("equipped",false):inventory.take_item(returned,side)
+		inventory.set_busy(false,"Returned to inventory.")
+	else:
+		inventory.finish_item_action(false);inventory_request_pending=false;await refresh_inventory()
+		if epoch==datapad_epoch:inventory.set_busy(false,str(result.get("error","Core3 did not confirm removing this item.")))
+	inventory_request_pending=false
+
 func consume_inventory_item(item: Dictionary) -> void:
 	await mutate_inventory_item("consume",item,{})
 
@@ -1827,6 +1923,7 @@ func apply_inventory_stat_delta(mutation: Dictionary) -> void:
 func sync_inventory_equipment(force_statistics := false) -> void:
 	if not inventory_snapshot.has("equipment"): return
 	var equipment: Array=inventory_snapshot.get("equipment",[])
+	if is_instance_valid(entertainer):entertainer.sync_equipment(equipment)
 	var revision:=JSON.stringify(equipment)
 	if revision!=inventory_equipment_revision and is_instance_valid(avatar):
 		var rendered: Dictionary=avatar.refresh_equipment(equipment)
@@ -1845,7 +1942,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 		if is_instance_valid(combat_rig): combat_rig.set_equipped_inventory_weapons([])
 		var unarmed_profile: Dictionary={}
 		var player_combat: Dictionary={}
-		if not weapon_ids.is_empty() or (force_statistics and is_instance_valid(combat_rig) and not combat_rig.unarmed.is_empty()):
+		if not datapad_character_id.is_empty():
 			var result:=await api(HTTPClient.METHOD_GET,"/weapons?account="+datapad_account.uri_encode()+"&character_id="+datapad_character_id.uri_encode())
 			if epoch!=datapad_epoch: return
 			if not result.get("ok",false): return
@@ -1853,7 +1950,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 			player_combat=result.get("player_combat",{})
 			for profile: Dictionary in result.get("weapons",[]):
 				if weapon_ids.has(str(profile.get("item_id",""))): profiles.append(profile)
-		if not profiles.is_empty() and not is_instance_valid(combat_rig):
+		if (not profiles.is_empty() or not unarmed_profile.is_empty()) and not is_instance_valid(combat_rig):
 			combat_rig=load("res://combat/ranged_rig.gd").new(); add_child(combat_rig)
 			if not combat_rig.configure(player.get_camera(),player,[],"right" if vr_settings.offhand=="left" else "left",xr_origin):
 				combat_rig.queue_free(); combat_rig=null; return
@@ -1865,6 +1962,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 		if is_instance_valid(combat_rig):
 			if not player_combat.is_empty(): combat_rig.configure_player_combat(player_combat)
 			combat_rig.set_equipped_inventory_weapons(profiles)
+			if combat_rig.unarmed.is_empty() and not unarmed_profile.is_empty():combat_rig.configure_unarmed(unarmed_profile)
 			for state in combat_rig.unarmed.values():
 				if not unarmed_profile.is_empty(): state.refresh_player(unarmed_profile)
 		inventory_weapon_revision=weapon_revision
@@ -1874,6 +1972,9 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 			for weapon in combat_rig.weapons:
 				if not weapon.get("inventory_only",false): rendered_ids.append(str(weapon.state.profile.get("item_id","")))
 		if is_instance_valid(fishing) and not fishing.rod.is_empty():rendered_ids.append(str(fishing.rod.id))
+		if is_instance_valid(entertainer) and not entertainer.equipped_instrument.is_empty():rendered_ids.append(str(entertainer.equipped_instrument.id))
+		for item:Dictionary in equipment:
+			if item.get("tool_kind","")=="slicing" and "hold_r" in item.get("equipped_slots",[]):rendered_ids.append(str(item.get("id","")))
 		avatar.set_equipment_visual_hidden(rendered_ids)
 
 func show_equipped_backpack(hidden: bool, template: String) -> void:
@@ -1890,7 +1991,10 @@ func show_equipped_backpack(hidden: bool, template: String) -> void:
 
 func get_radar_contacts(center: Vector3, radius: float) -> Array[Dictionary]:
 	if not world_ready or loading_stage: return []
-	return radar_contacts.query(center,radius)
+	var contacts:=radar_contacts.query(center,radius)
+	if is_instance_valid(player) and player.feedback.spice.policy().hostile_illusion:
+		for contact:Dictionary in contacts:contact.relation="hostile"
+	return contacts
 
 func datapad_source_position() -> Vector3:
 	return source_position_at(player.global_position)
@@ -1899,6 +2003,19 @@ func source_position_at(world_position: Vector3) -> Vector3:
 	var origin := loader.vec(loader.report.get("origin",[0,0,0]))
 	var point: Vector3=stage.to_local(world_position) if is_instance_valid(stage) and stage is Node3D else world_position
 	return Vector3(origin.x+point.x,origin.y+point.y,origin.z-point.z)
+
+func open_datapad_equipment()->void:
+	if not is_instance_valid(inventory) or not is_instance_valid(datapad) or inventory_request_pending:return
+	datapad.set_open(false)
+	inventory.set_allowed(true)
+	inventory.browse_equipment(xr_origin.get_node("XRCamera3D").global_transform)
+
+func update_datapad_summary(value:Variant)->void:
+	if not is_instance_valid(datapad) or not is_instance_valid(datapad.summary_ui):return
+	var summary:Dictionary=value if value is Dictionary and value.get("version",0)==1 and str(value.get("character_id",""))==datapad_character_id and not datapad_character_id.is_empty() else {}
+	datapad.summary_ui.set_summary(summary)
+	if summary.is_empty():datapad.summary_ui.set_character(null,"")
+	elif is_instance_valid(inventory):datapad.summary_ui.set_character(inventory.equipment_avatar,inventory.equipment_context_key())
 
 func refresh_datapad() -> void:
 	if not is_instance_valid(datapad) or datapad_request_pending: return
@@ -1920,6 +2037,7 @@ func refresh_datapad() -> void:
 		refresh_datapad()
 		return
 	if result.get("ok",false) and result.get("backend","") == "core3":
+		update_datapad_summary(result.get("player_summary",{}) if str(result.get("character_id",""))==datapad_character_id else {})
 		datapad.ui.set_entries(result.get("entries",[]))
 		datapad.ui.set_skills(result.get("skills", []), result.get("skills_complete", false))
 		datapad.ui.set_experience(result.get("experience", {}), result.get("experience_complete", false))
@@ -2132,7 +2250,10 @@ func start_live_combat() -> bool:
 				started=bool(placed.get("ok",false))
 				if not started:live_combat.last_error=str(placed.get("error","Native character placement failed."))
 	if started:
-		if is_instance_valid(gathering):gathering.process_mode=Node.PROCESS_MODE_INHERIT
+		# Native entertainer commands share this persistent session. Its prop and
+		# tracked input must resume too; only legacy corpse gathering stays paused.
+		for controller in [gathering,entertainer]:
+			if is_instance_valid(controller):controller.process_mode=Node.PROCESS_MODE_INHERIT
 		session_mode = "LIVE CORE3 · RANGED COMBAT TEST"
 		mode_label.text = active_planet.to_upper()+" / " + session_mode
 		asset_status.text = "Live Core3 creatures, HAM, retaliation and deaths. Grip at dominant hip to draw; trigger fires.
@@ -2150,6 +2271,8 @@ func apply_live_player(snapshot: Dictionary) -> void:
 	var context := snapshot.duplicate(true)
 	context["character_id"] = datapad_character_id
 	player.feedback.observe(context)
+	if snapshot.get("player_summary") is Dictionary:update_datapad_summary(snapshot.player_summary)
+	preload("res://combat/movement_reconciliation.gd").apply(self,snapshot)
 	if is_instance_valid(datapad) and snapshot.get("experience") is Dictionary and bool(snapshot.get("experience_complete",false)):
 		datapad.ui.set_experience(snapshot.experience,true)
 	if is_instance_valid(medic):medic.observe_drag(snapshot.get("medical_drag",{}))
@@ -2360,9 +2483,9 @@ func clear_character_world() -> void:
 	if is_instance_valid(environment_presentation):environment_presentation.set_active(false)
 	if is_instance_valid(inventory):inventory.set_allowed(false);inventory.clear_held();inventory.set_snapshot({})
 	if is_instance_valid(inventory_drops):inventory_drops.clear()
-	for controller in [services,gathering,crafting,fishing,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
+	for controller in [services,gathering,crafting,fishing,slicing,spice_world,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
 		if is_instance_valid(controller) and controller.has_method("reset"):controller.reset()
-	if is_instance_valid(datapad):datapad.set_allowed(false);datapad.ui.set_entries([]);datapad.ui.set_skills([],false);datapad.ui.set_experience({},false)
+	if is_instance_valid(datapad):datapad.set_allowed(false);datapad.ui.set_entries([]);datapad.ui.set_skills([],false);datapad.ui.set_experience({},false);update_datapad_summary({})
 	player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false);player.ground_provider=null
 	if is_instance_valid(tracked_avatar):retire_world_node(tracked_avatar);avatar=null
 	elif is_instance_valid(avatar):retire_world_node(avatar)

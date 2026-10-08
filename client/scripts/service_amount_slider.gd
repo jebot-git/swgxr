@@ -2,6 +2,7 @@ extends Control
 ## Integer credit slider shared by bank and local wallet payment panels.
 ## Dragging edits a proposal only; the owning panel confirms a server mutation.
 signal amount_changed(value: int)
+var currency_unit := "credits"
 var minimum := 0
 var maximum := 0
 var amount := 0
@@ -55,7 +56,7 @@ func _draw() -> void:
 	var font:=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 	draw_track()
 	draw_string(font,Vector2(24,81),str(minimum),HORIZONTAL_ALIGNMENT_LEFT,140,16,Color("9ac7da"))
-	draw_string(font,Vector2(200,81),"%d credits"%amount,HORIZONTAL_ALIGNMENT_CENTER,160,19,Color("d2f6ff"))
+	draw_string(font,Vector2(200,81),"%d %s"%[amount,currency_unit],HORIZONTAL_ALIGNMENT_CENTER,160,19,Color("d2f6ff"))
 	draw_string(font,Vector2(396,81),str(maximum),HORIZONTAL_ALIGNMENT_RIGHT,140,16,Color("9ac7da"))
 
 func handle_rect() -> Rect2:

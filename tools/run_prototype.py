@@ -62,6 +62,11 @@ def inventory_assets(snapshot=None, snapshot_path=None):
         subprocess.run([sys.executable,str(ROOT/'tools/crafting/prepare_assets.py')],check=True,cwd=ROOT)
     if not (ROOT/'runtime/assets/housing/catalog.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/assets/prepare_housing.py')],check=True,cwd=ROOT)
+    terrain_layers = load_json(ROOT / 'runtime/assets/terrain_modifications/catalog.json')
+    terrain_inputs = {name: hashlib.sha256((ROOT / 'runtime/assets' / name).read_bytes()).hexdigest()
+                      for name in ('scout/catalog.json', 'housing/catalog.json')}
+    if terrain_layers.get('schema') != 1 or terrain_layers.get('inputs_sha256') != terrain_inputs:
+        subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_dynamic_terrain.py')], check=True, cwd=ROOT)
     if not (ROOT/'runtime/assets/factories/catalog.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/assets/prepare_factories.py')],check=True,cwd=ROOT)
     directory = ROOT / 'runtime/assets/inventory'
@@ -83,6 +88,13 @@ def inventory_assets(snapshot=None, snapshot_path=None):
         for template in gathering)
     if prepare_gathering:
         command.append('--gathering-assets')
+    spices = catalog.get('spice_assets', {}).get('templates', [])
+    prepare_spices = not spices or any(
+        catalog.get('items', {}).get(template, {}).get('status') != 'ready'
+        or not (directory / catalog.get('items', {}).get(template, {}).get('model', '')).is_file()
+        for template in spices)
+    if prepare_spices:
+        command.append('--spice-assets')
     fishing_templates = ['object/tangible/terminal/terminal_player_structure.iff', 'object/tangible/fishing/fishing_pole.iff', 'object/tangible/fishing/marker.iff'] + [
         'object/tangible/fishing/bait/bait_'+name+'.iff' for name in ('worm','grub','insect','chum')]
     prepare_fishing = False
@@ -111,7 +123,7 @@ def inventory_assets(snapshot=None, snapshot_path=None):
                     if template not in missing: missing.append(template)
     if missing:
         command.extend(['--snapshot', str(snapshot_path)])
-    if prepare_starters or prepare_gathering or prepare_fishing or missing:
+    if prepare_starters or prepare_gathering or prepare_spices or prepare_fishing or missing:
         print('Preparing original inventory appearances for this launch…', flush=True)
         subprocess.run(command, check=True, cwd=ROOT)
         catalog = load_json(directory / 'catalog.json')
@@ -123,7 +135,7 @@ def inventory_assets(snapshot=None, snapshot_path=None):
         print('Original item previews unavailable (explicit UI entries, no replacement models): ' + ', '.join(unsupported), flush=True)
     if (prepare_fishing or not (ROOT/'runtime/assets/services/screens.json').exists()) and (ROOT/'runtime/assets/tatooine_world/world.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/client/build_terminal_screens.py')],check=True,cwd=ROOT)
-    return {'requested': len(requested), 'prepared': bool(prepare_starters or prepare_gathering or missing), 'unsupported': unsupported}
+    return {'requested': len(requested), 'prepared': bool(prepare_starters or prepare_gathering or prepare_spices or prepare_fishing or missing), 'unsupported': unsupported}
 
 
 def backend_json(base, path, timeout=55, connection=None):

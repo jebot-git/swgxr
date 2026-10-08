@@ -1,0 +1,502 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSpice.h
+@@ -0,0 +1,43 @@
++#ifndef SWGXR_SPICE_H
++#define SWGXR_SPICE_H
++#include "engine/util/JSONSerializationType.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/creature/buffs/Buff.h"
++#include "server/zone/objects/player/PlayerObject.h"
++// Native persistent buffs are the sole phase clock. The original consumable
++// templates continue to own HAM modifiers and active durations.
++class SwgxrSpice {
++ static int& damageDepth(){static thread_local int value=0;return value;}
++ static int& adjustmentDepth(){static thread_local int value=0;return value;}
++public:
++ // Scoped native HAM bookkeeping is not combat/environmental damage.
++ struct HamAdjustment {HamAdjustment(){++adjustmentDepth();}~HamAdjustment(){--adjustmentDepth();}};
++ struct DamageAction {DamageAction(){++damageDepth();}~DamageAction(){--damageDepth();}};
++ static bool damageAction(){return damageDepth()>0;}
++ static bool hamAdjustment(){return adjustmentDepth()>0;}
++ using Json=JSONSerializationType;
++ static Buff* buff(CreatureObject* c,const char* name,bool down=false){if(!c)return nullptr;return c->getBuff(String((std::string("spice.")+name+(down?".down":".up")).c_str()).hashCode());}
++ static bool active(CreatureObject* c,const char* name){return buff(c,name)!=nullptr;}
++ static bool withdrawing(CreatureObject* c,const char* name){return buff(c,name,true)!=nullptr;}
++ static float scale(CreatureObject* c,const char* name,float up,float down){return active(c,name)?up:withdrawing(c,name)?down:1.f;}
++ static float cooldownScale(CreatureObject* c){return active(c,"grey_gabaki")?.9f:1.f;}
++ static float regenScale(CreatureObject* c,int pool){return scale(c,pool==0?"scramjet":pool==3?"shadowpaw":"thruster_head",1.2f,.8f);}
++ static float meleePowerScale(CreatureObject* c){return scale(c,"droid_lube",1.2f,.5f);}
++ static float meleeRecoveryScale(CreatureObject* c){return scale(c,"droid_lube",1.2f,.5f);}
++ static float rangedCapacityScale(CreatureObject* c){return scale(c,"gunjack",1.2f,.5f);}
++ static float rangedRpmScale(CreatureObject* c){return scale(c,"gunjack",1.2f,.5f);}
++ static float meleeDamageScale(CreatureObject* c){return active(c,"pyrepenol")?1.25f:1.f;}
++ static int withdrawalDuration(const String& name){if(name=="grey_gabaki")return 0;if(name=="sweetblossom" || name=="droid_lube" || name=="gunjack")return 180;if(name=="yarrock")return 900;if(name=="pyrepenol" || name=="crash_n_burn" || name=="sedative_h4b" || name=="booster_blue")return 300;if(name=="neutron_pixey")return 600;if(name=="muon_gold")return 3600;return 120;}
++ static bool quietWithdrawal(const String& name){return name=="crash_n_burn";}
++ static bool pinnedHam(CreatureObject* c){return withdrawing(c,"sedative_h4b") && !c->isDead();}
++ static void pinHam(CreatureObject* c){if(pinnedHam(c))for(int pool:{0,3,6})if(c->getHAM(pool)!=1)c->setHAM(pool,1,true);}
++ // Return 1 for the first instantaneous recovery, 2 for the forced second death.
++ static int sweetIncapacitation(CreatureObject* c){auto b=buff(c,"sweetblossom");if(!b || !c->isPlayerCreature())return 0;auto ghost=c->getPlayerObject();auto episode=String::valueOf(b->_getObjectID());auto used=ghost->getScreenPlayData("swgxr_spice","sweetblossom_recovered");if(used==episode)return 2;ghost->setScreenPlayData("swgxr_spice","sweetblossom_recovered",episode);ghost->updateToDatabase();return 1;}
++ static Json snapshot(CreatureObject* c){
++  Json out={{"revision",0},{"effects",Json::array()},{"modifiers",{{"cooldown_scale",cooldownScale(c)},{"health_regen_scale",regenScale(c,0)},{"action_regen_scale",regenScale(c,3)},{"mind_regen_scale",regenScale(c,6)},{"melee_power_scale",meleePowerScale(c)},{"melee_recovery_scale",meleeRecoveryScale(c)},{"ranged_capacity_scale",rangedCapacityScale(c)},{"ranged_rpm_scale",rangedRpmScale(c)},{"melee_damage_scale",meleeDamageScale(c)}}},{"autoaim",active(c,"booster_blue")},{"melee_cone_degrees",active(c,"pyrepenol")?180:0}};
++  for(auto name:{"grey_gabaki","sweetblossom","scramjet","shadowpaw","thruster_head","giggledust","yarrock","droid_lube","gunjack","pyrepenol","crash_n_burn","sedative_h4b","neutron_pixey","muon_gold","booster_blue","kliknik_boost","kwi_boost"}){
++   bool down=false;auto b=buff(c,name);if(!b){b=buff(c,name,true);down=true;}if(!b)continue;double remaining=std::max(0.f,b->getTimeLeft()),duration=b->getBuffDuration();out["revision"]=b->_getObjectID();out["effects"].push_back({{"episode_id",std::to_string(b->_getObjectID())},{"spice_id",name},{"phase",down?"withdrawal":"active"},{"elapsed_seconds",std::max(0.0,duration-remaining)},{"remaining_seconds",remaining},{"duration_seconds",duration}});
++  }return out;
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ #ifndef SWGXR_LIVE_COMBAT_H
+ #define SWGXR_LIVE_COMBAT_H
+ #include "SwgxrNpcSpeech.h"
+@@ -59,7 +60,7 @@
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+   if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+-  out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
++  out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+   String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
+  }
+@@ -91,6 +92,14 @@
+    out["deployments"].push_back({{"id",dep.at("id")},{"owner_id",id(owner)},{"tool_id",id(tool)},{"position",dep.at("position")},{"building_id","0"},{"cell_index",0},{"template",std::string(tool->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",tool->getClientObjectCRC()},{"customization_hex",customization(tool->asTangibleObject())},{"state",dep.value("state",std::string())},{"resource_name",dep.value("resource_name",std::string())}});
+   }
+  }
++ static Json spiceOutlines(CreatureObject* c,Session& session,bool& truncated){
++  Json out=Json::array();if(!SwgxrSpice::active(c,"giggledust"))return out;
++  SortedVector<TreeEntry*> objects(256,256);auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),64,&objects,true,true);
++  std::vector<std::pair<double,SceneObject*>> nearby;for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!o->isAiAgent() || o->getZone()!=c->getZone())continue;auto parent=o->getParent().get();if(parent && !parent->isCellObject())continue;auto range=distance(position(c),position(o));if(range<=64)nearby.push_back({range,o});}
++  std::sort(nearby.begin(),nearby.end(),[](const auto& a,const auto& b){return a.first<b.first;});
++  for(auto& candidate:nearby){auto o=candidate.second;Locker lock(o,c);auto ai=o->asAiAgent();if(ai->isDead() || !ai->isAggressiveTo(c))continue;if(out.size()>=256){truncated=true;break;}auto row=actor(c,ai,session);auto parent=o->getParent().get();auto root=o->getRootParent();bool indoor=parent && parent->isCellObject();row["cell_id"]=indoor?id(parent):"0";row["heading_radians"]=std::fmod(o->getDirection()->getRadians()+(indoor && root?root->getDirection()->getRadians():0.f),6.283185307179586);row["outline_only"]=true;row["attackable"]=false;row["aggressive"]=true;out.push_back(row);}
++  return out;
++ }
+  static Json world(CreatureObject* c,Session& session){
+   Json out={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_world"},{"sequence",session.sequence},{"full",true},{"radius_m",128},{"players",Json::array()},{"actors",Json::array()},{"truncated",false},{"deployments",Json::array()},{"deployments_truncated",false},{"deployment_visibility","nearby_online_owners"}};
+   SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);
+@@ -111,7 +120,7 @@
+    if(o->isCreatureObject()){auto pc=o->asCreatureObject();row["posture"]=int(pc->getPosture());row["dead"]=pc->isDead();row["feigning_death"]=SwgxrSmuggler::feigning(pc);row["incapacitated"]=pc->isIncapacitated() && !pc->isFeigningDeath();row["in_combat"]=pc->isInCombat();row["target_id"]=std::to_string(pc->getTargetID());row["scale"]=pc->getHeight(false);row["ham"]=ham(pc);row["max_ham"]=ham(pc,true);}
+    if(player){if(!cell)publicDeployments(c,o->asCreatureObject(),out);row["kind"]="player";row["appearance"]=publicAppearance(o->asCreatureObject());row["equipment_complete"]=row["appearance"]["equipment_complete"];}
+    rows.push_back(row);
+-  }return out;
++  }bool outlinesTruncated=false;out["spice_outlines"]=spiceOutlines(c,session,outlinesTruncated);out["spice_outlines_truncated"]=outlinesTruncated;return out;
+  }
+  static Json location(CreatureObject* c){
+   auto parent=c->getParent().get();auto root=c->getRootParent();int index=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;
+@@ -132,7 +141,7 @@
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
+-  out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
++  out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+@@ -223,7 +232,7 @@
+    double multiplier=ability=="last_ditch"?SwgxrSmuggler::multiplier(c):(ability=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:skill->getDamageMultiplier());
+    if(ability=="last_ditch"){if(c->getHAM(3)<1 || c->getHAM(6)<1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
+    else {CreatureAttackData costs("",skill,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+-   if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),30000);
++   if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(30000*SwgxrSpice::cooldownScale(c)));
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;
+    s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
+   }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+ #define SWGXR_SMUGGLER_H
+ #include "SwgxrSlicingStats.h"
+@@ -58,7 +59,7 @@
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+-   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0)},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3)},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6)}}},{"cooldown_seconds",30.0},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
++   out.push_back({{"id",ability},{"label",label},{"source_command",commandName(ability)},{"damage_multiplier",last?multiplier(c):std::string(ability)=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:cmd->getDamageMultiplier()},{"base_sac",{{"health",last?0:w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0)},{"action",last?0:w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3)},{"mind",last?0:w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6)}}},{"cooldown_seconds",30.0*SwgxrSpice::cooldownScale(c)},{"cooldown_remaining_seconds",cooldown(c,ability)},{"native_authority",true},{"activation","native_ranged"}});
+   }return out;
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ #ifndef SWGXR_SCOUT_H
+ #define SWGXR_SCOUT_H
+ #include "SwgxrPlanets.h"
+@@ -85,7 +86,7 @@
+     else if(verb=="discard_sample_dna")SwgxrBioEngineer::discard(c);
+     else if(verb=="discard_mask_scent"){
+      if(c->getSkillMod("mask_scent")<=0)throw std::runtime_error("Mask scent not learned");
+-     c->addCooldown("skill_buff_mask_scent_self",6000*c->getSkillMod("mask_scent"));
++     c->addCooldown("skill_buff_mask_scent_self",uint64(6000*c->getSkillMod("mask_scent")*SwgxrSpice::cooldownScale(c)));
+     }else if(verb=="camp"){
+      auto o=SwgxrGathering::object(c,request.at("item_id").get<std::string>());if(o==nullptr || !o->isCampKit() || !SwgxrEquipment::inInventory(o,c))throw std::runtime_error("Owned camp kit required");
+      if(!c->isStanding())throw std::runtime_error("Stand up before deploying a camp");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SquadLeaderCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SquadLeaderCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+  * SquadLeaderCommand.h
+  *
+@@ -123,6 +124,7 @@
+ 	}
+ 
+ 	bool inflictHAM(CreatureObject* player, int health, int action, int mind) const {
++        SwgxrSpice::HamAdjustment adjustment;
+ 		if (player == nullptr)
+ 			return false;
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToStandingCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToStandingCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -26,7 +27,9 @@
+ 		if (creature->getHAM(CreatureAttribute::ACTION) <= actionCost)
+ 			return INSUFFICIENTHAM;
+ 
++        { SwgxrSpice::HamAdjustment adjustment;
+ 		creature->inflictDamage(creature, CreatureAttribute::ACTION, actionCost, true);
++        }
+ 
+ 		creature->setPosture(CreaturePosture::UPRIGHT, false, true);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToProneCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToProneCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -26,7 +27,9 @@
+ 		if (creature->getHAM(CreatureAttribute::ACTION) <= actionCost)
+ 			return INSUFFICIENTHAM;
+ 
++        { SwgxrSpice::HamAdjustment adjustment;
+ 		creature->inflictDamage(creature, CreatureAttribute::ACTION, actionCost, true);
++        }
+ 
+ 		creature->setPosture(CreaturePosture::PRONE, false, true);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToKneelingCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/TumbleToKneelingCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -28,7 +29,9 @@
+ 		if (creature->getHAM(CreatureAttribute::ACTION) <= actionCost)
+ 			return INSUFFICIENTHAM;
+ 
++        { SwgxrSpice::HamAdjustment adjustment;
+ 		creature->inflictDamage(creature, CreatureAttribute::ACTION, actionCost, true);
++        }
+ 
+ 		creature->setPosture(CreaturePosture::CROUCHED, false, true);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/MaskscentCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/MaskscentCommand.h
+@@ -1,3 +1,4 @@
++#include "SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -59,7 +60,7 @@
+ 			buff->setEndMessage(endStringId);
+ 
+ 			player->addBuff(buff);
+-			player->addCooldown("skill_buff_mask_scent_self", duration);
++			player->addCooldown("skill_buff_mask_scent_self", uint64(duration * SwgxrSpice::cooldownScale(player)));
+ 		}
+ 
+ 		return true;
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrVitalFeedback.h"
+ /*
+  				Copyright <SWGEmu>
+@@ -1163,6 +1164,7 @@
+ 
+ void CreatureObjectImplementation::setHAM(int type, int value,
+ 		bool notifyClient) {
++    if (type % 3 == 0 && SwgxrSpice::pinnedHam(asCreatureObject())) value = 1;
+ 	if (hamList.get(type) == value)
+ 		return;
+ 
+@@ -1182,6 +1184,8 @@
+ }
+ 
+ int CreatureObjectImplementation::inflictDamage(TangibleObject* attacker, int damageType, float damage, bool destroy, const String& xp, bool notifyClient, bool isCombatAction) {
++    // XP-tagged combat/DOT damage remains damage when its attacker has gone away.
++    SwgxrSpice::DamageAction damageAction;
+ 	if (attacker->isCreatureObject()) {
+ 		CreatureObject* creature = attacker->asCreatureObject();
+ 
+@@ -1204,6 +1208,10 @@
+ 
+ 	int currentValue = hamList.get(damageType);
+ 	int newValue = currentValue - (int)damage;
++    const bool selfAdjustment = attacker != nullptr && attacker->getObjectID() == getObjectID() && ((!destroy && !SwgxrSpice::damageAction()) || SwgxrSpice::hamAdjustment());
++    const bool actualSpiceDamage = damage >= 1 && !selfAdjustment;
++    const bool sweetDamage = actualSpiceDamage && SwgxrSpice::withdrawing(asCreatureObject(), "sweetblossom");
++    if (damageType % 3 == 0 && SwgxrSpice::active(asCreatureObject(), "sedative_h4b")) newValue = std::max(1, newValue);
+ 
+ 	// info(true) << "Inflict Damage: Type = " << damageType << " Damage Amount = " << damage << " Current Value = " << currentValue;
+ 
+@@ -1212,6 +1220,9 @@
+ 
+ 	if (getSkillMod("avoid_incapacitation") > 0 && newValue <= 0)
+ 		newValue = 1;
++
++    // Withdrawal also turns ordinarily nonlethal poison/bleeding into incap.
++    if (sweetDamage) newValue = 0;
+ 
+ 	if (damageType % 3 != 0 && newValue < 0) // secondaries never should go negative
+ 		newValue = 0;
+@@ -1257,9 +1268,9 @@
+ 		if (getSkillMod("private_swgxr_concussion_delay")) removeAttackDelay();
+ 		removeBuff(STRING_HASHCODE("swgxr_concussion"));
+ 	}
+-	setHAM(damageType, newValue, notifyClient);
++	setHAM(damageType, SwgxrSpice::pinnedHam(asCreatureObject()) && damageType % 3 == 0 ? 1 : newValue, notifyClient);
+ 	// Exclude self-paid HAM costs; include real hits and environmental damage.
+-	if (isPlayerCreature() && newValue < currentValue && (attacker == nullptr || attacker->getObjectID() != getObjectID() || destroy))
++	if (isPlayerCreature() && newValue < currentValue && actualSpiceDamage)
+ 		SwgxrVitalFeedback::record(getObjectID(), false);
+ 
+ 	if (attacker == nullptr)
+@@ -3212,6 +3223,7 @@
+ }
+ 
+ void CreatureObjectImplementation::activateHAMRegeneration(int latency) {
++    if (SwgxrSpice::pinnedHam(asCreatureObject())) { SwgxrSpice::pinHam(asCreatureObject()); return; }
+ 	if (isIncapacitated() || isDead())
+ 		return;
+ 
+@@ -3227,11 +3239,11 @@
+ 
+ 	// this formula gives the amount of regen per second
+ 	uint32 healthTick = (uint32) ceil((float) Math::max(0, getHAM(
+-			CreatureAttribute::CONSTITUTION)) * 13.0f / 2100.0f * modifier);
++			CreatureAttribute::CONSTITUTION)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 0));
+ 	uint32 actionTick = (uint32) ceil((float) Math::max(0, getHAM(
+-			CreatureAttribute::STAMINA)) * 13.0f / 2100.0f * modifier);
++			CreatureAttribute::STAMINA)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 3));
+ 	uint32 mindTick = (uint32) ceil((float) Math::max(0, getHAM(
+-			CreatureAttribute::WILLPOWER)) * 13.0f / 2100.0f * modifier);
++			CreatureAttribute::WILLPOWER)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 6));
+ 
+ 	if (healthTick < 1)
+ 		healthTick = 1;
+--- a/MMOCoreORB/src/server/zone/objects/creature/buffs/BuffImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/buffs/BuffImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -360,6 +361,7 @@
+ }
+ 
+ void BuffImplementation::removeAttributeModifiers() {
++    SwgxrSpice::HamAdjustment adjustment;
+ 	ManagedReference<CreatureObject*> creo = creature.get();
+ 
+ 	if (creo == nullptr)
+--- a/MMOCoreORB/src/server/zone/objects/creature/buffs/SpiceBuffImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/buffs/SpiceBuffImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "templates/params/creature/CreatureAttribute.h"
+ /*
+  * SpiceBuffImplementation.cpp
+  *
+@@ -6,6 +7,7 @@
+  */
+ 
+ #include "server/zone/objects/creature/buffs/SpiceBuff.h"
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/creature/events/SpiceDownerAnimationTask.h"
+ #include "server/zone/objects/creature/buffs/SpiceDownerBuff.h"
+@@ -13,16 +15,24 @@
+ void SpiceBuffImplementation::deactivate(bool removeModifiers) {
+ 	BuffImplementation::deactivate(true);
+ 
+-	if (removeModifiers) {
++	if (removeModifiers && SwgxrSpice::withdrawalDuration(buffName) > 0) {
+ 		//StackTrace::printStackTrace();
+ 		debug("activating downer");
+ 		uint32 crc = String::hashCode("spice." + buffName + ".down");
+-		ManagedReference<Buff*> downer = new SpiceDownerBuff(creature.get(), buffName, crc, 120);
++		ManagedReference<Buff*> downer = new SpiceDownerBuff(creature.get(), buffName, crc, SwgxrSpice::withdrawalDuration(buffName));
+ 
+ 		Locker locker(downer);
+ 
+ 		setDownerAttributes(creature.get(), downer);
+ 		creature.get()->addBuff(downer);
++        if (buffName == "sedative_h4b" && !creature.get()->isDead()) {
++            auto player = creature.get();
++            if (player->isFeigningDeath() || player->hasBuff(STRING_HASHCODE("private_feign_buff"))) player->removeFeignedDeath();
++            if (!player->isIncapacitated()) player->inflictDamage(player, CreatureAttribute::HEALTH, player->getHAM(CreatureAttribute::HEALTH) + 1, true, true, false);
++            SwgxrSpice::pinHam(player);
++        }
++        // Requested spice visuals are owner-local; only untouched native spices retain vomiting.
++        if (buffName != "kliknik_boost" && buffName != "kwi_boost") return;
+ 
+ 		// Puke now and every 15 seconds while debuff is active
+ 		creature.get()->doAnimation("heavy_cough_vomit");
+--- a/MMOCoreORB/src/server/zone/objects/creature/buffs/SpiceDownerBuff.idl
++++ b/MMOCoreORB/src/server/zone/objects/creature/buffs/SpiceDownerBuff.idl
+@@ -21,7 +21,7 @@
+ 
+ 	@preLocked
+ 	public void activate(boolean applyModifiers) {
+-		super.creature.sendSystemMessage("@spice/spice:" + super.buffName + "_downer");
++		if (super.buffName != "crash_n_burn") super.creature.sendSystemMessage("@spice/spice:" + super.buffName + "_downer");
+ 
+ 		if (super.creature.hasBuff(BuffCRC.FOOD_REDUCE_SPICE_DOWNTIME)) {
+ 			Buff buff = super.creature.getBuff(BuffCRC.FOOD_REDUCE_SPICE_DOWNTIME);
+@@ -41,7 +41,7 @@
+ 
+ 	@preLocked
+ 	public void deactivate(boolean applyModifiers) {
+-		super.creature.sendSystemMessage("@spice/spice:" + super.buffName + "_done");
++		if (super.buffName != "crash_n_burn") super.creature.sendSystemMessage("@spice/spice:" + super.buffName + "_done");
+ 
+ 		super.deactivate(true);
+ 	}
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+  * PlayerManagerImplementation.cpp
+@@ -1207,6 +1208,14 @@
+ 
+ 	ghost->addIncapacitationTime();
+  SwgxrUnderworldState::fail(playerCreature,"incapacitated");
++    int sweet = SwgxrSpice::sweetIncapacitation(playerCreature);
++    if (sweet == 2) { killPlayer(destructor, playerCreature, 0, isCombatAction); return 1; }
++    if (sweet == 1) {
++        for (int pool : {0, 3, 6}) if (playerCreature->getHAM(pool) < 1) playerCreature->setHAM(pool, 1);
++        playerCreature->removeFeignedDeath();
++        playerCreature->notifyObservers(ObserverEventType::CREATUREREVIVED, nullptr, 0);
++        return 1;
++    }
+ 
+ 	const DeltaVector<ManagedReference<SceneObject*> >* defenderList = destructor->getDefenderList();
+ 
+@@ -2409,6 +2418,7 @@
+ }
+ 
+ void PlayerManagerImplementation::applyEncumbrancies(CreatureObject* player, ArmorObject* armor) {
++    SwgxrSpice::HamAdjustment adjustment;
+ 	int healthEncumb = Math::max(0, armor->getHealthEncumbrance());
+ 	int actionEncumb = Math::max(0, armor->getActionEncumbrance());
+ 	int mindEncumb = Math::max(0, armor->getMindEncumbrance());
+@@ -6563,9 +6573,11 @@
+ 		return false;
+ 	}
+ 
++    { SwgxrSpice::HamAdjustment adjustment;
+ 	player->inflictDamage(player, CreatureAttribute::HEALTH, healthCost, true);
+ 	player->inflictDamage(player, CreatureAttribute::ACTION, actionCost, true);
+ 	player->inflictDamage(player, CreatureAttribute::MIND, mindCost, true);
++    }
+ 
+ 	if (cooldownModifier > 1.0f) {
+ 		cooldownModifier = 1.0f;
+@@ -6601,10 +6613,10 @@
+ 
+ 	player->addBuff(buff);
+ 
+-	player->updateCooldownTimer("burstrun", (newCooldown + duration) * 1000);
++	player->updateCooldownTimer("burstrun", uint64((newCooldown * SwgxrSpice::cooldownScale(player) + duration) * 1000));
+ 
+ 	Reference<BurstRunNotifyAvailableEvent*> task = new BurstRunNotifyAvailableEvent(player);
+-	player->addPendingTask("burst_run_notify", task, (newCooldown + duration) * 1000);
++	player->addPendingTask("burst_run_notify", task, uint64((newCooldown * SwgxrSpice::cooldownScale(player) + duration) * 1000));
+ 
+ 	return true;
+ }
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+  * CombatManager.cpp
+@@ -233,7 +234,7 @@
+ 
+ 	damage = doTargetCombatAction(attacker, weapon, defenderObject, &targetDefenders, data, &shouldGcwCrackdownTef, &shouldGcwTef, &shouldBhTef);
+ 
+-	if (data.getCommand()->isAreaAction() || data.getCommand()->isConeAction()) {
++	if (data.getCommand()->isAreaAction() || data.getCommand()->isConeAction() || (weapon != nullptr && weapon->isMeleeWeapon() && !data.isForceAttack() && SwgxrSpice::active(attacker->asCreatureObject(), "pyrepenol"))) {
+ 		Reference<SortedVector<ManagedReference<TangibleObject*>>*> areaDefenders = getAreaTargets(attacker, weapon, defenderObject, data);
+ 
+ 		while (areaDefenders->size() > 0) {
+@@ -531,7 +532,7 @@
+ 	if (weapon != nullptr) {
+ 		damage = doTargetCombatAction(attacker, weapon, defender, &targetDefenders, data);
+ 
+-		if (data.getCommand()->isAreaAction() || data.getCommand()->isConeAction()) {
++		if (data.getCommand()->isAreaAction() || data.getCommand()->isConeAction() || (weapon != nullptr && weapon->isMeleeWeapon() && !data.isForceAttack() && SwgxrSpice::active(attacker->asCreatureObject(), "pyrepenol"))) {
+ 			Reference<SortedVector<ManagedReference<TangibleObject*>>*> areaDefenders = getAreaTargets(attacker, weapon, defender, data);
+ 
+ 			for (int i = 0; i < areaDefenders->size(); i++) {
+@@ -929,6 +930,7 @@
+ 
+ // Get Attackers Area Targets
+ Reference<SortedVector<ManagedReference<TangibleObject*>>*> CombatManager::getAreaTargets(TangibleObject* attacker, WeaponObject* weapon, TangibleObject* defenderObject, const CreatureAttackData& data) const {
++    const bool spiceCone = weapon != nullptr && weapon->isMeleeWeapon() && !data.isForceAttack() && SwgxrSpice::active(attacker->asCreatureObject(), "pyrepenol");
+ 	Vector3 attackerPos = attacker->getPosition();
+ 	Vector3 defenderPos = defenderObject->getPosition();
+ 
+@@ -977,6 +979,7 @@
+ 			range = weapon->getMaxRange() + areaRange;
+ 	}
+ 
++	if (spiceCone) range = weapon->getMaxRange();
+ 	if (range < 0)
+ 		return defenders;
+ 
+@@ -1062,7 +1065,13 @@
+ 				continue;
+ 			}
+ 
+-			if (data.getCommand()->isConeAction() && !checkConeAngle(tano, data.getConeAngle(), attackerPos.getX(), attackerPos.getY(), dx, dy)) {
++            if (spiceCone) {
++                auto heading = attacker->getDirection()->getRadians();auto parent=attacker->getParent().get();auto root=attacker->getRootParent();
++                if(parent && parent->isCellObject() && root) heading += root->getDirection()->getRadians();
++                auto delta = tano->getWorldPosition() - attacker->getWorldPosition();
++                if (delta.getX()*std::sin(heading) + delta.getY()*std::cos(heading) < 0) continue;
++            }
++            if (!spiceCone && data.getCommand()->isConeAction() && !checkConeAngle(tano, data.getConeAngle(), attackerPos.getX(), attackerPos.getY(), dx, dy)) {
+ 				// error("object is not in cone angle");
+ 				continue;
+ 			}
+@@ -1365,6 +1374,7 @@
+ 	info(true) << "Damage After Stun: " << damage << " Stun Reduction: " << ((stunMod > 0) ? stunMsg.toString() : "0") << "%\n\n";
+ #endif // DEBUG_STATE_REDUCTION
+ 
++	if (weapon != nullptr && weapon->isMeleeWeapon() && !data.isForceAttack()) damage *= SwgxrSpice::meleeDamageScale(attacker);
+ 	return damage;
+ }
+ 
+@@ -2925,6 +2935,7 @@
+ // Special Attack Cost
+ 
+ bool CombatManager::applySpecialAttackCost(CreatureObject* attacker, WeaponObject* weapon, const CreatureAttackData& data) const {
++    SwgxrSpice::HamAdjustment adjustment;
+ 	if (attacker->isAiAgent() || data.isForceAttack())
+ 		return true;
+ 

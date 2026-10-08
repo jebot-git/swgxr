@@ -18,6 +18,7 @@ class PresenceHub:
     POSE_TTL = 1.0
     PROOF_TTL = 60.0
     CONTACT_TIME = 0.25
+    BUMP_CONTACT_TIME = 0.10
 
     def __init__(self, clock=time.monotonic):
         self.clock = clock
@@ -27,6 +28,8 @@ class PresenceHub:
         self.proofs = {}
         self.house_arms = {}
         self.house_proofs = {}
+        self.bump_contacts = {}
+        self.bump_proofs = {}
 
     @staticmethod
     def point(value):
@@ -41,6 +44,11 @@ class PresenceHub:
         return math.dist(a, b)
 
     def _prune(self, now):
+        for key, proof in list(self.bump_proofs.items()):
+            if now-proof['created'] > self.AUTH_TTL or any(oid not in self.actors for oid in proof['pair']):
+                del self.bump_proofs[key]
+        for pair in list(self.bump_contacts):
+            if any(oid not in self.actors for oid in pair):del self.bump_contacts[pair]
         for oid, arm in list(self.house_arms.items()):
             if now - arm["created"] > 60: del self.house_arms[oid]
         for pair, proof in list(self.house_proofs.items()):
@@ -70,7 +78,7 @@ class PresenceHub:
                     raise ValueError('Local hand-presence capacity reached.')
                 actor = {'id': oid, 'account': account.lower(), 'token': secrets.token_urlsafe(32),
                          'seen': -math.inf, 'seq': -1, 'tracked': False, 'grip': False,
-                         'wallet_held': False, 'position': position, 'hand': position}
+                         'wallet_held': False, 'position': position, 'hand': position, 'hands': {}}
                 self.actors[oid] = actor
             if actor['account'] != account.lower():
                 raise ValueError('Native presence ownership changed.')
@@ -92,12 +100,75 @@ class PresenceHub:
     def _invalidate_contacts(self, oid):
         actor = self.actors.get(oid)
         if actor:
-            actor.update(tracked=False, wallet_held=False, grip=False)
+            actor.update(tracked=False, wallet_held=False, grip=False, hands={})
         # Moving cells discards contacts, not the owner's still-timed selection.
         # The owner may leave a private house to meet the intended recipient.
         for mapping in (self.contacts, self.proofs, self.house_proofs):
             for pair in list(mapping):
                 if oid in pair: del mapping[pair]
+        for pair in list(self.bump_contacts):
+            if oid in pair:del self.bump_contacts[pair]
+        for key, proof in list(self.bump_proofs.items()):
+            if oid in proof['pair'] and not proof['request_id']:del self.bump_proofs[key]
+
+    def _bump_contact(self, actor, peer, now):
+        pair=tuple(sorted((actor['id'],peer['id'])))
+        contact=self.bump_contacts.setdefault(pair,{'armed':False,'start':None,'proof_id':''})
+        fresh=all(now-a['seen']<=self.POSE_TTL and a['hands'] for a in (actor,peer))
+        if not fresh:
+            contact.update(start=None,armed=False)
+            self._cancel_bump(contact)
+            return contact
+        hands=[[h for h in a['hands'].values() if h['tracked'] and h['free']] for a in (actor,peer)]
+        # Tracking loss/occupied hands never count as an intentional release.
+        if not all(hands):
+            contact.update(start=None,armed=False)
+            self._cancel_bump(contact)
+            return contact
+        fists=[[h for h in group if h['fist']] for group in hands]
+        separate=(not all(fists) or min(self.distance(a['position'],b['position']) for a in fists[0] for b in fists[1])>.24)
+        if separate:
+            self._cancel_bump(contact)
+            contact.update(armed=True,start=None)
+            return contact
+        touching=self._near(actor,peer) and min(self.distance(a['position'],b['position']) for a in fists[0] for b in fists[1])<=.16
+        if not touching:
+            contact['start']=None
+        elif contact['armed']:
+            if contact['start'] is None:contact['start']=now
+            if now-contact['start']>=self.BUMP_CONTACT_TIME:
+                key=secrets.token_hex(12)
+                self.bump_proofs[key]={'pair':pair,'created':now,'request_id':'','actor_id':''}
+                contact.update(armed=False,start=None,proof_id=key)
+        return contact
+
+    def _cancel_bump(self, contact):
+        proof=self.bump_proofs.get(contact['proof_id'])
+        if proof and not proof['request_id']:
+            del self.bump_proofs[contact['proof_id']]
+            contact['proof_id']=''
+
+    def authorize_group_bump(self, account, character_id, target_id, request_id, proof_id):
+        with self.lock:
+            now=self.clock();self._prune(now)
+            oid=str(character_id);target=str(target_id);actor=self.actors.get(oid)
+            proof=self.bump_proofs.get(proof_id)
+            if not actor or actor['account']!=account.lower() or not proof or proof['pair']!=tuple(sorted((oid,target))):
+                raise ValueError('Mutual tracked fist bump required.')
+            if not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',request_id or ''):raise ValueError('Stable group bump request ID required.')
+            if proof['request_id']:
+                if proof['request_id']!=request_id or proof['actor_id']!=oid:raise ValueError('Fist bump already consumed.')
+                receipt_only=True
+            else:
+                receipt_only=False
+                peer=self.actors.get(target)
+                if not peer or not self._near(actor,peer) or any(now-a['seen']>self.POSE_TTL for a in (actor,peer)) or now-proof['created']>self.POSE_TTL:
+                    raise ValueError('Fresh nearby fist bump required.')
+                fists=[[h for h in a['hands'].values() if h['tracked'] and h['free'] and h['fist']] for a in (actor,peer)]
+                if not all(fists) or min(self.distance(a['position'],b['position']) for a in fists[0] for b in fists[1])>.24:
+                    raise ValueError('Fresh free tracked fists required.')
+                proof.update(request_id=request_id,actor_id=oid)
+            return {'group_bump_id':proof_id,'receipt_only':receipt_only}
 
     def update(self, account, character_id, token, payload):
         oid = str(character_id)
@@ -126,13 +197,23 @@ class PresenceHub:
                 raise ValueError('Finite presentation heading required.')
             if self.distance(position, actor['anchor']) > 64 or self.distance(position, hand_position) > 3:
                 raise ValueError('Tracked hand is outside the authenticated character area.')
+            hands=payload.get('hands',{})
+            if not isinstance(hands,dict) or any(side not in ('left','right') for side in hands):raise ValueError('Explicit tracked fist hands required.')
+            validated_hands={}
+            for hand_side,value in hands.items():
+                if not isinstance(value,dict) or any(type(value.get(k)) is not bool for k in ('tracked','fist','free')):raise ValueError('Tracked fist flags must be boolean.')
+                point=self.point(value.get('position'))
+                if self.distance(position,point)>3:raise ValueError('Fist outside physical reach.')
+                validated_hands[hand_side]={**value,'position':point}
             actor.update(seq=seq, seen=now, position=position, hand=hand_position,
-                         tracked=hand['tracked'], grip=hand['grip'], wallet_held=payload['wallet_held'], main_hand_side=side, heading=heading)
+                         tracked=hand['tracked'], grip=hand['grip'], wallet_held=payload['wallet_held'], main_hand_side=side, heading=heading,hands=validated_hands)
             peers = []
             for peer in self.actors.values():
                 if peer is actor:
                     continue
                 pair = tuple(sorted((oid, peer['id'])))
+                bump=self._bump_contact(actor,peer,now)
+                bump_id=bump['proof_id'];bump_proof=self.bump_proofs.get(bump_id,{})
                 fresh = now - peer['seen'] <= self.POSE_TTL and peer['tracked'] and actor['tracked']
                 near = self._near(actor, peer)
                 touching = fresh and near and actor['grip'] and peer['grip'] and self.distance(actor['hand'], peer['hand']) <= 0.16
@@ -148,14 +229,18 @@ class PresenceHub:
                         contact['issued'] = True
                 else:
                     self.contacts.pop(pair, None)
-                if fresh and self._near(actor, peer, 16):
+                fist_fresh=all(now-a['seen']<=self.POSE_TTL and any(h['tracked'] for h in a['hands'].values()) for a in (actor,peer))
+                if (fresh or fist_fresh) and self._near(actor, peer, 16):
                     proof = self.proofs.get((oid, peer['id']), {})
                     peers.append({'id': peer['id'], 'name': peer['name'], 'position': peer['position'],
                                   'hand_position': peer['hand'], 'grip': peer['grip'], 'fresh': True,
+                                  'hand_tracked':peer['tracked'],
                                   'wallet_held': peer['wallet_held'],
                                   'appearance': peer['appearance'],
                                   'main_hand_side': peer.get('main_hand_side', 'right'),
                                   'heading_radians': peer.get('heading', 0),
+                                  'group_bump_ready':bool(bump_proof and not bump_proof['request_id'] and now-bump_proof['created']<=self.POSE_TTL),
+                                  'group_bump_id':bump_id if bump_proof else '',
                                   'house_permission_ready': bool(self.house_proofs.get((oid, peer['id']),{}).get('arm_id') and not self.house_proofs[(oid,peer['id'])]['request_id']),
                                   'handshake_authorized': bool(proof and not proof['request_id'])})
             return {'ok': True, 'source_kind': 'authenticated_hand_presence', 'character_id': oid,

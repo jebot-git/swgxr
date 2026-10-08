@@ -7,13 +7,33 @@
 using namespace godot;
 namespace {
 Vector3 point(const Array &a,int index) { return Vector3(a[index*3],a[index*3+1],a[index*3+2]); }
+double cross_xz(const Vector3 &a,const Vector3 &b) {return a.x*b.z-a.z*b.x;}
+Vector3 closest_xz(const Vector3 &point,const Vector3 &a,const Vector3 &b) {
+    const Vector3 edge=b-a;const double length=edge.x*edge.x+edge.z*edge.z;
+    const double t=length>1e-12?std::clamp(((point.x-a.x)*edge.x+(point.z-a.z)*edge.z)/length,0.0,1.0):0;
+    return a+edge*t;
+}
+double distance_xz_squared(const Vector3 &a,const Vector3 &b) {
+    return (a.x-b.x)*(a.x-b.x)+(a.z-b.z)*(a.z-b.z);
+}
+bool swept_footprint_touches(const Vector3 &start,const Vector3 &end,const Vector3 &a,const Vector3 &b,double radius) {
+    const Vector3 movement=end-start,edge=b-a,offset=a-start;
+    const double determinant=cross_xz(movement,edge);
+    if(std::abs(determinant)>1e-12) {
+        const double t=cross_xz(offset,edge)/determinant,u=cross_xz(offset,movement)/determinant;
+        if(t>=0&&t<=1&&u>=0&&u<=1)return true;
+    }
+    const double distance=std::min({distance_xz_squared(start,closest_xz(start,a,b)),distance_xz_squared(end,closest_xz(end,a,b)),
+                                    distance_xz_squared(a,closest_xz(a,start,end)),distance_xz_squared(b,closest_xz(b,start,end))});
+    return distance<=radius*radius+1e-10;
+}
 }
 void SwgGroundSupport::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure","regions"),&SwgGroundSupport::configure);
     ClassDB::bind_method(D_METHOD("adopt_region","key","prepared"),&SwgGroundSupport::adopt_region);
     ClassDB::bind_method(D_METHOD("remove_region","key"),&SwgGroundSupport::remove_region);
     ClassDB::bind_method(D_METHOD("sample_support","position","allowed_cell_ids","max_up","max_down","previous"),&SwgGroundSupport::sample_support,DEFVAL(Dictionary()));
-    ClassDB::bind_method(D_METHOD("capsule_support","position","radius","allowed_cell_ids","max_up","max_down"),&SwgGroundSupport::capsule_support);
+    ClassDB::bind_method(D_METHOD("capsule_support","position","radius","allowed_cell_ids","max_up","max_down","attached"),&SwgGroundSupport::capsule_support,DEFVAL(Dictionary()));
     ClassDB::bind_method(D_METHOD("constrain_motion","position","motion","allowed_cell_ids","radius","height_tolerance"),&SwgGroundSupport::constrain_motion,DEFVAL(0.35));
 }
 bool SwgGroundSupport::configure(const Array &regions) {
@@ -58,6 +78,7 @@ bool SwgGroundSupport::configure(const Array &regions) {
                 if(!t.a.is_finite()||!t.b.is_finite()||!t.c.is_finite()||t.normal.y<=0.00001) continue;
                 t.id=source.get("id",i);t.neighbors=source.get("neighbors",Array());t.edges=source.get("edge_flags",Array());t.portals=source.get("portal_ids",Array());
                 for(const Vector3 &p:{t.a,t.b,t.c}) {floor.minimum=floor.minimum.min(p);floor.maximum=floor.maximum.max(p);}
+                floor.triangle_index[t.id]=floor.triangles.size();
                 floor.triangles.push_back(t);
             }
             if(!floor.triangles.empty()) floors.push_back(std::move(floor));
@@ -75,6 +96,24 @@ bool SwgGroundSupport::adopt_region(const String &key,const Ref<SwgGroundSupport
     regions[key]=std::move(prepared->floors);prepared->rebuild_index();rebuild_index();return true;
 }
 void SwgGroundSupport::remove_region(const String &key) {regions.erase(key);rebuild_index();}
+std::vector<size_t> SwgGroundSupport::trace_floor(const Floor &floor,const Vector3 &start,const Vector3 &end,double radius,int64_t root_id) const {
+    const auto root=floor.triangle_index.find(root_id);
+    if(root==floor.triangle_index.end())return {};
+    std::vector<size_t> pending{root->second};std::vector<bool> visited(floor.triangles.size(),false);visited[root->second]=true;
+    for(size_t next=0;next<pending.size();next++) {
+        const Triangle &t=floor.triangles[pending[next]];
+        if(t.edges.size()!=3||t.neighbors.size()!=3)continue;
+        const Vector3 points[3]={t.a,t.b,t.c};
+        for(int edge=0;edge<3;edge++) {
+            if(int(t.edges[edge])!=1)continue;
+            const auto found=floor.triangle_index.find(int64_t(t.neighbors[edge]));
+            if(found==floor.triangle_index.end()||visited[found->second])continue;
+            if(!swept_footprint_touches(start,end,points[edge],points[(edge+1)%3],radius))continue;
+            visited[found->second]=true;pending.push_back(found->second);
+        }
+    }
+    return pending;
+}
 Dictionary SwgGroundSupport::sample_support(const Vector3 &position,const Array &allowed,double max_up,double max_down,const Dictionary &previous) const {
     Dictionary result;result["valid"]=false;
     if(!position.is_finite()||!std::isfinite(max_up)||!std::isfinite(max_down)||max_up<0||max_down<0)return result;
@@ -83,7 +122,17 @@ Dictionary SwgGroundSupport::sample_support(const Vector3 &position,const Array 
     for(const Floor *entry:floor_index) {const Floor &floor=*entry;
         if(!allowed.is_empty()&&!allowed.has(floor.id))continue;
         if(position.x<floor.minimum.x-1e-5||position.x>floor.maximum.x+1e-5||position.z<floor.minimum.z-1e-5||position.z>floor.maximum.z+1e-5)continue;
-        for(const Triangle &t:floor.triangles) {
+        std::vector<bool> attached;
+        if(bool(previous.get("valid",false))&&previous_cell==floor.id&&previous.has("position")&&floor.triangle_index.count(previous_tri)) {
+            // Retain the native floor locator through its actual open path.
+            // A nearby overlapping island is not a new attachment each frame.
+            attached.resize(floor.triangles.size(),false);
+            const Vector3 from=previous["position"];
+            for(size_t index:trace_floor(floor,from,position,0,previous_tri))attached[index]=true;
+        }
+        for(size_t index=0;index<floor.triangles.size();index++) {
+            if(!attached.empty()&&!attached[index])continue;
+            const Triangle &t=floor.triangles[index];
             Vector3 u=t.b-t.a,v=t.c-t.a,p=position-t.a;
             double det=u.x*v.z-v.x*u.z;if(std::abs(det)<1e-10)continue;
             double b=(p.x*v.z-v.x*p.z)/det,c=(u.x*p.z-p.x*u.z)/det;
@@ -102,15 +151,25 @@ Dictionary SwgGroundSupport::sample_support(const Vector3 &position,const Array 
     return result;
 }
 
-Dictionary SwgGroundSupport::capsule_support(const Vector3 &position,double radius,const Array &allowed,double max_up,double max_down) const {
+Dictionary SwgGroundSupport::capsule_support(const Vector3 &position,double radius,const Array &allowed,double max_up,double max_down,const Dictionary &attached) const {
     Dictionary result;result["valid"]=false;
     if(!position.is_finite()||!std::isfinite(radius)||radius<=0||!std::isfinite(max_up)||!std::isfinite(max_down))return result;
     double best=-std::numeric_limits<double>::infinity();
+    const bool attached_valid=attached.get("valid",false);
+    const String attached_cell=attached.get("cell_id",String());const int64_t attached_tri=attached.get("tri_id",int64_t(-1));
     auto accept=[&](double height) {if(height<=position.y+max_up+1e-5&&height>=position.y-max_down-1e-5)best=std::max(best,height);};
     for(const Floor *entry:floor_index) {const Floor &floor=*entry;
         if(!allowed.is_empty()&&!allowed.has(floor.id))continue;
         if(position.x<floor.minimum.x-radius||position.x>floor.maximum.x+radius||position.z<floor.minimum.z-radius||position.z>floor.maximum.z+radius)continue;
-        for(const Triangle &t:floor.triangles) {
+        std::vector<bool> permitted;
+        if(attached_valid) {
+            if(floor.id!=attached_cell)continue;
+            permitted.resize(floor.triangles.size(),false);
+            for(size_t index:trace_floor(floor,position,position,radius,attached_tri))permitted[index]=true;
+        }
+        for(size_t index=0;index<floor.triangles.size();index++) {
+            if(!permitted.empty()&&!permitted[index])continue;
+            const Triangle &t=floor.triangles[index];
             // Maximize plane(q) + sqrt(radius² - |q.xz-center.xz|²) - radius
             // over this triangle. The maximum is either its free stationary
             // point or on an edge; testing both retains continuous crest/edge
@@ -149,7 +208,41 @@ Dictionary SwgGroundSupport::constrain_motion(const Vector3 &position,const Vect
         const Vector3 start=position+moved;double earliest=1.0;Vector3 hit_normal;String cell;int64_t tri=-1,edge=-1;
         for(const Floor *entry:floor_index) {const Floor &floor=*entry;
             if(!allowed.has(floor.id))continue;
-            for(const Triangle &t:floor.triangles) {
+            // Source FloorMesh path walking begins at a finite footprint
+            // contact and visits neighbors touched by the swept circle. An
+            // unrelated triangle's infinite plane is not an attachment.
+            std::vector<size_t> pending;
+            std::vector<bool> reachable(floor.triangles.size(),false);
+            for(size_t index=0;index<floor.triangles.size();index++) {
+                const Triangle &t=floor.triangles[index];
+                const Vector3 u=t.b-t.a,v=t.c-t.a,p=start-t.a;
+                const double determinant=cross_xz(u,v);if(std::abs(determinant)<1e-10)continue;
+                const double b=cross_xz(p,v)/determinant,c=cross_xz(u,p)/determinant;
+                Vector3 contact;double distance=std::numeric_limits<double>::infinity();
+                if(b>=-1e-6&&c>=-1e-6&&b+c<=1.000001){contact=t.a+u*b+v*c;distance=0;}
+                else for(const auto &edge:std::initializer_list<std::pair<Vector3,Vector3>>{{t.a,t.b},{t.b,t.c},{t.c,t.a}}) {
+                    const Vector3 candidate=closest_xz(start,edge.first,edge.second);
+                    const double d=distance_xz_squared(start,candidate);
+                    if(d<distance){contact=candidate;distance=d;}
+                }
+                if(distance<=radius*radius+1e-10&&std::abs(contact.y-start.y)<=tolerance+radius) {
+                    reachable[index]=true;pending.push_back(index);
+                }
+            }
+            for(size_t next=0;next<pending.size();next++) {
+                const Triangle &t=floor.triangles[pending[next]];
+                if(t.edges.size()!=3||t.neighbors.size()!=3)continue;
+                const Vector3 points[3]={t.a,t.b,t.c};
+                for(int edge=0;edge<3;edge++) {
+                    if(int(t.edges[edge])!=1)continue;
+                    const auto found=floor.triangle_index.find(int64_t(t.neighbors[edge]));
+                    if(found==floor.triangle_index.end()||reachable[found->second])continue;
+                    if(!swept_footprint_touches(start,start+remaining,points[edge],points[(edge+1)%3],radius))continue;
+                    reachable[found->second]=true;pending.push_back(found->second);
+                }
+            }
+            for(size_t index:pending) {
+                const Triangle &t=floor.triangles[index];
                 if(t.edges.size()!=3)continue;
                 // Only constrain this walking support level, not a roof or a
                 // different storey whose boundary overlaps the same X/Z.

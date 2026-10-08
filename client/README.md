@@ -247,7 +247,14 @@ entry and are replaced by the original avatar hands when body tracking is active
 
 `SwgTrackedIK` provides native two-bone arm IK, source wrist orientation retargeting,
 bounded reach and stable elbow poles. It preserves the source forearm twist-bone
-hierarchy and segment lengths. Head orientation follows tracking; torso placement
+hierarchy and ordinary tracked segment lengths. Vehicle controls use the same
+solver with a presentation-only reach extension: extra distance is distributed
+proportionally across upper arm and forearm, while the hand keeps its size and
+the control's orientation. Release, tracking loss and skeleton reconfiguration
+restore the original lengths; HMD, controller and physics transforms are never
+stretched. The six original vehicle models and all original playable skeletons
+are covered by the attachment/IK checks, with a separate desktop Vulkan capture.
+Head orientation follows tracking; torso placement
 keeps the source eye reference at the HMD. Original SWG walk, run, strafe, backward and crouched-walk clips drive the
 untracked pelvis, spine and legs. Source LOCT travel speed controls cadence.
 Masked native sampling crossfades states; the spine uses reduced motion and
@@ -379,19 +386,40 @@ The terrain fixture compares five LODs and tests collision 2 cm on either side o
 an original exclusion edge. Spectator tests isolate camera ownership, head visibility,
 wall clearance and the mono render-rate limit; these do not validate live headset timing.
 
-## Wrist datapad and grounded VR avatar
+## Floating datapad, wrist minimap and grounded VR avatar
 
 See the [main controls guide](../README.md) for grip/trigger activation, finger
 selection, map scrolling, new waypoints and standing-height calibration.
-`xr_datapad.gd` reads finalized avatar poses after IK, uses native
-`SwgWristDatapad` for the constrained wrist hinge and finite panel pointing,
-and sends normal input events into two SubViewports. It never writes tracked
-head/controller poses. Screens add yaw and at most 25 degrees of pitch relative
-to the wrist mount, with no added roll. Standard OpenXR hand joints drive the
-pointer when available, otherwise original avatar index bones or controller aim
-are used. HMD/controller tracking loss cancels clicks. Analog trigger onset
-captures the target before finger curl; scrolling captures the pointing hand's
-stick until neutral. XRTools' pinned pointer providers are restored on closing.
+`xr_datapad.gd` reads finalized avatar poses after IK and uses native
+`SwgWristDatapad` for wrist minimap placement, floating view-follow and finite
+panel pointing. It sends normal input events into three SubViewports and never
+writes tracked head/controller poses. Holding the offhand fist opens the compact
+minimap; touch it with the other fingertip to open the datapad. The full datapad
+stays open after releasing or lowering the hand; use its Close button to dismiss.
+It opens 75cm ahead and slightly below eye level (95cm for the expanded map).
+A dead zone includes all three panel edges plus 10 degrees horizontally and
+8 degrees vertically. Head roll and small leaning do not move it; larger turns
+and walking bring it along with exponential damping. Button and drag captures
+freeze following to keep their target still. Reopening recenters at the current
+view. The wrist minimap retains its original gesture and mounting behavior.
+Pointing follows the visible index fingertip, with optical joints or controller
+fallbacks and 1.4m reach across the floating panes. Pointing-hand tracking loss
+cancels clicks; only head tracking loss dismisses the full interface. Scrolling
+captures the pointing hand's stick until neutral. XRTools' pinned pointers are
+restored on closing. `floating_datapad_smoke.gd` checks actual panel corners,
+turn/translation dead zones, damping, reopening and tracking with mocked poses.
+
+The left pane displays owner-only Core3 HAM, wounds, battle fatigue, cash/bank,
+faction status and standings, per-piece armour protection, residence and bound
+cloning location. Point at it and use the stick to scroll. Its holographic bust
+uses the current character's original meshes; touching it opens the existing
+equipment hologram in its empty-hand browsing mode. Grip an equipped item,
+open the backpack with the other hand, and
+release the preview inside the bag to request native unequipping. Equipment
+stays authoritative until Core3 confirms the transfer; missed drops, tracking
+loss and rejected requests retain it. `datapad_equipment_summary_smoke.gd`
+exercises this complete UI/gesture/acknowledgement flow with mocked native data.
+
 
 `SwgCollisionBuilder` handles the gate fix globally; avatar calibration and
 pelvis/leg correction use every supported original rig. Ground contact comes
@@ -417,3 +445,79 @@ See [combat design, controls, balance and verification](../docs/COMBAT.md).
 XR and desktop launches both require Forward+ on Vulkan. OpenGL is not a
 supported target and automatic OpenGL/D3D12 fallback is disabled. Direct desktop,
 render-test and headless commands must still pass `--xr-mode off`.
+
+### Source terrain navigation and Bestine VR fixes (2026-10-07)
+
+[Terrain/navigation source contract](../docs/TERRAIN_NAVIGATION.md) records the
+original SWG client and Core3 references, height-field movement, native speed and
+water policy, connected floor support, and recurring portal/stair fixes. These
+changes apply through shared terrain/collision code, not named-building patches.
+
+Carried instruments require native equipment in the weapon slot before music
+selection and performance gestures become available. Inventory-held inspection
+does not equip or start music. The bag's **Equipped items** view supports grip
+retrieval or **Return to inventory**; Core3 confirms removal and stops music
+before the item appears in the bag or hand. Nearby playable placed instruments
+can be selected from the performance menu and remain at their world location.
+The entertainer controller resumes with the live session. A suspended controller cannot
+anchor a hand to its stale instrument pose. The immediate Bestine appearance
+warning was a duplicated Transport Shuttle actor: ServiceWorld already owns its
+complete original model. Generic actor rendering defers only for a matching,
+fully loaded service actor; genuinely missing appearances still report failures.
+
+## Basic melee and action feedback
+
+The ordinary gameplay combat bridge sends qualified melee swings and punches to the owned native session. A head-aimed 30-degree cone selects one nearby native PvE target; native equipment, range, LOS, HAM and shared attack timing still decide whether it lands. Default unarmed combat is available when the server reports its unarmed weapon equipped. Advanced melee profession abilities remain provisional.
+
+Swing/fire pulses are followed by a stronger pulse on a confirmed hit. Physical guards pulse on confirmed blocks. Successful inventory, crafting, gathering, medic, Scout, service, vehicle and entertainer actions use a short pulse on the interacting tracked hand. Polling and rejected actions stay silent; feedback requires XR focus and tracking. Headless checks exercise receipts and filtering, not controller hardware.
+
+Brawler taunt: with Novice Brawler and the native taunt ability learned, hold grip to clench a free hand, keep trigger released, and tap the chest twice while aiming the head reticle. Either repeat one fist or alternate hands. Pull back between taps; simply holding a boxing guard does not taunt. The closest eligible enemy under the reticle is challenged, with native range, line of sight, success chance and recovery. Menus, occupied hands and lost tracking block the gesture. A confirmed taunt gives a short haptic on the completing hand.
+
+### Slicing and creature interaction refinements
+
+The original slicing knife can use its native weapon slot or tool hip slot. A
+separate tracked knife presentation allows an inventory target to remain in the
+other hand. Either hand can retrieve the backpack from the offhand shoulder; the
+opposite hand can then retrieve an item. Native slicing acceptance freezes only
+the target beneath the puzzle.
+
+Minimap dots and native actor nametags share observer-specific relationship
+colors: neutral white, attackable yellow, friendly green, hostile red. Holding a
+free gripping hand near the chin for 0.65 seconds while looking at a visible
+creature invokes native Inspect Creature. Its returned details retain Core3
+creature-knowledge requirements; client gestures do not grant knowledge.
+
+The fist gesture opens the minimap; touching its surface with a fingertip opens
+the datapad. Enlarged datapad panels individually face the viewer, and distant
+finger pointing uses the currently rendered fingertip rather than a cached ray.
+
+Crafting lists use native tool compatibility and categories. Leaving one schematic
+selected for a second loads its recipe; changing selection cancels the pending
+load. The preview includes the description, and original spice appearances are
+prepared by the asset pipeline. Area Track uses larger controls, full-width
+scroll hitboxes and a central search status while retaining its native search
+delay. These changes have headless/mock regression coverage, not headset proof.
+
+The login panel and surrounding sky now use static neutral white stars on black,
+with varied point brightness/size and no colored haze or shimmer. Headless menu
+and original login audio checks pass. The revised shaders still need visual
+review on a GPU: the current sandbox cannot access the desktop display or a
+render device. Live VR remains closed pending the user's next launch approval.
+
+
+### Parties
+
+Bump a free fist with another player: hold grip and trigger on either tracked
+hand while the fists meet. Both players' fresh contact is verified by the
+authenticated presence service before Core3 creates or joins the party. Bumping
+any member can join their party. Native rules choose the initial leader, giving
+a Squad Leader priority, otherwise using combat level. Separate or release the
+fist before another deliberate bump. Wallet handshakes, held props, drawn weapons
+and active interfaces do not supply party proof; a holstered weapon frees its
+hand. Confirmed formation/joining shows a short notice.
+
+**Leave Party** remains in the existing armed/unarmed circle and entertainer
+circle for every profession. It uses native group removal and does not consume
+an armed combat ability. `tests/party_bump_smoke.gd` covers both tracked hands,
+wallet exclusion, receipt suppression, native acknowledgement and circle access
+with mocked tracking/transport; it does not validate headset interaction.

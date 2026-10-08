@@ -6,6 +6,11 @@ var last_grant_ms: int=-100000
 var interval_ms:=3000
 func reset() -> void:
 	waiting.clear();last_seen.clear();last_grant_ms=-100000
+func has_ready_waiters(now_ms:int)->bool:
+	if now_ms-last_grant_ms<interval_ms:return false
+	for family:String in waiting:
+		if now_ms-int(last_seen.get(family,now_ms))<=1500:return true
+	return false
 func admit(family: String, now_ms: int, occupied: bool) -> bool:
 	for key in waiting.keys():
 		if now_ms-int(last_seen.get(key,now_ms))>1500:forget(str(key))

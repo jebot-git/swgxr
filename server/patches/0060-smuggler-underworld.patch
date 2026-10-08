@@ -1,0 +1,308 @@
+--- a/MMOCoreORB/src/server/zone/managers/mission/MissionManager.idl
++++ b/MMOCoreORB/src/server/zone/managers/mission/MissionManager.idl
+@@ -94,6 +94,8 @@
+ 	private native void loadPlayerBounties();
+ 
+ 	public native void handleMissionListRequest(MissionTerminal missionTerminal, CreatureObject player, int counter);
++	public native MissionObject swgxrCreateUnderworldMission(CreatureObject player, int rewardCredits);
++
+ 	public native void handleMissionAccept(MissionTerminal missionTerminal, MissionObject mission, CreatureObject player);
+ 	public native void handleMissionFail(MissionObject mission, CreatureObject player);
+ 	public native void handleMissionAbort(MissionObject mission, CreatureObject player, boolean questMessage = false);
+--- a/MMOCoreORB/src/server/zone/managers/mission/MissionManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/mission/MissionManagerImplementation.cpp
+@@ -2394,3 +2394,25 @@
+ 
+ 	return true;
+ }
++
++// Existing native delivery parcels, NPC spawn map, mission count and persistence.
++MissionObject* MissionManagerImplementation::swgxrCreateUnderworldMission(CreatureObject* player, int rewardCredits) {
++ auto datapad=player->getSlottedObject("datapad");if(datapad==nullptr)return nullptr;
++ int count=0;for(int i=0;i<datapad->getContainerObjectsSize();++i)if(datapad->getContainerObject(i)->isMissionObject())++count;
++ if(count>=2)return nullptr;
++ // Original city/spawn draws can legitimately miss an available NPC point.
++ // Retry without charging or retaining failed native objects.
++ for(int attempt=0;attempt<8;++attempt){
++  ManagedReference<MissionObject*> mission=server->createObject(0x18e19914,1).castTo<MissionObject*>();if(mission==nullptr)return nullptr;
++  if(!randomGenericDeliverMission(player,mission,false,Factions::FACTIONNEUTRAL)){mission->destroyObjectFromDatabase(true);continue;}
++  mission->setTemplateStrings("swgxr_underworld","");mission->setRewardCredits(rewardCredits);
++  if(!datapad->transferObject(mission,-1,true)){mission->destroyObjectFromDatabase(true);return nullptr;}
++  createDeliverMissionObjectives(mission,nullptr,player);
++  auto objective=cast<DeliverMissionObjective*>(mission->getMissionObjective());
++  if(mission->getParent().get()!=datapad || objective==nullptr || objective->getTargetSpawn().get()==nullptr || objective->getDestinationSpawn().get()==nullptr){
++   if(mission->getParent().get()==datapad)handleMissionAbort(mission,player);continue;
++  }
++  mission->sendTo(player,true);player->updateToDatabaseAllObjects(false);return mission;
++ }
++ return nullptr;
++}
+--- a/MMOCoreORB/src/server/zone/objects/mission/DeliverMissionObjectiveImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/mission/DeliverMissionObjectiveImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+  * DeliverMissionObjectiveImplementation.cpp
+  *
+@@ -143,6 +144,7 @@
+ }
+ 
+ void DeliverMissionObjectiveImplementation::abort() {
++ SwgxrUnderworldState::finish(getPlayerOwner(),mission.get(),false,"failed_or_cancelled");
+ 	SwgxrMissionItems::cleanup(getPlayerOwner(), mission.get());
+ 	MissionObjectiveImplementation::abort();
+ 
+@@ -150,6 +152,7 @@
+ }
+ 
+ void DeliverMissionObjectiveImplementation::complete() {
++ SwgxrUnderworldState::finish(getPlayerOwner(),mission.get(),true,"complete");
+ 	despawnNpcs();
+ 
+ 	MissionObjectiveImplementation::complete();
+--- a/MMOCoreORB/src/server/zone/objects/mission/MissionObjectiveImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/mission/MissionObjectiveImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+  * MissionObjectiveImplementation.cpp
+  *
+@@ -54,6 +55,7 @@
+ 		activated = true;
+ 		int64 timeElapsed = missionStartTime.miliDifference();
+ 		int64 missionDuration = MISSIONDURATION;
++  if(mission->getTemplateString1()=="swgxr_underworld")missionDuration=SwgxrUnderworldState::DURATION_MS;
+ 
+ 		if (mission->getTypeCRC() == MissionTypes::BOUNTY) {
+ 			missionDuration = ConfigManager::instance()->getInt("Core3.MissionManager.BountyExpirationTime", MISSIONDURATION);
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+  * PlayerManagerImplementation.cpp
+  *
+@@ -1205,6 +1206,7 @@
+ 	PlayerObject* ghost = playerCreature->getPlayerObject();
+ 
+ 	ghost->addIncapacitationTime();
++ SwgxrUnderworldState::fail(playerCreature,"incapacitated");
+ 
+ 	const DeltaVector<ManagedReference<SceneObject*> >* defenderList = destructor->getDefenderList();
+ 
+@@ -1322,6 +1324,7 @@
+ 	StringIdChatParameter stringId;
+ 
+ 	if (!attacker->isPlayerCreature() || !CombatManager::instance()->areInDuel(attacker->asCreatureObject(), player)) {
++		SwgxrUnderworldState::fail(player,"dead");
+ 		TransactionLog trx(attacker, player, TrxCode::PLAYERDIED);
+ 		trx.addState("isCombatAction", isCombatAction);
+ 		trx.addState("typeofdeath", typeofdeath);
+--- a/MMOCoreORB/src/server/zone/managers/gcw/GCWManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/gcw/GCWManagerImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+  * GCWManagerImplementation.cpp
+  *
+@@ -3528,6 +3529,7 @@
+ }
+ 
+ bool GCWManagerImplementation::isContraband(SceneObject* item) {
++ if(SwgxrUnderworldState::contraband(item))return true;
+ 	if (item->isTangibleObject()) {
+ 		ManagedReference<TangibleObject*> tangibleItem = item->asTangibleObject();
+ 		if (tangibleItem->isSliced()) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/BoardShuttleCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/BoardShuttleCommand.h
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -34,6 +35,7 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++  if(SwgxrUnderworldState::active(creature)){creature->sendSystemMessage("Shuttle travel is blocked during an Underworld delivery.");return GENERALERROR;}
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+ 
+--- a/MMOCoreORB/bin/scripts/screenplays/screenplays.lua
++++ b/MMOCoreORB/bin/scripts/screenplays/screenplays.lua
+@@ -732,3 +732,5 @@
+ 
+ -- Custom content - Loads last to allow for overrides
+ includeFile("../custom_scripts/screenplays/screenplays.lua")
++
++includeFile("swgxr_underworld.lua")
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrUnderworld.h
+@@ -0,0 +1,55 @@
++#ifndef SWGXR_UNDERWORLD_H
++#define SWGXR_UNDERWORLD_H
++#include "SwgxrUnderworldState.h"
++#include "SwgxrUnderworldEncounters.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++// Ground PvE adaptation: five original Underworld brokers and reputation tiers,
++// using Core3's real persistent parcel objectives and existing dialogue panels.
++class SwgxrUnderworld {
++ using Json=JSONSerializationType;
++ struct Tier {const char* name;const char* planet;int minimum;int maximum;int front;int credits;int faction;float x;float y;};
++ static const Tier* tier(SceneObject* o){
++  static const Tier rows[]={
++   {"Barak","tatooine",-3000,1000,500,5000,50,-1039,-3537},
++   {"Ogden","naboo",1000,1500,1000,5000,25,1907,2352},
++   {"Baldwin","lok",1500,2000,2000,10000,25,400,5226},
++   {"Harding","endor",2000,2500,3000,15000,25,-838,1617},
++   {"Russell","dathomir",2500,5001,18000,50000,25,542,3053}};
++  if(!o || !o->isAiAgent() || !o->getZone())return nullptr;
++  // The dedicated screenplay creates neutral original deliver_npc mobiles.
++  auto source=o->asAiAgent()->getCreatureTemplate();if(!source || source->getTemplateName()!="deliver_npc")return nullptr;
++  for(const auto& row:rows)if(o->getDisplayedName()==String(row.name) && o->getZone()->getZoneName()==row.planet && std::abs(o->getPositionX()-row.x)<3 && std::abs(o->getPositionY()-row.y)<3)return &row;
++  return nullptr;
++ }
++ static std::string reason(CreatureObject* c,const Tier* t){
++  if(!c->hasSkill("combat_smuggler_novice"))return "Novice Smuggler is required.";
++  if(c->isDead() || (c->isIncapacitated() && !c->isFeigningDeath()) || c->isFeigningDeath())return "Stand upright before accepting a delivery.";
++  auto s=SwgxrUnderworldState::load(c);if(!s.value("mission_id",std::string()).empty())return "Finish or cancel your current Underworld mission first.";
++  auto reputation=s.value("reputation",0);if(reputation<t->minimum || reputation>=t->maximum)return "Your Underworld reputation belongs to another broker's tier.";
++  if(int64(c->getCashCredits())+c->getBankCredits()<t->front)return "Not enough credits for the front money.";
++  return "";
++ }
++public:
++ static bool broker(SceneObject* o){return tier(o)!=nullptr;}
++ static Json snapshot(CreatureObject* c){
++  auto s=SwgxrUnderworldState::load(c);auto m=SwgxrUnderworldState::mission(c);
++  if(m!=nullptr && s.value("deadline_ms",uint64(0))<=System::getMiliTime()){SwgxrUnderworldState::fail(c,"expired");s=SwgxrUnderworldState::load(c);}
++  SwgxrUnderworldEncounters::ensure(c);
++  return {{"encounter_status",SwgxrUnderworldEncounters::status(c)},{"encounter_count",s.value("encounter_count",0)},{"reputation",s.value("reputation",0)},{"active_mission_id",s.value("mission_id",std::string())},{"deadline_ms",s.value("deadline_ms",uint64(0))},{"travel_blocked",SwgxrUnderworldState::active(c)},{"last_result",s.value("last_result",std::string())},{"eligible",c->hasSkill("combat_smuggler_novice")},{"mode","ground_pve"},{"duration_seconds",SwgxrUnderworldState::DURATION_MS/1000}};
++ }
++ static void describe(CreatureObject* c,SceneObject* npc,Json& view){
++  auto t=tier(npc);if(!t)throw std::runtime_error("underworld_broker_required");auto blocked=reason(c,t);
++  view["kind"]="underworld";view["dialogue"]="I have a parcel to move quietly. Pay the front money, collect it from my contact and deliver it within 30 minutes. No shuttle travel. Incapacitation or death loses the job, deposit and 10 Underworld reputation.";
++  view["confirm_action"]="underworld_accept";view["front_money"]=t->front;view["reward_credits"]=t->credits;view["reward_faction"]=t->faction;view["reputation"]=SwgxrUnderworldState::load(c).value("reputation",0);view["eligible"]=blocked.empty();view["blocked_reason"]=blocked;view["tier_minimum"]=t->minimum;view["tier_maximum"]=t->maximum;view["duration_seconds"]=SwgxrUnderworldState::DURATION_MS/1000;
++ }
++ static Json accept(CreatureObject* c,SceneObject* npc){
++  auto t=tier(npc);if(!t || npc->getZone()!=c->getZone() || npc->getParentID()!=c->getParentID() || !c->isInRange(npc,5) || !CollisionManager::checkLineOfSight(c,npc) || npc->asAiAgent()->isDead())throw std::runtime_error("underworld_broker_cell_range_or_sight");
++  snapshot(c);auto blocked=reason(c,t);if(!blocked.empty())throw std::runtime_error(blocked);
++  auto m=c->getZoneServer()->getMissionManager()->swgxrCreateUnderworldMission(c,t->credits);if(m==nullptr)throw std::runtime_error("native_underworld_route_unavailable_or_mission_limit");
++  auto state=SwgxrUnderworldState::load(c);state["mission_id"]=SwgxrUnderworldState::id(m);state["deadline_ms"]=System::getMiliTime()+SwgxrUnderworldState::DURATION_MS;state["front_money"]=t->front;state["reward_faction"]=t->faction;state["broker"]=t->name;state["last_result"]="active";state["encounter_count"]=0;state["encounter_ids"]=Json::array();state["next_encounter_ms"]=System::getMiliTime()+120000;state["encounter_x"]=c->getPositionX();state["encounter_y"]=c->getPositionY();
++  int cash=std::min(t->front,c->getCashCredits());c->subtractCashCredits(cash);if(t->front>cash)c->subtractBankCredits(t->front-cash);SwgxrUnderworldState::save(c,state);c->updateToDatabaseAllObjects(false);SwgxrUnderworldEncounters::ensure(c);
++  return {{"success",true},{"operation","underworld_accept"},{"mission_id",SwgxrUnderworldState::id(m)},{"front_money",t->front},{"deadline_ms",state["deadline_ms"]}};
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrUnderworldState.h
+@@ -0,0 +1,37 @@
++#ifndef SWGXR_UNDERWORLD_STATE_H
++#define SWGXR_UNDERWORLD_STATE_H
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/mission/DeliverMissionObjective.h"
++#include "server/zone/managers/mission/MissionManager.h"
++// Persistent per-character native mission metadata. Original Core3 mission
++// objects remain the authority for parcel ownership, objectives and credits.
++class SwgxrUnderworldState {
++ using Json=JSONSerializationType;
++public:
++ static constexpr int DURATION_MS=30*60*1000;
++ static uint64 incarnation(){static const uint64 value=System::getMiliTime();return value;}
++ static Json load(CreatureObject* c){if(!c || !c->getPlayerObject())return Json::object();auto s=c->getPlayerObject()->getScreenPlayData("swgxr_underworld","state");return s.isEmpty()?Json::object():Json::parse(s.toCharArray());}
++ static void save(CreatureObject* c,const Json& state){auto ghost=c->getPlayerObject();ghost->setScreenPlayData("swgxr_underworld","state",String(state.dump().c_str()));ghost->updateToDatabase();}
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static bool active(CreatureObject* c){return !load(c).value("mission_id",std::string()).empty();}
++ static bool owns(CreatureObject* c,MissionObject* m){return c && m && load(c).value("mission_id",std::string())==id(m);}
++ static ManagedReference<MissionObject*> mission(CreatureObject* c){auto key=load(c).value("mission_id",std::string());if(key.empty())return nullptr;return c->getZoneServer()->getObject(std::stoull(key)).castTo<MissionObject*>();}
++ static void finish(CreatureObject* c,MissionObject* m,bool success,const std::string& reason){
++  if(!owns(c,m))return;auto s=load(c);int reputation=s.value("reputation",0),delta=success?s.value("reward_faction",50):-10;
++  // Only this process incarnation's explicitly recorded transient enemies are
++  // removed. Saved ephemeral IDs must never resolve to unrelated post-restart NPCs.
++  if(s.value("encounter_incarnation",uint64(0))==incarnation())for(const auto& entry:s.value("encounter_ids",Json::array())){auto enemy=c->getZoneServer()->getObject(std::stoull(entry.get<std::string>()));if(enemy!=nullptr){Locker guard(enemy,c);enemy->destroyObjectFromWorld(true);}}s["encounter_ids"]=Json::array();
++  s["reputation"]=std::max(-3000,std::min(5000,reputation+delta));s["last_mission_id"]=id(m);s["mission_id"]="";s["last_result"]=reason;s["last_faction_delta"]=s["reputation"].get<int>()-reputation;s["deadline_ms"]=0;save(c,s);
++  c->sendSystemMessage(success?"Underworld delivery complete. Your reputation has increased.":"Underworld mission failed. Front money is forfeited and Underworld reputation reduced by 10.");
++ }
++ static void fail(CreatureObject* c,const std::string& reason){
++  auto m=mission(c);if(m==nullptr)return;finish(c,m,false,reason);m->setRewardCredits(0);
++  if(m->getParent().get()==c->getSlottedObject("datapad"))c->getZoneServer()->getMissionManager()->handleMissionAbort(m,c);
++ }
++ static bool contraband(SceneObject* item){
++  if(!item)return false;auto c=item->getParentRecursively(SceneObjectType::PLAYERCREATURE).castTo<CreatureObject*>();if(c==nullptr)return false;
++  auto m=mission(c);if(m==nullptr)return false;auto task=cast<DeliverMissionObjective*>(m->getMissionObjective());return task!=nullptr && task->getItem()==item;
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrUnderworldEncounters.h
+@@ -0,0 +1,43 @@
++#ifndef SWGXR_UNDERWORLD_ENCOUNTERS_H
++#define SWGXR_UNDERWORLD_ENCOUNTERS_H
++#include "SwgxrUnderworldState.h"
++#include "server/zone/managers/creature/CreatureManager.h"
++#include "server/zone/managers/combat/CombatManager.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
++// Bounded ground interceptions. Native AI, damage, loot and police scanners keep
++// their normal rules. No NPCs spawn in cities, interiors or for offline players.
++class SwgxrUnderworldEncounters {
++ using Json=JSONSerializationType;
++ class EncounterTask:public Task {
++  ManagedWeakReference<CreatureObject*> owner;
++ public:
++  EncounterTask(CreatureObject* c):owner(c){}
++  void run(){auto c=owner.get();if(!c)return;Locker lock(c);c->removePendingTask("swgxr_underworld_encounter");tick(c);ensure(c);}
++ };
++ static void tick(CreatureObject* c){
++  auto s=SwgxrUnderworldState::load(c);if(!SwgxrUnderworldState::active(c))return;
++  if(s.value("deadline_ms",uint64(0))<=System::getMiliTime()){SwgxrUnderworldState::fail(c,"expired");return;}
++  if(!c->isOnline() || c->getPlayerObject()->isOnLoadScreen() || !c->getZone() || c->getParentID()!=0 || c->getCityRegion().get()!=nullptr || c->isInCombat() || c->isDead() || c->isIncapacitated())return;
++  auto mission=SwgxrUnderworldState::mission(c);if(mission==nullptr)return;auto task=cast<DeliverMissionObjective*>(mission->getMissionObjective());if(task==nullptr || task->getObjectiveStatus()!=DeliverMissionObjective::PICKEDUPSTATUS)return;
++  int count=s.value("encounter_count",0);if(count>=2 || s.value("next_encounter_ms",uint64(0))>System::getMiliTime())return;
++  float dx=c->getPositionX()-s.value("encounter_x",c->getPositionX()),dy=c->getPositionY()-s.value("encounter_y",c->getPositionY());if(dx*dx+dy*dy<300*300)return;
++  // At most one roll each minute after 300m of travel; 50% chance per roll.
++  s["next_encounter_ms"]=System::getMiliTime()+60000;SwgxrUnderworldState::save(c,s);if(System::random(1)==0)return;
++  static const char* templates[]={"thug","rogue","pirate","mercenary","pirate_leader"};
++  int rank=s.value("reputation",0),tier=rank<1000?0:rank<1500?1:rank<2000?2:rank<2500?3:4;
++  float angle=System::random(628)/100.f,x=c->getPositionX()+24*std::cos(angle),y=c->getPositionY()+24*std::sin(angle);
++  float z=CollisionManager::getWorldFloorCollision(x,y,c->getZone(),false);
++  auto creature=c->getZone()->getCreatureManager()->spawnCreature(String(templates[tier]).hashCode(),0,x,z,y,0);if(creature==nullptr || !creature->isAiAgent())return;
++  auto enemy=creature->asAiAgent();Locker enemyLock(enemy,c);enemy->setRespawnTimer(0);
++  // Reject obstructed placements, including authored building collision.
++  if(!CollisionManager::checkLineOfSight(c,enemy)){enemy->destroyObjectFromWorld(true);return;}
++  s["encounter_count"]=count+1;s["encounter_x"]=c->getPositionX();s["encounter_y"]=c->getPositionY();s["next_encounter_ms"]=System::getMiliTime()+120000;
++  if(s.value("encounter_incarnation",uint64(0))!=SwgxrUnderworldState::incarnation())s["encounter_ids"]=Json::array();s["encounter_incarnation"]=SwgxrUnderworldState::incarnation();if(!s.contains("encounter_ids"))s["encounter_ids"]=Json::array();s["encounter_ids"].push_back(std::to_string(enemy->getObjectID()));SwgxrUnderworldState::save(c,s);
++  c->sendSystemMessage("An underworld rival has intercepted your delivery.");CombatManager::instance()->startCombat(enemy,c);
++ }
++public:
++ static Json status(CreatureObject* c){auto mission=SwgxrUnderworldState::mission(c);auto task=mission!=nullptr?cast<DeliverMissionObjective*>(mission->getMissionObjective()):nullptr;auto pending=c->getPendingTask("swgxr_underworld_encounter");return {{"pending_scheduled",pending!=nullptr && pending->isScheduled()},{"pending",pending!=nullptr},{"online",c->isOnline()},{"loading",c->getPlayerObject()->isOnLoadScreen()},{"city",c->getCityRegion().get()!=nullptr},{"combat",c->isInCombat()},{"posture",int(c->getPosture())},{"objective_status",task!=nullptr?task->getObjectiveStatus():-1}};}
++ static void ensure(CreatureObject* c){if(SwgxrUnderworldState::active(c) && c->isOnline() && c->getPendingTask("swgxr_underworld_encounter")==nullptr)c->addPendingTask("swgxr_underworld_encounter",new EncounterTask(c),20000);}
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/bin/scripts/screenplays/swgxr_underworld.lua
+@@ -0,0 +1,23 @@
++-- Ground PvE only. Enabled zones are respected; this does not restore planets.
++-- All appearance templates come from the supplied original Core3 deliver_npc.
++SwgxrUnderworldBrokers = ScreenPlay:new { numberOfActs = 1 }
++registerScreenPlay("SwgxrUnderworldBrokers", true)
++function SwgxrUnderworldBrokers:start()
++ local brokers = {
++  {"tatooine", "Barak", -1039, -3537},
++  {"naboo", "Ogden", 1907, 2352},
++  {"lok", "Baldwin", 400, 5226},
++  {"endor", "Harding", -838, 1617},
++  {"dathomir", "Russell", 542, 3053},
++ }
++ for _, row in ipairs(brokers) do
++  if isZoneEnabled(row[1]) then
++   local npc = spawnMobile(row[1], "deliver_npc", 1, row[3], 0, row[4], 0, 0)
++   if npc ~= nil then
++    SceneObject(npc):setCustomObjectName(row[2])
++    SceneObject(npc):teleport(row[3], getTerrainHeight(npc, row[3], row[4]), row[4], 0)
++    CreatureObject(npc):setOptionsBitmask(264)
++   end
++  end
++ end
++end

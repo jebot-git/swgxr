@@ -20,6 +20,11 @@ direction / shader filtering are reconstructed client presentation: Core3 does n
 provide working material rendering. Original base color constants and fractal TGA ramps are applied; detailed shader effects, vegetation
 population and complete original renderer behavior are not reproduced.
 
+Player navigation additionally follows the available original client source's
+height-field movement, leaf-tile fans, APAS passability and logical water support.
+See [terrain/navigation source contract](../../docs/TERRAIN_NAVIGATION.md) for
+the pinned source revision, implementation mapping, tests and VR differences.
+
 This native terrain implementation is AGPL-3.0-derived; preserve its source and
 license when distributing a combined native module. This is a local prototype,
 not an assertion of a permissively licensed clean-room terrain implementation.

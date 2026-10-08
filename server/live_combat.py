@@ -4,7 +4,7 @@ try:
  from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 except ImportError:
  from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
-import atexit,hashlib,hmac,json,math,os,re,secrets,subprocess,time
+import atexit,hashlib,hmac,json,math,os,re,secrets,subprocess,time,threading
 try:
  from .voice_protocol import NATIVE as VOICE_STATE
 except ImportError:
@@ -23,19 +23,20 @@ try:
  from .character_protocol import template_names,decode_customization
 except ImportError:
  from character_protocol import template_names,decode_customization
+try:
+ from .capacity import configured_limit
+except ImportError:
+ from capacity import configured_limit
 ROOT=Path(__file__).resolve().parents[1]
 class LiveConflict(ValueError):pass
 
 def native_session_capacity():
- value=os.environ.get('SWGXR_MAX_NATIVE_SESSIONS','10')
- if not re.fullmatch(r'[0-9]+',value) or not 1<=int(value)<=16:
-  raise ValueError('SWGXR_MAX_NATIVE_SESSIONS must be an integer from 1 to 16.')
- return int(value)
+ return configured_limit('SWGXR_MAX_NATIVE_SESSIONS')
 
 class LiveCombatHub:
  def __init__(self):
   self.max_sessions=native_session_capacity()
-  self.sessions={};atexit.register(self.close)
+  self.sessions={};self.admission_lock=threading.RLock();atexit.register(self.close)
  @property
  def active(self):
   # Compatibility diagnostics only; account routing uses active_for.
@@ -79,10 +80,10 @@ class LiveCombatHub:
   # Bounded local diagnostics; never retain credentials or entire actor snapshots.
   action=command.get('action','unknown');counts=active.setdefault('action_counts',{})
   counts[action]=counts.get(action,0)+1
-  if action not in ('start','fire','impact','stop','life') and not result.get('error_code'):return
+  if action not in ('start','fire','melee','taunt','impact','stop','life') and not result.get('error_code'):return
   mutation=result.get('mutation',{});snap=result.get('snapshot',{});player=snap.get('player',{})
   entry={'time_unix':time.time(),'action':action,'sequence':result.get('sequence'),
-   'life_action':command.get('life_action'),'shot_id':command.get('shot_id'),'item_id':command.get('item_id'),'target_id':command.get('target_id'),
+   'life_action':command.get('life_action'),'shot_id':command.get('shot_id'),'item_id':command.get('item_id'),'target_id':mutation.get('target_id',command.get('target_id')),'taunted':mutation.get('taunted'),
    'error_code':result.get('error_code',mutation.get('error_code')),'success':mutation.get('success'),
    'native_result':mutation.get('native_result'),'damage':mutation.get('damage'),
    'ham_cost_committed':mutation.get('ham_cost_committed'),'ready':snap.get('ready'),
@@ -127,11 +128,15 @@ class LiveCombatHub:
    row['customization']=decode_customization(bytes.fromhex(row.get('customization_hex','')))
   snapshot=result.get('snapshot',{})
   world=snapshot.get('world',{})
+  if snapshot.get('player',{}).get('player_summary') is not None:
+   try:from .datapad_protocol import normalize_summary
+   except ImportError:from datapad_protocol import normalize_summary
+   snapshot['player']['player_summary']=normalize_summary(snapshot['player']['player_summary'],result['character_id'])
   if 'npc_speech' in snapshot.get('player',{}):
    try:from .chatter_protocol import normalize as normalize_speech
    except ImportError:from chatter_protocol import normalize as normalize_speech
    snapshot['player']['npc_speech']=normalize_speech(snapshot['player']['npc_speech'],snapshot['player'],world)
-  for actor in snapshot.get('actors',[])+world.get('actors',[])+world.get('players',[])+world.get('deployments',[]):
+  for actor in snapshot.get('actors',[])+world.get('actors',[])+world.get('players',[])+world.get('deployments',[])+world.get('spice_outlines',[]):
    visual(actor)
    appearance=actor.get('appearance')
    if isinstance(appearance,dict):
@@ -143,6 +148,8 @@ class LiveCombatHub:
   result.setdefault('backend','core3');result.setdefault('source_kind','core3_live_combat')
   return result
  def start(self,account,data,secret,container,characters):
+  with self.admission_lock:return self._start(account,data,secret,container,characters)
+ def _start(self,account,data,secret,container,characters):
   source_zone=planet_context(data)
   account=account.lower()
   active=self.active_for(account)
@@ -151,7 +158,7 @@ class LiveCombatHub:
    self.close(account)
   for key,other in list(self.sessions.items()):
    if other['process'].poll() is not None:self.close(key)
-  if len(self.sessions)>=self.max_sessions:raise LiveConflict(f'Native session capacity reached ({self.max_sessions} concurrent sessions); existing players remain connected.')
+  if self.max_sessions and len(self.sessions)>=self.max_sessions:raise LiveConflict(f'Native session capacity reached ({self.max_sessions} concurrent sessions); existing players remain connected.')
   value=data.get('position');heading=data.get('heading_radians',0)
   if not isinstance(value,list) or len(value)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in value) or type(heading) not in (int,float) or not math.isfinite(heading):raise ValueError('Finite source position and heading required.')
   oid=str(data.get('character_id',''))
@@ -183,19 +190,40 @@ class LiveCombatHub:
    return result
   except Exception:self.close(account);raise
  def request(self,account,action,data):
+  active=self.active_for(account)
+  if not active:raise LiveConflict('Live session identity does not match this owned character.')
+  with active.setdefault('ipc_gate',RequestGate()):
+   if self.active_for(account) is not active:raise LiveConflict('Live session changed before request admission.')
+   return self._request_owned(account,action,data)
+ def _request_owned(self,account,action,data):
   account=account.lower()
   active=self.active_for(account)
   if not active or active['account']!=account or active['character_id']!=str(data.get('character_id','')) or active['id']!=data.get('session_id'):raise LiveConflict('Live session identity does not match this owned character.')
-  if action not in ('snapshot','update','fire','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
-  fields={'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
+  if action not in ('snapshot','update','fire','melee','taunt','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
+  fields={'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
   command={'action':action,'session_id':active['id'],**planet_context(data)}
   for key in fields:
    if key not in data and key!='heading_radians':raise ValueError('Missing '+key)
    command['life_action' if action=='life' and key=='action' else key]=data.get(key,0)
+  if 'movement_revision' in data:
+   revision=data['movement_revision']
+   if type(revision) is not int or not 0<=revision<=2**53-1:raise ValueError('Invalid movement_revision.')
+   command['movement_revision']=revision
   if action=='inventory' and 'inventory_command'in data:command['inventory_command']=data['inventory_command']
   if action=='replication' and 'command'in data:command['command']=data['command']
   if action=='life' and command.get('life_action') not in ('recover','medical_transport'):raise ValueError('Unsupported life action.')
+  if action=='fire' and 'ability_id' in data:
+   if data['ability_id'] not in ('lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved'):raise ValueError('Unsupported native ranged ability.')
+   command['ability_id']=data['ability_id']
   if action=='update':
+   if 'guard_pose' in data:
+    try:from .physical_guard_protocol import pose as guard_pose
+    except ImportError:from physical_guard_protocol import pose as guard_pose
+    command['guard_pose']=guard_pose(data['guard_pose'])
+   if 'smuggler_pose' in data:
+    pose=data['smuggler_pose']
+    if not isinstance(pose,dict) or set(pose)!={'tracked','feign','upright'} or any(type(v) is not bool for v in pose.values()) or (pose['feign'] and pose['upright']):raise ValueError('Invalid Smuggler posture.')
+    command['smuggler_pose']=pose
    if 'vehicle_controls' in data:
     try:from .vehicles_protocol import controls
     except ImportError:from vehicles_protocol import controls

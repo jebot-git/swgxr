@@ -64,6 +64,16 @@ func run()->void:
 		check(not driver.life_pose_locked and driver.last_report.has("left") and driver.last_report.has("right"),"Confirmed recovery resumes tracked limb solver")
 		check(driver.last_report.motion.valid,"Confirmed recovery resumes original locomotion")
 		check(driver.life_pose_anchor==Vector3.ZERO,"Confirmed recovery clears cached immobilized anchor")
+		var feign:Dictionary={"life_locked":true,"life_state":"incapacitated","life_animation":"incapacitated","feigning_death":true}
+		var head_before:=camera.global_transform;var origin_before:=rig.global_transform;var physics_before:=body.global_transform
+		var left_pose:=Transform3D(Basis.IDENTITY,camera.global_position+Vector3(-.3,-.4,-.2))
+		var right_pose:=Transform3D(Basis.IDENTITY,camera.global_position+Vector3(.3,-.4,-.2))
+		driver.update_tracking(1.0/90,head_before,left_pose,right_pose,4,{"presentation":feign})
+		check(driver.last_report.tracking_ik_applied and driver.last_report.life_pose.get("valid",false),"Feign retains original incap clip while tracked head and hands use IK")
+		check(camera.global_transform==head_before and rig.global_transform==origin_before and body.global_transform==physics_before,"Feign clip never moves HMD, controllers origin or physics body")
+		body.global_position+=Vector3(.2,0,.1)
+		driver.update_tracking(1.0/90,head_before,left_pose,right_pose,4,{"presentation":feign})
+		check(driver.global_position.is_equal_approx(body.global_position),"Feign source body follows authoritative medic drag relocation")
 		cases.append({"race":race,"life_pose":report.life_pose,"bone_count":driver.skeleton.get_bone_count()})
 		driver.free()
 	var report:Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"races":cases,"tracking_mocked":true,"headset_tested":false,"backend_tested":false}

@@ -18,6 +18,7 @@ class SwgTerrainEvaluator : public RefCounted {
     bool configure(const Dictionary &manifest);
     double sample_height(double swg_x, double swg_z) const;
     Dictionary sample(double swg_x, double swg_z) const;
+    Dictionary movement_sample(double swg_x, double swg_z) const;
     Dictionary build_chunk(double swg_min_x, double swg_min_z, double size, int resolution) const;
 };
 } // namespace godot

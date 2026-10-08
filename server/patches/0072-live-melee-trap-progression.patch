@@ -1,0 +1,143 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "MeleePolicy.h"
+ #include "SwgxrPhysicalGuard.h"
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+@@ -142,9 +143,9 @@
+   if(!c->getZone())throw std::runtime_error("native_player_zone_unavailable");
+   Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);bool truncated=false;
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+-  auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
++  auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"kind",weapon->isMeleeWeapon()?"melee":"ranged"},{"unarmed",weapon->isUnarmedWeapon()},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+-  if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
++  if(!profile.is_null())out["weapon"]["abilities"]=weapon->isMeleeWeapon()?Json::array():SwgxrSmuggler::abilities(c);
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+@@ -217,6 +218,47 @@
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  if(verb=="melee"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
++   for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
++   if(s.shots.size()>=128)throw std::runtime_error("shot_budget");
++   auto weapon=c->getWeapon();
++   if(weapon==nullptr || !weapon->isMeleeWeapon() || id(weapon)!=request.at("item_id").get<std::string>() || (!weapon->isUnarmedWeapon() && !weapon->isASubChildOf(c)))throw std::runtime_error("weapon_identity_mismatch");
++   if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");
++   if(stamp<s.nextFire)throw std::runtime_error("cadence");
++   if(c->isRidingMount() || SwgxrVehicles::seated(c) || c->getPosture()!=0)throw std::runtime_error("melee_posture");
++   auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);
++   if(distance(origin,position(c))>2.5)throw std::runtime_error("invalid_melee_origin");
++   double norm=distance(direction,Json::array({0,0,0}));if(norm<.95 || norm>1.05)throw std::runtime_error("invalid_melee_direction");
++   corecu::melee::Vec o{},d{};for(int axis=0;axis<3;++axis){o[axis]=origin[axis].get<double>();d[axis]=direction[axis].get<double>()/norm;}
++   double range=corecu::melee::reach(weapon->getMaxRange(),weapon->isUnarmedWeapon());
++   SortedVector<TreeEntry*> nearby(32,32);auto center=c->getWorldPosition();c->getZone()->getInRangeObjects(center.getX(),center.getZ(),center.getY(),range+3,&nearby,true);
++   ManagedReference<TangibleObject*> chosen=nullptr;double best=1e9;
++   for(int i=0;i<nearby.size();++i){auto object=static_cast<SceneObject*>(nearby.get(i));if(object==c || (!object->isAiAgent() && !object->isLairObject()))continue;
++    Locker targetLock(object,c);auto target=object->asTangibleObject();
++    if(!target || target->getZone()!=c->getZone() || !target->isAttackableBy(c) || target->isDestroyed() || (object->isAiAgent() && object->asAiAgent()->isDead()))continue;
++    auto p=position(object);auto bounds=impactBounds(object);double r=std::min(.6,bounds["radius"].get<double>()*bounds["scale"].get<double>());
++    double candidate=corecu::melee::score(o,d,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}},r,2*r,range);
++    if(candidate<0 || candidate>=best || !c->isInRange(target,range) || !CollisionManager::checkLineOfSight(c,target))continue;
++    best=candidate;chosen=target;
++   }
++   if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c))throw std::runtime_error("weapon_changed_during_melee");
++   // A committed swing pays once, including a whiff, and shares cadence with both fists/weapons.
++   CreatureAttackData costs("",command,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);
++   Shot receipt;receipt.time=stamp;receipt.spent=true;receipt.item=id(weapon);s.shots.emplace(shotID,receipt);
++   result["ham_cost_committed"]=true;result["hit"]=false;result["damage"]=0;result["target_id"]="";
++   if(chosen==nullptr)return result;
++   Locker targetLock(chosen,c);
++   if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || !c->isInRange(chosen,range) || !CollisionManager::checkLineOfSight(c,chosen))return result;
++   auto finalPosition=position(chosen);auto finalBounds=impactBounds(chosen);double finalRadius=std::min(.6,finalBounds["radius"].get<double>()*finalBounds["scale"].get<double>());
++   if(corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
++   SwgxrPreparedRangedCommand prepaid(*command);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
++   Json before=actor(c,chosen,s);c->setTargetID(0,true);int code=prepaid.doCombatAction(c,chosen->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,chosen,s);
++   result["native_result"]=code;result["success"]=code==QueueCommand::SUCCESS;result["target_id"]=id(chosen);result["before"]=before;result["after"]=after;
++   int dealt=before["health"].get<int>()-after["health"].get<int>();if(before.contains("ham"))for(int pool=0;pool<3;++pool)dealt=std::max(dealt,before["ham"][pool].get<int>()-after["ham"][pool].get<int>());
++   result["damage"]=std::max(0,dealt);result["hit"]=dealt>0;if(code!=QueueCommand::SUCCESS)result["error_code"]="native_melee_rejected";return result;
++  }
+   if(verb=="fire"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");
+    auto weapon=c->getWeapon();if(weapon==nullptr || !weapon->isRangedWeapon() || id(weapon)!=request.at("item_id").get<std::string>() || !weapon->isASubChildOf(c))throw std::runtime_error("weapon_identity_mismatch");if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/MeleePolicy.h
+@@ -0,0 +1,23 @@
++#pragma once
++#include <array>
++#include <algorithm>
++#include <cmath>
++namespace corecu { namespace melee {
++using Vec=std::array<double,3>;
++constexpr double HALF_ANGLE_TAN=.26794919243; // 15 degrees; one victim, not cleave.
++inline double reach(double nativeRange,bool unarmed){return std::max(0.,std::min(nativeRange,unarmed?2.:4.));}
++inline double score(const Vec& origin,const Vec& direction,const Vec& feet,double radius,double height,double range){
++ for(auto v:{origin,direction,feet})for(double x:v)if(!std::isfinite(x))return -1;
++ double norm=0;for(double d:direction)norm+=d*d;if(std::abs(norm-1)>.05)return -1;
++ radius=std::max(.1,std::min(radius,.6));height=std::max(.3,std::min(height,3.));
++ Vec delta{{feet[0]-origin[0],feet[1]-origin[1],feet[2]-origin[2]}};
++ double planar=std::hypot(delta[0],delta[2]);
++ // Aim against a bounded vertical capsule, not only the creature's ground point.
++ delta[1]=std::max(feet[1]+.15,std::min(feet[1]+height,origin[1]+direction[1]*planar))-origin[1];
++ double along=0,squared=0;for(int i=0;i<3;++i){along+=delta[i]*direction[i];squared+=delta[i]*delta[i];}
++ if(along<=0||std::sqrt(squared)>range+radius)return -1;
++ double side=std::sqrt(std::max(0.,squared-along*along));
++ if(side>radius+along*HALF_ANGLE_TAN)return -1;
++ return side/std::max(.1,along)*10+std::sqrt(squared)*.1;
++}
++}}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
+@@ -4,6 +4,7 @@
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/creature/commands/effect/CommandEffect.h"
+ #include "templates/params/creature/CreatureState.h"
++#include "server/zone/objects/creature/buffs/Buff.h"
+ #include <array>
+ #include <string>
+ 
+@@ -32,7 +33,17 @@
+    case CommandEffect::NEXTATTACKDELAY:return corecu::Snare;default:return -1;}
+  }
+  static int dotIndex(uint64 type){switch(type){case CreatureState::BLEEDING:return corecu::Bleed;case CreatureState::POISONED:return corecu::Poison;case CreatureState::DISEASED:return corecu::Disease;case CreatureState::ONFIRE:return corecu::Fire;default:return -1;}}
+- static double rating(CreatureObject* c,int index,double existing=0){return index<0?existing:std::max(existing,ratings(c)[index]);}
++ static double trapBonus(CreatureObject* c){
++  int scout=0,ranger=0;for(int i=1;i<=4;++i){scout+=c->hasSkill(String(("outdoors_scout_tools_0"+std::to_string(i)).c_str()))?1:0;ranger+=c->hasSkill(String(("outdoors_ranger_support_0"+std::to_string(i)).c_str()))?1:0;}
++  return corecu::trapSuccessBonus(c->hasSkill("outdoors_scout_novice"),scout,ranger,c->hasSkill("outdoors_ranger_master"));
++ }
++ static double rating(CreatureObject* c,int index,double existing=0){
++  if(index<0 || !c)return existing;
++  double debuff=0;auto trap=c->getBuff(STRING_HASHCODE("throw_trap_state_def_1"));
++  static const char* mods[]={"stun_defense","blind_defense","dizzy_defense","intimidate_defense","knockdown_defense"};
++  if(trap!=nullptr && index<5)debuff=trap->getSkillModifierValue(mods[index]);
++  return corecu::weakenedRating(existing,ratings(c)[index],debuff);
++ }
+  static JSONSerializationType snapshot(CreatureObject* c){
+   static const char* names[]={"stun","blind","dizzy","intimidate","knockdown","snare","bleed","poison","disease","fire"};
+   auto values=ratings(c);JSONSerializationType out={{"name","CoreCU"},{"version",corecu::VERSION},{"revision",corecu::REVISION}};
+--- a/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
+@@ -204,7 +204,9 @@
+ 						state == CreatureState::DIZZY ? corecu::Dizzy :
+ 						state == CreatureState::INTIMIDATED ? corecu::Intimidate : corecu::Snare;
+ 					const double resistance = CoreCuCombat::rating(targetAgent, status);
+-					if (System::random(99) >= corecu::statusChance(95, resistance))
++					const bool hardControl = state == CreatureState::FROZEN || state == CreatureState::IMMOBILIZED;
++					if (hardControl && !targetAgent->checkCooldownRecovery("corecu_control_recovery"))continue;
++					if (System::random(99) >= corecu::trapStatusChance(resistance, CoreCuCombat::trapBonus(attacker)))
+ 						continue;
+ 					const int duration = corecu::statusDuration(debuffDuration, resistance);
+ 					ManagedReference<TrapBuff*> buff = new TrapBuff(targetAgent, trapCrc, state, duration);
+@@ -235,6 +237,7 @@
+ 
+ 						// Add buff to the target
+ 						targetAgent->addBuff(buff);
++						if (hardControl)targetAgent->addCooldown("corecu_control_recovery",std::max(8000,duration*1000+2000));
+ 
+ 						if (!targetAgent->isEventMob()) {
+ 							totalXP += targetAgent->getLevel() * 15;

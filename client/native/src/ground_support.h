@@ -12,11 +12,12 @@ namespace godot {
 class SwgGroundSupport : public RefCounted {
     GDCLASS(SwgGroundSupport, RefCounted)
     struct Triangle { Vector3 a,b,c,normal; int64_t id; Array neighbors,edges,portals; };
-    struct Floor { String id; Variant building; bool exterior; Vector3 minimum,maximum; std::vector<Triangle> triangles; };
+    struct Floor { String id; Variant building; bool exterior; Vector3 minimum,maximum; std::vector<Triangle> triangles; std::map<int64_t,size_t> triangle_index; };
     std::vector<Floor> floors;
     std::map<String,std::vector<Floor>> regions;
     std::vector<const Floor *> floor_index;
     void rebuild_index();
+    std::vector<size_t> trace_floor(const Floor &floor,const Vector3 &start,const Vector3 &end,double radius,int64_t root_id) const;
 protected:
     static void _bind_methods();
 public:
@@ -24,7 +25,7 @@ public:
     bool adopt_region(const String &key,const Ref<SwgGroundSupport> &prepared);
     void remove_region(const String &key);
     Dictionary sample_support(const Vector3 &position, const Array &allowed_cell_ids, double max_up, double max_down, const Dictionary &previous = Dictionary()) const;
-    Dictionary capsule_support(const Vector3 &position, double radius, const Array &allowed_cell_ids, double max_up, double max_down) const;
+    Dictionary capsule_support(const Vector3 &position, double radius, const Array &allowed_cell_ids, double max_up, double max_down, const Dictionary &attached = Dictionary()) const;
     Dictionary constrain_motion(const Vector3 &position, const Vector3 &motion, const Array &allowed_cell_ids, double radius, double height_tolerance = 0.35) const;
 };
 }

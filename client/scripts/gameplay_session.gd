@@ -20,9 +20,12 @@ var next_update:=0.0
 var last_position:=Vector3.INF
 var last_error:=""
 var last_confirmed_ms:=0
+var last_smuggler_pose:Dictionary={}
+var last_guard_mode:="none"
 func setup(host: Node) -> void:app=host
 func reset() -> void:
 	generation+=1;live=false;session_id="";character_id="";busy=false
+	last_smuggler_pose={};last_guard_mode="none"
 	next_update=0;last_position=Vector3.INF;last_error="";last_confirmed_ms=0
 	sequence=-1;player_state={};weapon_state={};pending_transport={};notified_transport_id="";pending_ack="";life_action_pending=""
 func identity() -> Dictionary:
@@ -34,7 +37,7 @@ func identity() -> Dictionary:
 		if key.contains(":"):
 			payload.building_id=str(cell.get("building_object_id","0"));payload.cell_index=int(key.get_slice(":",1))
 	if not session_id.is_empty():payload.session_id=session_id
-	return payload
+	return preload("res://combat/movement_reconciliation.gd").stamp_request(payload,player_state)
 func accept(result: Dictionary, starting:=false) -> bool:
 	if not result.get("ok",false) or result.get("source_kind")!="core3_gameplay_session" or str(result.get("character_id",""))!=app.datapad_character_id or not result.get("session_live",false) or str(result.get("session_id","")).is_empty():
 		last_error=str(result.get("error","Core3 session was not confirmed."));return false
@@ -53,7 +56,9 @@ func accept(result: Dictionary, starting:=false) -> bool:
 	live=true;session_id=str(result.session_id);character_id=app.datapad_character_id;sequence=revision
 	last_confirmed_ms=Time.get_ticks_msec();last_error=""
 	weapon_state=snapshot.weapon.duplicate(true) if snapshot.get("weapon") is Dictionary else {}
-	player_state=snapshot.player.duplicate(true);pending_transport=transport.duplicate(true)
+	player_state=preload("res://combat/movement_reconciliation.gd").annotate(snapshot.player,result);pending_transport=transport.duplicate(true)
+	var rig:Variant=app.get("combat_rig")
+	if is_instance_valid(rig) and rig.has_method("guard_feedback"):rig.guard_feedback(player_state.get("physical_guard",{}))
 	if pending_transport.is_empty():pending_ack="";notified_transport_id=""
 	if is_instance_valid(app.vehicles) and snapshot.get("vehicles") is Dictionary:app.vehicles.observe(snapshot.vehicles)
 	snapshot_applied.emit(player_state.duplicate(true))
@@ -85,7 +90,7 @@ func valid_player(value: Dictionary) -> bool:
 		if float(value.max_ham[i])<=0 or float(value.wounds[i])>float(value.max_ham[i]) or float(value.ham[i])>float(value.max_ham[i])-float(value.wounds[i]):return false
 	if not value.get("dead") is bool or not value.get("incapacitated") is bool or not (value.get("posture") is int or value.get("posture") is float):return false
 	var posture:=int(value.posture)
-	return posture>=0 and posture<=14 and float(value.posture)==posture and bool(value.dead)==(posture==14) and bool(value.incapacitated)==(posture==13) and is_finite(float(value.get("shock_wounds",NAN))) and float(value.shock_wounds)>=0
+	return posture>=0 and posture<=14 and float(value.posture)==posture and bool(value.dead)==(posture==14) and bool(value.incapacitated)==(posture==13 and not bool(value.get("feigning_death",false))) and is_finite(float(value.get("shock_wounds",NAN))) and float(value.shock_wounds)>=0
 
 func request_life_action(action: String) -> bool:
 	if not live or not life_action_pending.is_empty() or not pending_transport.is_empty() or bool(player_state.get("cloning",false)):return false
@@ -128,10 +133,17 @@ func driving() -> bool:
 	return is_instance_valid(app.vehicles) and app.vehicles.seated()
 func native_requests_pending() -> bool:
 	return app.native_requests_in_flight()>0 if app.has_method("native_requests_in_flight") else app.api_requests_in_flight>0
+func authority_expired() -> bool:
+	return Time.get_ticks_msec()-last_confirmed_ms>=preload("res://combat/live_world.gd").SESSION_TIMEOUT*1000.0
+func movement_corrected()->void:
+	# Force one fresh pose even while stationary; otherwise the idle throttle
+	# delays rearming combat for three seconds after a corrected service action.
+	last_position=Vector3.INF;next_update=0.1
 func _process(delta: float) -> void:
 	if not is_instance_valid(app) or app.session_leaving or not live:return
 	if character_id!=app.datapad_character_id:reset();return
 	next_update-=delta
+	if str(guard_pose().get("mode","none"))!=last_guard_mode:next_update=0
 	if busy or next_update>0 or native_requests_pending():return
 	# Medical placement temporarily disables world_ready; its native arrival
 	# acknowledgement must still run or the loading screen would deadlock.
@@ -139,14 +151,27 @@ func _process(delta: float) -> void:
 	if not life_action_pending.is_empty():send_life_action();return
 	if not app.world_ready:return
 	var combat:Variant=app.get("gameplay_combat")
-	if is_instance_valid(combat) and combat.has_pending_commands():return
+	# Stale combat cannot submit its commands. Give the owned heartbeat priority
+	# so that the queued gestures cannot prevent their own authority recovery.
+	if is_instance_valid(combat) and combat.has_pending_commands() and not authority_expired():return
+	if is_instance_valid(combat) and authority_expired():combat.fail("Core3 authority expired; queued combat gestures discarded.")
 	var moved:=last_position.distance_squared_to(app.player.global_position)>.01
-	if not driving() and not moved and Time.get_ticks_msec()-last_confirmed_ms<3000:return
+	if not driving() and not moved and smuggler_pose()==last_smuggler_pose and str(guard_pose().get("mode","none"))=="none" and last_guard_mode=="none" and Time.get_ticks_msec()-last_confirmed_ms<3000:return
 	update_pose()
+func smuggler_pose() -> Dictionary:
+	var feedback:Variant=app.player.get("feedback")
+	return feedback.feign_pose.payload() if feedback!=null and feedback.get("feign_pose")!=null and (feedback.feign_available or feedback.feigning_death) else {"tracked":false,"feign":false,"upright":false}
+
+func guard_pose()->Dictionary:
+	var rig:Variant=app.get("combat_rig")
+	return rig.guard_payload(app,weapon_state) if is_instance_valid(rig) and rig.has_method("guard_payload") else {"mode":"none"}
+
 func update_pose() -> void:
-	busy=true;next_update=0.25 if driving() else 1.0
+	var guard:=guard_pose()
+	busy=true;next_update=0.25 if driving() else .35 if guard.mode!="none" else 1.0
 	var epoch:=generation
 	var payload:=identity()
+	var pose:=smuggler_pose();payload.smuggler_pose=pose;payload.guard_pose=guard
 	if driving():payload.vehicle_controls=app.vehicles.drive_payload()
 	var medic: Variant=app.get("medic")
 	if is_instance_valid(medic) and medic.has_method("tracked_pose"):payload.medic_pose=medic.tracked_pose()
@@ -156,7 +181,11 @@ func update_pose() -> void:
 	var result: Dictionary=await app.api(HTTPClient.METHOD_POST,"/session/update",payload)
 	if epoch!=generation:return
 	busy=false
-	if accept(result):last_position=sent_position
+	if accept(result):last_position=sent_position;last_smuggler_pose=pose;last_guard_mode=str(guard.mode)
+	elif result.get("_movement_correction_consumed",false):
+		# The API already adopted the owned rejection and moved the origin. Do
+		# not queue the rejected position again or perform a redundant discovery.
+		movement_corrected()
 	elif result.get("error_code","") not in ["backend_busy"]:
 		# A boarding reply can be lost after Core3 has switched zones. Discover
 		# transport through the read-only native snapshot; never omit the zone

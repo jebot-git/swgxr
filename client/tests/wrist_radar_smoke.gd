@@ -61,13 +61,15 @@ func run() -> void:
 	var pad:=Datapad.new(); world.add_child(pad); pad.configure(rig,player); pad.set_process(false); pad.radar_contacts_provider=provider
 	var transforms: Array=[rig.transform,head.transform,player.transform,rig.get_node("LeftHand").transform,rig.get_node("RightHand").transform]
 	pad.set_allowed(true); pad.update_tracking_state(true,true,false,0,0,0.016)
-	check(pad.visible and pad.radar.active and not pad.is_open,"Passive radar needs no dominant-hand tracking")
+	check(not pad.visible and not pad.radar.active and not pad.is_open,"Minimap stays hidden without fist gesture")
 	check(pad.surfaces.all(func(s): return not s.mesh.visible and s.viewport.render_target_update_mode==SubViewport.UPDATE_DISABLED),"Closed datapad panels remain hidden and do not render")
 	check(not player.move_captured and not player.turn_captured,"Passive radar never captures sticks")
-	pad.update_tracking_state(true,true,true,0.8,0.8,0.26)
+	pad.update_tracking_state(true,true,false,0.8,0.8,0.26)
+	check(pad.radar.active and not pad.is_open,"Fist opens minimap without pointing-hand tracking")
+	pad.touch_minimap({"tip":pad.radar.display.global_position,"direction":Vector3.FORWARD})
 	check(pad.is_open and not pad.radar.active and pad.radar.viewport.render_target_update_mode==SubViewport.UPDATE_DISABLED,"Opening datapad replaces radar without a second UI pass")
 	pad.update_tracking_state(true,true,true,0,0,0.016)
-	check(not pad.is_open and pad.radar.active,"Closing datapad restores passive radar")
+	check(pad.is_open and not pad.radar.active,"Releasing fist keeps full datapad open and minimap hidden")
 	pad.update_tracking_state(false,true,true,0,0,0.016)
 	check(not pad.visible and not pad.radar.active,"Head tracking loss hides radar")
 	pad.update_tracking_state(true,false,true,0,0,0.016)

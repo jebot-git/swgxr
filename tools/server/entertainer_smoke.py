@@ -52,7 +52,8 @@ def main():
         check(state['state']['experience'].get('dance',0)>prior,'Original EntertainingSession tick awards earned dance XP')
         stopped=ent(actor,'stop');check(stopped.get('ok')and not stopped['state']['performing'],'Original StopDance ends native session')
         inventory=call(actor,'/inventory/status',live_session_id=sessions[actor['id']]);instrument=next(i for i in inventory['items']if i['template'].endswith('/slitherhorn.iff'))
-        music=ent(actor,'perform',kind='music',name='starwars1',item_id=instrument['id']);check(music.get('ok')and music['state']['kind']=='music'and music['state']['item_id']==instrument['id'],'Owned portable instrument equips and original StartMusic accepts learned song')
+        held=call(actor,'/inventory/equip',live_session_id=sessions[actor['id']],item_id=instrument['id'],arrangement=0);check(held.get('mutation',{}).get('success'),'Explicitly equip owned original portable instrument')
+        music=ent(actor,'perform',kind='music',name='starwars1',item_id=instrument['id']);check(music.get('ok')and music['state']['kind']=='music'and music['state']['item_id']==instrument['id'],'Held portable instrument and original StartMusic accept learned song')
         stopped_music=ent(actor,'stop')
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
@@ -97,4 +98,9 @@ def main():
             script.write_text(script.read_text().replace(injected,''));console('reloadscreenplays')
         (ROOT/'runtime/evidence/entertainer-native.json').write_text(json.dumps(redact(report),indent=2));print(json.dumps(dict(passed=report['passed'],checks=len(checks))),flush=True)
 
-if __name__=='__main__':main()
+if __name__=='__main__':
+    import sys
+    if '--instruments-only' in sys.argv:
+        from instrument_native_smoke import main as instruments
+        instruments()
+    else:main()

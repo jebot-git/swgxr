@@ -11,8 +11,13 @@ import threading
 import time
 
 
+try:
+    from .capacity import VISIBLE_PLAYERS
+except ImportError:
+    from capacity import VISIBLE_PLAYERS
+
 class MultiplayerSync:
-    MAX_SESSIONS = 16
+    MAX_VISIBLE_PLAYERS = VISIBLE_PLAYERS
     NATIVE_TTL = 15.0
     POSE_TTL = 0.75
     MIN_INTERVAL = 0.04
@@ -83,7 +88,7 @@ class MultiplayerSync:
         world = snapshot.get('world')
         if not isinstance(world, dict) or world.get('source_kind') != 'core3_world':
             return
-        if not isinstance(world.get('players'), list) or len(world['players']) > 16 or not isinstance(world.get('actors'), list) or len(world['actors']) > 96:
+        if not isinstance(world.get('players'), list) or len(world['players']) > self.MAX_VISIBLE_PLAYERS or not isinstance(world.get('actors'), list) or len(world['actors']) > 96:
             raise ValueError('Native world snapshot exceeds the presentation budget')
         native = snapshot['player']
         position, cell = self.point(native.get('position')), self.cell(native)
@@ -98,8 +103,6 @@ class MultiplayerSync:
             if current and current['session_id'] == session_id and int(sequence) <= current['revision']:
                 return
             if not current or current['session_id'] != session_id:
-                if not current and len(self.sessions) >= self.MAX_SESSIONS:
-                    raise ValueError('Multiplayer presentation capacity reached')
                 current = {'character_id': str(character_id), 'session_id': session_id,
                            'pose_sequence': -1, 'pose_at': -math.inf, 'pose': None, 'shots': {}}
                 self.sessions[account.lower()] = current

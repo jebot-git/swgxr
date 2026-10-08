@@ -1,0 +1,9 @@
+{
+  "name": "CoreCU",
+  "combat_policy_version": 1,
+  "upstream": "SWGEmu Core3",
+  "upstream_commit": "403893d9b9f8e6fa712fbb3cb1fcd8f0fe45bb79",
+  "scope": "SWGXR combat fork; pre-CU progression with CU-inspired balance and combat feel",
+  "progression": "Preserve Core3 pre-CU profession trees, skill-specific XP, training prerequisites, skill-point budget, mixed-profession builds and certification progression. Advanced abilities remain provisional skeletons pending later design.",
+  "compatibility": "corecu is the fork binary; a core3 compatibility copy supports existing services. Core3 Lua namespace, core3client, vendor path and backend protocol tag remain stable. No database rename."
+}

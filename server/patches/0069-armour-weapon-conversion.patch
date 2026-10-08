@@ -1,0 +1,763 @@
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObject.idl
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObject.idl
+@@ -75,6 +75,13 @@
+ 		Logger.setLoggingName("ArmorObject");
+ 	}
+ 
++	@read
++	public native float getSwgxrBaseScore();
++	@read
++	public native float getSwgxrProtectionScore(int type);
++	@read
++	public native float getSwgxrHindrance(int kind);
++
+ 	public native void initializeTransientMembers();
+ 
+ 	public native void notifyLoadFromDatabase();
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+  * ArmorObjectImplementation.cpp
+@@ -115,6 +116,23 @@
+ 	if (remainingSockets > 0)
+ 		alm->insertAttribute("sockets", remainingSockets);
+ 
++    const auto profile=SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast());
++    if(profile) {
++        alm->insertAttribute("Armour class",profile->kind==1?"Recon":profile->kind==2?"Assault":"Battle");
++        alm->insertAttribute("Base protection score",String::valueOf(getSwgxrBaseScore()));
++        alm->insertAttribute("Quality band",getSwgxrBaseScore()<=2000?"Basic":getSwgxrBaseScore()<=4000?"Standard":"Advanced");
++        const char* labels[]={"Kinetic","Energy","Heat","Cold","Acid","Electricity"};
++        const int channels[]={1,2,32,64,128,256};
++        const float effective[]={getKinetic(),getEnergy(),getHeat(),getCold(),getAcid(),getElectricity()};
++        for(int i=0;i<6;++i) {
++            alm->insertAttribute(String(labels[i])+" protection score",String::valueOf(getSwgxrProtectionScore(channels[i])));
++            alm->insertAttribute(String(labels[i])+" reduction",String::valueOf(effective[i])+"%");
++        }
++        alm->insertAttribute("Movement penalty",String::valueOf(100*getSwgxrHindrance(0))+"%");
++        alm->insertAttribute("RoF / Power penalty",String::valueOf(100*getSwgxrHindrance(1))+"%");
++        alm->insertAttribute("Recharge / Stance penalty",String::valueOf(100*getSwgxrHindrance(2))+"%");
++        alm->insertAttribute("swgxr.armour_revision",String(swgxr::armour::REVISION));
++    } else {
+ 	// Armor Rating
+ 	if (rating == LIGHT)
+ 		alm->insertAttribute("armorrating", "@obj_attr_n:armor_pierce_light"); //Light
+@@ -271,6 +289,7 @@
+ 	alm->insertAttribute("cat_armor_encumbrance.action", getActionEncumbrance());
+ 	alm->insertAttribute("cat_armor_encumbrance.mind", getMindEncumbrance());
+ 
++    }
+ 	alm->insertAttribute("crafter", craftersName);
+ 	alm->insertAttribute("serial_number", objectSerial);
+ 
+@@ -283,11 +302,52 @@
+ 		alm->insertAttribute("arm_attr", "@obj_attr_n:hacked");
+ }
+ 
++float ArmorObjectImplementation::getSwgxrBaseScore() const {
++    const auto ref=SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast());
++    if (!ref) return 0;
++    const double fallback=std::max(kinetic,energy);
++    return swgxr::armour::baseScore(*ref,baseProtection,fallback);
++}
++
++float ArmorObjectImplementation::getSwgxrProtectionScore(int type) const {
++    const auto ref=SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast());
++    if (!ref || isBroken()) return 0;
++    const int channel=swgxr::armour::canonical(type);
++    double layer=0;
++    switch(channel) {
++      case 1: layer=kinetic; break; case 2: layer=energy; break;
++      case 32: layer=heat; break; case 64: layer=cold; break;
++      case 128: layer=acid; break; case 256: layer=electricity; break;
++    }
++    // Template/loot defaults store full resistance in channels, unlike crafted
++    // items. Do not count that fallback twice as both quality and a layer.
++    double specialDelta=0;
++    if(baseProtection<=0) layer=0;
++    else if(isSpecial(channel)) specialDelta=1000*(
++      swgxr::armour::quality(specialProtection,ref->specialMinimum,ref->specialMaximum)-
++      swgxr::armour::quality(baseProtection,ref->minimum,ref->maximum));
++    const double legacy=sliced?std::max(1.f,effectivenessSlice):1;
++    const double slice=legacy*SwgxrSlicingStats::factor(_this.getReferenceUnsafeStaticCast(),"protection_pct");
++    return swgxr::armour::score(*ref,channel,getSwgxrBaseScore(),specialDelta,layer,slice);
++}
++
++float ArmorObjectImplementation::getSwgxrHindrance(int kind) const {
++    const auto ref=SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast());
++    if(!ref || isBroken() || hitLocation==0)return 0;
++    const double enc=std::max(0, getHealthEncumbrance())+std::max(0,getActionEncumbrance())+std::max(0,getMindEncumbrance());
++    const double quality=1-swgxr::armour::quality(enc,ref->encumbranceBest,ref->encumbranceWorst);
++    const auto p=swgxr::armour::penalties(ref->kind,getSwgxrBaseScore(),quality,0);
++    return 1-(kind==0?p.movement:kind==1?p.output:p.recovery);
++}
++
+ bool ArmorObjectImplementation::isVulnerable(int type) const {
++    if(SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast())) return isBroken();
+ 	return isBroken() || (!isSpecial(type) && (vulnerabilites & type));
+ }
+ 
+ float ArmorObjectImplementation::getTypeValue(int type, float value) const {
++    if(SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast()))
++        return 100*swgxr::armour::reduction(getSwgxrProtectionScore(type));
+ 	int newValue = 0;
+ 
+ 	if (vulnerabilites & type)
+@@ -316,7 +376,7 @@
+ 		const double bonus = SwgxrSlicingStats::percent(_this.getReferenceUnsafeStaticCast(), "protection_pct");
+ 		if (bonus > 0) newValue = std::min(90, int(std::round(newValue * (1.0 + bonus / 100.0))));
+ 	}
+-	return newValue;
++	return std::min(50,newValue);
+ }
+ 
+ int ArmorObjectImplementation::handleObjectMenuSelect(CreatureObject* player, byte selectedID) {
+--- a/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/weapon/WeaponObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "WeaponCraftingReferences.h"
+@@ -234,6 +235,12 @@
+ 		profile.power *= SwgxrSlicingStats::factor(sliceItem, "power_pct");
+ 		profile.rpm *= SwgxrSlicingStats::factor(sliceItem, "rof_pct");
+ 		profile.capacity = std::max(1, int(std::round(profile.capacity * SwgxrSlicingStats::factor(sliceItem, "capacity_pct") * SwgxrSpice::rangedCapacityScale(wielder))));
++        auto armourOwner=object!=nullptr && isASubChildOf(object)?object:wielder;
++        profile.rpm*=SwgxrArmour::scale(armourOwner,1);
++        profile.power*=SwgxrArmour::scale(armourOwner,1);
++        profile.stanceRecovery*=SwgxrArmour::scale(armourOwner,2);
++        alm->insertAttribute("swgxr.armour_output_scale",String::valueOf(SwgxrArmour::scale(armourOwner,1)));
++        alm->insertAttribute("swgxr.capacity_recovery_scale",String::valueOf(SwgxrArmour::scale(armourOwner,2)));
+ 		alm->insertAttribute("swgxr.version", swgxr::PROFILE_VERSION);
+ 		alm->insertAttribute("swgxr.balance", String(swgxr::BALANCE_REVISION));
+ 		alm->insertAttribute("swgxr.id", String(ref.id));
+@@ -292,6 +299,17 @@
+ 			alm->insertAttribute(statname, value);
+ 	}
+ 
++    const auto converted=swgxr::armour::weapon(damageType,armorPiercing,isBroken());
++    alm->insertAttribute("swgxr.combat_version",swgxr::armour::VERSION);
++    alm->insertAttribute("swgxr.combat_revision",String(swgxr::armour::REVISION));
++    alm->insertAttribute("swgxr.base_type",converted.base);
++    alm->insertAttribute("swgxr.element_type",converted.element);
++    alm->insertAttribute("swgxr.element_fraction",String::valueOf(converted.fraction));
++    alm->insertAttribute("swgxr.penetration",String::valueOf(converted.bypass));
++    alm->insertAttribute("swgxr.damage_scale",String::valueOf(converted.damageScale));
++    alm->insertAttribute("Mitigation bypass",String::valueOf(100*converted.bypass)+"%");
++    alm->insertAttribute("Elemental allocation",String::valueOf(100*converted.fraction)+"%");
++    alm->insertAttribute("Damage budget scale",String::valueOf(converted.damageScale));
+ 	String ap;
+ 
+ 	switch (armorPiercing) {
+@@ -312,7 +330,7 @@
+ 		break;
+ 	}
+ 
+-	alm->insertAttribute("wpn_armor_pierce_rating", ap);
++	alm->insertAttribute("Legacy penetration grade", ap);
+ 
+ 	alm->insertAttribute("wpn_attack_speed", Math::getPrecision(getAttackSpeed(), 1));
+ 
+@@ -320,40 +338,13 @@
+ 		alm->insertAttribute("area", Math::getPrecision(getDamageRadius(), 0));
+ 
+ 	//Damage Information
+-	StringBuffer dmgtxt;
+-
+-	switch (damageType) {
+-	case SharedWeaponObjectTemplate::KINETIC:
+-		dmgtxt << "Kinetic";
+-		break;
+-	case SharedWeaponObjectTemplate::ENERGY:
+-		dmgtxt << "Energy";
+-		break;
+-	case SharedWeaponObjectTemplate::ELECTRICITY:
+-		dmgtxt << "Electricity";
+-		break;
+-	case SharedWeaponObjectTemplate::STUN:
+-		dmgtxt << "Stun";
+-		break;
+-	case SharedWeaponObjectTemplate::BLAST:
+-		dmgtxt << "Blast";
+-		break;
+-	case SharedWeaponObjectTemplate::HEAT:
+-		dmgtxt << "Heat";
+-		break;
+-	case SharedWeaponObjectTemplate::COLD:
+-		dmgtxt << "Cold";
+-		break;
+-	case SharedWeaponObjectTemplate::ACID:
+-		dmgtxt << "Acid";
+-		break;
+-	case SharedWeaponObjectTemplate::LIGHTSABER:
+-		dmgtxt << "Lightsaber";
+-		break;
+-	default:
+-		dmgtxt << "Unknown";
+-		break;
+-	}
++    auto channelName=[](int type)->const char* {
++        switch(type){case 1:return "Kinetic";case 2:return "Energy";case 32:return "Heat";
++        case 64:return "Cold";case 128:return "Acid";case 256:return "Electricity";default:return "Unknown";}
++    };
++    StringBuffer dmgtxt;
++    dmgtxt << Math::getPrecision(100*(1-converted.fraction),1) << "% " << channelName(converted.base);
++    if(converted.fraction>0)dmgtxt << " + " << Math::getPrecision(100*converted.fraction,1) << "% " << channelName(converted.element);
+ 
+ 	alm->insertAttribute("damage.wpn_damage_type", dmgtxt);
+ 
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+@@ -1657,30 +1658,12 @@
+ 	else
+ 		xpType = weapon->getXpType();
+ 
+-	if (defender->isTurret()) {
+-		int damageType = 0, armorPiercing = 1;
+-
+-		if (!data.isForceAttack()) {
+-			damageType = weapon->getDamageType();
+-			armorPiercing = weapon->getArmorPiercing();
+-
+-			if (weapon->isBroken())
+-				armorPiercing = 0;
+-		} else {
+-			damageType = data.getDamageType();
+-		}
+-
+-		int armorReduction = getArmorTurretReduction(attacker, defender, damageType);
+-
+-		if (armorReduction >= 0)
+-			damage *= getArmorPiercing(defender, armorPiercing);
+-
+-		if (armorReduction > 0) {
+-			damage *= (1.f - (armorReduction / 100.f));
+-
+-			defender->addUnmitigatedDamage(damage);
+-		}
+-	}
++    if (defender->isTurret()) {
++        const auto profile=swgxr::armour::weapon(data.isForceAttack()?data.getDamageType():weapon->getDamageType(),data.isForceAttack()?0:weapon->getArmorPiercing(),weapon->isBroken());
++        swgxr::armour::Damage split(damage,profile);
++        split.mitigate(getArmorTurretReduction(attacker,defender,profile.base)/100.0,getArmorTurretReduction(attacker,defender,profile.element)/100.0);
++        damage=split.total();defender->addUnmitigatedDamage(damage);
++    }
+ 
+ 	defender->inflictDamage(attacker, 0, damage, true, xpType, true, true);
+ 
+@@ -2340,7 +2323,7 @@
+ 	return nullptr;
+ }
+ 
+-int CombatManager::getArmorObjectReduction(ArmorObject* armor, int damageType) const {
++float CombatManager::getArmorObjectReduction(ArmorObject* armor, int damageType) const {
+ 	float resist = 0;
+ 
+ 	switch (damageType) {
+@@ -2373,7 +2356,7 @@
+ 		break;
+ 	}
+ 
+-	return Math::max(0, (int)resist);
++	return Math::max(0.f, resist);
+ }
+ 
+ int CombatManager::getArmorNpcReduction(AiAgent* defender, int damageType) const {
+@@ -2451,7 +2434,7 @@
+ // Armor mitigation
+ 
+ int CombatManager::getArmorReduction(TangibleObject* attacker, WeaponObject* weapon, CreatureObject* defender, DefenderHitList* hitList, float damage, int hitLocation, const CreatureAttackData& data) const {
+-	int damageType = 0, armorPiercing = 1;
++	int damageType = 0, armorPiercing = 0;
+ 
+ 	if (hitList == nullptr) {
+ 		return 0;
+@@ -2467,31 +2450,16 @@
+ 		damageType = data.getDamageType();
+ 	}
+ 
+-	if (defender->isAiAgent()) {
+-		float armorReduction = getArmorNpcReduction(cast<AiAgent*>(defender), damageType);
+-
+-		if (armorReduction >= 0)
+-			damage *= getArmorPiercing(cast<AiAgent*>(defender), armorPiercing);
+-
+-		if (armorReduction > 0) {
+-			damage *= (1.f - (armorReduction / 100.f));
+-
+-			if (!defender->isPet())
+-				defender->addUnmitigatedDamage(damage);
+-		}
+-
+-		return damage;
+-	} else if (defender->isVehicleObject()) {
+-		float armorReduction = getArmorVehicleReduction(cast<VehicleObject*>(defender), damageType);
+-
+-		if (armorReduction >= 0)
+-			damage *= getArmorPiercing(cast<VehicleObject*>(defender), armorPiercing);
+-
+-		if (armorReduction > 0)
+-			damage *= (1.f - (armorReduction / 100.f));
+-
+-		return damage;
+-	}
++    const auto profile=swgxr::armour::weapon(damageType,armorPiercing,weapon!=nullptr && weapon->isBroken());
++    if (defender->isAiAgent() || defender->isVehicleObject()) {
++        swgxr::armour::Damage split(damage,profile);
++        auto resist=[&](int type) {return (defender->isAiAgent()
++            ? getArmorNpcReduction(cast<AiAgent*>(defender),type)
++            : getArmorVehicleReduction(cast<VehicleObject*>(defender),type))/100.0;};
++        split.mitigate(resist(profile.base),resist(profile.element));
++        if(defender->isAiAgent() && !defender->isPet())defender->addUnmitigatedDamage(split.total());
++        return split.total();
++    }
+ 
+ 	float jediMit = hitList->getJediMitigation();
+ 
+@@ -2551,58 +2519,28 @@
+ 		}
+ 	}
+ 
+-	// PSG
+-	ManagedReference<ArmorObject*> psg = getPSGArmor(defender);
+-
+-	if (psg != nullptr && !psg->isVulnerable(damageType)) {
+-		float armorReduction = getArmorObjectReduction(psg, damageType);
+-		float dmgAbsorbed = damage;
+-
+-		damage *= getArmorPiercing(psg, armorPiercing);
+-
+-		if (armorReduction > 0)
+-			damage *= 1.f - (armorReduction / 100.f);
+-
+-		dmgAbsorbed -= damage;
+-		if (dmgAbsorbed > 0) {
+-			int psgMit = hitList->getPsgMitigation();
+-
+-			psgMit += dmgAbsorbed;
+-			hitList->setPsgMitigation(psgMit);
+-		}
+-
+-		Locker plocker(psg);
+-
+-		psg->inflictDamage(psg, 0, damage * 0.2, true, true);
+-	}
+-
+-	// Standard Armor
+-	ManagedReference<ArmorObject*> armor = nullptr;
+-
+-	armor = getArmorObject(defender, hitLocation);
+-
+-	if (armor != nullptr && !armor->isVulnerable(damageType)) {
+-		float armorReduction = getArmorObjectReduction(armor, damageType);
+-		float dmgAbsorbed = damage;
+-
+-		// use only the damage applied to the armor for piercing (after the PSG takes some off)
+-		damage *= getArmorPiercing(armor, armorPiercing);
+-
+-		if (armorReduction > 0) {
+-			damage *= (1.f - (armorReduction / 100.f));
+-			dmgAbsorbed -= damage;
+-
+-			int armorMit = hitList->getArmorMitigation();
+-
+-			armorMit += dmgAbsorbed;
+-			hitList->setArmorMitigation(armorMit);
+-		}
+-
+-		// inflict condition damage
+-		Locker alocker(armor);
+-
+-		armor->inflictDamage(armor, 0, damage * 0.2, true, true);
+-	}
++    // One location and one set of side effects for the original hit. Preserve
++    // each portion through shields and armour instead of reducing the whole hit
++    // twice or rerolling hit location/wounds for the elemental portion.
++    swgxr::armour::Damage split(damage,profile);
++    ManagedReference<ArmorObject*> psg=getPSGArmor(defender);
++    if(psg!=nullptr) {
++        const double before=split.total();
++        auto resist=[&](int type){return psg->isVulnerable(type)?0.0:getArmorObjectReduction(psg,type)/100.0;};
++        split.mitigate(resist(profile.base),resist(profile.element));
++        hitList->setPsgMitigation(hitList->getPsgMitigation()+std::max(0.0,before-split.total()));
++        if(split.total()<before){Locker lock(psg);psg->inflictDamage(psg,0,split.total()*.2,true,true);}
++    }
++    ManagedReference<ArmorObject*> armor=getArmorObject(defender,hitLocation);
++    if(armor!=nullptr && !armor->isBroken()) {
++        const double before=split.total();
++        auto resist=[&](int type){return armor->isVulnerable(type)?0.0:getArmorObjectReduction(armor,type)/100.0;};
++        split.mitigate(resist(profile.base),resist(profile.element));
++        hitList->setArmorMitigation(hitList->getArmorMitigation()+std::max(0.0,before-split.total()));
++        // Stable wear budget: 2% of incoming damage, independent of mitigation.
++        if(split.total()<before){Locker lock(armor);armor->inflictDamage(armor,0,before*.02,true,true);}
++    }
++    damage=split.total();
+ 
+ 	return damage;
+ }
+@@ -2656,31 +2594,9 @@
+ }
+ 
+ float CombatManager::getArmorPiercing(TangibleObject* defender, int armorPiercing) const {
+-	int armorReduction = 0;
+-
+-	if (defender->isAiAgent()) {
+-		AiAgent* aiDefender = cast<AiAgent*>(defender);
+-		armorReduction = aiDefender->getArmor();
+-	} else if (defender->isArmorObject()) {
+-		ArmorObject* armorDefender = cast<ArmorObject*>(defender);
+-
+-		if (armorDefender != nullptr && !armorDefender->isBroken())
+-			armorReduction = armorDefender->getRating();
+-	} else if (defender->isVehicleObject()) {
+-		VehicleObject* vehicleDefender = cast<VehicleObject*>(defender);
+-		armorReduction = vehicleDefender->getArmor();
+-	} else if (defender->isTurret()) {
+-		auto turret = cast<TurretObject*>(defender);
+-
+-		if (turret != nullptr) {
+-			armorReduction = turret->getArmorRating();
+-		}
+-	}
+-
+-	if (armorPiercing > armorReduction)
+-		return pow(1.25, armorPiercing - armorReduction);
+-	else
+-		return pow(0.50, armorReduction - armorPiercing);
++    // Conversion is evaluated with damage channels in getArmorReduction.
++    // Legacy callers must never reapply the former AP/AR multiplier.
++    return 1.f;
+ }
+ 
+ // Mine & Bomb Droid Detonation
+@@ -2699,20 +2615,13 @@
+ 		armorPiercing = weapon->getArmorPiercing();
+ 	}
+ 
+-	// need to check armor reduction with just defender, blast and their AR + resists
+-	if (defender->isVehicleObject()) {
+-		auto defenderVehicle = cast<VehicleObject*>(defender);
+-
+-		if (defenderVehicle != nullptr) {
+-			int armorResist = defenderVehicle->getBlast();
+-
+-			if (armorResist > 0) {
+-				damage *= getArmorPiercing(defenderVehicle, armorPiercing);
+-
+-				damage *= (1.f - (armorResist / 100.f));
+-			}
+-		}
+-	} else {
++    const auto profile=swgxr::armour::weapon(SharedWeaponObjectTemplate::BLAST,armorPiercing,weapon!=nullptr && weapon->isBroken());
++    if(defender->isVehicleObject()) {
++        swgxr::armour::Damage split(damage,profile);
++        auto vehicle=cast<VehicleObject*>(defender);
++        split.mitigate(getArmorVehicleReduction(vehicle,profile.base)/100.0,getArmorVehicleReduction(vehicle,profile.element)/100.0);
++        damage=split.total();
++    } else {
+ 		// Pick a random HAM pool
+ 		int pool = calculatePoolsToDamage(RANDOM);
+ 
+@@ -2741,62 +2650,22 @@
+ 				break;
+ 		}
+ 
+-		// Calculate agent armor reduction
+-		if (defender->isAiAgent()) {
+-			auto agent = defender->asAiAgent();
+-
+-			if (agent != nullptr) {
+-				int armorResist = agent->getBlast();
+-
+-				if (armorResist > 0) {
+-					damage *= getArmorPiercing(agent, armorPiercing);
+-
+-					damage *= (1.f - (armorResist / 100.f));
+-				}
+-			}
+-		// Calculate player armor reduction
+-		} else {
+-			// PvP Damage Reduction
+-			if (attackerTanO->isDroidObject() && defender->isPlayerCreature()) {
+-				damage *= 0.25;
+-			}
+-
+-			ArmorObject* psgArmor = getPSGArmor(defender);
+-
+-			// PSG Reduction
+-			if (psgArmor != nullptr && !psgArmor->isVulnerable(SharedWeaponObjectTemplate::BLAST)) {
+-				float armorReduction = psgArmor->getBlast();
+-
+-				damage *= getArmorPiercing(psgArmor, armorPiercing);
+-
+-				if (armorReduction > 0) {
+-					damage *= (1.f - (armorReduction / 100.f));
+-				}
+-
+-				Locker plocker(psgArmor, attackerTanO);
+-
+-				psgArmor->inflictDamage(psgArmor, 0, damage * 0.2, true, true);
+-			}
+-
+-			ManagedReference<ArmorObject*> armor = getArmorObject(defender, hitLocation);
+-
+-			// Armor Reduction
+-			if (armor != nullptr && !armor->isVulnerable(SharedWeaponObjectTemplate::BLAST)) {
+-				float armorReduction = getArmorObjectReduction(armor, SharedWeaponObjectTemplate::BLAST);
+-
+-				// use only the damage applied to the armor for piercing (after the PSG takes some off)
+-				damage *= getArmorPiercing(armor, armorPiercing);
+-
+-				if (armorReduction > 0) {
+-					damage *= (1.f - (armorReduction / 100.f));
+-				}
+-
+-				// inflict condition damage
+-				Locker alocker(armor, attackerTanO);
+-
+-				armor->inflictDamage(armor, 0, damage * 0.2, true, true);
+-			}
+-		}
++        if(attackerTanO->isDroidObject() && defender->isPlayerCreature())damage*=.25;
++        swgxr::armour::Damage split(damage,profile);
++        if(defender->isAiAgent()) {
++            auto agent=defender->asAiAgent();
++            split.mitigate(getArmorNpcReduction(agent,profile.base)/100.0,getArmorNpcReduction(agent,profile.element)/100.0);
++        } else {
++            ArmorObject* layers[]={getPSGArmor(defender),getArmorObject(defender,hitLocation)};
++            for(int i=0;i<2;++i){
++                auto armor=layers[i];if(!armor || armor->isBroken())continue;
++                const double before=split.total();
++                auto resist=[&](int type){return armor->isVulnerable(type)?0.0:getArmorObjectReduction(armor,type)/100.0;};
++                split.mitigate(resist(profile.base),resist(profile.element));
++                if(split.total()<before){Locker lock(armor,attackerTanO);armor->inflictDamage(armor,0,i==0?split.total()*.2:before*.02,true,true);}
++            }
++        }
++        damage=split.total();
+ 
+ 		// Handle spill over damage for all pools
+ 		if (defender->isCreatureObject() && !defender->isVehicleObject()) {
+@@ -2852,7 +2721,7 @@
+ 
+ 	// Gunjack scales the completed native cadence, including its original floor.
+ 	float minimum = weapon->isRangedWeapon() ? 1.f / SwgxrSpice::rangedRpmScale(attacker) : 1.f;
+-	return Math::max(attackSpeed, minimum);
++	return Math::max(attackSpeed, minimum) / (weapon->isRangedWeapon()?SwgxrArmour::scale(attacker,1):SwgxrArmour::scale(attacker,2));
+ }
+ 
+ // Fly Text - Miss, Counterattack, Block, Hit Location
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
+@@ -212,7 +212,7 @@
+ 	void checkForTefs(CreatureObject* attacker, CreatureObject* defender, bool* shouldGcwCrackdownTef, bool* shouldGcwTef, bool* shouldBhTef) const;
+ 	void getFrsModifiedForceAttackDamage(CreatureObject* attacker, float& minDmg, float& maxDmg, const CreatureAttackData& data) const;
+ 
+-	int getArmorObjectReduction(ArmorObject* armor, int damageType) const;
++	float getArmorObjectReduction(ArmorObject* armor, int damageType) const;
+ 	ArmorObject* getPSGArmor(CreatureObject* defender) const;
+ 
+ 	//all the combat math will go here
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrUnderworldState.h"
+ /*
+@@ -2344,6 +2345,7 @@
+ }
+ 
+ bool PlayerManagerImplementation::checkEncumbrancies(CreatureObject* player, ArmorObject* armor) {
++    if(SwgxrArmour::reference(armor))return true;
+ 	int strength = player->getHAM(CreatureAttribute::STRENGTH);
+ 	int constitution = player->getHAM(CreatureAttribute::CONSTITUTION);
+ 	int quickness = player->getHAM(CreatureAttribute::QUICKNESS);
+@@ -2418,6 +2420,7 @@
+ }
+ 
+ void PlayerManagerImplementation::applyEncumbrancies(CreatureObject* player, ArmorObject* armor) {
++    if(SwgxrArmour::reference(armor)) {SwgxrSpice::HamAdjustment adjustment; SwgxrArmour::reconcileEncumbrance(player); player->updateSpeedAndAccelerationMods(); return;}
+     SwgxrSpice::HamAdjustment adjustment;
+ 	int healthEncumb = Math::max(0, armor->getHealthEncumbrance());
+ 	int actionEncumb = Math::max(0, armor->getActionEncumbrance());
+@@ -2447,6 +2450,7 @@
+ }
+ 
+ void PlayerManagerImplementation::removeEncumbrancies(CreatureObject* player, ArmorObject* armor) {
++    if(SwgxrArmour::reference(armor)) {SwgxrSpice::HamAdjustment adjustment; SwgxrArmour::reconcileEncumbrance(player); player->updateSpeedAndAccelerationMods(); return;}
+ 	int healthEncumb = Math::max(0, armor->getHealthEncumbrance());
+ 	int actionEncumb = Math::max(0, armor->getActionEncumbrance());
+ 	int mindEncumb = Math::max(0, armor->getMindEncumbrance());
+@@ -4998,6 +5002,16 @@
+ 	Locker locker(player);
+ 
+ 	try {
++        int legacyEnc[3]={0,0,0}; std::set<uint64> encSeen;
++        for(int i=0;i<player->getSlottedObjectsSize();++i) {
++            auto item=player->getSlottedObject(i);
++            if(item==nullptr || !item->isArmorObject() || SwgxrArmour::reference(item) || !encSeen.insert(item->getObjectID()).second)continue;
++            auto armor=static_cast<ArmorObject*>(item.get());
++            legacyEnc[0]+=std::max(0,armor->getHealthEncumbrance());
++            legacyEnc[1]+=std::max(0,armor->getActionEncumbrance());
++            legacyEnc[2]+=std::max(0,armor->getMindEncumbrance());
++        }
++        for(int i=0;i<3;++i)player->setEncumbrance(i,legacyEnc[i],true);
+ 		const BuffList* buffs = player->getBuffList();
+ 
+ 		VectorMap<byte, int> attributeValues;
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpiceMedicine.h"
+ #include "server/zone/objects/creature/commands/SwgxrVitalFeedback.h"
+@@ -1913,7 +1914,7 @@
+ 	}
+ 
+ 	if (mScale != 0.f) {
+-		mScale *= getSpeedModifier();
++		mScale *= getSpeedModifier() * SwgxrArmour::scale(asCreatureObject(),0);
+ 	}
+ 
+ 	/*
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrArmour.h
+@@ -0,0 +1,71 @@
++#ifndef SWGXR_ARMOUR_H
++#define SWGXR_ARMOUR_H
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/tangible/wearables/ArmorObject.h"
++#include "server/zone/objects/tangible/wearables/ArmourReferences.h"
++#include <set>
++#include <map>
++
++class SwgxrArmour {
++public:
++ static const swgxr::armour::ArmourReference* reference(SceneObject* item) {
++  if(!item || item->isPsgArmorObject())return nullptr;
++  static const auto references=[](){
++   std::map<uint32,const swgxr::armour::ArmourReference*> result;
++   for(const auto& ref:swgxr::armour::REFERENCES)result.emplace(String(ref.path).hashCode(),&ref);
++   return result;
++  }();
++  const auto found=references.find(item->getServerObjectCRC());
++  return found==references.end()?nullptr:found->second;
++ }
++ static bool trained(CreatureObject* c,int kind){
++  if(!c)return false;
++  static const char* recon[]={"combat_pistol_master","combat_rifleman_master","combat_smuggler_master"};
++  static const char* battle[]={"combat_carbine_master","combat_1hsword_master","combat_2hsword_master","combat_polearm_master","science_combatmedic_master","science_doctor_master","outdoors_creaturehandler_master","outdoors_ranger_master"};
++  static const char* assault[]={"combat_bountyhunter_master","combat_commando_master","outdoors_squadleader_master"};
++  if(kind==1){for(auto skill:recon)if(c->hasSkill(skill))return true;}
++  else if(kind==2){for(auto skill:assault)if(c->hasSkill(skill))return true;}
++  else {for(auto skill:battle)if(c->hasSkill(skill))return true;}
++  return false;
++ }
++ // Restore only obsolete secondary-stat deductions. Do not invoke fixHAM on
++ // equip: its general repair path also removes some force buffs.
++ static void reconcileEncumbrance(CreatureObject* c){
++  int remaining[3]={0,0,0};std::set<uint64> seen;
++  for(int i=0;i<c->getSlottedObjectsSize();++i){
++   auto item=c->getSlottedObject(i);
++   if(item==nullptr || !item->isArmorObject() || reference(item) || !seen.insert(item->getObjectID()).second)continue;
++   auto armor=static_cast<ArmorObject*>(item.get());
++   remaining[0]+=std::max(0,armor->getHealthEncumbrance());
++   remaining[1]+=std::max(0,armor->getActionEncumbrance());
++   remaining[2]+=std::max(0,armor->getMindEncumbrance());
++  }
++  for(int pool=0;pool<3;++pool){
++   const int delta=c->getEncumbrance(pool)-remaining[pool];
++   if(delta==0)continue;
++   c->setEncumbrance(pool,remaining[pool],true);
++   for(int offset=1;offset<=2;++offset){
++    const int stat=pool*3+offset;
++    c->addMaxHAM(stat,delta,true);
++    if(delta>0)c->healDamage(c,stat,delta,true);
++    else c->inflictDamage(c,stat,-delta,true);
++   }
++  }
++ }
++ static double scale(CreatureObject* c,int kind){
++  if(!c || !c->isPlayerCreature())return 1;
++  double penalty=0;std::set<uint64> seen;
++  for(int i=0;i<c->getSlottedObjectsSize();++i){
++   auto item=c->getSlottedObject(i);const auto ref=reference(item);
++   if(!ref || !item->isArmorObject() || !seen.insert(item->getObjectID()).second)continue;
++   auto armor=static_cast<ArmorObject*>(item.get());
++   if(armor->isBroken())continue;
++   penalty=std::max(penalty,double(armor->getSwgxrHindrance(kind))*(trained(c,ref->kind)?.5:1));
++  }
++  return 1-penalty;
++ }
++ static JSONSerializationType snapshot(CreatureObject* c){return {
++  {"version",1},{"revision",swgxr::armour::REVISION},
++  {"movement_scale",scale(c,0)},{"output_scale",scale(c,1)},{"recovery_scale",scale(c,2)}};}
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #ifndef SWGXR_MOVEMENT_H
+ #define SWGXR_MOVEMENT_H
+ #include "SwgxrPlanets.h"
+@@ -18,7 +19,7 @@
+   if(parent)c->updateZoneWithParent(parent,false,true);else c->updateZone(false,true);
+  }
+ public:
+- static Json snapshot(CreatureObject* c){return {
++ static Json snapshot(CreatureObject* c){c->updateSpeedAndAccelerationMods();return {
+   {"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
+   {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
+   {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "SwgxrMovement.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_LIVE_COMBAT_H
+@@ -27,7 +28,7 @@
+ #include "system/thread/Mutex.h"
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+- struct Shot {std::string item,ability;double multiplier=1;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
++ struct Shot {int damageType=0,armorPiercing=0;std::string item,ability;double multiplier=1;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
+  struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+@@ -142,7 +143,7 @@
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
+-  out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
++  out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+@@ -224,13 +225,13 @@
+    else {CreatureAttackData costs("",skill,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+    if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(30000*SwgxrSpice::cooldownScale(c)));
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;
+-   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
+   }
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+   if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3 || travel>160*(stamp-shot.time+.10)+3)throw std::runtime_error("projectile_range_or_time");
+   double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
+   auto targetID=request.at("target_id").get<std::string>();auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["impact_bounds"]=impactBounds(target);if(!withinImpactBounds(target,hit))throw std::runtime_error("impact_outside_target");
+-  auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage)throw std::runtime_error("launch_weapon_changed");
++  auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage || weapon->getDamageType()!=shot.damageType || weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+   SwgxrPreparedRangedCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));prepaid.setDamageMultiplier(shot.multiplier);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+   Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
+   result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;

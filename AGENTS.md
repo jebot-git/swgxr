@@ -14,6 +14,12 @@ Agree on scene manifest and backend API before implementing consumers. Send inte
 
 ## Live test deployment scope
 
+- User direction (2026-10-07, test launch): prompt before the next live test/VR client launch. Finish implementation and inventory provisioning first; keep the VR client closed until the user approves the launch.
+
+- User direction (2026-10-07, migration): offline the old test environment and deploy the prepared all-original-ground-planets package to `87.106.27.237` as `blux`, then connect the VR client with server and spectator diagnostics. This authorizes the ten original ground planets on the new live VPS and supersedes the package-only restriction for that deployment. Preserve the daily restart at 05:00 UTC. The old `45.147.228.101` environment remains offline.
+
+- User direction (2026-10-07): prepare an all-original-ground-planets deployment package for a 12-vCPU, 24-GB VPS. This explicitly lifts the prior Tatooine-only hold for that package and its validation. Package preparation does not itself deploy or change the running VPS. Space and expansion planets remain outside the implemented ground-planet scope.
+
 - User direction (2026-10-05): keep the live test server and its testing environment Tatooine-only until the player test server is ready.
 - Keep restored planets and interplanetary expansion in local development. Do not deploy or enable planet restoration on the live test VPS as part of unrelated updates.
 - More RAM or successful local validation does not lift this hold; wait for the user's direction that the player test server is ready before expanding live planet scope.

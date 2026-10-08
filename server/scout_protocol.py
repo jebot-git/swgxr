@@ -13,7 +13,7 @@ except ImportError:
  from inventory_protocol import inventory_snapshot
  from character_protocol import decode_customization
  from datapad_protocol import display,template_label
-ACTIONS=('holster','return_tool','status','forage','trap','camp','disband','mask_scent','discard_mask_scent','burst_run','sample_dna','discard_sample_dna','ranger_status','conceal','rescue','area_track')
+ACTIONS=('inspect','holster','return_tool','status','forage','trap','camp','disband','mask_scent','discard_mask_scent','burst_run','sample_dna','discard_sample_dna','ranger_status','conceal','rescue','area_track')
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported scout action')
  p=data.get('position')
@@ -26,11 +26,11 @@ def command(action,data):
  if 'posture' in data:
   if data['posture'] not in ('standing','kneeling','prone'):raise ValueError('Invalid tracked posture')
   out['posture']=data['posture']
- if action not in ('status','ranger_status'):
+ if action not in ('status','ranger_status','inspect'):
   key=data.get('request_id','')
   if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique scout request_id required')
   out['request_id']=key
- for field in {'holster':('item_id',),'return_tool':('item_id',),'trap':('item_id','target_id'),'camp':('item_id',),'disband':('terminal_id',),'sample_dna':('target_id',),'conceal':('item_id',),'rescue':('target_id',)}.get(action,()):
+ for field in {'inspect':('target_id',),'holster':('item_id',),'return_tool':('item_id',),'trap':('item_id','target_id'),'camp':('item_id',),'disband':('terminal_id',),'sample_dna':('target_id',),'conceal':('item_id',),'rescue':('target_id',)}.get(action,()):
   value=data.get(field)
   if not isinstance(value,str) or not value.isascii() or not value.isdigit() or not 0<int(value)<2**64:raise ValueError('Invalid '+field)
   out[field]=value
@@ -65,6 +65,16 @@ def snapshot(raw,oid,attributes=None):
   item['name']=item.get('custom_name') or display(item.get('name_table',''),item.get('name_key',''),template_label(item['template'])[0])
   item['customization']=decode_customization(bytes.fromhex(item.get('customization_hex','')))
   item['attributes']=[]
+ inspection=out.get('mutation',{}).get('inspection')
+ if inspection is not None:
+  original=(attributes or {}).get('o'+inspection['id'])
+  if original is None:raise ValueError('Missing native creature inspection attributes')
+  def resolve(value):
+   if isinstance(value,str) and value.startswith('@') and ':' in value:
+    table,key=value[1:].split(':',1);return display(table,key,value)
+   return value
+  inspection['name']=resolve(inspection['name'])
+  inspection['attributes']=[{'key':key,'name':display('obj_attr_n',key,key),'value':resolve(value)} for key,value in original.items() if not key.startswith('swgxr.')]
  inventory=state.get('inventory',{});inventory['backend']='core3'
  if attributes is not None:
   state['inventory']=inventory_snapshot({'variables':{'inventory':inventory,'weaponAttributes':attributes}},oid)

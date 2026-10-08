@@ -1,0 +1,212 @@
+--- a/MMOCoreORB/src/server/zone/managers/mission/MissionManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/mission/MissionManagerImplementation.cpp
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "server/zone/managers/mission/MissionManager.h"
++#include "server/zone/objects/creature/commands/SwgxrSlicingRewards.h"
+ #include "server/zone/objects/tangible/terminal/mission/MissionTerminal.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/creature/ai/AiAgent.h"
+@@ -291,6 +292,7 @@
+ 	datapad->transferObject(mission, -1, true);
+ 
+ 	createMissionObjectives(mission, missionTerminal, player);
++	SwgxrSlicingRewards::missionAccepted(player, missionTerminal, mission);
+ 
+ 	player->updateToDatabaseAllObjects(false);
+ }
+@@ -589,7 +591,10 @@
+ void MissionManagerImplementation::populateMissionList(MissionTerminal* missionTerminal, CreatureObject* player, int counter) {
+ 	Locker crossLocker(missionTerminal, player);
+ 
+-	bool slicer = missionTerminal->isSlicer(player);
++	// Slicing now rewards the next accepted job; refreshing offers must not consume
++	// or duplicate the persistent per-player credit. Retire any legacy list flag.
++	if (missionTerminal->isSlicer(player)) missionTerminal->removeSlicer(player);
++	bool slicer = false;
+ 
+ 	if (missionTerminal->isGeneralTerminal()) {
+ 		randomizeGeneralTerminalMissions(player, counter, slicer);
+--- a/MMOCoreORB/src/server/zone/managers/creature/CreatureManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/creature/CreatureManagerImplementation.cpp
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
++#include "server/zone/objects/creature/commands/SwgxrSmugglerLoot.h"
+ #include "server/zone/managers/creature/CreatureManager.h"
+ #include "server/zone/objects/creature/ai/CreatureTemplate.h"
+ #include "CreatureTemplateManager.h"
+@@ -705,6 +706,7 @@
+ 			} else if (trx.isEnabled() && !trx.isAborted()) {
+ 				trx.abort() << "createLoot failed for ai object for unknown reason.";
+ 			}
++			SwgxrSmugglerLoot::award(destructor, destructedObject, creatureInventory);
+ 		}
+ 
+ 		// Check to see if we can expedite the despawn of this corpse
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/SlicingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/SlicingSessionImplementation.cpp
+@@ -6,6 +6,7 @@
+  */
+ 
+ #include "server/zone/objects/player/sessions/SlicingSession.h"
++#include "server/zone/objects/creature/commands/SwgxrSlicingRewards.h"
+ #include "server/zone/objects/player/sui/SuiWindowType.h"
+ #include "server/zone/objects/player/sui/listbox/SuiListBox.h"
+ #include "server/zone/objects/tangible/tool/smuggler/SlicingTool.h"
+@@ -474,7 +475,7 @@
+ 	} else if (tangibleObject->isMissionTerminal()) {
+ 		MissionTerminal* term = cast<MissionTerminal*>( tangibleObject.get());
+ 		playerManager->awardExperience(player, "slicing", 100, true); // Terminal Slice XP
+-		term->addSlicer(player);
++		SwgxrSlicingRewards::terminalSuccess(player);
+ 		player->sendSystemMessage("@slicing/slicing:terminal_success");
+ 	} else if (tangibleObject->isWeaponObject()) {
+ 		handleWeaponSlice();
+--- a/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.cpp
+@@ -51,6 +51,7 @@
+ 		{ "clearOptionBit", &LuaTangibleObject::clearOptionBit},
+ 		{ "hasOptionBit", &LuaTangibleObject::hasOptionBit},
+ 		{ "getCraftersName", &LuaTangibleObject::getCraftersName},
++		{ "setCraftedProvenance", &LuaTangibleObject::setCraftedProvenance},
+ 		{ "getJunkDealerNeeded", &LuaTangibleObject::getJunkDealerNeeded},
+ 		{ "getJunkValue", &LuaTangibleObject::getJunkValue},
+ 		{ "isBroken", &LuaTangibleObject::isBroken},
+@@ -466,3 +467,14 @@
+  auto count=lua_tointeger(L,-1);if(count<0 || count>1000000){lua_pushboolean(L,false);return 1;}
+  Locker lock(realObject);realObject->setUseCount(uint32(count),true);realObject->updateToDatabase();lua_pushboolean(L,true);return 1;
+ }
++
++// Trusted administrative screenplay access to the actual native crafting fields.
++// This is not exposed through a player service or inventory mutation.
++int LuaTangibleObject::setCraftedProvenance(lua_State* L) {
++ if(!lua_isinteger(L,-3) || !lua_isstring(L,-2) || !lua_isstring(L,-1)){lua_pushboolean(L,false);return 1;}
++ auto id=lua_tointeger(L,-3);String name(lua_tostring(L,-2));String serial(lua_tostring(L,-1));
++ if(id<=0 || name.isEmpty() || name.length()>64 || serial.isEmpty() || serial.length()>64){lua_pushboolean(L,false);return 1;}
++ Locker lock(realObject);
++ realObject->setCraftersID(uint64(id));realObject->setCraftersName(name);realObject->setSerialNumber(serial);realObject->updateToDatabase();
++ lua_pushboolean(L,true);return 1;
++}
+--- a/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.h
++++ b/MMOCoreORB/src/server/zone/objects/tangible/LuaTangibleObject.h
+@@ -61,6 +61,7 @@
+ 		int clearOptionBit(lua_State* L);
+ 		int hasOptionBit(lua_State* L);
+ 		int getCraftersName(lua_State* L);
++		int setCraftedProvenance(lua_State* L);
+ 		int getJunkDealerNeeded(lua_State* L);
+ 		int getJunkValue(lua_State* L);
+ 		int isBroken(lua_State* L);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSlicingRewards.h
+@@ -0,0 +1,55 @@
++#ifndef SWGXR_SLICING_REWARDS_H
++#define SWGXR_SLICING_REWARDS_H
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/mission/MissionObject.h"
++#include "server/zone/objects/tangible/terminal/mission/MissionTerminal.h"
++
++// One persistent credit per party member, consumed by an accepted terminal job.
++// The mission's normal native payout continues to control group sharing.
++class SwgxrSlicingRewards {
++ static void grant(CreatureObject* player) {
++  auto ghost=player->getPlayerObject();
++  if(ghost==nullptr)return;
++  ghost->setScreenPlayData("swgxr_slicing_rewards","pending","1");
++  ghost->updateToDatabase();
++  player->sendSystemMessage("Your next accepted mission-terminal job will pay 50% more credits.");
++ }
++public:
++ static bool pending(CreatureObject* player) {
++  return player && player->getPlayerObject()!=nullptr && player->getPlayerObject()->getScreenPlayData("swgxr_slicing_rewards","pending")=="1";
++ }
++ static void terminalSuccess(CreatureObject* player) {
++  if(!player || !player->isPlayerCreature())return;
++  Vector<ManagedReference<CreatureObject*>> members;
++  members.add(player);
++  auto group=player->getGroup();
++  if(group!=nullptr){
++   Locker groupLock(group,player);
++   for(int i=0;i<group->getGroupSize();++i){
++    auto member=group->getGroupMember(i);
++    if(member!=nullptr && member!=player && member->isPlayerCreature())members.add(member);
++   }
++  }
++  for(int i=0;i<members.size();++i){
++   auto member=members.get(i);
++   if(member==player)grant(player);
++   else {Locker memberLock(member,player);grant(member);}
++  }
++ }
++ static void missionAccepted(CreatureObject* player,MissionTerminal* terminal,MissionObject* mission) {
++  if(!pending(player) || !terminal || !mission || terminal->isBountyTerminal() ||
++     !(terminal->isGeneralTerminal() || terminal->isArtisanTerminal() || terminal->isEntertainerTerminal() || terminal->isScoutTerminal() || terminal->isImperialTerminal() || terminal->isRebelTerminal()) ||
++     mission->getParent().get()!=player->getSlottedObject("datapad") || mission->getMissionObjective()==nullptr || mission->getRewardCredits()<=0)return;
++  const int original=mission->getRewardCredits();
++  const int rewarded=int(std::min<int64>(INT_MAX,int64(original)*3/2));
++  mission->setRewardCredits(rewarded,true);
++  mission->updateToDatabase();
++  auto ghost=player->getPlayerObject();
++  ghost->setScreenPlayData("swgxr_slicing_rewards","pending","0");
++  ghost->setScreenPlayData("swgxr_slicing_rewards","last_mission_id",String::valueOf(mission->getObjectID()));
++  ghost->updateToDatabase();
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmugglerLoot.h
+@@ -0,0 +1,35 @@
++#ifndef SWGXR_SMUGGLER_LOOT_H
++#define SWGXR_SMUGGLER_LOOT_H
++#include "conf/ConfigManager.h"
++#include "server/zone/ZoneServer.h"
++#include "SwgxrSmugglerLootPolicy.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
++#include "server/zone/managers/loot/LootManager.h"
++#include "server/zone/objects/transaction/TransactionLog.h"
++
++class SwgxrSmugglerLoot {
++public:
++ // Existing corpse generation calls this once, after the real final blow.
++ // It never changes normal loot rolls, ownership or the corpse's death guard.
++ static void award(TangibleObject* destructor,AiAgent* victim,SceneObject* inventory) {
++  if(!destructor || !destructor->isPlayerCreature() || !victim || !inventory)return;
++  auto player=destructor->asCreatureObject();
++  bool novice=false;
++  {
++   Locker playerLock(player,victim);
++   novice=player->hasSkill("combat_smuggler_novice");
++  }
++  const int chance=SwgxrSmugglerLootPolicy::chance(ConfigManager::instance()->getInt("Core3.Smuggler.LockedContainerBonusPercent",20));
++  const int roll=System::random(99);
++  if(!SwgxrSmugglerLootPolicy::wins(true,novice,victim->isNonPlayerCreatureObject(),victim->isPet(),victim->isEventMob(),chance,roll))return;
++  TransactionLog trx(TrxCode::NPCLOOT,victim);
++  trx.addState("smugglerLockedContainerBonus",true);
++  trx.addState("destructor",destructor->getObjectID());
++  trx.addState("bonusChancePercent",chance);
++  trx.addState("bonusRoll",roll);
++  if(victim->getZoneServer()->getLootManager()->createLoot(trx,inventory,"locked_container",victim->getLevel())!=0)trx.commit(true);
++  else if(trx.isEnabled() && !trx.isAborted())trx.abort()<<"Smuggler locked container creation failed.";
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmugglerLootPolicy.h
+@@ -0,0 +1,11 @@
++#ifndef SWGXR_SMUGGLER_LOOT_POLICY_H
++#define SWGXR_SMUGGLER_LOOT_POLICY_H
++#include <algorithm>
++class SwgxrSmugglerLootPolicy {
++public:
++ static int chance(int configured) {return std::max(0,std::min(100,configured));}
++ static bool wins(bool directPlayer,bool novice,bool npc,bool pet,bool event,int configured,int roll) {
++  return directPlayer && novice && npc && !pet && !event && roll>=0 && roll<100 && roll<chance(configured);
++ }
++};
++#endif

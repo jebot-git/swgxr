@@ -8,7 +8,7 @@ func run()->void:
 	for name in ["landspeeder_x31","landspeeder_x34","landspeeder_av21","speederbike_flash","speederbike","speederbike_swoop"]:
 		var template:String="object/mobile/vehicle/"+name+".iff"
 		await inspect_vehicle(template)
-	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"maximum_hold_error_m":maximum_error,"tracking":"mocked OpenXR","renderer":"dummy","live_xr":false,"original_assets":true}
+	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"maximum_hold_error_m":maximum_error,"tracking":"mocked OpenXR","renderer":RenderingServer.get_current_rendering_method(),"live_xr":false,"original_assets":true}
 	FileAccess.open("res://../runtime/evidence/vehicle-rigid-attachment.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
 	print(JSON.stringify(report));quit(0 if failures.is_empty() else 1)
 func inspect_vehicle(template:String)->void:
@@ -52,11 +52,35 @@ func inspect_vehicle(template:String)->void:
 			verify(error<.0001,template+": "+side+" hold socket remains on model grip with lean "+str(lean))
 			verify(actual.basis.orthonormalized().is_equal_approx(target.basis.orthonormalized()),template+": grip orientation remains model-defined")
 			verify(app.tracked_avatar.last_report[side].attached,template+": vehicle-only rigid attachment requested")
+			var prefix: String="l" if side=="left" else "r"
+			var upper:=avatar.skeleton.find_bone(prefix+"arm")
+			var lower:=avatar.skeleton.find_bone(prefix+"forearm")
+			var wrist:=avatar.skeleton.find_bone(prefix+"wrist")
+			var first:float=avatar.skeleton.get_bone_global_rest(upper).origin.distance_to(avatar.skeleton.get_bone_global_rest(lower).origin)
+			var second:float=avatar.skeleton.get_bone_global_rest(lower).origin.distance_to(avatar.skeleton.get_bone_global_rest(wrist).origin)
+			var stretched_first:float=avatar.skeleton.get_bone_global_pose(upper).origin.distance_to(avatar.skeleton.get_bone_global_pose(lower).origin)
+			var stretched_second:float=avatar.skeleton.get_bone_global_pose(lower).origin.distance_to(avatar.skeleton.get_bone_global_pose(wrist).origin)
+			verify(absf(stretched_first/first-stretched_second/second)<.001,template+": extension is proportional across upper arm and forearm")
+			verify(avatar.skeleton.get_bone_pose_scale(wrist).is_equal_approx(Vector3.ONE),template+": grip does not enlarge the hand")
 		verify(camera.transform.is_equal_approx(head_before) and rig.get_node("LeftHand").transform.is_equal_approx(left_before) and rig.get_node("RightHand").transform.is_equal_approx(right_before),template+": visual attachment never modifies HMD/controllers")
 		verify(body.global_transform.is_equal_approx(body_before),template+": visual attachment never moves physics body")
+	if "--capture" in OS.get_cmdline_user_args() and template.ends_with("/landspeeder_x31.iff"):
+		verify(RenderingServer.get_current_rendering_method()=="forward_plus","Vehicle attachment capture uses Vulkan Forward+")
+		var observer:=Camera3D.new();app.add_child(observer);observer.cull_mask=0xfffff;observer.fov=48
+		var center:Vector3=(avatar.skeleton.global_transform*avatar.skeleton.get_bone_global_pose(avatar.skeleton.find_bone("spine2"))).origin
+		observer.global_position=center+Vector3(2.6,1.0,3.3);observer.look_at(center,Vector3.UP);observer.make_current()
+		var light:=DirectionalLight3D.new();app.add_child(light);light.rotation_degrees=Vector3(-45,25,0);light.light_energy=2
+		var environment:=WorldEnvironment.new();app.add_child(environment);environment.environment=Environment.new();environment.environment.background_mode=Environment.BG_COLOR;environment.environment.background_color=Color("101c28");environment.environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;environment.environment.ambient_light_color=Color.WHITE;environment.environment.ambient_light_energy=.6
+		var overlay:=CanvasLayer.new();app.add_child(overlay);var caption:=Label.new();overlay.add_child(caption);caption.position=Vector2(20,15);caption.text="Original X31 and avatar · proportional arm reach · simulated tracking";caption.add_theme_font_size_override("font_size",20)
+		root.size=Vector2i(1280,800)
+		for frame in range(5):await process_frame
+		await RenderingServer.frame_post_draw
+		root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/vehicle-arm-proportional.png"))
 	lt.set_input("grip",0.0);rt.set_input("grip",0.0);await process_frame;driver._physics_process(0);app.tracked_avatar._process(1.0/90)
 	for side in ["left","right"]:
 		var wrist:=avatar.skeleton.find_bone("lwrist" if side=="left" else "rwrist")
 		verify(driver.hand_target(side)==null and not app.tracked_avatar.last_report[side].attached,template+": physical release returns hand to ordinary IK")
 		verify(avatar.skeleton.get_bone_pose_position(wrist).is_equal_approx(avatar.skeleton.get_bone_rest(wrist).origin),template+": no arm extension survives release")
+		var lower:=avatar.skeleton.find_bone("lforearm" if side=="left" else "rforearm")
+		verify(avatar.skeleton.get_bone_pose_position(lower).is_equal_approx(avatar.skeleton.get_bone_rest(lower).origin),template+": upper arm length restores on release")
 	driver.unseat();app.free();XRServer.remove_tracker(head_tracker);XRServer.remove_tracker(lt);XRServer.remove_tracker(rt);trackers.clear();await process_frame

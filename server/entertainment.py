@@ -61,7 +61,7 @@ class PerformanceHub:
             for actor in self.sessions.values():
                 if actor['account']==account and actor['id']==str(oid):
                     actor['items']={str(i['id']):str(i['template']).replace('/shared_', '/') for i in items}
-                    if actor['item'] not in actor['items']: actor['item']=''
+                    if actor['item'] not in actor['items'] and actor['item'] not in actor.get('native_placed_items',{}): actor['item']=''
 
     def observe_native(self, account, oid, envelope):
         """Project an owned Core3 result; callers must never pass HTTP client data."""
@@ -72,6 +72,9 @@ class PerformanceHub:
             sequence=envelope.get('sequence',0)
             if sequence and sequence<=actor.get('native_sequence',-1):return
             state=envelope.get('state',{});mutation=envelope.get('mutation',{})
+            actor['native_placed_items']={str(row['id']):str(row['template']).replace('/shared_', '/')
+                for row in state.get('placed_instruments',[]) if row.get('playable') is True
+                and str(row.get('id','')).isdigit() and '/instrument/' in str(row.get('template',''))}
             learned=list(state.get('skills',[]))
             actor['context']=dict(actor['context'],skills=learned,commands=list(state.get('commands',[])),
                 flourishes=list(state.get('flourishes',[])),complete=True,entertainer='social_entertainer_novice' in learned)
@@ -152,7 +155,8 @@ class PerformanceHub:
             area = data.get('area',actor['area'])
             if not isinstance(area,str) or area not in SUPPORTED_PLANETS: raise ValueError('Unsupported performance area.')
             item = str(data.get('item_id',''))
-            if item and item not in actor['items']: raise ValueError('Performance item is not owned by this character.')
+            if item and item not in actor['items'] and not (actor.get('native_bound') and item in actor.get('native_placed_items',{})):
+                raise ValueError('Performance item is not owned or approved by the native placed-instrument state.')
             action = data.get('action','')
             if action not in ('','start_band','join','leave','perform','stop','flourish'): raise ValueError('Unknown performance action.')
             if actor.get('native_bound') and action in ('perform','stop','flourish'):

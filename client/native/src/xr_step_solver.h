@@ -2,15 +2,23 @@
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/classes/character_body3d.hpp>
 #include <godot_cpp/variant/vector3.hpp>
+#include "swg_terrain.h"
 
 namespace godot {
 // Bounded collision helper. It never owns input, velocity, an XR origin or
 // tracked poses, and can be reused with any CharacterBody3D capsule.
 class SwgXRStepSolver : public RefCounted {
     GDCLASS(SwgXRStepSolver, RefCounted)
+    Ref<SwgTerrainEvaluator> terrain;
+    Vector3 terrain_origin;
+    double swim_height=0;
 protected:
     static void _bind_methods();
 public:
+    void configure_terrain(const Ref<SwgTerrainEvaluator> &evaluator,const Vector3 &origin,double swim);
+    void update_terrain_evaluator(const Ref<SwgTerrainEvaluator> &evaluator);
+    void set_swim_height(double swim);
+    Vector3 constrain_terrain_motion(CharacterBody3D *body,const Vector3 &motion) const;
     Dictionary terrain_support(CharacterBody3D *body, const Vector3 &point, double up = 0.35, double down = 0.6) const;
     Dictionary move_on_terrain(CharacterBody3D *body, const Vector3 &motion, double attachment = 0.35) const;
     bool has_support(CharacterBody3D *body, double distance = 0.1) const;

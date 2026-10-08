@@ -1,6 +1,7 @@
 """Unarmed VR tuning from owner-only Core3 CREO 1/4 replication, not skill guesses."""
 import hashlib
 import json
+import math
 from pathlib import Path
 try:
     from .character_protocol import Reader, skills
@@ -62,6 +63,15 @@ def unarmed_snapshot(result, oid):
     stats = player_stats(record)
     learned = skills(record)
     profile = resolve(stats, oid, learned)
+    # Unarmed has no crafted WeaponObject profile attributes. Apply the same
+    # owner-only native spice projection to its freshly resolved base values.
+    modifiers = result.get('variables', {}).get('spice', {}).get('modifiers', {})
+    for field, key in (('power', 'melee_power_scale'), ('stance_recovery', 'melee_recovery_scale')):
+        scale = modifiers.get(key, 1.0)
+        if isinstance(scale, bool) or not isinstance(scale, (int, float)) or not math.isfinite(scale) or not .5 <= scale <= 1.21:
+            raise ValueError('Invalid native unarmed spice modifier: '+key)
+        profile[field] *= scale
+
     # Imported lazily to keep the original unarmed resolver usable by exporters.
     from server.profession_protocol import translate
     translate(profile, stats['skill_mods'], learned)

@@ -17,7 +17,7 @@ var source_services: Array = []
 var native_services: Array = []
 var service_points: Array = []
 var filters: Dictionary={"city":true,"poi":true,"bazaar":true,"mission":true,"bank":true,"crafting":true,"travel":true,"trainer":true}
-const SERVICE_KINDS=["bazaar","mission","bank","crafting","travel","trainer"]
+const SERVICE_KINDS=["bazaar","mission","bank","crafting","travel","trainer","underworld"]
 var dragging := false
 var drag_distance := 0.0
 var top_positive_z := true
@@ -182,6 +182,7 @@ func marker_visible(marker: Dictionary) -> bool:
 	var kind:=str(marker.get("type","waypoint"))
 	if kind=="waypoint":return true
 	if kind in ["starport","shuttleport"]:kind="travel"
+	if kind=="underworld":kind="mission"
 	if not filters.has(kind):kind="poi"
 	return bool(filters.get(kind,true))
 func set_filter(kind: String,enabled: bool) -> void:
@@ -193,7 +194,7 @@ func set_service_points(values: Array) -> void:
 		if not value is Dictionary or str(value.get("kind","")) not in SERVICE_KINDS:continue
 		var position: Variant=value.get("position")
 		if not position is Array or position.size()!=3 or not position_of(position).is_finite():continue
-		native_services.append({"id":"native-service:"+str(value.get("id","")),"type":value.kind,"name":str(value.get("name",str(value.kind).capitalize())),"position":position.duplicate(),"source":"Core3 discovery","building_id":value.get("building_id","0"),"cell_index":value.get("cell_index",0)})
+		native_services.append({"id":"native-service:"+str(value.get("id","")),"type":"mission" if value.kind=="underworld" else value.kind,"service_kind":value.kind,"name":str(value.get("name",str(value.kind).capitalize())),"position":position.duplicate(),"source":"Core3 discovery","building_id":value.get("building_id","0"),"cell_index":value.get("cell_index",0)})
 	rebuild_service_points()
 func load_service_references(directory:= "res://../runtime/assets/services") -> void:
 	source_services=[]
@@ -203,7 +204,7 @@ func load_service_references(directory:= "res://../runtime/assets/services") -> 
 		if data is Dictionary:
 			for row in data.get("static_terminals",[]):
 				if not row is Dictionary or str(row.get("kind","")) not in SERVICE_KINDS:continue
-				source_services.append({"id":"source-service:"+str(row.id),"type":row.kind,"name":str(row.get("name",str(row.kind).capitalize()+" terminal")),"position":row.get("position",[]),"source":"Original placement reference"})
+				source_services.append({"id":"source-service:"+str(row.id),"type":"mission" if row.kind=="underworld" else row.kind,"service_kind":row.kind,"name":str(row.get("name",str(row.kind).capitalize()+" terminal")),"position":row.get("position",[]),"source":"Original placement reference"})
 	path=directory.path_join("trainers.json")
 	if FileAccess.file_exists(path):
 		var data: Variant=JSON.parse_string(FileAccess.get_file_as_string(path))

@@ -8,6 +8,7 @@ signal new_waypoint_requested(position: Vector3, label: String)
 signal delete_entry_requested(entry: Dictionary)
 signal cancel_mission_requested(entry: Dictionary)
 signal map_expansion_requested(expanded: bool)
+signal close_requested
 const MapControl = preload("res://scripts/datapad_map.gd")
 const DatapadTheme = preload("res://scripts/datapad_theme.gd")
 var planet:="tatooine"
@@ -36,6 +37,7 @@ var map: Control
 var content: VBoxContainer
 var list_status: Label
 var connection_status: Label
+var close_button: Button
 var coordinates: Label
 var waypoint_button: Button
 var map_toggle: Button
@@ -129,6 +131,9 @@ func build_ui() -> void:
 	connection_status.clip_text = true
 	connection_status.custom_minimum_size.x = 240
 	header.add_child(connection_status)
+	close_button=make_button("Close")
+	close_button.pressed.connect(func():close_requested.emit())
+	header.add_child(close_button)
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
 	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:

@@ -3,6 +3,7 @@ extends RefCounted
 const ATTACK := 0.14
 const DURATION := 0.9
 var initialized := false
+var prefer_latest_heal:=false
 var sequence := {"damage":0,"heal":0}
 var elapsed := {"damage":DURATION,"heal":DURATION}
 var mesh: MeshInstance3D
@@ -22,10 +23,12 @@ func observe(value: Dictionary) -> void:
 	if not value.has_all(["damage","heal","age_seconds"]):return
 	var age:=float(value.age_seconds)
 	if not is_finite(age) or age<0:return
+	var concealed_heal:bool=prefer_latest_heal and int(value.heal)>int(value.damage) and int(value.heal)>int(sequence.heal)
+	if concealed_heal:elapsed.damage=DURATION
 	for kind in ["damage","heal"]:
 		var incoming:=int(value[kind])
 		if incoming<0:continue
-		if initialized and incoming>int(sequence[kind]) and age<2.0:
+		if initialized and incoming>int(sequence[kind]) and age<2.0 and not (kind=="damage" and concealed_heal):
 			# A burst extends an existing pulse without stacking opacity or strobing.
 			elapsed[kind]=minf(float(elapsed[kind]),ATTACK) if float(elapsed[kind])<DURATION else 0.0
 		sequence[kind]=maxi(int(sequence[kind]),incoming)

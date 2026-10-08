@@ -1,5 +1,27 @@
 # Isolated VPS runtime
 
+The current package target is **12 vCPUs / 24 GB RAM with all ten original ground
+planets**, selected with `--profile corecu-all-planets-12cpu-24gb` when preparing
+capacity overlays or packaging. It uses six zone workers, two navmesh workers
+and a 1 GiB database buffer pool; connected-player admission remains unlimited.
+The [all-planets procedure](../../docs/VPS_DEPLOYMENT.md#all-planets-package--12-vcpu--24-gb-target)
+supersedes the older Tatooine-only preparation below for this package. A
+`--prepare-only` package explicitly contains source/build inputs without current
+binaries and must not be deployed. Normal runtime packaging still requires a
+current linked build receipt.
+
+The optional `corecu-tatooine-32` profile prepares a 32-player sizing target
+without a connected-player ceiling. Stage it with
+`tools/deploy/prepare_capacity_profile.py`; the migration and synthetic-load
+procedure is in [VPS deployment](../../docs/VPS_DEPLOYMENT.md#corecu-capacity-preparation--not-deployed).
+It uses four zone threads, one navmesh worker, a 2048-process container budget,
+512 MiB InnoDB buffer pool and 128 concurrent gateway requests on an 8-vCPU,
+16-GB-class host. These are initial budgets, not measured capacity. The default
+native and voice admission limits are zero (unlimited); the profile preserves
+Tatooine-only scope. The two-thread settings below describe the legacy profile.
+Packaging now requires a successful current native build receipt and includes
+the `corecu` executable plus the `core3` compatibility executable.
+
 The deployment uses a rootful Podman runtime image
 `localhost/swgxr-runtime:20261004` and container `swgxr-core3-build`, with
 `--network none`. Native Core3 UDP, MariaDB TCP and native clients communicate

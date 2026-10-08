@@ -2,6 +2,7 @@ extends SceneTree
 ## Runtime pose regression using original assets; not live headset validation.
 const Inventory = preload("res://scripts/xr_inventory.gd")
 class Player extends CharacterBody3D:
+	var feedback=preload("res://combat/player_feedback.gd").new()
 	func set_interface_capture(_move: bool, _turn: bool) -> void: pass
 var errors: Array[String]=[]
 var checks:=0
@@ -73,6 +74,16 @@ func run() -> void:
 	var fresh:=Transform3D(grip.basis,main.global_position+Vector3(0.1,0,0))
 	bag.update_gestures(true,head.global_transform,left.global_transform,0,0,{},fresh)
 	check(drops.size()==1 and drops[0].origin.is_equal_approx(fresh.origin) and drops[0].basis.is_equal_approx((rig.global_transform*aim).basis),"Release retains corrected orientation at current grip position")
+	var tracked:=preload("res://scripts/tracked_avatar.gd").new();world.add_child(tracked);tracked.set_process(false);tracked.body=player;tracked.camera=head;tracked.rig=rig
+	var raw_before:=main.global_transform;var body_before:=player.global_transform;var head_before:=head.global_transform
+	for id in ["yarrock","muon_gold"]:
+		player.feedback.spice.observe(preload("res://tests/spice_smoke.gd").envelope(id,"withdrawal",900,1))
+		check(tracked.hand_target(main,"right")!=raw_before,"Empty tracked-avatar hand has local spice tremor: "+id)
+		bag.take_item({"id":"spice-tool","template":"object/tangible/crafting/station/weapon_tool.iff"});bag.refresh_hand_presentations()
+		check(bag.held_model.global_transform.is_equal_approx(bag.item_hand_pose(main,raw_before)) and bag.held_model.global_transform!=Transform3D((rig.global_transform*aim).basis,raw_before.origin),"Original held crafting tool shares visual hand tremor: "+id)
+		check(main.global_transform==raw_before and player.global_transform==body_before and head.global_transform==head_before,"Spice hand tremor leaves raw controller, HMD and physics body unchanged")
+		bag.clear_held()
+	player.feedback.spice.reset();tracked.free()
 	if "--capture" in OS.get_cmdline_user_args():
 		rig.global_transform=Transform3D.IDENTITY;bag.set_open(true);bag.refresh_hand_presentations()
 		for surface: Dictionary in bag.surfaces:surface.mesh.visible=false

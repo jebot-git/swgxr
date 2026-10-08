@@ -27,6 +27,12 @@ class Tests(unittest.TestCase):
    with self.assertRaises(VoiceError):n.owned('alice','2')
    n.remove('alice')
    with self.assertRaises(VoiceError):n.owned('alice','1')
+ def test_native_voice_participants_can_exceed_old_sixty_four_cap(self):
+  with tempfile.TemporaryDirectory()as tmp:
+   n=NativeVoiceState(Path(tmp)/'state.json')
+   for i in range(80):n.publish('loadtest'+str(i),str(i+1),{'position':[0,0,0],'zone':'tatooine','voice':{'group_id':'0','zone_id':'12','faction':'neutral'}})
+   self.assertEqual(len(n.states),80)
+   self.assertEqual(n.owned('loadtest79','80')['character_id'],'80')
  def test_queue_and_eight_active_speaker_limits(self):
   relay=object.__new__(Relay);relay.peers={}
   for oid in range(1,11):

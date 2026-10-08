@@ -1,8 +1,15 @@
-# Local Core3 adapter
+# Local CoreCU adapter
 
-This prototype stores accounts and characters in real Core3. The Python adapter
+CoreCU preserves pre-CU progression and profession structure while pursuing CU-inspired balance and combat feel. Advanced profession abilities remain provisional skeletons for later definition.
+
+This prototype stores accounts and characters in CoreCU, the local SWGEmu Core3 combat fork. The Python adapter
 invokes the pinned upstream `core3client` action framework inside an isolated
 Podman container; it does not maintain an imitation character database.
+
+The build produces `corecu` and a `core3` compatibility copy for existing launchers.
+Health responses identify `backend_name: CoreCU`; the existing `backend: core3`
+tag and database/configuration paths remain compatible. See
+[CoreCU combat policy](../docs/CORECU_COMBAT.md) and [fork identity](CORECU.json).
 
 `server/upstream.json` records revisions. `server/patches` contains the complete
 source modifications. `tools/configure_core3.py` reapplies those patches and

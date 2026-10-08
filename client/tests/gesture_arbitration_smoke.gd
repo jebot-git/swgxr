@@ -63,6 +63,7 @@ func run() -> void:
 		var kind:String=music_cases[instrument]
 		performer.context={"complete":true,"entertainer":true,"commands":[instrument,"startMusic+starwars1","startDance+basic"]}
 		performer.item={"id":"123","template":"object/tangible/instrument/"+instrument+".iff"} if not instrument.is_empty() else {}
+		performer.equipped_instrument=performer.item.duplicate(true)
 		var choices:Array=performer.assets.performances(performer.context,performer.item)
 		check(not choices.is_empty(),kind+" eligible with original mixed-case Core3 command grants")
 		if choices.is_empty():continue
@@ -88,7 +89,7 @@ func run() -> void:
 		check(not pad.is_open,kind+" gesture never opens datapad, including after dispatch")
 		pad.set_gesture_reserved(false);pad.update_activation(true,0,0,.02)
 		pad.update_activation(true,1,1,.26)
-		check(pad.is_open,"Fresh released chord reclaims datapad after "+kind)
+		check(pad.radar_requested and not pad.is_open,"Fresh released chord reclaims minimap after "+kind)
 		pad.set_open(false)
 	var circle_recognizer:=SwgPerformanceGesture.new()
 	var circle_fired:=false

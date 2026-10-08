@@ -60,10 +60,12 @@ func apply_cell_visibility(actor:Node3D,row:Dictionary)->void:
 	actor.collision_layer=8 if same_cell and actor.is_targetable() else 0
 func _process(_delta:float)->void:
 	if not is_instance_valid(app) or not is_instance_valid(app.stage):return
-	for actor:Node3D in actors.values():apply_cell_visibility(actor,actor.record)
+	for id in actors.keys():
+		if preload("res://scripts/service_world.gd").presents_actor(app,actors[id].record):actors[id].free();actors.erase(id)
+		else:apply_cell_visibility(actors[id],actors[id].record)
 	var created:=0
 	for id in desired:
-		if actors.has(id):continue
+		if actors.has(id) or preload("res://scripts/service_world.gd").presents_actor(app,desired[id]):continue
 		var actor:=Actor.new();add_child(actor)
 		var context:Variant=app.get("planet_assets")
 		if context is Dictionary:actor.catalog_candidates=context.get("entity_catalogs",[]).duplicate()

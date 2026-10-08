@@ -73,6 +73,28 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.request('POST','/enter','{"account":"bob"}')[0],403)
         self.assertEqual(self.request(path='/characters?account=bob')[0],403)
         self.assertEqual(self.request('POST','/enter','{"account":null}')[0],403)
+    def test_owned_melee_route(self):
+        data=dict(character_id='123',session_id='owned',shot_id='s1',item_id='456',origin=[0,1,0],direction=[0,0,1])
+        code,body=self.request('POST','/combat/session/melee',json.dumps(data))
+        self.assertEqual(code,200)
+        self.assertEqual(json.loads(body)['body'],dict(data,account='alice'))
+        self.assertEqual(self.request('POST','/combat/session/melee',json.dumps(dict(data,account='bob')))[0],403)
+
+    def test_owned_inventory_unequip_route(self):
+        data = dict(character_id='123', item_id='456')
+        code, body = self.request('POST', '/inventory/unequip', json.dumps(data))
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)['body'], dict(data, account='alice'))
+        self.assertEqual(len(self.upstream.seen), 1)
+        self.assertEqual(self.request('POST', '/inventory/unequip',
+                                     json.dumps(dict(data, account='bob')))[0], 403)
+        self.assertEqual(len(self.upstream.seen), 1)
+        self.upstream.status = 400
+        self.upstream.body = b'{"error":"owned_equipped_item_required"}'
+        code, body = self.request('POST', '/inventory/unequip', json.dumps(data))
+        self.assertEqual(code, 400)
+        self.assertEqual(json.loads(body)['error'], 'owned_equipped_item_required')
+
     def test_duplicate_keys(self):
         for path in ('/characters?account=alice&account=bob','/characters?account=alice&%61ccount=alice','/characters?x=1&x=2'):
             self.assertEqual(self.request(path=path)[0],400)

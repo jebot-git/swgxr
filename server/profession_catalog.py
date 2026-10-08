@@ -4,6 +4,7 @@ import hashlib
 from .character_protocol import assets
 from character_formats import datatable
 from stf import string_table
+from .corecu_professions import contribution, trap_bonus_contribution
 
 
 @lru_cache(maxsize=1)
@@ -41,8 +42,17 @@ def catalog():
                     continue
                 key, value = mod.split('=')
                 mods[key] = int(value)
-            nodes.append({'id':skill['NAME'], 'label':all_labels[skill['NAME']],
-                          'description':descriptions.get(skill['NAME'], ''),
+            resistance = contribution(row['NAME'], skill['NAME'])
+            description = descriptions.get(skill['NAME'], '')
+            if resistance:
+                description += '\nCoreCU resistance progression: ' + ', '.join(f'{name.title()} +{value:g}' for name, value in resistance.items()) + ' rating. Strongest profession plus 25% of other contributions; existing resistance is retained when stronger.'
+            trap_bonus = trap_bonus_contribution(skill['NAME'])
+            if trap_bonus:
+                description += f'\nCoreCU traps: +{trap_bonus} percentage point status application chance, capped at 95%; enemy duration resistance remains.'
+            if skill['NAME'] == 'combat_brawler_novice':
+                description += '\nTaunt: clench a free hand with grip and beat your chest twice while aiming the head reticle at an enemy. Keep trigger released; the first eligible enemy in the reticle is challenged.'
+            nodes.append({'corecu_trap_success_bonus':trap_bonus, 'id':skill['NAME'], 'label':all_labels[skill['NAME']],
+                          'description':description, 'corecu_resistance_contribution':resistance,
                           'requires':list(filter(None, skill['SKILLS_REQUIRED'].split(','))),
                           'requires_count':skill['SKILLS_REQUIRED_COUNT'],
                           'excludes':list(filter(None, skill['PRECLUSION_SKILLS'].split(','))),
@@ -53,5 +63,5 @@ def catalog():
                           'certificates':[c for c in skill['COMMANDS'].split(',') if c.startswith('cert_')]})
         professions.append({'id':row['NAME'], 'label':all_labels[row['NAME']],
                             'graph_type':row['GRAPH_TYPE'], 'nodes':nodes})
-    return {'schema':1, 'professions':professions, 'labels':all_labels,
+    return {'schema':1, 'backend_name':'CoreCU', 'advanced_professions':'provisional_core3_skeleton', 'professions':professions, 'labels':all_labels,
             'provenance':sources, 'warnings':warnings, 'read_only':True}

@@ -43,12 +43,8 @@ func _ready() -> void:
 	world.environment.sky = sky
 	world.environment.ambient_light_energy = 0.0
 	add_child(world)
-	for bus in ["SWG Music", "SWG Ambience"]:
-		if AudioServer.get_bus_index(bus) < 0:
-			AudioServer.add_bus()
-			AudioServer.set_bus_name(AudioServer.bus_count-1,bus)
-	set_music_volume(0.65)
-	set_ambient_volume(0.8)
+	# Loading another planet must not reset the menu's shared audio preferences.
+	preload("res://audio/preferences.gd").new().load_preferences()
 	for i in range(4):
 		var player := AudioStreamPlayer.new()
 		player.bus = "SWG Ambience"
@@ -118,14 +114,10 @@ func update_observer(position: Vector3) -> void:
 	observer = position
 
 func set_music_volume(value: float) -> void:
-	var index := AudioServer.get_bus_index("SWG Music")
-	if index >= 0:
-		AudioServer.set_bus_volume_db(index,linear_to_db(maxf(value,0.00001))-6.0)
+	preload("res://audio/preferences.gd").apply_gain("SWG Music",value,-6)
 
 func set_ambient_volume(value: float) -> void:
-	var index := AudioServer.get_bus_index("SWG Ambience")
-	if index >= 0:
-		AudioServer.set_bus_volume_db(index,linear_to_db(maxf(value,0.00001))-8.0)
+	preload("res://audio/preferences.gd").apply_gain("SWG Ambience",value,-8)
 
 func set_phase(value: float) -> void:
 	phase = fposmod(value,1.0)

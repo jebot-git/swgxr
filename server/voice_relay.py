@@ -8,7 +8,12 @@ try:
 except ImportError:
  from voice_protocol import *
 
-MAX_CLIENTS=32
+try:
+ from .capacity import configured_limit
+except ImportError:
+ from capacity import configured_limit
+
+MAX_CLIENTS=configured_limit('SWGXR_MAX_VOICE_CLIENTS')
 
 def frame(opcode,payload):
  n=len(payload)
@@ -106,7 +111,7 @@ class Relay:
  async def accept(self,reader,writer):
   self.connections+=1;p=None;send_task=None
   try:
-   if self.connections>MAX_CLIENTS:raise VoiceError('Relay capacity reached')
+   if MAX_CLIENTS and self.connections>MAX_CLIENTS:raise VoiceError('Relay capacity reached')
    header=await asyncio.wait_for(reader.readuntil(b'\r\n\r\n'),5)
    if len(header)>8192:raise VoiceError('Headers too large')
    lines=header.decode('ascii').split('\r\n')

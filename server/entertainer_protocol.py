@@ -9,7 +9,7 @@ except ImportError:
     from planets import context as planet_context
     from entertainment_catalog import catalog
 
-ACTIONS = ('status', 'perform', 'stop', 'flourish', 'register_location', 'group_invite', 'group_join', 'group_leave')
+ACTIONS = ('status', 'perform', 'stop', 'flourish', 'register_location', 'group_invite', 'group_join', 'group_leave', 'group_bump')
 
 
 def command(action, data):
@@ -31,10 +31,14 @@ def command(action, data):
         if not isinstance(building, str) or not re.fullmatch(r'[0-9]{1,20}', building) or int(building) >= 2**64 or type(cell) is not int or not 0 <= cell <= 256 or ((int(building) == 0) != (cell == 0)):
             raise ValueError('Original source building and cell required.')
         out.update(building_id=building, cell_index=cell)
-    if action == 'group_invite':
+    if action in ('group_invite', 'group_bump'):
         target=data.get('target_id')
         if not isinstance(target,str) or not re.fullmatch(r'[0-9]{1,20}',target) or not 0<int(target)<2**64:raise ValueError('Native group invite target required.')
         out['target_id']=target
+    if action == 'group_bump':
+        proof=data.get('group_bump_id')
+        if not isinstance(proof,str) or not re.fullmatch(r'[0-9a-f]{24}',proof):raise ValueError('Server-issued fist bump ID required.')
+        out['group_bump_id']=proof
     if action == 'perform':
         performance = catalog()['performances'].get(data.get('performance_id'))
         if performance is None:
@@ -46,7 +50,7 @@ def command(action, data):
         if out['kind'] == 'music':
             item = data.get('item_id')
             if not isinstance(item, str) or not re.fullmatch(r'[0-9]{1,20}', item) or not 0 < int(item) < 2**64:
-                raise ValueError('Owned native instrument required.')
+                raise ValueError('Native equipped or placed instrument required.')
             out['item_id'] = item
     if action.startswith('image_'):
         try:

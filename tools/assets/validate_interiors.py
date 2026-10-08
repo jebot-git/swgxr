@@ -22,7 +22,9 @@ def main():
     args = parser.parse_args()
     world = json.loads(args.world.read_text()); environment = json.loads(args.environment.read_text())
     source = StaticAssets(Path(world['provenance']['tre_directory']), ROOT / 'runtime/assets/interior_audit')
-    nodes = {node['id']: node for node in snapshot(source)}
+    planet = world['planet']
+    assert environment['planet'] == planet, 'Interior environment belongs to another planet'
+    nodes = {node['id']: node for node in snapshot(source, planet)}
     origin = world['origin']; layouts = {}; ownership = {}; instances = []; cells = {}
     for descriptor in world['chunks'].values():
         chunk = json.loads((args.world.parent / descriptor['path']).read_text())
@@ -62,17 +64,20 @@ def main():
             assert error < 0.005, (identity, error)
             max_transform_error = max(max_transform_error, error)
         counts[instance['building_object_id']] += 1
-    assert counts[1082874] == 258, counts[1082874]
+    if planet == 'tatooine':
+        assert counts[1082874] == 258, counts[1082874]
     sounds = [item for item in environment['emitters'] if item.get('source_layout')]
     cantina_sounds = [item for item in sounds if item['building_object_id'] == 1082874]
-    assert {item['sound'] for item in cantina_sounds} == {'sound/amb_cantina_large_lp.snd', 'sound/music_figrin_dan_song_1.snd'}
+    if planet == 'tatooine':
+        assert {item['sound'] for item in cantina_sounds} == {'sound/amb_cantina_large_lp.snd', 'sound/music_figrin_dan_song_1.snd'}
     for emitter in sounds:
         assert emitter['cell_id'] in cells
         assert emitter['sound'] in environment['sounds']
         assert emitter['source_layout'] in environment['provenance']['dependencies']
         assert all(math.isfinite(value) for value in emitter['position'])
     assert 'default:default' in environment['interior_soundscapes']
-    assert environment['interior_soundscapes']['thm_tato_cantina:default']['day_ambient'] == 'sound/amb_cantina_medium_lp.snd'
+    if planet == 'tatooine':
+        assert environment['interior_soundscapes']['thm_tato_cantina:default']['day_ambient'] == 'sound/amb_cantina_medium_lp.snd'
     for definition in environment['interior_soundscapes'].values():
         for role in ('day_ambient', 'night_ambient', 'first_music'):
             assert not definition[role] or definition[role] in environment['sounds']

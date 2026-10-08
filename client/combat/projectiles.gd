@@ -99,12 +99,15 @@ func spawn(shot: Dictionary, muzzle: Transform3D, grip: Vector3, initial_cell: V
 	var visual_handle := acquire_visual(str(shot.weapon_id),muzzle)
 	bolts.append({"shot":shot.duplicate(true),"visual_handle":visual_handle,"position":muzzle.origin,"direction":-muzzle.basis.z.normalized(),"distance":0.0,"cell_id":source_cell})
 
-func strike_melee(shot: Dictionary, aim: Transform3D, weapon_pose: Transform3D) -> Dictionary:
-	# Swing shape never selects the victim. Resolve the head-reticle ray at the
-	# qualification instant, through the same view-independent world query.
+func play_melee_swing(shot:Dictionary,weapon_pose:Transform3D)->void:
 	if effects != null:
 		var weapon: Dictionary = effects.assets.catalog.get("unarmed",{}) if shot.weapon_id=="unarmed" else effects.assets.catalog.weapons.get(shot.weapon_id,{})
 		effects.play(str(weapon.get("effects",{}).get("swing","")),weapon_pose)
+
+func strike_melee(shot: Dictionary, aim: Transform3D, weapon_pose: Transform3D) -> Dictionary:
+	# Swing shape never selects the victim. Resolve the head-reticle ray at the
+	# qualification instant, through the same view-independent world query.
+	play_melee_swing(shot,weapon_pose)
 	var membership: Variant = actor_cell_at(aim.origin)
 	if membership == null:
 		incomplete_queries += 1

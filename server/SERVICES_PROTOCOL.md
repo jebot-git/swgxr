@@ -147,3 +147,50 @@ must never become selectable offers. Survey completion uses the original
 and distance over 1024m from the issuer. It uses current compatible native
 resource spawns and rejects remote survey grids from triggering objective credit
 (the survey request must be within6m of the actual native player position).
+
+## Smuggler service extensions
+
+For a learned Novice Smuggler, `wallet` additionally projects
+`faction_delegation:true`, `faction_points:{imperial,rebel}`,
+`faction_limits:{imperial,rebel}`, `delegation_ratio` and `delegation_reserve`.
+Standing can be negative; slider limits are nonnegative receiver amounts after
+the rank ratio and 200-point reserve. Other professions retain the cash/bank
+projection.
+
+`pay` accepts `amount` (integer credits, now zero when FP is nonzero) and optional
+`faction_points:{imperial,rebel}` (nonnegative integers). At least one currency
+must be positive. The existing fresh handshake, authenticated recipient, proximity
+and durable receipt apply to the full bundle. Core3 validates all recipient caps
+and sender balances before changing any currency. Receipt replay ignores updated
+pose context but rejects altered currency values. Underworld reputation is never
+a wallet currency.
+
+Nearby `kind:underworld` brokers use `open` and the existing dialogue surface.
+`underworld_accept` requires `terminal_id` and `request_id`; native skills,
+reputation tier, funds, mission slots, line of sight and proximity are checked.
+`state.underworld` includes reputation, active mission, deadline, last result and
+travel restriction. Accepted jobs use existing `delivery_open`, `delivery_pickup`,
+`delivery_complete` and `mission_abort`; patrol fines use `contraband_answer`.
+
+Slicing uses `slicing_begin`, `slicing_status`, `slicing_complete` and
+`slicing_cancel`. Mutations carry the normal unique `request_id`. Begin requires
+owned `tool_id`, `target_id`, `target_kind` (`item` or `terminal`),
+`tool_position`, `anchor_position`, and `heading_radians`. An item also supplies
+its presentation's `target_position`; this never grants ownership. All positions
+use the existing source coordinate convention. Core3 checks actual ownership,
+eligibility, range and attempt state.
+
+Complete and cancel require the native `attempt_id`. Status may omit it to
+discover an existing attempt after reconnecting. Complete submits
+`paths:[{color,cells:[[x,y,z],...]}]`: two to four unique colors, face-adjacent
+integer cell coordinates and no cell shared by any path. The adapter bounds
+input to the largest supported board; Core3 checks the actual board and matching
+endpoints. Client success, tier and reward claims are never forwarded.
+
+`state.slicing` projects `active`, `status`, attempt/tool/target identities,
+`anchor_position`, `heading_radians`, `cell_size`, `abandon_distance`,
+`remaining_seconds`, and `challenge`. The immutable challenge contains `size`
+(3–5), `pairs:[{color,ends:[{cell,face},{cell,face}]}]`, and editable
+`preconnected:[{color,cells}]`. Endpoint faces are unit axial normals. The hidden
+solution remains native. Item reservation, expiry, abandonment and lasting slice
+results are native responsibilities; local meshes only present the attempt.

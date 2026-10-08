@@ -1,0 +1,215 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrParty.h
+@@ -0,0 +1,48 @@
++#ifndef SWGXR_PARTY_H
++#define SWGXR_PARTY_H
++#include "SwgxrPartyPolicy.h"
++#include "server/zone/managers/group/GroupManager.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/objects/player/PlayerObject.h"
++class SwgxrParty {
++ using Json=JSONSerializationType;
++public:
++ static Json snapshot(CreatureObject* c){
++  Json out={{"id","0"},{"leader_id","0"},{"members",Json::array()}};auto group=c->getGroup();if(!group)return out;
++  Locker lock(group,c);SwgxrPartyPolicy::reconcile(group);
++  out["id"]=std::to_string(group->getObjectID());out["leader_id"]=std::to_string(group->getLeaderID());
++  for(int i=0;i<group->getGroupSize();++i){auto member=group->getGroupMember(i);if(member && member->isPlayerCreature())out["members"].push_back({{"id",std::to_string(member->getObjectID())},{"name",std::string(member->getFirstName().toCharArray())},{"combat_level",member->getLevel()},{"squad_leader",SwgxrPartyPolicy::squadLeader(member)}});}
++  return out;
++ }
++ // Caller owns actor lock. Native joinGroup expressly requires no locks. Keep
++ // references alive and restore the caller lock on every success/error path.
++ static void bump(CreatureObject* actor,const Json& q){
++  if(!q.value("group_bump_authorized",false))throw std::runtime_error("mutual_fist_bump_required");
++  ManagedReference<CreatureObject*> peer=actor->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>())).castTo<CreatureObject*>();
++  if(!peer || peer==actor || !peer->isPlayerCreature())throw std::runtime_error("nearby_group_player_required");
++  actor->unlock();
++  try{
++   ManagedReference<CreatureObject*> inviter,joiner;
++   {
++    Locker lock(actor);Locker peerLock(peer,actor);
++    if(actor->isDead() || actor->isIncapacitated() || peer->isDead() || peer->isIncapacitated() || actor->isInCombat() || peer->isInCombat())throw std::runtime_error("native_player_unavailable");
++    if(peer->getZone()!=actor->getZone() || peer->getParentID()!=actor->getParentID() || !actor->isInRange(peer,3) || !CollisionManager::checkLineOfSight(actor,peer))throw std::runtime_error("nearby_group_player_required");
++    if(actor->getPlayerObject()->isIgnoring(peer->getFirstName()) || peer->getPlayerObject()->isIgnoring(actor->getFirstName()))throw std::runtime_error("group_player_ignored");
++    if(actor->isGrouped() && peer->isGrouped()){
++     if(actor->getGroupID()!=peer->getGroupID())throw std::runtime_error("cannot_merge_existing_parties");
++    }else if(actor->isGrouped() || peer->isGrouped()){
++     auto member=actor->isGrouped()?actor:peer.get();auto group=member->getGroup();Locker groupLock(group,actor);
++     if(group->getGroupSize()>=20)throw std::runtime_error("native_group_full");
++     inviter=group->getLeader();joiner=actor->isGrouped()?peer.get():actor;
++    }else{inviter=SwgxrPartyPolicy::initialLeader(actor,peer);joiner=inviter==actor?peer.get():actor;}
++   }
++   if(inviter && joiner){
++    {Locker lock(inviter);GroupManager::instance()->inviteToGroup(inviter,joiner);if(joiner->getGroupInviterID()!=inviter->getObjectID())throw std::runtime_error("native_group_invitation_rejected");}
++    GroupManager::instance()->joinGroup(joiner);
++    if(!actor->isGrouped() || actor->getGroupID()!=peer->getGroupID())throw std::runtime_error("native_group_join_rejected");
++   }
++  }catch(...){actor->wlock();throw;}
++  actor->wlock();
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPartyPolicy.h
+@@ -0,0 +1,27 @@
++#ifndef SWGXR_PARTY_POLICY_H
++#define SWGXR_PARTY_POLICY_H
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/group/GroupObject.h"
++// Existing GroupObject remains membership, leadership, modifier and chat authority.
++class SwgxrPartyPolicy {
++public:
++ static bool squadLeader(CreatureObject* c){return c && c->isPlayerCreature() && c->hasSkill("outdoors_squadleader_novice");}
++ static CreatureObject* initialLeader(CreatureObject* a,CreatureObject* b){
++  if(squadLeader(a)!=squadLeader(b))return squadLeader(a)?a:b;
++  if(a->getLevel()!=b->getLevel())return a->getLevel()>b->getLevel()?a:b;
++  return a->getObjectID()<b->getObjectID()?a:b;
++ }
++ // Pre: group locked. Preserve ordinary incumbent; choose strongest SL, retain
++ // current SL on equal CL, then use object ID as stable final tie breaker.
++ static CreatureObject* preferredSquadLeader(GroupObject* group){
++  auto incumbent=group->getLeader();CreatureObject* best=squadLeader(incumbent)?incumbent:nullptr;
++  for(int i=0;i<group->getGroupSize();++i){auto member=group->getGroupMember(i);if(!squadLeader(member))continue;
++   if(!best || member->getLevel()>best->getLevel() || (member->getLevel()==best->getLevel() && best!=incumbent && member->getObjectID()<best->getObjectID()))best=member;
++  }return best;
++ }
++ static void reconcile(GroupObject* group){
++  if(!group || group->getGroupSize()<2)return;auto best=preferredSquadLeader(group);
++  if(best && best!=group->getLeader()){Locker lock(best,group);group->makeLeader(best);}
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -4,6 +4,7 @@
+ #define SWGXR_ENTERTAINER_H
+ #include "SwgxrServices.h"
+ #include "SwgxrImageDesign.h"
++#include "SwgxrParty.h"
+ #include "RegisterWithLocationCommand.h"
+ #include "server/zone/objects/player/sessions/EntertainingSession.h"
+ #include "server/zone/managers/skill/PerformanceManager.h"
+@@ -69,19 +70,21 @@
+   auto flourishes=Json::array();for(int i=1;i<=8;++i)if(c->getPlayerObject()->hasAbility(String(("flourish+"+std::to_string(i)).c_str())))flourishes.push_back(i);
+   auto instrument=c->getPlayableInstrument();bool dancing=s && s->isDancing(),music=s && s->isPlayingMusic();
+   auto inviter=c->getZoneServer()->getObject(c->getGroupInviterID()).castTo<CreatureObject*>();
+-  return {{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"instrument_id",id(instrument)},{"instrument_mode",instrument?(instrument->getParent().get()==c?"equipped":"placed"):"none"},{"placed_instruments",placedInstruments(c)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
++  return {{"group",SwgxrParty::snapshot(c)},{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"instrument_id",id(instrument)},{"instrument_mode",instrument?(instrument->getParent().get()==c?"equipped":"placed"):"none"},{"placed_instruments",placedInstruments(c)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
+  }
+  static Json run(CreatureObject* c,const Json& q){
+   SwgxrPlanets::require(c,q);auto action=q.value("action",std::string("status"));auto ghost=c->getPlayerObject();auto mutation=Json{{"success",true},{"operation",action}};
+   Json receipts=Json::array();auto text=ghost->getScreenPlayData("swgxr_entertainer","receipts");if(!text.isEmpty())receipts=Json::parse(text.toCharArray());
+-  Json semantic=q;for(auto field:{"position","heading_radians","building_id","cell_index","zone","planet"})semantic.erase(field);
++  Json semantic=q;for(auto field:{"position","heading_radians","building_id","cell_index","zone","planet","group_bump_receipt_only"})semantic.erase(field);
+   auto key=q.value("request_id",std::string());if(action!="status"){
+    if(key.size()<8 || key.size()>64)throw std::runtime_error("entertainer_request_id_required");
+    for(auto& receipt:receipts)if(receipt["id"]==key){if(receipt["request"]!=semantic)throw std::runtime_error("entertainer_request_id_reused");mutation=receipt["mutation"];mutation["replayed"]=true;return {{"backend","core3"},{"source_kind","core3_entertainer"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",mutation}};}
++   if(action=="group_bump" && q.value("group_bump_receipt_only",false))throw std::runtime_error("group_bump_receipt_expired");
+    if(c->isDead() || c->isIncapacitated() || c->isInCombat())throw std::runtime_error("native_player_unavailable");
+   }
+   SwgxrMovement::move(c,q);
+   if(action.rfind("image_",0)==0){auto result=SwgxrImageDesign::run(c,q);mutation=result.at("mutation");}
++  else if(action=="group_bump"){SwgxrParty::bump(c,q);auto party=SwgxrParty::snapshot(c);mutation["group_id"]=party["id"];mutation["leader_id"]=party["leader_id"];mutation["message"]="Party joined";}
+   else if(action=="group_invite"){
+    auto target=c->getZoneServer()->getObject(std::stoull(q.at("target_id").get<std::string>()));if(!target || !target->isPlayerCreature() || target==c || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,32))throw std::runtime_error("nearby_group_player_required");invoke(c,"invite","",target->getObjectID());
+   }else if(action=="group_join"){invoke(c,"join");}
+--- a/MMOCoreORB/src/server/zone/managers/group/GroupManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/group/GroupManager.cpp
+@@ -13,6 +13,7 @@
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/player/PlayerObject.h"
+ #include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/creature/commands/SwgxrPartyPolicy.h"
+ 
+ #include "server/zone/managers/object/ObjectManager.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+@@ -269,6 +270,7 @@
+ 	}
+ 
+ 	creature->updateGroupInviterID(0, false);
++	SwgxrPartyPolicy::reconcile(group);
+ }
+ 
+ void GroupManager::createGroup(CreatureObject* leader, CreatureObject* creature) {
+@@ -374,6 +376,7 @@
+ 	if (group->hasSquadLeader()) {
+ 		group->addGroupModifiers();
+ 	}
++	SwgxrPartyPolicy::reconcile(group);
+ }
+ 
+ void GroupManager::leaveGroup(ManagedReference<GroupObject*> group, CreatureObject* creature) {
+@@ -411,6 +414,7 @@
+ 		creature->unlock();
+ 
+ 		group->removeMember(creature);
++		SwgxrPartyPolicy::reconcile(group);
+ 
+ 		if (playerMember) {
+ 			group->sendDestroyTo(creature);
+@@ -511,6 +515,7 @@
+ 			disbanded = true;
+ 		} else {
+ 			group->removeMember(memberToKick);
++			SwgxrPartyPolicy::reconcile(group);
+ 
+ 			if (memberToKick->isPlayerCreature())
+ 				memberToKick->sendSystemMessage("@group:removed");
+@@ -570,6 +575,8 @@
+ 			return;
+ 		}
+ 
++		auto preferred=SwgxrPartyPolicy::preferredSquadLeader(group);
++		if(preferred)newLeader=preferred;
+ 		Locker newLeadLock(newLeader, group);
+ 
+ 		// Set the new leader
+--- a/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
+@@ -11,6 +11,7 @@
+ #include "server/zone/objects/player/PlayerObject.h"
+ #include "server/zone/objects/player/badges/Badge.h"
+ #include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/creature/commands/SwgxrPartyPolicy.h"
+ #include "server/zone/managers/player/PlayerManager.h"
+ #include "server/zone/managers/jedi/JediManager.h"
+ #include "templates/manager/TemplateManager.h"
+@@ -455,9 +456,10 @@
+ 		} else if (skill->getSkillName().contains("squadleader")) {
+ 			Reference<GroupObject*> group = creature->getGroup();
+ 
+-			if (group != nullptr && group->getLeader() == creature) {
++			if (group != nullptr) {
+ 				Core::getTaskManager()->executeTask([group] () {
+ 					Locker locker(group);
++					SwgxrPartyPolicy::reconcile(group);
+ 
+ 					group->removeGroupModifiers();
+ 					group->addGroupModifiers();
+@@ -659,9 +661,10 @@
+ 		} else if (skill->getSkillName().contains("squadleader")) {
+ 			Reference<GroupObject*> group = creature->getGroup();
+ 
+-			if (group != nullptr && group->getLeader() == creature) {
++			if (group != nullptr) {
+ 				Core::getTaskManager()->executeTask([group] () {
+ 					Locker locker(group);
++					SwgxrPartyPolicy::reconcile(group);
+ 
+ 					group->removeGroupModifiers();
+ 
+@@ -768,11 +771,13 @@
+ 
+ 	Reference<GroupObject*> group = creature->getGroup();
+ 
+-	if (group != nullptr && group->getLeader() == creature) {
++	if (group != nullptr) {
+ 		Core::getTaskManager()->executeTask([group] () {
+ 			Locker locker(group);
+ 
++			SwgxrPartyPolicy::reconcile(group);
+ 			group->removeGroupModifiers();
++			if (group->hasSquadLeader()) group->addGroupModifiers();
+ 		}, "UpdateGroupModsLambda3");
+ 	}
+ }

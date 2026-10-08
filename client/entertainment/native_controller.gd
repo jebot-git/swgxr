@@ -73,8 +73,19 @@ func image_active(value:Dictionary)->bool:
 	return bool(value.get("active",false)) and not str(value.get("session_id","")).is_empty()
 func image_eligible()->bool:
 	return age<=15 and ("imagedesign" in state.get("commands",[]) or "social_imagedesigner_novice" in state.get("skills",[]))
+func party_member()->bool:
+	return age<=15 and str(state.get("group_id","0")) not in ["","0"]
+func party_menu_entries()->Array:
+	return [{"id":"group_leave","label":"Leave Party","source_command":"leavegroup"}] if party_member() else []
 func group_available()->bool:
 	return age<=15 and not str(state.get("group_inviter_id","")).is_empty() and str(state.get("group_inviter_id","0"))!="0"
+func placed_instruments()->Array:
+	if age>15 or not is_instance_valid(performer):return []
+	var source:Vector3=host.source_position_at(performer.body.global_position)
+	var cell:Dictionary=identity()
+	return state.get("placed_instruments",[]).filter(func(row):
+		var point:Variant=row.get("position")
+		return row.get("playable",false) and point is Array and point.size()==3 and str(row.get("building_id","0"))==str(cell.building_id) and int(row.get("cell_index",0))==int(cell.cell_index) and source.distance_to(Vector3(float(point[0]),float(point[1]),float(point[2])))<=3.0)
 func group_selector()->void:
 	if not allowed() or age>15:return
 	design_ui.set_allowed(true);design_ui.show_candidates(state.get("group_candidates",[]).filter(func(row):return not row.get("self",false) and not row.get("in_same_group",false)),"group_invite")
@@ -99,8 +110,7 @@ func _process(delta:float)->void:
 		flush_pending_actions()
 		return
 	if busy or clock>0 or not allowed() or (gesture.progress>0 and not gesture.latched):return
-	var active:bool=image_active(state.get("image_design",{}))
-	if not active and host.has_method("try_background_poll") and not host.try_background_poll("entertainer"):return
+	if host.has_method("try_background_poll") and not host.try_background_poll("entertainer"):return
 	request("status")
 func _physics_process(delta:float)->void:
 	if not is_instance_valid(performer) or not is_instance_valid(performer.origin):gesture.interrupt();return
@@ -128,6 +138,7 @@ func flush_pending_actions()->void:
 
 func request(action:String,detail:Dictionary={})->Dictionary:
 	if not bound():return {}
+	if action=="perform" and performer.has_method("instrument_ready") and not performer.instrument_ready():performer.message="Equip the instrument in the weapon slot first.";return {}
 	if busy:
 		if action!="status" and allowed() and pending_actions.size()<4:
 			var duplicate:bool=pending_actions.any(func(entry):return entry.action==action and entry.detail==detail)
@@ -138,7 +149,7 @@ func request(action:String,detail:Dictionary={})->Dictionary:
 	busy=true;clock=1.0 if image_active(state.get("image_design",{})) else 5.0
 	var epoch:=generation;var owner:=Identity.id(host)
 	var payload:=identity();payload.merge(detail,true)
-	if action!="status":payload.request_id="ent-"+Crypto.new().generate_random_bytes(16).hex_encode()
+	if action!="status" and str(payload.get("request_id","")).is_empty():payload.request_id="ent-"+Crypto.new().generate_random_bytes(16).hex_encode()
 	if action=="perform":payload.item_id=str(performer.item.get("id",""))
 	if action.begins_with("image_") and is_instance_valid(design_ui):design_ui.set_pending(true)
 	var reply:Dictionary=await host.api(HTTPClient.METHOD_POST,"/entertainer/"+action,payload)

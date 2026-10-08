@@ -68,10 +68,20 @@ func run()->void:
 	check(host.calls.size()==before+1 and host.calls.back().path=="/scout/area_track" and host.calls.back().body.track_type=="animal","Production scouting gesture starts native default search immediately")
 	check(ranger.blocks_interactions() and ranger.panel.panel.pending and ranger.panel.panel.tracking.state=="pending","Native six-second pending state appears in mutually exclusive tracking interface")
 	check(host.entertainer_interaction_blocks(),"Main interaction gate includes the Ranger result interface")
+	var pending_calls:=host.calls.size();var close_hit:Dictionary={"pixel":ranger.panel.panel.CLOSE_RECT.get_center()}
+	ranger.panel.pointer_frame(close_hit,0,0);ranger.panel.pointer_frame(close_hit,.9,0)
+	check(not ranger.blocks_interactions() and ranger.panel.pending and host.calls.size()==pending_calls,"Actual XR close works during tracking without cancelling or duplicating native job")
+	ranger.panel.show_state(ranger.state)
 	ranger.panel.set_process(false)
 	var completed:=response([]);completed.state.ranger={"area_track_available":true,"track_types":["animal","npc","player"],"tracking":{"state":"succeeded","results":[{"name":"Bantha"}]}}
 	ranger.observe(completed)
 	check(not ranger.panel.pending and not ranger.panel.panel.pending,"Native completed status clears both XR pointer and visible tracking busy latches")
+	var track_rows:Array=[];track_rows.resize(20);track_rows.fill({"name":"Track"})
+	var scrolling:=completed.duplicate(true);scrolling.state.ranger.tracking.results=track_rows;ranger.observe(scrolling)
+	ranger.panel.scroll_frame({},Vector2(0,-1),.3)
+	check(ranger.panel.panel.offset==2 and ranger.panel.stick_captured,"Tracking joystick scroll works without precise row aiming")
+	ranger.panel.scroll_frame({},Vector2.ZERO,.1);check(not ranger.panel.stick_captured,"Neutral tracking joystick releases locomotion capture")
+	ranger.observe(completed)
 	before=host.calls.size()
 	var filter_hit:Dictionary={"pixel":ranger.panel.panel.type_rect(1).get_center()}
 	ranger.panel.pointer_frame(filter_hit,0,0);ranger.panel.pointer_frame(filter_hit,.9,0);ranger.panel.pointer_frame(filter_hit,0,0)

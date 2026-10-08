@@ -1,0 +1,255 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
+@@ -0,0 +1,104 @@
++#ifndef SWGXR_MOVEMENT_H
++#define SWGXR_MOVEMENT_H
++#include "SwgxrPlanets.h"
++#include "server/zone/packets/object/transform/Transform.h"
++#include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/managers/planet/PlanetManager.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/managers/collision/IntersectionResults.h"
++#include "server/zone/objects/cell/CellObject.h"
++#include "server/zone/objects/building/BuildingObject.h"
++#include "terrain/manager/TerrainManager.h"
++// JSON presentation of the original DataTransform/DataTransformWithParent
++// movement policy. Only genuine transport operations may use teleport().
++class SwgxrMovement {
++ using Json=JSONSerializationType;
++ static void place(CreatureObject* c,const Vector3& p,SceneObject* parent){
++  c->setPosition(p.getX(),p.getZ(),p.getY());
++  if(parent)c->updateZoneWithParent(parent,false,true);else c->updateZone(false,true);
++ }
++public:
++ static Json snapshot(CreatureObject* c){return {
++  {"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
++  {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
++  {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
++  {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()},
++  {"slope_mod_angle_radians",c->getSlopeModAngle()},{"slope_mod_percent",c->getSlopeModPercent()},
++  {"water_mod_percent",c->getWaterModPercent()},{"swim_height",c->getSwimHeight()},
++  {"turn_scale",c->getTurnScale()},{"current_speed",c->getCurrentSpeed()},
++  {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()},
++  {"movement_allowed",c->isMovementAllowed()},{"frozen",c->isFrozen()},{"swimming",c->isSwimming()}};}
++ static void begin(CreatureObject* c){c->getPlayerObject()->updateLastValidatedPosition();c->setCurrentSpeed(0);c->updateLocomotion();}
++ static void move(CreatureObject* c,const Json& r){
++  SwgxrPlanets::require(c,r);if(!r.contains("position"))return;
++  auto ghost=c->getPlayerObject();auto zone=c->getZone();auto manager=c->getZoneServer()->getPlayerManager();
++  if(!ghost || !zone || !manager)throw std::runtime_error("native_movement_context_missing");
++  auto p=r.at("position");if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_position");
++  for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>8192)throw std::runtime_error("invalid_position");
++  auto oldParent=c->getParent().get();ManagedReference<SceneObject*> parent=oldParent,root=c->getRootParent();
++  if(r.contains("building_id")){
++   auto text=r.at("building_id").get<std::string>();if(text.empty() || text.size()>20 || text.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_source_cell");
++   uint64 bid=std::stoull(text);int index=r.value("cell_index",0);
++   if(!bid && !index){parent=nullptr;root=nullptr;}else{
++    root=c->getZoneServer()->getObject(bid);if(root==nullptr || !root->isBuildingObject() || root->getZone()!=zone || index<=0)throw std::runtime_error("invalid_source_cell");
++    parent=static_cast<BuildingObject*>(root.get())->getCell(index);if(parent==nullptr)throw std::runtime_error("invalid_source_cell");
++   }
++  }
++  if(parent!=nullptr && (!parent->isCellObject() || root==nullptr || !root->isBuildingObject()))throw std::runtime_error("unsupported_movement_parent");
++  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();
++  double heading=r.value("heading_radians",double(c->getDirection()->getRadians()+(oldParent!=nullptr && c->getRootParent()!=nullptr?c->getRootParent()->getDirection()->getRadians():0)));
++  if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");
++  if(parent!=nullptr){double a=root->getDirection()->getRadians(),dx=x-root->getPositionX(),dy=y-root->getPositionY();x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();heading-=a;if(std::abs(x)>1024 || std::abs(y)>1024 || std::abs(z)>1024)throw std::runtime_error("cell_position_out_of_bounds");}
++  const auto previous=c->getPosition();Vector3 next(x,y,z);
++  bool changed=parent!=oldParent || previous.squaredDistanceTo(next)>0.000001f;
++  if(changed){
++   Transform policy;if(!policy.isPostureValid(c->getPosture()) || c->hasBuff(STRING_HASHCODE("private_feign_buff")))throw std::runtime_error("native_player_immobilized");
++   if(!c->isMovementAllowed())throw std::runtime_error("native_animation_movement_locked");
++   if(!ghost->isPrivileged()){
++    if(c->isFrozen())throw std::runtime_error("native_player_frozen");
++    auto inv=c->getInventory();if(!inv || inv->getCountableObjectsRecursive()>inv->getContainerVolumeLimit()+1)throw std::runtime_error("native_inventory_overloaded");
++   }
++  }
++  if(parent!=nullptr){
++   auto cell=static_cast<CellObject*>(parent.get());
++   if(parent!=oldParent){
++    if(c->isRidingMount())throw std::runtime_error("native_dismount_before_entry");
++    if(!ghost->isPrivileged() && !static_cast<BuildingObject*>(root.get())->isAllowedEntry(c))throw std::runtime_error("house_entry_denied");
++    const auto layout=root->getObjectTemplate()->getPortalLayout();
++    if(oldParent!=nullptr && oldParent->isCellObject()){
++     if(oldParent->getParentID()!=root->getObjectID() || !layout)throw std::runtime_error("unconnected_source_cell");
++     auto property=layout->getCellProperty(static_cast<CellObject*>(oldParent.get())->getCellNumber());
++     if(!property || !property->hasConnectedCell(cell->getCellNumber()))throw std::runtime_error("unconnected_source_cell");
++     UniqueReference<Vector<float>*> floors(CollisionManager::getCellFloorCollision(x,y,cell));float error=16384;
++     if(floors)for(int i=0;i<floors->size();++i)error=std::min(error,std::abs(floors->get(i)-float(z)));
++     if(error>0.25f)throw std::runtime_error("native_cell_floor_mismatch");
++    }else if(!c->isInRange(root,root->getOutOfRangeDistance()) && (!c->getCloseObjects() || !c->getCloseObjects()->contains(root.get())))throw std::runtime_error("native_building_out_of_range");
++   }
++   auto permissions=parent->getContainerPermissions();if(!permissions || (!permissions->hasInheritPermissionsFromParent() && !parent->checkContainerPermission(c,ContainerPermissions::WALKIN)))throw std::runtime_error("native_cell_walkin_denied");
++  }
++  IntersectionResults intersections;float floorZ=z;
++  if(parent==nullptr){
++   auto pm=zone->getPlanetManager();auto terrain=pm?pm->getTerrainManager():nullptr;if(!terrain)throw std::runtime_error("native_terrain_missing");
++   if(x<=terrain->getMin() || x>=terrain->getMax() || y<=terrain->getMin() || y>=terrain->getMax())throw std::runtime_error("native_terrain_out_of_bounds");
++   CollisionManager::getWorldFloorCollisions(x,y,zone,&intersections,c->getCloseObjects());
++   floorZ=pm->findClosestWorldFloor(x,y,z,c->getSwimHeight(),&intersections,c->getCloseObjects());
++  }
++  auto validated=ghost->getLastValidatedPosition();uint32 stamp=ghost->getClientLastMovementStamp();
++  // No client wall clock is trusted. Core3 validates against its own elapsed
++  // server time and allows the same recent-speed-change grace period.
++  int valid=manager->checkSpeedHackTests(c,ghost,validated,next,stamp,floorZ,parent);
++  if(valid==Transform::INVALID_POSITION){
++   ManagedReference<SceneObject*> restored;if(validated->getParent())restored=c->getZoneServer()->getObject(validated->getParent());
++   place(c,validated->getPosition(),restored);c->setCurrentSpeed(0);c->updateLocomotion();ghost->updateServerLastMovementStamp();throw std::runtime_error("native_movement_speed_rejected");
++  }
++  float elapsed=std::max(0.2f,float(ghost->getServerMovementTimeDelta())/1000.f);
++  float speed=next.distanceTo2d(validated->getPosition())/elapsed;
++  if(parent!=oldParent){auto world=c->getWorldPosition();float dx=p[0].get<float>()-world.getX(),dy=p[2].get<float>()-world.getY();speed=std::sqrt(dx*dx+dy*dy)/elapsed;}
++  if(!changed)speed=0;
++  c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));
++  next.setZ(floorZ);c->setCurrentSpeed(speed);place(c,next,parent);c->updateLocomotion();
++  if(parent==nullptr)manager->updateSwimmingState(c,floorZ,&intersections,c->getCloseObjects());else c->notifySelfPositionUpdate();
++  if(valid==Transform::FULL_VALIDATED){validated->setPosition(x,floorZ,y);validated->setParent(parent?parent->getObjectID():0);ghost->updateServerLastMovementStamp();}
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_LIVE_COMBAT_H
+ #define SWGXR_LIVE_COMBAT_H
+@@ -141,26 +142,15 @@
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
+-  out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
++  out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+   out["player"]["vehicles"]=SwgxrVehicles::snapshot(c);out["player"]["id"]=id(c);out["player"]["npc_speech"]=SwgxrNpcSpeech::snapshot(c);SwgxrNpcSpeech::ensureAmbient(c);
+   auto loc=location(c);for(auto it=loc.begin();it!=loc.end();++it)out["player"][it.key()]=it.value();double remaining=SwgxrLiveRecovery::remaining(c->getObjectID());out["player"]["recovery_requested"]=c->isIncapacitated() && remaining>=0;out["player"]["recovery_remaining_seconds"]=c->isIncapacitated()?std::max(0.0,remaining):0.0;out["player"]["cloning"]=c->getPlayerObject()->isCloning();return out;
+  }
+- static void move(CreatureObject* c,const Json& request){
+-  auto p=vector(request.at("position"));double heading=request.value("heading_radians",0.0);if(!std::isfinite(heading))throw std::runtime_error("invalid_heading");
+-  if(c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c) || c->getPosture()==12)throw std::runtime_error("native_player_immobilized");SwgxrPlanets::require(c,request);
+-  ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> building=c->getRootParent();
+-  if(request.contains("building_id")){
+-   auto buildingID=std::stoull(request.at("building_id").get<std::string>());int index=request.value("cell_index",0);
+-   if(buildingID==0 && index==0){cell=nullptr;building=nullptr;}
+-   else {building=c->getZoneServer()->getObject(buildingID);if(building==nullptr || !building->isBuildingObject() || building->getZone()!=c->getZone() || index<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(building.get())->getCell(index);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");if(distance(position(building),p)>256)throw std::runtime_error("cell_position_outside_building");}
+-  }
+-  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();
+-  if(cell!=nullptr){if(building!=nullptr && building->isBuildingObject() && !static_cast<BuildingObject*>(building.get())->isAllowedEntry(c))throw std::runtime_error("house_entry_denied");if(!cell->isCellObject() || building==nullptr || !building->isBuildingObject())throw std::runtime_error("unsupported_parent");double angle=building->getDirection()->getRadians(),dx=x-building->getPositionX(),dy=y-building->getPositionY();x=dx*std::cos(angle)-dy*std::sin(angle);y=dx*std::sin(angle)+dy*std::cos(angle);z-=building->getPositionZ();heading-=angle;}
+-  c->setDirection(float(std::fmod(std::fmod(heading,6.283185307179586)+6.283185307179586,6.283185307179586)));c->teleport(float(x),float(z),float(y),cell!=nullptr?cell->getObjectID():0);
+- }
++ static void move(CreatureObject* c,const Json& r){SwgxrMovement::move(c,r);}
++
+  static void ownedReplication(CreatureObject* c,SceneObject* node,Json& ids,std::set<uint64>& seen){
+   if(node==nullptr || seen.count(node->getObjectID()))return;if(seen.size()>=1024)throw std::runtime_error("owned_replication_limit");seen.insert(node->getObjectID());ids.push_back(id(node));if(node!=c)node->sendAttributeListTo(c);
+   for(int i=0;i<node->getContainerObjectsSize();++i)ownedReplication(c,node->getContainerObject(i),ids,seen);
+@@ -182,7 +172,7 @@
+    if(!s.transport.empty()){
+     auto ack=request.value("transport_ack",std::string());if(ack.empty()){result["movement_accepted"]=false;return result;}if(ack!=s.transport["id"].get<std::string>())throw std::runtime_error("transport_ack_mismatch");
+     const auto& dest=s.transport["destination"];if(dest.value("zone",std::string())!=SwgxrPlanets::name(c))throw std::runtime_error("transport_zone_mismatch");if(distance(vector(request.at("position")),dest["position"])>3 || request.value("building_id",std::string("0"))!=dest["building_id"].get<std::string>() || request.value("cell_index",0)!=dest["cell_index"].get<int>())throw std::runtime_error("transport_destination_mismatch");
+-    c->getPlayerObject()->notifySceneReady();s.ready=true;s.transport=Json::object();result["transport_acknowledged"]=true;result["movement_accepted"]=false;return result;
++    c->getPlayerObject()->notifySceneReady();s.ready=true;s.transport=Json::object();SwgxrMovement::begin(c);result["transport_acknowledged"]=true;result["movement_accepted"]=false;return result;
+    }
+    if(!SwgxrSmuggler::feigning(c) && SwgxrVehicles::update(c,request.value("vehicle_controls",Json::object()))){result["vehicle_movement"]=true;result["movement_accepted"]=false;}else if(!c->isDead() && !c->isIncapacitated() && !SwgxrSmuggler::feigning(c) && c->getPosture()!=12){move(c,request);result["movement_accepted"]=true;}else result["movement_accepted"]=false;
+    // A native zone transfer can restore loading protection after this session
+@@ -253,12 +243,12 @@
+   static Mutex mutex;static std::map<uint64,Session> sessions;Locker guard(&mutex,c);auto verb=request.at("action").get<std::string>();auto token=request.at("session_id").get<std::string>();if(!key(token))throw std::runtime_error("invalid_session_id");auto stamp=now();
+   for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60){SwgxrLiveRecovery::detach(it->first);it=sessions.erase(it);}else ++it;
+   if(verb=="start"){
+-   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=16)throw std::runtime_error("session_capacity_16");if(!c->isDead() && !c->isIncapacitated() && c->getPosture()!=12 && c->getParent().get()==nullptr)move(c,request);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
++   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=16)throw std::runtime_error("session_capacity_16");SwgxrMovement::begin(c);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
+    if(request.value("spawn_test_lair",false)){if(SwgxrPlanets::name(c)!="tatooine")throw std::runtime_error("tatooine_test_lair_required");if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+-  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};}
++  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update")out["mutation"]["movement_accepted"]=false;}
+   out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #ifndef SWGXR_SERVICES_H
+ #define SWGXR_SERVICES_H
+ #include "SwgxrPlanets.h"
+@@ -48,11 +49,8 @@
+  static int amount(const Json& r){if(!r.at("amount").is_number_integer())throw std::runtime_error("invalid_amount");auto n=r.at("amount").get<int64>();if(n<=0 || n>2000000000)throw std::runtime_error("invalid_amount");return int(n);}
+ public:
+  static Json location(CreatureObject* c){auto p=c->getParent().get();auto root=c->getRootParent();int cell=p!=nullptr && p->isCellObject()?static_cast<CellObject*>(p.get())->getCellNumber():0;return {{"position",pos(c)},{"zone",str(c->getZone()->getZoneName())},{"cell_id",id(p)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"name",str(c->getFirstName())},{"client_crc",c->getClientObjectCRC()},{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"heading_radians",c->getDirection()->getRadians()}};}
+- static void move(CreatureObject* c,const Json& r){
+-  SwgxrPlanets::require(c,r);  if(!r.contains("position"))return;if(c->isDead() || c->isIncapacitated() || c->hasBuff(STRING_HASHCODE("private_feign_buff")))throw std::runtime_error("native_player_unavailable");auto p=r.at("position");if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_position");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(i==1?2048:8192))throw std::runtime_error("invalid_position");
+-  ManagedReference<SceneObject*> cell=c->getParent().get();ManagedReference<SceneObject*> root=c->getRootParent();if(r.contains("building_id")){auto bid=oid(r,"building_id");int ci=r.value("cell_index",0);if(!bid && !ci){cell=nullptr;root=nullptr;}else{root=c->getZoneServer()->getObject(bid);if(root==nullptr || !root->isBuildingObject() || root->getZone()!=c->getZone() || ci<=0)throw std::runtime_error("invalid_source_cell");cell=static_cast<BuildingObject*>(root.get())->getCell(ci);if(cell==nullptr)throw std::runtime_error("invalid_source_cell");}}
+-  double x=p[0].get<double>(),z=p[1].get<double>(),y=p[2].get<double>();if(cell!=nullptr){if(!cell->isCellObject() || root==nullptr)throw std::runtime_error("invalid_source_cell");double dx=x-root->getPositionX(),dy=y-root->getPositionY(),a=root->getDirection()->getRadians();if(dx*dx+dy*dy>256*256)throw std::runtime_error("cell_position_outside_building");x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z-=root->getPositionZ();}if(cell && root && root->isBuildingObject() && !static_cast<BuildingObject*>(root.get())->isAllowedEntry(c))throw std::runtime_error("Core3 house entry denied");c->teleport(x,z,y,cell?cell->getObjectID():0);
+- }
++ static void move(CreatureObject* c,const Json& r){SwgxrMovement::move(c,r);}
++
+  static Json sessionState(CreatureObject* c,const Json& r){
+   SwgxrPlanets::require(c,r);  auto action=r.value("action",std::string("status"));if(action!="status" && action!="logout")throw std::runtime_error("invalid_session_action");Json receipts=Json::array(),original=r.value("receipt_request",r);auto ghost=c->getPlayerObject();
+   if(action=="logout"){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SCOUT_H
+ #define SWGXR_SCOUT_H
+@@ -60,7 +61,7 @@
+   if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+   auto p=SwgxrGathering::position(request);
+   if(!c->isDead() && !c->isIncapacitated()){
+-   if(!ranger)c->teleport(p[0].get<float>(),p[1].get<float>(),p[2].get<float>(),0);
++   if(!ranger)SwgxrMovement::move(c,request);
+    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
+     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
+     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #ifndef SWGXR_VEHICLES_H
+ #define SWGXR_VEHICLES_H
+ #include "SwgxrPlanets.h"
+@@ -99,7 +100,7 @@
+   Vector3 probe=before+(after-before)*4;probe.setZ(z);
+   return CollisionManager::checkMovementCollision(c,close,zone,before,probe);
+  }
+- static void place(CreatureObject* c,CreatureObject* v,const Rider& r){auto p=local(v,seat(descriptor(v),r.seat)["position"]);c->setDirection(v->getDirection()->getRadians());c->teleport(p.getX(),p.getZ(),p.getY(),0);}
++ static void place(CreatureObject* c,CreatureObject* v,const Rider& r){auto p=local(v,seat(descriptor(v),r.seat)["position"]);c->setDirection(v->getDirection()->getRadians());c->teleport(p.getX(),p.getZ(),p.getY(),0);SwgxrMovement::begin(c);}
+  static void tick(CreatureObject* c,CreatureObject* v){
+   auto it=motions().find(v->getObjectID());if(it==motions().end())return;auto& m=it->second;double stamp=now(),dt=clamp(stamp-m.tick,0.0,.4);m.tick=stamp;
+   if(m.clientPose){
+@@ -156,7 +157,7 @@
+   CollisionManager::getWorldFloorCollisions(exit.getX(),exit.getY(),p->getZone(),&hits,close);
+   float ground=p->getZone()->getPlanetManager()->findClosestWorldFloor(exit.getX(),exit.getY(),exit.getZ(),0,&hits,close);
+   if(std::isfinite(ground))exit.setZ(ground);
+-  p->teleport(exit.getX(),exit.getZ(),exit.getY(),0);
++  p->teleport(exit.getX(),exit.getZ(),exit.getY(),0);SwgxrMovement::begin(p);
+   static uint64 revision=0;ejections()[p->getObjectID()]={{"revision",++revision},{"reason",reason},{"position",wire(exit)},{"vehicle_id",std::to_string(r.vehicle)},{"time",now()}};
+  }
+  static void cleanup(CreatureObject* c){
+@@ -254,7 +255,7 @@
+    auto it=riders().find(c->getObjectID());if(it!=riders().end()){
+     auto v=vehicle(c,it->second.vehicle);Locker vl(v,c);auto d=descriptor(v);Vector3 exit;bool found=false;auto start=v->getWorldPosition();
+     for(double side:{-1.0,1.0}){double width=std::max(std::abs(d["bounds_min"][0].get<double>()),std::abs(d["bounds_max"][0].get<double>()))+.65;exit=local(v,Json::array({side*width,0,0}));if(floor(c,v,start,exit)){found=true;break;}}
+-    if(!found)throw std::runtime_error("No clear dismount position");detach(c,false);c->teleport(exit.getX(),exit.getZ(),exit.getY(),0);mutation["position"]=wire(exit);
++    if(!found)throw std::runtime_error("No clear dismount position");detach(c,false);c->teleport(exit.getX(),exit.getZ(),exit.getY(),0);SwgxrMovement::begin(c);mutation["position"]=wire(exit);
+    }
+   }else if(action=="store" || action=="recall"){
+    auto cd=owned(c,q.at("device_id").get<std::string>());auto controlled=cd->getControlledObject();if(!controlled || !controlled->isVehicleObject() || controlled->getZone()!=c->getZone())throw std::runtime_error("Parked owned vehicle required");auto v=controlled->asCreatureObject();Locker vl(v,c);auto& m=motions()[v->getObjectID()];
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedicDrag.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMedicDrag.h
+@@ -1,3 +1,4 @@
++#include "SwgxrMovement.h"
+ #ifndef SWGXR_MEDIC_DRAG_H
+ #define SWGXR_MEDIC_DRAG_H
+ #include "SwgxrVitalFeedback.h"
+@@ -44,7 +45,7 @@
+    // Native movement query samples a quarter of its supplied horizontal segment.
+    Vector3 probe=before+(after-before)*4;probe.setZ(z);
+    if(!CollisionManager::checkMovementCollision(t,(CloseObjectsVector*)t->getCloseObjects(),t->getZone(),before,probe))throw std::runtime_error("Drag movement blocked");
+-   if(after.distanceTo(before)>.001){t->teleport(after.getX(),after.getZ(),after.getY(),0);patient["revision"]=patient.value("revision",uint64(0))+1;}
++   if(after.distanceTo(before)>.001){t->teleport(after.getX(),after.getZ(),after.getY(),0);SwgxrMovement::begin(t);patient["revision"]=patient.value("revision",uint64(0))+1;}
+   }
+   patient["owner"]=owner;patient["lease"]=stamp+1.5;patient["midpoint"]=wire(mid);patient["moved"]=stamp;save(t,patient);
+   return {{"success",true},{"target_id",id},{"started",start},{"position",wire(t->getWorldPosition())}};

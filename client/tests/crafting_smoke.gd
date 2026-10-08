@@ -151,6 +151,41 @@ func run() -> void:
 	check(chosen==[1],"Trigger confirms highlighted option instead of original pointed row")
 	motion.position=Vector2(120,90);nav._gui_input(motion);click.position=motion.position;nav._gui_input(click)
 	check(chosen==[1,0],"Moving pointer restores normal row targeting after navigation")
+	nav.recipe_mode=true;nav.rows=[{"id":"a","template":"a"},{"id":"b","template":"b"}];nav.selected=0;chosen.clear();nav.reset_dwell()
+	nav.advance_dwell(.6);nav.selected=1;nav.advance_dwell(.5)
+	check(chosen.is_empty(),"Changing highlighted recipe restarts the full one-second dwell")
+	nav.confirm_navigation();check(chosen.is_empty(),"Recipe stick click cannot bypass selection dwell")
+	nav.advance_dwell(.5);nav.advance_dwell(2)
+	check(chosen==[1],"Stable one-second highlight selects exactly once without joystick press")
+	nav.reset_dwell();nav.enabled=false;nav.advance_dwell(2)
+	check(chosen==[1],"Disabled recipe panel cannot auto-select")
+	craft.state=saved_state.duplicate(true);craft.state.stage=1;craft.state.schematic={};craft.state.prototype_template=""
+	craft.state.schematics=[
+		{"id":"food","index":12,"name":"Food","category_id":"food","category":"Food","template":saved_state.schematics[0].template,"tool_compatible":true,"description":"Original food description"},
+		{"id":"spice","index":37,"name":"Muon Gold","category_id":"spice","category":"Spices","template":"object/tangible/food/spice/spice_muon_gold.iff","tool_compatible":true,"description":"Original Muon Gold description"},
+		{"id":"blocked","index":55,"name":"Wrong tool","category_id":"weapon","category":"Weapons","template":saved_state.schematics[0].template,"tool_compatible":false}]
+	craft.set_visible_ui(true);craft.recipe_category="";craft.ui.selected=-1;craft.rebuild()
+	check(craft.ui.rows.size()==2 and craft.ui.categories.size()==3,"Crafting exposes source categories and excludes explicitly tool-incompatible recipes")
+	craft.ui.scroll(1);craft.ui.advance_dwell(.6);craft.select_category("spice")
+	check(craft.ui.rows.size()==1 and craft.ui.selected==-1 and craft.ui.dwell_seconds==0,"Category change filters list and cancels prior partial selection")
+	host.calls.clear();host.reply={"ok":true,"state":craft.state.duplicate(true)};host.reply.state.schematic=craft.state.schematics[1].duplicate(true);host.reply.state.stage=2
+	craft.ui.scroll(1);craft.ui.advance_dwell(.99)
+	check(host.calls.is_empty(),"Filtered recipe waits a complete second before native selection")
+	craft.ui.advance_dwell(.011)
+	for frame in range(6):await process_frame
+	check(host.calls.size()==1 and host.calls[0].payload.index==37,"Category-filtered dwell preserves authoritative original schematic index")
+	check(craft.preview_description.visible and craft.preview_description.text=="Original Muon Gold description","Selected original item description appears in preview panel")
+	check(craft.preview!=null,"Prepared original spice model loads in crafting preview")
+	var spice_count:=0
+	for template: String in bag.assets.catalog.get("spice_assets",{}).get("templates",[]):
+		if bag.assets.model(template)!=null:spice_count+=1
+	check(spice_count==17,"All seventeen original concrete spice references build actual preview meshes")
+	nav.enabled=true;nav.selected=0;nav.navigation_selected=false;nav.reset_dwell();nav.advance_dwell(.7);nav.pointer_exited()
+	check(nav.selected==-1 and nav.dwell_seconds==0,"Pointer leaving recipe panel cancels pointer dwell")
+	nav.scroll(1);nav.advance_dwell(.7);nav.pointer_exited()
+	check(nav.selected==0 and nav.dwell_seconds>.6,"Pointer exit preserves deliberate stick recipe selection")
+	craft.pending_selection={"id":"old","template":"old"};craft.select_category("spice")
+	check(craft.pending_selection.is_empty(),"Category change discards a queued recipe from the prior category")
 	nav.free()
 	craft.state={};host.free()
 	var report: Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"mocked_tracking":true,"gpu_validation":false,"live_core3":false}

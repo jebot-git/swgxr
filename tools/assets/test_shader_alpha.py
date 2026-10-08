@@ -2,6 +2,8 @@
 """Protect source cutouts without making specular-mask textures transparent."""
 import unittest
 import sys
+import json
+import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shader_alpha import effect_alpha,shader_alpha
@@ -15,6 +17,22 @@ def effect(sort='MAIN',flags=(False,),version='0009'):
     return Iff('EFCT',b'',[Iff('IMPL',b'',[Iff('0009',b'',[Iff('DATA',b'\x01'+sort[::-1].encode(),[])]+passes)])])
 
 class SourceAlphaTests(unittest.TestCase):
+    def test_material_refresh_updates_exact_model_references_without_hiding_corruption(self):
+        from refresh_static_materials import refresh_model_references
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);inventory=root/'inventory';inventory.mkdir();gcw=root/'gcw';gcw.mkdir()
+            model=(inventory/'models/item.json').resolve()
+            path=inventory/'catalog.json'
+            path.write_text(json.dumps({'items':[{'model':'models/item.json','model_sha256':'before'},
+                {'model':'models/item.json','model_sha256':'unrelated-mismatch'}]}))
+            (gcw/'catalog.json').write_text(json.dumps({'reward':{'preview_model':'models/item.json','preview_sha256':'before'}}))
+            changed=refresh_model_references(root,{model:('before','after')})
+            self.assertEqual(set(changed),{'inventory/catalog.json','gcw/catalog.json'})
+            rows=json.loads(path.read_text())['items']
+            self.assertEqual(rows[0]['model_sha256'],'after')
+            self.assertEqual(rows[1]['model_sha256'],'unrelated-mismatch')
+            self.assertEqual(json.loads((gcw/'catalog.json').read_text())['reward']['preview_sha256'],'after')
+
     def test_opaque_sort_alpha_test(self):
         value=effect_alpha(effect(flags=(True,)),'effect/test.eft')[0]
         self.assertEqual(value['sort_tag'],'MAIN');self.assertTrue(value['alpha_test'])

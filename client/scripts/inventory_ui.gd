@@ -3,6 +3,7 @@ extends Control
 signal selection_changed(item: Dictionary)
 signal page_changed
 signal split_requested(item: Dictionary, amount: int)
+signal unequip_requested(item: Dictionary)
 const FONT = preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 const COLUMNS := 8
 const ROWS := 4
@@ -21,6 +22,7 @@ var split_label: Label
 var container_button: Button
 var back_button: Button
 var container_switch: OptionButton
+var unequip_button: Button
 var first_row := 0
 var selected_id := ""
 var hovered := -1
@@ -61,6 +63,10 @@ func configure_details() -> Control:
 	split_button.pressed.connect(func():
 		if pending or not bool(detail_item.get("split_available",false)) or str(detail_item.get("local_state","")) in ["held","dropped"]: return
 		set_pending(true); split_requested.emit(detail_item.duplicate(true),int(split_slider.value)))
+	unequip_button=Button.new();detail.add_child(unequip_button);unequip_button.position=Vector2(20,502);unequip_button.size=Vector2(380,46);unequip_button.text="Return to inventory"
+	unequip_button.pressed.connect(func():
+		if pending or not detail_item.get("unequip_available",false):return
+		set_pending(true);unequip_requested.emit(detail_item.duplicate(true)))
 	container_button=Button.new(); detail.add_child(container_button); container_button.position=Vector2(20,566); container_button.size=Vector2(180,46); container_button.text="Open container"
 	container_button.pressed.connect(func(): open_container(str(detail_item.get("id",""))))
 	back_button=Button.new(); detail.add_child(back_button); back_button.position=Vector2(218,566); back_button.size=Vector2(182,46); back_button.text="Parent container"; back_button.pressed.connect(parent_container)
@@ -76,6 +82,7 @@ func set_snapshot(value: Dictionary) -> void:
 	items=[]
 	for item: Dictionary in snapshot.get("items",[]):
 		if str(item.get("container_id",""))==container_id: items.append(item)
+	if container_id=="@equipment":items=snapshot.get("equipment",[]).duplicate(true)
 	snapshot["capacity"]=container.get("capacity",0)
 	snapshot["count"]=container.get("occupied",0)
 	status=str(snapshot.get("error",""))
@@ -174,6 +181,7 @@ func _draw() -> void:
 			draw_string(FONT,rect.position+Vector2(5,111),label,HORIZONTAL_ALIGNMENT_CENTER,108,13,Color("d2f6ff"))
 
 func current_container() -> Dictionary:
+	if container_id=="@equipment":return {"capacity":snapshot.get("equipment",[]).size(),"occupied":snapshot.get("equipment",[]).size()}
 	if container_id==str(snapshot.get("inventory",{}).get("id","")): return snapshot.get("inventory",{})
 	for container: Dictionary in snapshot.get("containers",[]):
 		if str(container.get("id",""))==container_id: return container
@@ -200,6 +208,10 @@ func refresh_controls() -> void:
 	split_slider.max_value=maxi(1,int(detail_item.get("split_max_quantity",1)))
 	split_slider.editable=available and not pending; split_button.disabled=not available or pending
 	split_label.text=("Split %d / %d"%[int(split_slider.value),int(detail_item.get("quantity",1))]) if available else str(detail_item.get("split_block_reason","No room to split"))
+	unequip_button.visible=bool(detail_item.get("equipped",false))
+	unequip_button.disabled=pending or not bool(detail_item.get("unequip_available",false))
+	unequip_button.tooltip_text=str(detail_item.get("unequip_block_reason",""))
+	if unequip_button.visible:split_slider.hide();split_button.hide();split_label.hide()
 	container_button.disabled=not bool(detail_item.get("is_container",false))
 	back_button.disabled=container_id==str(snapshot.get("inventory",{}).get("id",""))
 
@@ -212,6 +224,8 @@ func refresh_container_switch() -> void:
 		container_switch.add_item("Equipped backpack")
 		container_switch.set_item_metadata(1,str(backpack.id))
 		if container_id==str(backpack.id): container_switch.select(1)
+	container_switch.add_item("Equipped items");container_switch.set_item_metadata(container_switch.item_count-1,"@equipment")
+	if container_id=="@equipment":container_switch.select(container_switch.item_count-1)
 	container_switch.disabled=false
 
 func attribute_name(value: String) -> String:

@@ -40,6 +40,15 @@ func run() -> void:
 	body.prepare_tracked_body()
 	body.active = true
 	body.ground_provider = stage
+	var native_profile:Dictionary={}
+	if OS.get_cmdline_user_args().has("--native-movement-profile"):
+		var recorded:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/evidence/movement-native-smoke.json"))
+		for row:Dictionary in recorded.get("responses",[]):
+			var owner:Dictionary=row.get("response",{}).get("snapshot",{}).get("player",{})
+			if owner.has("locomotion") and not owner.locomotion.frozen:
+				body.feedback.observe(owner);native_profile=owner.locomotion;break
+		assert(not native_profile.is_empty(),"Actual native locomotion envelope required for source policy replay")
+	var move_frames:int=40 if native_profile.is_empty() else ceili(40*float(rig.get_node("LeftHand/MovementDirect").max_speed)/float(native_profile.server_max_speed))+8
 	stage.set_observer(body)
 	stage.seed_membership_at(body.global_position, "1106368:8")
 	await frames(90)
@@ -49,7 +58,7 @@ func run() -> void:
 	var head_pose := head.transform
 	var steps_before: int = body.steps_up
 	left.set_input("primary", Vector2(0, -1))
-	await frames(40)
+	await frames(move_frames)
 	left.set_input("primary", Vector2.ZERO)
 	await frames(15)
 	var top: Vector3 = body.global_position
@@ -57,15 +66,16 @@ func run() -> void:
 	var ascends: bool = top.z > 22.8 and top.y - start.y > 0.85 and body.on_ground
 	var down_before: int = body.steps_down
 	left.set_input("primary", Vector2(0, 1))
-	await frames(40)
+	await frames(move_frames)
 	left.set_input("primary", Vector2.ZERO)
 	await frames(30)
 	var bottom: Vector3 = body.global_position
 	var descends: bool = bottom.z < 18.6 and absf(bottom.y - start.y) < 0.1 and body.on_ground
 	var tracking_preserved := head.transform.is_equal_approx(head_pose)
 	var passed: bool = ascends and descends and tracking_preserved
-	var report := {"test": "xr_authored_ticket1_stairs", "source": "appearance/mesh/mun_tato_starport_s01_u01_r8_ticket1_mesh_r8.msh", "speed": rig.get_node("LeftHand/MovementDirect").max_speed, "start": str(start), "top": str(top), "bottom": str(bottom), "steps_up": steps, "steps_down": body.steps_down - down_before, "ascends_without_jump": ascends, "descends": descends, "tracked_head_pose_preserved": tracking_preserved, "hardware_tested": false,"asset_root":asset_root, "passed": passed}
-	FileAccess.open("res://../runtime/evidence/xr-authored-starport-stairs.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
+	var report := {"test": "xr_authored_ticket1_stairs", "source": "appearance/mesh/mun_tato_starport_s01_u01_r8_ticket1_mesh_r8.msh", "speed": native_profile.get("server_max_speed",rig.get_node("LeftHand/MovementDirect").max_speed), "native_profile_replayed":not native_profile.is_empty(),"start": str(start), "top": str(top), "bottom": str(bottom), "steps_up": steps, "steps_down": body.steps_down - down_before, "ascends_without_jump": ascends, "descends": descends, "tracked_head_pose_preserved": tracking_preserved, "hardware_tested": false,"asset_root":asset_root, "passed": passed}
+	var evidence:="xr-authored-starport-stairs"+("-native-profile" if not native_profile.is_empty() else "")+".json"
+	FileAccess.open("res://../runtime/evidence/"+evidence,FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
 	print(JSON.stringify(report))
 	rig.queue_free()
 	stage.queue_free()

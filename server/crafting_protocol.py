@@ -13,6 +13,9 @@ except ImportError:
  from character_protocol import assets, template_names, decode_customization
  from datapad_protocol import display, template_label
 
+# Original DraftSchematicObjectTemplate tool-tab flags / craft_types.stf.
+CRAFT_CATEGORIES = {'1': 'weapon', '2': 'armor', '4': 'food', '8': 'clothing', '16': 'vehicle', '32': 'droid', '64': 'chemical', '128': 'plant_breeding', '256': 'animal_breeding', '512': 'furniture', '1024': 'installation', '2048': 'lightsaber', '4096': 'generic_item', '8192': 'genetics', '16384': 'mandalorian_tailor', '32768': 'mandalorian_armorsmith', '65536': 'mandalorian_droid_engineer', '131072': 'space', '262144': 'reverse_engineering', '524288': 'misc', '2148007936': 'mission'}
+
 @lru_cache(maxsize=64)
 def palette(path):
  if not isinstance(path,str) or not path.startswith('palette/') or '..' in path:raise ValueError('Invalid source palette')
@@ -73,6 +76,11 @@ def crafting_snapshot(raw,oid):
  if len(state.get('inventory',[]))>256 or len(state.get('schematics',[]))>4096 or len(state.get('jobs',[]))>80:raise ValueError('Crafting snapshot exceeds bounds')
  def label(row):
   row['name']=row.get('custom_name') or display(row.get('name_table',''),row.get('name_key',''),row.get('name') or template_label(row.get('template',''))[0])
+  category=CRAFT_CATEGORIES.get(str(row.get('category_id','')))
+  if category:row['category']=display('craft_types',category,category.replace('_',' ').title())
+  description=row.get('description','')
+  if description.startswith('@') and ':' in description:
+   table,key=description[1:].split(':',1);row['description']=display(table,key,description)
   for slot in row.get('slots',[]):
    if isinstance(slot,dict):slot['name']=display(slot.get('name_table',''),slot.get('name_key',''),slot.get('type','Ingredient'))
  for row in state.get('schematics',[]):label(row)

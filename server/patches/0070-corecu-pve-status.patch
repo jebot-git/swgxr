@@ -1,0 +1,831 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
+@@ -15,6 +15,7 @@
+ #include "server/zone/managers/combat/CombatManager.h"
+ #include "server/zone/managers/objectcontroller/ObjectController.h"
+ #include "templates/tangible/TrapTemplate.h"
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/buffs/TrapBuff.h"
+ 
+ namespace server {
+@@ -197,7 +198,16 @@
+ 						continue;
+ 					}
+ 
+-					ManagedReference<TrapBuff*> buff = new TrapBuff(targetAgent, trapCrc, state, debuffDuration);
++					// Preserve the trapping hit roll, then resist the debuff separately.
++					const int status = state == CreatureState::STUNNED ? corecu::Stun :
++						state == CreatureState::BLINDED ? corecu::Blind :
++						state == CreatureState::DIZZY ? corecu::Dizzy :
++						state == CreatureState::INTIMIDATED ? corecu::Intimidate : corecu::Snare;
++					const double resistance = CoreCuCombat::rating(targetAgent, status);
++					if (System::random(99) >= corecu::statusChance(95, resistance))
++						continue;
++					const int duration = corecu::statusDuration(debuffDuration, resistance);
++					ManagedReference<TrapBuff*> buff = new TrapBuff(targetAgent, trapCrc, state, duration);
+ 
+ 					if (buff != nullptr) {
+ 						if (isPrimaryTarget) {
+--- a/MMOCoreORB/CMakeLists.txt
++++ b/MMOCoreORB/CMakeLists.txt
+@@ -18,7 +18,7 @@
+     endif()
+ endif()
+ 
+-project(core3 CXX C)
++project(corecu CXX C)
+ 
+ # Set cpp requirements
+ set(CMAKE_CXX_STANDARD 14)
+--- a/MMOCoreORB/src/CMakeLists.txt
++++ b/MMOCoreORB/src/CMakeLists.txt
+@@ -84,6 +84,8 @@
+ 
+ # Create core3 binary
+ add_executable(core3 main.cpp server/ServerCore.cpp ${core3tests_libs} ${tre3_sources} ${tre3_headers} ${zone3_sources} ${zone3_headers})
++# Keep the upstream target name for dependencies; the fork binary is CoreCU.
++set_target_properties(core3 PROPERTIES OUTPUT_NAME corecu)
+ 
+ if(ENABLE_ODB)
+ 	add_executable(odb3 server/ServerCore.cpp ${odb3_sources} ${odb3_headers} ${autogen_sources} ${autogen_headers} ${zone3_sources} ${zone3_headers}
+@@ -175,12 +177,15 @@
+ 	${CMAKE_SOURCE_DIR}/bin/)
+ 
+ endif(ENABLE_ODB)
+-# Copy core3 binary
++# CoreCU binary plus the legacy launcher name for existing services/tools.
+ add_custom_command(
+ 	TARGET core3 POST_BUILD
+ 	COMMAND ${CMAKE_COMMAND} -E copy
+ 	$<TARGET_FILE:core3>
+-	${CMAKE_SOURCE_DIR}/bin/)
++	${CMAKE_SOURCE_DIR}/bin/
++    COMMAND ${CMAKE_COMMAND} -E copy
++    $<TARGET_FILE:core3>
++    ${CMAKE_SOURCE_DIR}/bin/core3)
+ 
+ if(GIT_FOUND AND RUN_GIT)
+     add_custom_command(
+--- a/MMOCoreORB/src/main.cpp
++++ b/MMOCoreORB/src/main.cpp
+@@ -37,6 +37,7 @@
+ 	static int ret = 0;
+ 
+ 	try {
++		System::out << "CoreCU v1 - SWGXR combat fork of SWGEmu Core3" << endl;
+ 		SortedVector<String> arguments;
+ 		arguments.setNoDuplicateInsertPlan();
+ 
+--- a/MMOCoreORB/src/server/ServerCore.cpp
++++ b/MMOCoreORB/src/server/ServerCore.cpp
+@@ -63,7 +63,7 @@
+ }
+ 
+ ServerCore::ServerCore(bool truncateDatabases, const SortedVector<String>& args) :
+-		Core("log/core3.log", coredetail::EngineConfigName, LogLevel::LOG), Logger("Core") {
++		Core("log/core3.log", coredetail::EngineConfigName, LogLevel::LOG), Logger("CoreCU") {
+ 	orb = nullptr;
+ 
+ 	loginServer = nullptr;
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ /*
+  * AiAgentImplementation.cpp
+  *
+@@ -195,6 +196,7 @@
+ 		for (int i = 0; i < 9; ++i) {
+ 			if (i % 3 == 0) {
+ 				ham = System::random(getHamMaximum() - getHamBase()) + getHamBase();
++                if(!isPet())ham=std::max(1,int(ham*corecu::npcHamScale(level)));
+ 				if (isDroidObject() && isPet())
+ 					ham = getHamMaximum();
+ 				baseHAM.add(ham);
+@@ -422,6 +424,8 @@
+ 		return;
+ 	}
+ 
++    alm->insertAttribute("Combat rules", "CoreCU v1");
++    alm->insertAttribute("Encounter band",level>150?"Boss / group":level>80?"High level / group":level>30?"Veteran":"Standard");
+ 	if (getArmor() == 0)
+ 		alm->insertAttribute("armorrating", "None");
+ 	else if (getArmor() == 1)
+@@ -782,13 +786,14 @@
+ 
+ 	Locker weapLocker(newWeapon, asAiAgent());
+ 
+-	float mod = 1 - (0.1 * newWeapon->getArmorPiercing());
+-	newWeapon->setMinDamage(minDamage * mod);
+-	newWeapon->setMaxDamage(maxDamage * mod);
++	// CoreCU: AP budget is paid in weapon conversion.
++	const double mean=corecu::npcMean(minDamage,maxDamage,level);
++    newWeapon->setMinDamage(isPet()?minDamage:mean*.75);
++    newWeapon->setMaxDamage(isPet()?maxDamage:mean*1.25);
+ 
+ 	SharedWeaponObjectTemplate* weaoTemp = cast<SharedWeaponObjectTemplate*>(newWeapon->getObjectTemplate());
+ 
+-	if (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0) {
++	if (!isPet() || (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0)) {
+ 		newWeapon->setAttackSpeed(weaponSpeed);
+ 	} else if (petDeed != nullptr) {
+ 		newWeapon->setAttackSpeed(petDeed->getAttackSpeed());
+@@ -950,20 +955,23 @@
+ #endif
+ 
+ 	AiAgent* thisAgent = asAiAgent();
++    const double mean=corecu::npcMean(minDamage,maxDamage,level);
++    const float tunedMin=isPet()?minDamage:mean*.75;
++    const float tunedMax=isPet()?maxDamage:mean*1.25;
+ 
+ 	ManagedReference<WeaponObject*> primaryWeap = getPrimaryWeapon();
+ 
+ 	if (primaryWeap != nullptr) {
+ 		Locker pLock(primaryWeap, thisAgent);
+ 
+-		float mod = 1 - 0.1 * primaryWeap->getArmorPiercing();
+-
+-		primaryWeap->setMinDamage(minDamage * mod);
+-		primaryWeap->setMaxDamage(maxDamage * mod);
++		float mod = 1.f;
++
++		primaryWeap->setMinDamage(tunedMin * mod);
++		primaryWeap->setMaxDamage(tunedMax * mod);
+ 
+ 		SharedWeaponObjectTemplate* weaoTemp = cast<SharedWeaponObjectTemplate*>(primaryWeap->getObjectTemplate());
+ 
+-		if (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0) {
++		if (!isPet() || (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0)) {
+ 			primaryWeap->setAttackSpeed(weaponSpeed);
+ 		} else if (petDeed != nullptr) {
+ 			primaryWeap->setAttackSpeed(petDeed->getAttackSpeed());
+@@ -974,14 +982,14 @@
+ 
+ 	if (secondaryWeap != nullptr) {
+ 		Locker slock(secondaryWeap, thisAgent);
+-		float mod = 1 - 0.1  *secondaryWeap->getArmorPiercing();
+-
+-		secondaryWeap->setMinDamage(minDamage * mod);
+-		secondaryWeap->setMaxDamage(maxDamage * mod);
++		float mod = 1.f;
++
++		secondaryWeap->setMinDamage(tunedMin * mod);
++		secondaryWeap->setMaxDamage(tunedMax * mod);
+ 
+ 		SharedWeaponObjectTemplate* weaoTemp = cast<SharedWeaponObjectTemplate*>(secondaryWeap->getObjectTemplate());
+ 
+-		if (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0) {
++		if (!isPet() || (weaoTemp != nullptr && weaoTemp->getPlayerRaces()->size() > 0)) {
+ 			secondaryWeap->setAttackSpeed(weaponSpeed);
+ 		} else if (petDeed != nullptr) {
+ 			secondaryWeap->setAttackSpeed(petDeed->getAttackSpeed());
+@@ -993,12 +1001,12 @@
+ 	if (defaultWeap != nullptr) {
+ 		Locker dlock(defaultWeap, thisAgent);
+ 
+-		defaultWeap->setMinDamage(minDamage);
+-		defaultWeap->setMaxDamage(maxDamage);
++		defaultWeap->setMinDamage(tunedMin);
++		defaultWeap->setMaxDamage(tunedMax);
+ 
+ 		if (petDeed != nullptr)
+ 			defaultWeap->setAttackSpeed(petDeed->getAttackSpeed());
+-		else if (isPet())
++		else
+ 			defaultWeap->setAttackSpeed(weaponSpeed);
+ 	}
+ }
+@@ -1324,8 +1332,9 @@
+ 	minDamage *= ratio;
+ 	maxDamage *= ratio;
+ 
+-	int baseHamMax = ((float)getHamMaximum()) * ratio;
+-	int baseHam = ((float)getHamBase()) * ratio;
++	const double hamScale=isPet()?1.:corecu::npcHamScale(lvl);
++    int baseHamMax = getHamMaximum()*ratio*hamScale;
++    int baseHam = getHamBase()*ratio*hamScale;
+ 
+ 	int ham = 0;
+ 
+@@ -1348,6 +1357,7 @@
+ 	for (int i = 0; i < 9; ++i) {
+ 		setMaxHAM(i, baseHAM.get(i));
+ 	}
++    setWeaponStats();
+ }
+ 
+ void AiAgentImplementation::notifyPositionUpdate(TreeEntry* entry) {
+@@ -1387,6 +1397,7 @@
+ */
+ 
+ bool AiAgentImplementation::selectSpecialAttack() {
++    if(!isPet() && !checkCooldownRecovery("corecu_special"))return selectDefaultAttack();
+ 	// Handle Thrown Weapons
+ 	if (System::random(100) > 95) {
+ 		ManagedReference<WeaponObject*> thrownWeapRef = thrownWeapon.get();
+@@ -1428,6 +1439,7 @@
+ }
+ 
+ bool AiAgentImplementation::selectSpecialAttack(int attackNum) {
++    if(!isPet() && !checkCooldownRecovery("corecu_special"))return selectDefaultAttack();
+ 	const CreatureAttackMap* attackMap = getAttackMap();
+ 
+ 	if (attackMap == nullptr) {
+@@ -1516,6 +1528,9 @@
+ 		return 1;
+ 	}
+ 
++    const uint32 normal=npcTemplate?npcTemplate->getDefaultAttack().hashCode():STRING_HASHCODE("defaultattack");
++    if(!isPet() && nextActionCRC!=normal && nextActionCRC!=STRING_HASHCODE("defaultattack"))
++        addCooldown("corecu_special",corecu::specialCooldown(level));
+ 	enqueueCommand(nextActionCRC, 0, followCopy->getObjectID(), nextActionArgs, priority);
+ 	nextActionCRC = 0;
+ 	nextActionArgs = "";
+@@ -4805,7 +4820,7 @@
+ }
+ 
+ float AiAgentImplementation::getReducedResist(float value) {
+-	if (value == -1) {
++	if (isPet() && value == -1) {
+ 		return value;
+ 	}
+ 
+@@ -4823,42 +4838,7 @@
+ 		return newValue;
+ 	}
+ 
+-	int totalHAM = 0;
+-	int i = 0;
+-
+-	// Get total of max HAM pools
+-	while (i <= 6) {
+-		totalHAM += getMaxHAM(i);
+-		i += 3;
+-	}
+-
+-	// Total damage that was not resisted by armor
+-	int unmitigatedDamage = getUnmitigatedDamage();
+-
+-	// Damage not prevented by armor resists compared to totalHAM
+-	float percentUnmitigated = unmitigatedDamage / (float)totalHAM;
+-
+-#ifdef DEBUG_RESIST_DECAY
+-	info (true) << " Value of HAM mitigated = " << mitigatedAmount;
+-#endif
+-
+-	// Decay resists when mitigated damage is greater than 25% totalHAM
+-	if (percentUnmitigated > 0.25f) {
+-		// Reduce resists 2% for every 1% of damage mitigated by armor valued greater than 25% of totalHAM.
+-		// Reduction Range is from 75% to 50% of totalHAM. totaling a max 50% reduction of resists
+-		float reduction = (percentUnmitigated - 0.25f) * 2.f;
+-
+-		// Resists never drop below 50%
+-		reduction = 1.f - (reduction > 0.50f ? 0.50f : reduction);
+-
+-		newValue = (value * reduction);
+-
+-#ifdef DEBUG_RESIST_DECAY
+-		info(true) << "getReducedResist: totalHAM = " << totalHAM << " Resist Mitigation = " << unmitigatedDamage << " Start value: " << value << " New Value = " << newValue << " Reduction percent = " << reduction;
+-#endif
+-	}
+-
+-	return newValue;
++    return 100*corecu::resistance(level,getArmor(),value);
+ }
+ 
+ void AiAgentImplementation::setPatrolPoints(PatrolPointsVector& pVector) {
+--- a/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/wearables/ArmorObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+ /*
+@@ -117,6 +118,11 @@
+ 		alm->insertAttribute("sockets", remainingSockets);
+ 
+     const auto profile=SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast());
++    if(_this.getReferenceUnsafeStaticCast()->isPsgArmorObject()) {
++        alm->insertAttribute("Shield channels","Heat / Cold / Acid / Electricity only");
++        alm->insertAttribute("Shield reduction",String::valueOf(getHeat())+"%");
++        alm->insertAttribute("Shield stacking","Stronger of shield and body protection per element");
++    }
+     if(profile) {
+         alm->insertAttribute("Armour class",profile->kind==1?"Recon":profile->kind==2?"Assault":"Battle");
+         alm->insertAttribute("Base protection score",String::valueOf(getSwgxrBaseScore()));
+@@ -341,11 +347,17 @@
+ }
+ 
+ bool ArmorObjectImplementation::isVulnerable(int type) const {
++    if(_this.getReferenceUnsafeStaticCast()->isPsgArmorObject())return isBroken() || !corecu::elemental(type);
+     if(SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast())) return isBroken();
+ 	return isBroken() || (!isSpecial(type) && (vulnerabilites & type));
+ }
+ 
+ float ArmorObjectImplementation::getTypeValue(int type, float value) const {
++    if(_this.getReferenceUnsafeStaticCast()->isPsgArmorObject()) {
++        const double raw=std::max(double(baseProtection+energy),double(specialProtection+energy));
++        const double quality=raw*(sliced?std::max(1.f,effectivenessSlice):1)*SwgxrSlicingStats::factor(_this.getReferenceUnsafeStaticCast(),"protection_pct");
++        return isBroken()?0:100*corecu::shieldResistance(type,quality);
++    }
+     if(SwgxrArmour::reference(_this.getReferenceUnsafeStaticCast()))
+         return 100*swgxr::armour::reduction(getSwgxrProtectionScore(type));
+ 	int newValue = 0;
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrSlicingStats.h"
+@@ -436,6 +437,7 @@
+ 	uint8 hitLocation = 0;
+ 
+ 	float damageMultiplier = data.getDamageMultiplier();
++    if(attacker->isAiAgent() && !attacker->asAiAgent()->isPet())damageMultiplier=corecu::specialMultiplier(damageMultiplier,attacker->getLevel());
+ 
+ 	int damage = 0;
+ 
+@@ -498,7 +500,7 @@
+ 
+ 				// Prevents weapon dots from applying with offensive Force powers
+ 				if (!data.isForceAttack()) {
+-					applyWeaponDots(attacker, defender, weapon);
++					applyWeaponDots(attacker, defender, weapon, damage);
+ 				}
+ 			}
+ 		}
+@@ -605,6 +607,7 @@
+ 	}
+ 
+ 	float damageMultiplier = data.getDamageMultiplier();
++    if(attacker->isAiAgent() && !attacker->asAiAgent()->isPet())damageMultiplier=corecu::specialMultiplier(damageMultiplier,attacker->getLevel());
+ 
+ 	int damage = 0;
+ 
+@@ -1129,6 +1132,7 @@
+ 			getFrsModifiedForceAttackDamage(attacker, minDmg, maxDmg, data);
+ 
+ 		float mod = attacker->isAiAgent() ? cast<AiAgent*>(attacker)->getSpecialDamageMult() : 1.f;
++        if(attacker->isAiAgent() && !attacker->asAiAgent()->isPet())mod*=corecu::npcDamageScale(attacker->getLevel());
+ 		damage = minDmg * mod;
+ 		diff = (maxDmg * mod) - damage;
+ 	} else {
+@@ -1206,6 +1210,7 @@
+ 			getFrsModifiedForceAttackDamage(attacker, minDmg, maxDmg, data);
+ 
+ 		float mod = attacker->isAiAgent() ? cast<AiAgent*>(attacker)->getSpecialDamageMult() : 1.f;
++        if(attacker->isAiAgent() && !attacker->asAiAgent()->isPet())mod*=corecu::npcDamageScale(attacker->getLevel());
+ 		damage = minDmg * mod;
+ 		diff = (maxDmg * mod) - damage;
+ 	} else {
+@@ -1724,7 +1729,7 @@
+ 		if (effect.isDotDamageofHit()) {
+ 			// determine if we should use unmitigated damage
+ 			if (dotType != CreatureState::BLEEDING)
+-				damageToApply = unmitDamage;
++				damageToApply = appliedDamage; // CoreCU: converted and mitigated once.
+ 		}
+ 
+ 		int potency = effect.getDotPotency();
+@@ -1742,12 +1747,17 @@
+ 		debug() << "entering addDotState with dotType:" << dotType;
+ 
+ 		float damMod = attacker->isAiAgent() ? cast<AiAgent*>(attacker)->getSpecialDamageMult() : 1.f;
+-		defender->addDotState(attacker, dotType, data.getCommand()->getNameCRC(), effect.isDotDamageofHit() ? damageToApply * effect.getPrimaryPercent() / 100.0f : effect.getDotStrength() * damMod, pool, effect.getDotDuration(), potency, resist,
+-							  effect.isDotDamageofHit() ? damageToApply * effect.getSecondaryPercent() / 100.0f : effect.getDotStrength() * damMod);
+-	}
+-}
+-
+-void CombatManager::applyWeaponDots(CreatureObject* attacker, CreatureObject* defender, WeaponObject* weapon) const {
++        const int interval=dotType==CreatureState::BLEEDING?20:dotType==CreatureState::DISEASED?40:dotType==CommandEffect::FORCECHOKE?5:10;
++        const int duration=std::min(int(effect.getDotDuration()),60);
++        const double requested=effect.isDotDamageofHit()?damageToApply*effect.getPrimaryPercent()/100.:effect.getDotStrength()*damMod;
++        const int strength=corecu::dotTickBudget(damageToApply,dotEffects->size(),duration,interval,requested);
++        // Periodic wounds are not a second uncapped damage budget.
++        const int wounds=std::min(int(strength*.1),std::max(0,defender->getBaseHAM(pool)/100));
++        defender->addDotState(attacker,dotType,data.getCommand()->getNameCRC(),strength,pool,duration,potency,resist,wounds);
++	}
++}
++
++void CombatManager::applyWeaponDots(CreatureObject* attacker, CreatureObject* defender, WeaponObject* weapon, int appliedDamage) const {
+ 	if (defender->isInvulnerable())
+ 		return;
+ 
+@@ -1769,19 +1779,19 @@
+ 		int resist = 0;
+ 		// utilizing this switch-block for easier *functionality* , present & future
+ 		// SOE strings only provide this ONE specific type of mod (combat_bleeding_defense) and
+-		// there's no evidence (yet) of other 3 WEAPON dot versions also being resistable.
++		// CoreCU applies the corresponding defence to every weapon DoT type.
+ 		switch (weapon->getDotType(i)) {
+ 		case 1: // POISON
+ 			type = CreatureState::POISONED;
+-			// resist = defender->getSkillMod("resistance_poison");
++			resist = defender->getSkillMod("resistance_poison");
+ 			break;
+ 		case 2: // DISEASE
+ 			type = CreatureState::DISEASED;
+-			// resist = defender->getSkillMod("resistance_disease");
++			resist = defender->getSkillMod("resistance_disease");
+ 			break;
+ 		case 3: // FIRE
+ 			type = CreatureState::ONFIRE;
+-			// resist = defender->getSkillMod("resistance_fire");
++			resist = defender->getSkillMod("resistance_fire");
+ 			break;
+ 		case 4: // BLEED
+ 			type = CreatureState::BLEEDING;
+@@ -1794,7 +1804,11 @@
+ 		if (defender->hasDotImmunity(type))
+ 			continue;
+ 
+-		if (weapon->getDotPotency(i) * (1.f - resist / 100.f) > System::random(100) && defender->addDotState(attacker, type, weapon->getObjectID(), weapon->getDotStrength(i), weapon->getDotAttribute(i), weapon->getDotDuration(i), -1, 0, (int)(weapon->getDotStrength(i) / 5.f)) > 0)
++        const int duration=std::min(60,weapon->getDotDuration(i));
++        const int interval=type==CreatureState::BLEEDING?20:type==CreatureState::DISEASED?40:10;
++        const int strength=corecu::dotTickBudget(appliedDamage,weapon->getNumberOfDots(),duration,interval,weapon->getDotStrength(i));
++        const int wounds=std::min(strength/10,std::max(0,defender->getBaseHAM(weapon->getDotAttribute(i))/100));
++        if (defender->addDotState(attacker,type,weapon->getObjectID(),strength,weapon->getDotAttribute(i),duration,weapon->getDotPotency(i),resist,wounds) > 0)
+ 			if (weapon->getDotUses(i) > 0)
+ 				weapon->setDotUses(weapon->getDotUses(i) - 1, i); // Unresisted despite mod, reduce use count.
+ 	}
+@@ -2519,27 +2533,20 @@
+ 		}
+ 	}
+ 
+-    // One location and one set of side effects for the original hit. Preserve
+-    // each portion through shields and armour instead of reducing the whole hit
+-    // twice or rerolling hit location/wounds for the elemental portion.
+     swgxr::armour::Damage split(damage,profile);
+-    ManagedReference<ArmorObject*> psg=getPSGArmor(defender);
+-    if(psg!=nullptr) {
+-        const double before=split.total();
+-        auto resist=[&](int type){return psg->isVulnerable(type)?0.0:getArmorObjectReduction(psg,type)/100.0;};
+-        split.mitigate(resist(profile.base),resist(profile.element));
+-        hitList->setPsgMitigation(hitList->getPsgMitigation()+std::max(0.0,before-split.total()));
+-        if(split.total()<before){Locker lock(psg);psg->inflictDamage(psg,0,split.total()*.2,true,true);}
+-    }
+-    ManagedReference<ArmorObject*> armor=getArmorObject(defender,hitLocation);
+-    if(armor!=nullptr && !armor->isBroken()) {
+-        const double before=split.total();
+-        auto resist=[&](int type){return armor->isVulnerable(type)?0.0:getArmorObjectReduction(armor,type)/100.0;};
+-        split.mitigate(resist(profile.base),resist(profile.element));
+-        hitList->setArmorMitigation(hitList->getArmorMitigation()+std::max(0.0,before-split.total()));
+-        // Stable wear budget: 2% of incoming damage, independent of mitigation.
+-        if(split.total()<before){Locker lock(armor);armor->inflictDamage(armor,0,before*.02,true,true);}
+-    }
++    auto psg=getPSGArmor(defender);auto armor=getArmorObject(defender,hitLocation);
++    auto resist=[&](ArmorObject* item,int type){return item && !item->isBroken() && !item->isVulnerable(type)?getArmorObjectReduction(item,type)/100.:0.;};
++    const double bodyBase=resist(armor,profile.base),bodyElement=resist(armor,profile.element);
++    const double shield=corecu::elemental(profile.element)?resist(psg,profile.element):0.;
++    const double rawBase=split.base,rawElement=split.element;
++    split.mitigate(bodyBase,corecu::equipmentResistance(profile.element,bodyElement,shield));
++    const double baseSaved=rawBase-split.base,elementSaved=rawElement-split.element;
++    const double shieldSaved=shield>bodyElement?elementSaved:0.;
++    const double armorSaved=baseSaved+(shieldSaved>0?0:elementSaved);
++    hitList->setPsgMitigation(hitList->getPsgMitigation()+shieldSaved);
++    hitList->setArmorMitigation(hitList->getArmorMitigation()+armorSaved);
++    if(psg && shieldSaved>0){Locker lock(psg);psg->inflictDamage(psg,0,rawElement*.02,true,true);}
++    if(armor && armorSaved>0){Locker lock(armor);armor->inflictDamage(armor,0,(rawBase+rawElement)*.02,true,true);}
+     damage=split.total();
+ 
+ 	return damage;
+@@ -2656,14 +2663,13 @@
+             auto agent=defender->asAiAgent();
+             split.mitigate(getArmorNpcReduction(agent,profile.base)/100.0,getArmorNpcReduction(agent,profile.element)/100.0);
+         } else {
+-            ArmorObject* layers[]={getPSGArmor(defender),getArmorObject(defender,hitLocation)};
+-            for(int i=0;i<2;++i){
+-                auto armor=layers[i];if(!armor || armor->isBroken())continue;
+-                const double before=split.total();
+-                auto resist=[&](int type){return armor->isVulnerable(type)?0.0:getArmorObjectReduction(armor,type)/100.0;};
+-                split.mitigate(resist(profile.base),resist(profile.element));
+-                if(split.total()<before){Locker lock(armor,attackerTanO);armor->inflictDamage(armor,0,i==0?split.total()*.2:before*.02,true,true);}
+-            }
++            auto psg=getPSGArmor(defender);auto armor=getArmorObject(defender,hitLocation);
++            auto resist=[&](ArmorObject* item,int type){return item && !item->isBroken() && !item->isVulnerable(type)?getArmorObjectReduction(item,type)/100.:0.;};
++            const double rawBase=split.base,rawElement=split.element;
++            const double bodyBase=resist(armor,profile.base),bodyElement=resist(armor,profile.element),shield=resist(psg,profile.element);
++            split.mitigate(bodyBase,corecu::equipmentResistance(profile.element,bodyElement,shield));
++            if(psg && shield>bodyElement && rawElement>split.element){Locker lock(psg,attackerTanO);psg->inflictDamage(psg,0,rawElement*.02,true,true);}
++            if(armor && (rawBase>split.base || (shield<=bodyElement && rawElement>split.element))){Locker lock(armor,attackerTanO);armor->inflictDamage(armor,0,(rawBase+rawElement)*.02,true,true);}
+         }
+         damage=split.total();
+ 
+@@ -2908,7 +2914,7 @@
+ #endif
+ 
+ 		// Check for state immunity.
+-		if (targetCreature->hasEffectImmunity(effectType)) {
++		if (targetCreature->hasEffectImmunity(effectType) || (CoreCuCombat::stateIndex(effectType)==corecu::Knockdown && !targetCreature->checkCooldownRecovery("corecu_control_recovery"))) {
+ 			failed = true;
+ #ifdef DEBUG_STATES
+ 			stateDebug << " -- FAILED DUE TO IMMUNITY -- \n";
+@@ -2940,13 +2946,13 @@
+ 			stateDebug << " - Target Defense Base = " << targetDefense << "\n";
+ #endif
+ 
+-			targetDefense /= 1.5;
++			targetDefense = CoreCuCombat::rating(targetCreature,CoreCuCombat::stateIndex(effectType),targetDefense);
+ 
+ #ifdef DEBUG_STATES
+ 			stateDebug << " - Target Defense /= 1.5 = " << targetDefense << "\n";
+ #endif
+ 
+-			targetDefense += playerLevel;
++			// CoreCU: advancement is represented by learned resistance, not hidden level immunity.
+ 
+ #ifdef DEBUG_STATES
+ 			stateDebug << " - Target Defense + playerLevel = " << targetDefense << "\n";
+@@ -2960,7 +2966,7 @@
+ #endif
+ 
+ 			// Players are able to be state immune.
+-			int calc = (int)(accuracyMod - targetDefense);
++			int calc = (int)corecu::statusChance(accuracyMod,targetDefense);
+ 
+ #ifdef DEBUG_STATES
+ 			stateDebug << " - Calc = " << calc << "\n";
+@@ -2982,10 +2988,10 @@
+ 				for (int j = 0; j < jediMods.size(); j++) {
+ 					targetDefense = targetCreature->getSkillMod(jediMods.get(j));
+ 
+-					targetDefense /= 1.5;
+-					targetDefense += playerLevel;
+-
+-					calc = (int)(accuracyMod - targetDefense);
++					targetDefense = CoreCuCombat::rating(targetCreature,CoreCuCombat::stateIndex(effectType),targetDefense);
++					// CoreCU: advancement is represented by learned resistance, not hidden level immunity.
++
++					calc = (int)corecu::statusChance(accuracyMod,targetDefense);
+ 
+ 					if (roll > calc) {
+ 						failed = true;
+@@ -3008,6 +3014,7 @@
+ #endif
+ 
+ 			data.getCommand()->applyEffect(creature, targetCreature, effectType, effect.getStateStrength() + stateAccuracyBonus);
++            if(CoreCuCombat::stateIndex(effectType)==corecu::Knockdown)targetCreature->addCooldown("corecu_control_recovery",8000);
+ 
+ 			if (data.changesDefenderPosture()) {
+ 				targetCreature->updatePostures(true);
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.h
+@@ -238,7 +238,7 @@
+ 	void woundCreatureTarget(CreatureObject* defender, WeaponObject* weapon, Vector<int> poolsToWound) const;
+ 
+ 	void applyDots(CreatureObject* attacker, CreatureObject* defender, const CreatureAttackData& data, int appliedDamage, int unmitDamage, int poolsToDamage) const;
+-	void applyWeaponDots(CreatureObject* attacker, CreatureObject* defender, WeaponObject* weapon) const;
++	void applyWeaponDots(CreatureObject* attacker, CreatureObject* defender, WeaponObject* weapon, int appliedDamage) const;
+ 	uint8 getPoolForDot(uint64 dotType, int poolsToDamage) const;
+ 
+ 	int getAttackerAccuracyModifier(TangibleObject* attacker, CreatureObject* defender, WeaponObject* weapon) const;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ /*
+  * CombatQueueCommand.h
+  *
+@@ -628,7 +629,9 @@
+ 
+ 		targetDefense -= mod;
+ 
+-		uint32 duration = (uint32) Math::max(5.f, effect.getStateLength()*(1.f-targetDefense/120.f));
++		const double resistance=CoreCuCombat::rating(defender,CoreCuCombat::stateIndex(effectType),std::max(0.f,targetDefense+mod));
++        const int seconds=attacker->isAiAgent()?std::min(8,int(effect.getStateLength())):int(effect.getStateLength());
++        uint32 duration=std::max(1,corecu::statusDuration(seconds,resistance));
+ 
+ 		switch (effectType) {
+ 			case CommandEffect::BLIND:
+@@ -662,7 +665,7 @@
+ 				}
+ 
+ 				defender->updateKnockdownRecovery();
+-				defender->setPostureChangeDelay(5000);
++				defender->setPostureChangeDelay(std::max(1000,int(5000*(1-corecu::statusReduction(resistance)))));
+ 
+ 				defender->removeBuff(STRING_HASHCODE("burstrun"));
+ 				defender->removeBuff(STRING_HASHCODE("retreat"));
+@@ -696,7 +699,7 @@
+ 				}
+ 
+ 				defender->updatePostureUpRecovery();
+-				defender->setPostureChangeDelay(2500);
++				defender->setPostureChangeDelay(std::max(1000,int(2500*(1-corecu::statusReduction(resistance)))));
+ 
+ 				defender->removeBuff(STRING_HASHCODE("burstrun"));
+ 				defender->removeBuff(STRING_HASHCODE("retreat"));
+@@ -727,7 +730,7 @@
+ 				}
+ 
+ 				defender->updatePostureDownRecovery();
+-				defender->setPostureChangeDelay(2500);
++				defender->setPostureChangeDelay(std::max(1000,int(2500*(1-corecu::statusReduction(resistance)))));
+ 
+ 				defender->removeBuff(STRING_HASHCODE("burstrun"));
+ 				defender->removeBuff(STRING_HASHCODE("retreat"));
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.cpp
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/creature/commands/effect/CommandEffect.h"
+ #include "DamageOverTime.h"
++#include "server/zone/objects/creature/commands/CoreCuPolicy.h"
+ #include "server/zone/ZoneServer.h"
+ #include "server/zone/managers/combat/CombatManager.h"
+ 
+@@ -130,6 +131,7 @@
+ 		return 0;
+ 	}
+ 
++	if (expires.isPast()) return 0; // CoreCU: no post-expiration extra tick.
+ 	bool reschedule = true;
+ 
+ 	if (expires.isPast()) {
+@@ -193,22 +195,22 @@
+ 	switch(type) {
+ 	case CreatureState::BLEEDING:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_bleeding")));
+-		nextTick.addMiliTime(20000);
++		nextTick.addMiliTime(corecu::firstTickMillis(duration, 20));
+ 		break;
+ 	case CreatureState::ONFIRE:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_fire")));
+-		nextTick.addMiliTime(10000);
++		nextTick.addMiliTime(corecu::firstTickMillis(duration, 10));
+ 		break;
+ 	case CreatureState::POISONED:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_poison")));
+-		nextTick.addMiliTime(10000);
++		nextTick.addMiliTime(corecu::firstTickMillis(duration, 10));
+ 		break;
+ 	case CreatureState::DISEASED:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_disease")));
+-		nextTick.addMiliTime(40000);
++		nextTick.addMiliTime(corecu::firstTickMillis(duration, 40));
+ 		break;
+ 	case CommandEffect::FORCECHOKE:
+-		nextTick.addMiliTime(5000);
++		nextTick.addMiliTime(corecu::firstTickMillis(duration, 5));
+ 		strength *= ((100 - System::random(20)) * 0.01f);
+ 		victim->showFlyText("combat_effects", "choke", 0xFF, 0, 0);
+ 
+@@ -387,7 +389,7 @@
+ 	int damage = (int)(strength * (1.f - absorptionMod / 100.f) * (1.f + victim->getShockWounds() / 100.0f));
+ 	int maxDamage = victim->getBaseHAM(attribute) - 1 - victim->getWounds(attribute);
+ 
+-	damage = Math::min(damage, maxDamage);
++	damage = Math::max(0, Math::min(damage, Math::min(maxDamage, Math::max(1, victim->getBaseHAM(attribute) / 100))));
+ 
+ 	Reference<CreatureObject*> attackerRef = attacker;
+ 	Reference<CreatureObject*> victimRef = victim;
+@@ -399,7 +401,7 @@
+ 		Locker crossLocker(attackerRef, victimRef);
+ 
+ 		int damageInt = (int)damage;
+-		int shockWounds = (int)(strength * 0.075f);
++		int shockWounds = (int)(damage * 0.075f);
+ 
+ #ifdef DEBUG_DOTS
+ 		info(true) << "Disease tick on Victim: " << victimRef->getDisplayedName() << " Attribute #" << attribute << " Damage: " << damageInt << " Shock Wounds: " << shockWounds;
+@@ -448,27 +450,7 @@
+ 
+ 		uint32 chokeDam = strength;
+ 
+-		float jediBuffDamage = 0;
+-		float rawDamage = chokeDam;
+-
+-		// Force Shield
+-		int forceShield = victimRef->getSkillMod("force_shield");
+-		if (forceShield > 0) {
+-			jediBuffDamage = rawDamage - (chokeDam *= 1.f - (forceShield / 100.f));
+-			victimRef->notifyObservers(ObserverEventType::FORCESHIELD, attackerRef, jediBuffDamage);
+-			CombatManager::instance()->sendMitigationCombatSpam(victimRef, nullptr, (int)jediBuffDamage, CombatManager::FORCESHIELD);
+-		}
+-
+-		//PSG with lightsaber resistance only
+-		ManagedReference<ArmorObject*> psg = CombatManager::instance()->getPSGArmor(victimRef);
+-		if (psg != nullptr && !psg->isVulnerable(SharedWeaponObjectTemplate::LIGHTSABER)) {
+-			float armorReduction =  CombatManager::instance()->getArmorObjectReduction(psg, SharedWeaponObjectTemplate::LIGHTSABER);
+-
+-		if (armorReduction > 0)
+-			chokeDam *= 1.f - (armorReduction / 100.f);
+-
+-		}
+-
++		// Strength is budgeted from the already mitigated initiating hit.
+ 		CombatManager::instance()->broadcastCombatSpam(attackerRef, victimRef, nullptr, chokeDam, "cbt_spam", "forcechoke_hit", 1);
+ 		victimRef->inflictDamage(attackerRef, attribute, chokeDam, true, "dotDMG", true, false);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ /*
+  * DamageOverTimeList.cpp
+  *
+@@ -122,7 +123,9 @@
+ 		return 0;
+ 
+ 	// determine chance to hit, if no hit, just return 0. potency of less than 0 can't be resisted
+-	if (potency > 0 && System::random(100) >= Math::max(5.f, Math::min(potency * (80.f / (100.f + defense)), 95.f)))
++	const double rating=CoreCuCombat::rating(victim,CoreCuCombat::dotIndex(dotType),defense);
++    duration=corecu::statusDuration(duration,rating);
++    if (potency >= 0 && System::random(100) >= corecu::statusChance(potency,rating))
+ 		return 0;
+ 
+ 	if (dotType == CreatureState::ONFIRE && victim->hasState(CreatureState::SWIMMING)) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "SwgxrMovement.h"
+ #include "SwgxrSpice.h"
+@@ -143,7 +144,7 @@
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null())out["weapon"]["abilities"]=SwgxrSmuggler::abilities(c);
+-  out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
++  out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+   out["player"]["name"]=std::string(c->getFirstName().toCharArray());out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   out["player"]["medical_drag"]=SwgxrMedicDrag::snapshot(c);out["player"]["vital_feedback"]=SwgxrVitalFeedback::snapshot(c->getObjectID());
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
+@@ -0,0 +1,42 @@
++#pragma once
++#include "CoreCuPolicy.h"
++#include "CoreCuProfessions.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/creature/commands/effect/CommandEffect.h"
++#include "templates/params/creature/CreatureState.h"
++#include <array>
++#include <string>
++
++class CoreCuCombat {
++public:
++ static std::array<double,corecu::StatusCount> ratings(CreatureObject* c){
++  std::array<double,corecu::StatusCount> strongest{},total{};
++  if(!c)return total;
++  if(c->isAiAgent()){total.fill(corecu::clamp(c->getLevel()*.5,0,100));return total;}
++  if(!c->isPlayerCreature())return total;
++  Vector<String> skills;c->getSkillList()->getStringList(skills);
++  for(const auto& p:corecu::PROFESSIONS){
++   double progress=0;
++   for(int i=0;i<skills.size();++i){
++    progress+=corecu::progressWeight(p.name,skills.get(i).toCharArray());
++   }
++   for(int i=0;i<corecu::StatusCount;++i){double value=p.ratings[i]*corecu::clamp(progress,0,1);total[i]+=value;strongest[i]=std::max(strongest[i],value);}
++  }
++  for(int i=0;i<corecu::StatusCount;++i)total[i]=corecu::combinedRating(strongest[i],total[i]-strongest[i]);
++  return total;
++ }
++ static int stateIndex(int effect){
++  switch(effect){case CommandEffect::STUN:return corecu::Stun;case CommandEffect::BLIND:return corecu::Blind;
++   case CommandEffect::DIZZY:return corecu::Dizzy;case CommandEffect::INTIMIDATE:return corecu::Intimidate;
++   case CommandEffect::KNOCKDOWN:case CommandEffect::POSTUREUP:case CommandEffect::POSTUREDOWN:return corecu::Knockdown;
++   case CommandEffect::NEXTATTACKDELAY:return corecu::Snare;default:return -1;}
++ }
++ static int dotIndex(uint64 type){switch(type){case CreatureState::BLEEDING:return corecu::Bleed;case CreatureState::POISONED:return corecu::Poison;case CreatureState::DISEASED:return corecu::Disease;case CreatureState::ONFIRE:return corecu::Fire;default:return -1;}}
++ static double rating(CreatureObject* c,int index,double existing=0){return index<0?existing:std::max(existing,ratings(c)[index]);}
++ static JSONSerializationType snapshot(CreatureObject* c){
++  static const char* names[]={"stun","blind","dizzy","intimidate","knockdown","snare","bleed","poison","disease","fire"};
++  auto values=ratings(c);JSONSerializationType out={{"name","CoreCU"},{"version",corecu::VERSION},{"revision",corecu::REVISION}};
++  for(int i=0;i<corecu::StatusCount;++i)out["profession_resistance"][names[i]]={{"rating",values[i]},{"chance_reduction",corecu::statusReduction(values[i])},{"duration_reduction",corecu::statusReduction(values[i])}};
++  return out;
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,3 +1,4 @@
++#include "CoreCuCombat.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+ #define SWGXR_SMUGGLER_H
+@@ -44,13 +45,19 @@
+  static double cooldown(CreatureObject* c,const std::string& ability){auto t=c->getCooldownTime(String(("swgxr_smuggler_"+ability).c_str()));return t?std::max(0.0,-t->miliDifference()/1000.0):0;}
+  static void effects(CreatureObject* attacker,CreatureObject* target,const std::string& ability){
+   if(!target || target->isDead() || target->isIncapacitated())return;
++  const double resistance=CoreCuCombat::rating(target,corecu::Snare,target->getSkillMod("resistance_states"));
++  if((ability=="restraining_shot" || ability=="concussion_shot_improved") && System::random(100)>=corecu::statusChance(100,resistance))return;
++  const int snareDuration=corecu::statusDuration(SwgxrSmugglerPolicy::snareSeconds,resistance);
++  const int concussionDuration=corecu::statusDuration(SwgxrSmugglerPolicy::concussionSeconds,resistance);
++  if(ability=="concussion_shot_improved" && !target->checkCooldownRecovery("corecu_control_recovery"))return;
+   if(ability=="restraining_shot"){
+-   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_restraining_shot"),SwgxrSmugglerPolicy::snareSeconds,BuffType::STATE);Locker lock(buff,target);buff->setSkillModifier("private_swgxr_snare",SwgxrSmugglerPolicy::snarePercent);target->addBuff(buff);
++   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_restraining_shot"),snareDuration,BuffType::STATE);Locker lock(buff,target);buff->setSkillModifier("private_swgxr_snare",SwgxrSmugglerPolicy::snarePercent);target->addBuff(buff);
+   }else if(ability=="concussion_shot_improved"){
+-   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_concussion"),SwgxrSmugglerPolicy::concussionSeconds,BuffType::STATE);Locker lock(buff,target);
+-   if(!target->isRooted()){target->setRootedState(SwgxrSmugglerPolicy::concussionSeconds);buff->setSkillModifier("private_swgxr_concussion_root",1);}
+-   if(!target->isDizzied()){target->setDizziedState(SwgxrSmugglerPolicy::concussionSeconds);buff->setSkillModifier("private_swgxr_concussion_daze",1);}
+-   if(target->setNextAttackDelay(attacker,"swgxr_concussion",0,SwgxrSmugglerPolicy::concussionSeconds))buff->setSkillModifier("private_swgxr_concussion_delay",1);
++   target->addCooldown("corecu_control_recovery",8000);
++   ManagedReference<Buff*> buff=new Buff(target,STRING_HASHCODE("swgxr_concussion"),concussionDuration,BuffType::STATE);Locker lock(buff,target);
++   if(!target->isRooted()){target->setRootedState(concussionDuration);buff->setSkillModifier("private_swgxr_concussion_root",1);}
++   if(!target->isDizzied()){target->setDizziedState(concussionDuration);buff->setSkillModifier("private_swgxr_concussion_daze",1);}
++   if(target->setNextAttackDelay(attacker,"swgxr_concussion",0,concussionDuration))buff->setSkillModifier("private_swgxr_concussion_delay",1);
+    target->addBuff(buff);
+   }
+  }

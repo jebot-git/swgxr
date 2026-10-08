@@ -40,7 +40,15 @@ func _initialize():
  var cave=evaluator.sample(6556,-1305)
  assert(cave.excluded,'Source AEXC cave exclusion missing')
  var cave_chunk=evaluator.build_chunk(6528,-1344,128,64)
- assert(cave_chunk.excluded_cells>0 and cave_chunk.indices.size()<24576)
+ var cave_area:=0.0
+ for i in range(0,cave_chunk.indices.size(),3):
+  var ca:Vector3=cave_chunk.vertices[cave_chunk.indices[i]]
+  var cb:Vector3=cave_chunk.vertices[cave_chunk.indices[i+1]]
+  var cc:Vector3=cave_chunk.vertices[cave_chunk.indices[i+2]]
+  cave_area+=absf((cb-ca).cross(cc-ca).y)*.5
+ # Boundary refinement can add triangles while still removing ground area.
+ assert(cave_chunk.excluded_cells>0 and cave_area<128.0*128.0)
+ report.cave_ground_area=cave_area
  var water=evaluator.sample(6675,5460)
  assert(water.water_enabled and water.water_height==1.0,'Original oasis water table missing')
  report.cave_excluded_cells=cave_chunk.excluded_cells

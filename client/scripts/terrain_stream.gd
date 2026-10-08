@@ -29,6 +29,11 @@ var center := Vector2i(99999, 99999)
 var observer_centers: Array[Vector2i] = []
 var configured := false
 var source_manifest:Dictionary={}
+var modification_catalog:Dictionary={}
+var modification_groups:Dictionary={}
+var modification_revision:=0
+var dirty_chunks:Dictionary={}
+var movement_solver:RefCounted
 var report: Dictionary = {"installed": 0, "discarded": 0, "peak_resident": 0}
 
 func configure(path: String, world_origin: Vector3) -> bool:
@@ -40,12 +45,52 @@ func configure(path: String, world_origin: Vector3) -> bool:
 		push_error("Invalid planet terrain manifest")
 		return false
 	source_manifest=source
+	var modifications_path:="res://../runtime/assets/terrain_modifications/catalog.json"
+	if FileAccess.file_exists(modifications_path):modification_catalog=JSON.parse_string(FileAccess.get_file_as_string(modifications_path))
 	origin = world_origin
 	material = _make_material(source, path.get_base_dir())
 	_make_water(source, path.get_base_dir())
 	configured = true
 	worker.start(_worker_loop)
 	return true
+
+func bind_movement_solver(solver:RefCounted)->void:
+	movement_solver=solver
+
+func set_modification_group(group:String,rows:Array)->void:
+	if not configured:return
+	var next:Array=preload("res://scripts/terrain_modifications.gd").resolve(rows,modification_catalog)
+	var previous:Array=modification_groups.get(group,[])
+	if next==previous:return
+	var next_groups:=modification_groups.duplicate(false)
+	next_groups[group]=next
+	var manifest:=source_manifest.duplicate(false)
+	var all:Array=[]
+	var groups:=next_groups.keys();groups.sort()
+	for key:String in groups:all.append_array(next_groups[key])
+	manifest.modifications=all
+	var replacement:=SwgTerrainEvaluator.new()
+	if not replacement.configure(manifest):return
+	modification_groups=next_groups
+	for entry:Dictionary in previous+next:
+		var bounds:Rect2=entry.bounds
+		for z in range(floori(bounds.position.y/CHUNK_SIZE),floori(bounds.end.y/CHUNK_SIZE)+1):
+			for x in range(floori(bounds.position.x/CHUNK_SIZE),floori(bounds.end.x/CHUNK_SIZE)+1):
+				dirty_chunks[Vector2i(x,z)]=true
+	mutex.lock()
+	evaluator=replacement
+	modification_revision+=1
+	mutex.unlock()
+	if movement_solver!=null:movement_solver.update_terrain_evaluator(evaluator)
+	_queue_missing_chunks()
+
+func _queue_missing_chunks()->void:
+	var pending:Array=[]
+	for key:Vector2i in desired:
+		if not chunks.has(key) or chunks[key].resolution!=desired[key] or dirty_chunks.has(key):
+			pending.append({"key":key,"resolution":desired[key],"revision":modification_revision,"priority":key.distance_squared_to(center)})
+	pending.sort_custom(func(a,b):return a.priority<b.priority)
+	mutex.lock();jobs=pending;mutex.unlock();semaphore.post()
 
 func source_position(local: Vector3) -> Vector2:
 	return Vector2(local.x + origin.x, origin.z - local.z)
@@ -91,8 +136,8 @@ func update_observers(positions: Array) -> void:
 				priorities[key] = mini(priorities.get(key, 2147483647), key.distance_squared_to(focus))
 	var pending: Array = []
 	for key: Vector2i in desired:
-		if not chunks.has(key) or chunks[key].resolution != desired[key]:
-			pending.append({"key": key, "resolution": desired[key], "priority": priorities[key]})
+		if not chunks.has(key) or chunks[key].resolution != desired[key] or dirty_chunks.has(key):
+			pending.append({"key": key, "resolution": desired[key], "priority": priorities[key], "revision":modification_revision})
 	pending.sort_custom(func(a, b): return a.priority < b.priority)
 	mutex.lock()
 	jobs = pending
@@ -115,7 +160,7 @@ func ready_near(local: Vector3, radius := 1) -> bool:
 			if x < -64 or x >= 64 or z < -64 or z >= 64:
 				continue
 			var neighbor := Vector2i(x,z)
-			if not chunks.has(neighbor) or chunks[neighbor].resolution != 64:
+			if not chunks.has(neighbor) or chunks[neighbor].resolution != 64 or dirty_chunks.has(neighbor):
 				return false
 	return configured
 
@@ -124,6 +169,7 @@ func _worker_loop() -> void:
 		mutex.lock()
 		var stop := stopping
 		var job: Dictionary = jobs.pop_front() if not jobs.is_empty() and completed.is_empty() else {}
+		var sampler:=evaluator
 		mutex.unlock()
 		if stop:
 			break
@@ -131,7 +177,7 @@ func _worker_loop() -> void:
 			semaphore.wait()
 			continue
 		var key: Vector2i = job.key
-		var data := evaluator.build_chunk(key.x * CHUNK_SIZE, key.y * CHUNK_SIZE, CHUNK_SIZE, job.resolution)
+		var data := sampler.build_chunk(key.x * CHUNK_SIZE, key.y * CHUNK_SIZE, CHUNK_SIZE, job.resolution)
 		# Backpressure keeps completed mesh data bounded while the main thread installs it.
 		mutex.lock()
 		completed.append({"job": job, "data": data})
@@ -148,7 +194,7 @@ func _process(_delta: float) -> void:
 		return
 	var job: Dictionary = result.job
 	var key: Vector2i = job.key
-	if desired.get(key, 0) != job.resolution:
+	if desired.get(key, 0) != job.resolution or int(job.get("revision",0))!=modification_revision:
 		report.discarded += 1
 		semaphore.post()
 		return
@@ -172,6 +218,7 @@ func _process(_delta: float) -> void:
 	if chunks.has(key):
 		chunks[key].node.queue_free()
 	chunks[key] = {"node": node, "resolution": job.resolution}
+	dirty_chunks.erase(key)
 	_register_combat_chunk(key)
 	report.installed += 1
 	report.peak_resident = maxi(report.peak_resident, chunks.size())

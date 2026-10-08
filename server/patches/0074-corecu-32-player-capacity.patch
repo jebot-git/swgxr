@@ -1,0 +1,25 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -120,7 +120,7 @@
+   std::sort(nearby.begin(),nearby.end(),[](const auto& a,const auto& b){return a.first==b.first?a.second->getObjectID()<b.second->getObjectID():a.first<b.first;});
+   for(auto& entry:nearby){auto o=entry.second;Locker lock(o,c);bool player=o->isPlayerCreature();auto& rows=out[player?"players":"actors"];
+    if(player){auto pc=o->asCreatureObject();if(pc->getPlayerObject()==nullptr || pc->getPlayerObject()->isOffline() || pc->getPlayerObject()->isOnLoadScreen())continue;}
+-   if(rows.size()>=(player?16:96)){out["truncated"]=true;continue;}
++   if(rows.size()>=(player?32:96)){out["truncated"]=true;continue;}
+    Json row=actor(c,o->asTangibleObject(),session);auto op=o->getParent().get();auto root=o->getRootParent();row["cell_id"]=cell?std::to_string(cell):"0";
+    row["heading_radians"]=std::fmod(o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0.f),6.283185307179586);
+    if(o->isCreatureObject()){auto pc=o->asCreatureObject();row["posture"]=int(pc->getPosture());row["dead"]=pc->isDead();row["feigning_death"]=SwgxrSmuggler::feigning(pc);row["incapacitated"]=pc->isIncapacitated() && !pc->isFeigningDeath();row["in_combat"]=pc->isInCombat();row["target_id"]=std::to_string(pc->getTargetID());row["scale"]=pc->getHeight(false);row["ham"]=ham(pc);row["max_ham"]=ham(pc,true);}
+@@ -302,11 +302,11 @@
+   for(auto it=sessions.begin();it!=sessions.end();)if(stamp-it->second.lastSeen>60){SwgxrLiveRecovery::detach(it->first);it=sessions.erase(it);}else ++it;
+   if(verb=="start"){
+    SwgxrPhysicalGuard::clear(c->getObjectID());
+-   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");if(sessions.size()>=16)throw std::runtime_error("session_capacity_16");SwgxrMovement::begin(c);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
++   if(sessions.count(c->getObjectID()))throw std::runtime_error("session_already_active");SwgxrMovement::begin(c);c->setTargetID(0,true);c->getPlayerObject()->setOnLoadScreen(true);Session fresh;fresh.token=token;fresh.lastSeen=stamp;
+    if(request.value("spawn_test_lair",false)){if(SwgxrPlanets::name(c)!="tatooine")throw std::runtime_error("tatooine_test_lair_required");if(c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("test_lair_not_authorized");auto zone=c->getZone();float x=3810,y=-4780,z=zone->getHeight(x,y);auto lair=zone->getCreatureManager()->spawnLair(STRING_HASHCODE("tatooine_worrt_lair_neutral_small"),6,1,x,z,y,20);if(lair==nullptr)throw std::runtime_error("native_lair_spawn_failed");fresh.lair=lair->getObjectID();}
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+-  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
++  auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+   if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update"){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+   out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);}return out;
+  }

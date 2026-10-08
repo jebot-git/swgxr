@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "Derived profiles preserve native raw item stats. Quality selects score, not appearance or legacy AR. Shield/buff balance is separate.",
+  "classes": {
+    "bone": 0, "bounty_hunter": 2, "chitin": 2, "composite": 2,
+    "ithorian_defender": 0, "ithorian_guardian": 1, "ithorian_sentinel": 2,
+    "kashyyykian_black_mtn": 0, "kashyyykian_ceremonial": 1, "kashyyykian_hunting": 2,
+    "mandalorian": 2, "marauder": 0, "marine": 1, "nightsister": 1,
+    "padded": 0, "ris": 0, "singing_mountain_clan": 1, "stormtrooper": 0,
+    "tantel": 1, "ubese": 1, "zam": 1
+  }
+}

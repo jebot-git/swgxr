@@ -68,8 +68,8 @@ Core3.MakePing = 0
 Core3.MakeStatus = 0
 Core3.MakeWeb = 0
 Core3.ZoneProcessingThreads = 4
-Core3.LoginAllowedConnections = 16
-Core3.ZoneAllowedConnections = 32
+Core3.LoginAllowedConnections = 64
+Core3.ZoneAllowedConnections = 64
 Core3.MaxNavMeshJobs = 2
 Core3.DumpObjFiles = 0
 -- Startup association only; source shuttle landing/departure schedules are unchanged.
@@ -116,10 +116,12 @@ Core3.PlayerCreationManager = { EnableTutorial = false }
             if not (CORE/path).exists() or (CORE/path).read_bytes() != desired:
                 (CORE/path).parent.mkdir(parents=True, exist_ok=True)
                 (CORE/path).write_bytes(desired)
+    subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_corecu.py')], check=True)
+    subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_armour_profile.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_crafting_profile.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_chatter.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_gcw.py')], check=True)
-    report = {'profile': 'user_media_ground_planets', 'enabled_planets': list(planets), 'archives': selected,
+    report = {'backend_name': 'CoreCU', 'combat_policy_version': 1, 'upstream': 'SWGEmu Core3', 'profile': 'user_media_ground_planets', 'enabled_planets': list(planets), 'archives': selected,
               'missing_from_standard_core3_profile': [x for x in expected if x not in available],
               'configuration': str(target.relative_to(ROOT)),
               'note': 'Missing standard archives are reported, not synthesized. Runtime validation required.'}

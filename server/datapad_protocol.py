@@ -4,6 +4,7 @@ Waypoints are persistent PlayerObject records, not simulated local inventory.
 Learned draft schematics are distinct from physical manufacturing schematics.
 """
 from functools import lru_cache
+from copy import deepcopy
 from pathlib import Path
 try:
     from .character_protocol import Reader, assets, template_names, crc, parse_iff, cstring, skills
@@ -39,6 +40,29 @@ def count(reader):
     value=reader.u32();reader.u32()
     if value>10000:raise ValueError('Invalid Core3 datapad list size.')
     return value
+
+def owner_summary(result, oid):
+    """Use the existing owned native request; absent is unknown, never zero."""
+    variables = result.get('variables', {})
+    summary = variables.get('player_summary')
+    if summary is None:
+        summary = variables.get('session', {}).get('player_summary')
+    if summary is None:
+        return None
+    return normalize_summary(summary, oid)
+
+def normalize_summary(summary, oid):
+    if (not isinstance(summary, dict) or summary.get('version') != 1
+            or summary.get('character_id') != str(oid)):
+        raise ValueError('Native player summary does not identify the selected character.')
+    summary = deepcopy(summary)
+    rows = list(summary.get('homepoints', {}).values()) + summary.get('armour', {}).get('pieces', [])
+    for row in rows:
+        name = row.get('name', '')
+        if isinstance(name, str) and name.startswith('@') and ':' in name:
+            table, key = name[1:].split(':', 1)
+            row['name'] = display(table, key, key.replace('_', ' ').title())
+    return summary
 
 def datapad(result,oid):
     objects=result.get('variables',{}).get('replication',{}).get('objects',{})
@@ -84,4 +108,5 @@ def datapad(result,oid):
     player = objects.get('o'+str(oid), {})
     return {'backend':'core3','character_id':str(oid),'container_id':container,'entries':waypoints+entries+recipes,'waypoints':waypoints,'schematics':recipes,'physical_entries':entries,'source':'core3_replication','position_space':'swg_world_xyz_y_up',
             'skills':skills(player), 'skills_complete':bool(player.get('baseline1')),
-            'experience':experience,'experience_complete':True}
+            'experience':experience,'experience_complete':True,
+            'player_summary':owner_summary(result, oid)}

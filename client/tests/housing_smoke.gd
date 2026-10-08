@@ -87,6 +87,19 @@ func run()->void:
 	await controller.request("status")
 	check(host.calls[-1].path=="/services/house_status" and host.inventory_snapshot.get("character_id")=="42","Housing routes and inventory reconciliation use native session")
 	controller.busy=true;await controller.request("place",proposal);check(host.calls[-1].path=="/services/house_status","Busy requests never queue delayed placements");controller.busy=false
+	var successful_response:=host.response.duplicate(true)
+	host.response={"ok":false,"error":"native_movement_speed_rejected"}
+	await controller.request("preview",proposal)
+	check(controller.error=="Movement was rejected. Aim at the plot again." and controller.transient_error_until>0,"Movement rejection becomes a bounded placement notice")
+	controller.expire_transient_error(controller.transient_error_until)
+	check(controller.error.is_empty(),"Movement notice clears without a later successful placement")
+	host.response={"ok":false,"error":"Native no-build area"}
+	await controller.request("preview",proposal)
+	controller.expire_transient_error(Time.get_ticks_msec()+10000)
+	check(controller.error=="Native no-build area","Native placement restrictions remain visible")
+	controller.held_changed({})
+	check(controller.error.is_empty(),"Changing held item clears stale placement errors")
+	host.response=successful_response
 	var old:Dictionary=controller.state.duplicate(true);var forged:=host.response.duplicate(true);forged.character_id="99"
 	check(not controller.observe(forged) and controller.state==old,"Foreign character state rejected")
 	host.change_epoch=true;await controller.request("status");check(controller.state==old,"Previous character reply cannot replace housing state");host.change_epoch=false;controller.reset()

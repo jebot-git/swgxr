@@ -113,6 +113,12 @@ func blocks_combat() -> bool:
 
 func set_wallet(value: Dictionary) -> void:
 	var updated: Dictionary={"cash":maxi(int(value.get("cash",0)),0),"bank":maxi(int(value.get("bank",0)),0)}
+	updated.faction_delegation=bool(value.get("faction_delegation",false))
+	updated.faction_points={};updated.faction_limits={}
+	updated.delegation_ratio=maxf(1.0,float(value.get("delegation_ratio",1.0)))
+	for faction in ["imperial","rebel"]:
+		updated.faction_points[faction]=maxi(0,int(value.get("faction_points",{}).get(faction,0)))
+		updated.faction_limits[faction]=maxi(0,int(value.get("faction_limits",{}).get(faction,0)))
 	var changed:=wallet!=updated
 	wallet=updated
 	if is_instance_valid(wallet_readout): wallet_readout.text="WALLET\n%d cr carried\n%d cr bank"%[wallet.cash,wallet.bank]
@@ -133,7 +139,7 @@ func apply_response(response: Dictionary, resolve_pending: bool=true) -> void:
 	if not terminal.is_empty() and str(updated.get("id",""))==str(terminal.get("id","")) and not updated.is_empty() and (terminal.get("kind","")!="delivery" or str(updated.get("mission_id",""))==str(terminal.get("mission_id",""))):
 		var anchor: Variant=terminal.get("position",terminal_origin)
 		var changed:=false
-		for key in ["kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
+		for key in ["front_money","reputation","reward_faction","reward_credits","duration_seconds","tier_minimum","tier_maximum","blocked_reason","tier","eligible","kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
 			if updated.has(key) and updated[key]!=terminal.get(key): changed=true
 		terminal.merge(updated,true);terminal.position=anchor
 		if changed:

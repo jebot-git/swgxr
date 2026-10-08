@@ -70,4 +70,10 @@ func run()->void:
 	check(state.accept(other,"101","owned",6) and not state.players[0].has("physical_posture"),"Native incapacitation always defeats transient physical posture")
 	other=response(7,2);other.poses[0].physical_posture=2;other.poses[0].tracking.head.tracked=false
 	check(state.accept(other,"101","owned",7) and not state.players[0].has("physical_posture"),"Physical posture requires fresh actual head tracking")
+	state.reset();other=response(1);other.world.players=[];other.poses=[]
+	for n in range(32):other.world.players.append({"id":str(1000+n),"position":[n,0,0],"heading_radians":0,"appearance":{},"posture":0,"building_id":"0","cell_index":0})
+	check(state.accept(other,"101","owned",1) and state.players.size()==32,"32 nearby players fit the rendering budget independently of total connected population")
+	other=response(2,2);other.world.players=[];other.poses=[]
+	for n in range(33):other.world.players.append({"id":str(1000+n),"position":[n,0,0],"heading_radians":0,"appearance":{},"posture":0,"building_id":"0","cell_index":0})
+	check(not state.accept(other,"101","owned",2),"Oversized single-response peer list remains bounded during stress testing")
 	print(JSON.stringify({"checks":checks,"errors":errors,"mocked":true,"live_xr":false}));quit(0 if errors.is_empty() else 1)

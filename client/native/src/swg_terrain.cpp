@@ -129,7 +129,8 @@ struct Fractal {
 struct Rule {
     std::string type, ramp;
     Color color = Color(1, 1, 1, 1);
-    bool enabled = true, water = false;
+    bool enabled = true, water = false, passable = true;
+    float passable_threshold = 0;
     int feather_type = 0, family = 0, fractal = 0, operation = 0;
     float amount = 0, low = 0, high = 0, height = 0, radius = 0, width = 0, scale = 1, flat = 0,
           water_height = 0;
@@ -147,6 +148,8 @@ struct Rule {
             color = Color(double(c[0]) / 255, double(c[1]) / 255, double(c[2]) / 255, 1);
         }
         enabled = flag(d, "enabled", true);
+        passable = flag(d, "passable", true);
+        passable_threshold = number(d, "feather_threshold");
         water = flag(d, "water_enabled");
         water_height = number(d, "water_height");
         feather_type = integer(d, "feather_type");
@@ -303,19 +306,34 @@ struct State {
     float height = 0;
     std::map<int, float> shaders;
     int environment = 0;
-    bool excluded = false;
+    bool excluded = false, passable = true;
     float slope = 0, direction = 0, dx = 0, dz = 0;
+};
+struct Modification {
+    float x = 0, z = 0, height = 0, cosine = 1, sine = 0;
+    std::vector<Layer> layers;
+    explicit Modification(const Dictionary &d) {
+        Array p = d["position"];
+        x = double(p[0]); height = double(p[1]); z = double(p[2]);
+        float angle = number(d, "heading_radians");
+        cosine = std::cos(angle); sine = std::sin(angle);
+        Array ls = d["layers"];
+        for (int i = 0; i < ls.size(); ++i) layers.emplace_back(Dictionary(ls[i]));
+    }
 };
 } // namespace
 struct SwgTerrainEvaluator::Impl {
     std::map<std::string, std::vector<Color>> ramps;
     std::map<int, std::unique_ptr<Fractal>> fractals;
     std::vector<Layer> layers;
+    std::vector<Modification> modifications;
     std::vector<Rule> waters;
     std::vector<std::array<float,4>> exclusion_bounds;
     bool global_water = false;
     float water_height = 0;
     float extent = 8192;
+    float tile_width = 4;
+    bool has_passability = false;
     float noise(int id, float x, float z) const {
         auto it = fractals.find(id);
         return it == fractals.end() ? 0 : it->second->value(x, z);
@@ -323,6 +341,7 @@ struct SwgTerrainEvaluator::Impl {
     void collect_water(const Layer &l) {
         if(!l.enabled)return;
         bool exclusion=false;for(const Rule &r:l.affectors)if(r.enabled&&r.type=="AEXC")exclusion=true;
+        for(const Rule &r:l.affectors)if(r.enabled&&r.type=="APAS")has_passability=true;
         if(exclusion) {
             if(l.invert_bounds||l.boundaries.empty())exclusion_bounds.push_back({-INFINITY,-INFINITY,INFINITY,INFINITY});
             else for(const Rule &r:l.boundaries)if(r.enabled)exclusion_bounds.push_back(r.bounds);
@@ -525,8 +544,10 @@ struct SwgTerrainEvaluator::Impl {
                     color_blend(state, ramp_color(r, x, z, state.height), weight, r.operation);
                 else if (r.type == "AENV")
                     state.environment = r.family;
-                else if (r.type == "AEXC" && weight > .5f)
+                else if (r.type == "AEXC" && weight > 0.f)
                     state.excluded = true;
+                else if (r.type == "APAS" && weight >= r.passable_threshold)
+                    state.passable = r.passable;
                 else if (r.type == "AROA") {
                     float ignored = state.height;
                     if (road_height(r, x, z, ignored))
@@ -541,6 +562,18 @@ struct SwgTerrainEvaluator::Impl {
         State s;
         for (const Layer &l : layers)
             traverse(l, x, z, 1, s, false);
+        // Original ClientObjectTerrainModificationNotification installs a
+        // template layer at the placed object's position and heading. Work in
+        // its local coordinates so rotated rectangles/polygons retain their
+        // authored feathering. Native placement supplies the shared plane Y.
+        for (const Modification &m : modifications) {
+            float dx = x - m.x, dz = z - m.z;
+            float lx = dx * m.cosine - dz * m.sine;
+            float lz = dx * m.sine + dz * m.cosine;
+            s.height -= m.height;
+            for (const Layer &l : m.layers) traverse(l, lx, lz, 1, s, false);
+            s.height += m.height;
+        }
         return s.height;
     }
     State evaluate(float x, float z, bool gradient = true) const {
@@ -594,6 +627,7 @@ void SwgTerrainEvaluator::_bind_methods() {
     ClassDB::bind_method(D_METHOD("configure", "manifest"), &SwgTerrainEvaluator::configure);
     ClassDB::bind_method(D_METHOD("sample_height", "swg_x", "swg_z"), &SwgTerrainEvaluator::sample_height);
     ClassDB::bind_method(D_METHOD("sample", "swg_x", "swg_z"), &SwgTerrainEvaluator::sample);
+    ClassDB::bind_method(D_METHOD("movement_sample", "swg_x", "swg_z"), &SwgTerrainEvaluator::movement_sample);
     ClassDB::bind_method(D_METHOD("build_chunk", "swg_min_x", "swg_min_z", "size", "resolution"),
                          &SwgTerrainEvaluator::build_chunk);
 }
@@ -621,15 +655,44 @@ bool SwgTerrainEvaluator::configure(const Dictionary &manifest) {
     Array ls = manifest["layers"];
     for (int i = 0; i < ls.size(); i++)
         fresh->layers.emplace_back(Dictionary(ls[i]));
+    Array modifications = manifest.get("modifications", Array());
+    for (int i = 0; i < modifications.size(); ++i) {
+        Dictionary d = modifications[i];
+        Array p = d.get("position", Array());
+        if (p.size() != 3 || !d.has("layers")) return false;
+        for (int j = 0; j < 3; ++j) if (!std::isfinite(double(p[j]))) return false;
+        if (!std::isfinite(number(d, "heading_radians"))) return false;
+        fresh->modifications.emplace_back(d);
+    }
     for (const auto &l : fresh->layers)
         fresh->collect_water(l);
     fresh->global_water = flag(manifest, "global_water_enabled");
     fresh->water_height = number(manifest, "global_water_height");
     fresh->extent = number(manifest, "size", 16384) / 2;
+    fresh->tile_width = number(manifest,"source_chunk_size",8) / std::max(1,integer(manifest,"source_tiles_per_chunk",2));
+    if(!std::isfinite(fresh->tile_width)||fresh->tile_width<=0)return false;
     impl = std::move(fresh);
     return true;
 }
 double SwgTerrainEvaluator::sample_height(double x, double z) const { return impl ? impl->height(x, z) : 0; }
+Dictionary SwgTerrainEvaluator::movement_sample(double x,double z) const {
+    Dictionary out;
+    if(!impl||!std::isfinite(x)||!std::isfinite(z))return out;
+    const bool in_bounds=x>=-impl->extent&&x<impl->extent&&z>=-impl->extent&&z<impl->extent;
+    bool passable=in_bounds;
+    // The original client stores APAS per leaf tile, sampled at its origin.
+    // Keep this separate from terrain exclusion: an impassable tile still exists.
+    if(passable&&impl->has_passability) {
+        const double tx=std::floor(x/impl->tile_width)*impl->tile_width;
+        const double tz=std::floor(z/impl->tile_width)*impl->tile_width;
+        passable=impl->evaluate(tx,tz).passable;
+    }
+    float water=0;
+    out["passable"]=passable;
+    out["water_enabled"]=impl->water(x,z,water);
+    out["water_height"]=water;
+    return out;
+}
 Dictionary SwgTerrainEvaluator::sample(double x, double z) const {
     Dictionary out;
     if (!impl)
@@ -691,6 +754,14 @@ Dictionary SwgTerrainEvaluator::build_chunk(double x, double z, double size, int
             tints[index] = s.tint;
         }
     int holes = 0;
+    // SWG's leaf tiles are eight-triangle fans on a 3x3 sample grid.
+    // Express that fan as alternating quad diagonals, anchored to world sample
+    // coordinates so independently streamed chunks agree at negative origins.
+    auto fan_diagonal = [&](int col, int row) {
+        const int64_t gx=int64_t(std::llround(x/step))+col;
+        const int64_t gz=int64_t(std::llround(z/step))+row;
+        return ((gx+gz)%2)==0; // a--d, otherwise b--c
+    };
     auto append_sample = [&](const Vector2 &p, const State &state) {
         const int index=vertices.size();
         // Geometry refinement must stay on the original grid surface. Sampling
@@ -701,8 +772,11 @@ Dictionary SwgTerrainEvaluator::build_chunk(double x, double z, double size, int
         const double u=std::clamp(double((p.x-x)/step-col),0.0,1.0);
         const double v=std::clamp(double((p.y-z)/step-row),0.0,1.0);
         const int a=row*n+col,b=a+1,c=a+n,d=c+1;
-        const double height=u+v<=1.0 ? heights[a]+u*(heights[b]-heights[a])+v*(heights[c]-heights[a])
-            : heights[d]+(1.0-v)*(heights[b]-heights[d])+(1.0-u)*(heights[c]-heights[d]);
+        const double height=fan_diagonal(col,row)
+            ? (u>=v ? heights[a]+u*(heights[b]-heights[a])+v*(heights[d]-heights[b])
+                    : heights[a]+v*(heights[c]-heights[a])+u*(heights[d]-heights[c]))
+            : (u+v<=1.0 ? heights[a]+u*(heights[b]-heights[a])+v*(heights[c]-heights[a])
+                        : heights[d]+(1.0-v)*(heights[b]-heights[d])+(1.0-u)*(heights[c]-heights[d]));
         vertices.push_back(Vector3(p.x-x,height,z-p.y));
         normals.push_back(Vector3(-state.dx*2,2,state.dz*2).normalized());
         uv.push_back(p);heights.push_back(height);samples.push_back(state);
@@ -743,12 +817,16 @@ Dictionary SwgTerrainEvaluator::build_chunk(double x, double z, double size, int
         if(cached!=refined.end())return cached->second;
         const int index=append_sample(p,impl->evaluate(p.x,p.y));refined[key]=index;return index;
     };
-    std::function<void(int,int,int,int)> quad;
-    quad = [&](int a,int b,int c,int d) {
+    std::function<void(int,int,int,int,bool)> quad;
+    quad = [&](int a,int b,int c,int d,bool diagonal) {
+        auto emit = [&]() {
+            if(diagonal) {clipped_triangle(a,d,b);clipped_triangle(a,c,d);}
+            else {clipped_triangle(a,c,b);clipped_triangle(b,c,d);}
+        };
         bool potential=false;
         for(const auto &bounds:impl->exclusion_bounds)if(uv[d].x>=bounds[0]&&uv[a].x<=bounds[2]&&uv[d].y>=bounds[1]&&uv[a].y<=bounds[3]) {potential=true;break;}
         const bool all_same=samples[a].excluded==samples[b].excluded && samples[a].excluded==samples[c].excluded && samples[a].excluded==samples[d].excluded;
-        if(!potential) {clipped_triangle(a,c,b);clipped_triangle(b,c,d);return;}
+        if(!potential) {emit();return;}
         const Vector2 middle=(uv[a]+uv[d])*0.5;
         const int center=sample_vertex(middle);
         if(all_same && samples[a].excluded && samples[center].excluded) {holes++;return;}
@@ -757,15 +835,15 @@ Dictionary SwgTerrainEvaluator::build_chunk(double x, double z, double size, int
         if(uv[b].x-uv[a].x>0.1251) {
             const int ab=sample_vertex((uv[a]+uv[b])*0.5),ac=sample_vertex((uv[a]+uv[c])*0.5);
             const int bd=sample_vertex((uv[b]+uv[d])*0.5),cd=sample_vertex((uv[c]+uv[d])*0.5);
-            quad(a,ab,ac,center);quad(ab,b,center,bd);quad(ac,center,c,cd);quad(center,bd,cd,d);return;
+            quad(a,ab,ac,center,diagonal);quad(ab,b,center,bd,diagonal);quad(ac,center,c,cd,diagonal);quad(center,bd,cd,d,diagonal);return;
         }
         if(samples[a].excluded||samples[b].excluded||samples[c].excluded||samples[d].excluded||samples[center].excluded)holes++;
         if(all_same && samples[a].excluded!=samples[center].excluded) {
             clipped_triangle(a,c,center);clipped_triangle(c,d,center);clipped_triangle(d,b,center);clipped_triangle(b,a,center);
-        } else {clipped_triangle(a,c,b);clipped_triangle(b,c,d);}
+        } else {emit();}
     };
     for(int row=0;row<resolution;++row)for(int col=0;col<resolution;++col) {
-        const int a=row*n+col,b=a+1,c=a+n,d=c+1;quad(a,b,c,d);
+        const int a=row*n+col,b=a+1,c=a+n,d=c+1;quad(a,b,c,d,fan_diagonal(col,row));
     }
     out["vertices"] = vertices;
     out["normals"] = normals;
@@ -780,6 +858,7 @@ Dictionary SwgTerrainEvaluator::build_chunk(double x, double z, double size, int
     out["exclusion_boundary_precision_m"] = 0.125 / 16384.0;
     out["exclusion_boundary_sampling_m"] = 0.125;
     out["resolution"] = resolution;
+    out["topology"] = "swg_tile_fan";
     out["size"] = size;
     out["swg_min_x"] = x;
     out["swg_min_z"] = z;

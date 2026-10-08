@@ -43,6 +43,9 @@ class SwgFirstPersonController : public CharacterBody3D {
     bool custom_void_floor = false;
     double void_floor_y = -4096.0;
     Vector2 test_input;
+    Dictionary locomotion_profile;
+    double source_speed = 0;
+    Vector3 source_direction;
 
 protected:
     static void _bind_methods();
@@ -60,6 +63,12 @@ public:
     void set_void_floor_y(double value);
     void clear_void_floor() { custom_void_floor = false; }
     Camera3D *get_camera() const { return camera; }
+    Ref<SwgXRStepSolver> get_step_solver() const { return terrain_solver; }
+    Dictionary get_locomotion_profile() const { return locomotion_profile; }
+    void set_locomotion_profile(const Dictionary &value) {
+        if (value.is_empty() || locomotion_profile.is_empty()) { source_speed = 0; source_direction = Vector3(); }
+        locomotion_profile = value.duplicate(true);
+    }
     double get_camera_pitch() const { return pitch; }
     void set_camera_pitch(double value);
     bool get_third_person() const { return third_person; }

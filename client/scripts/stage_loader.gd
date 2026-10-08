@@ -127,6 +127,7 @@ func make_collision_body(entry: Dictionary, definitions: Dictionary, fallback: S
 		return null
 	var source: Dictionary = definitions.get(str(entry.get("collision_id", "")), {})
 	var portals: Array = []
+	var source_floor: Dictionary = {}
 	var cell: Dictionary = cells.get(str(entry.get("cell_id", "")), {})
 	# Only the cell's authored shell has portal closure faces. Decorations can
 	# share cell membership without becoming eligible for doorway subtraction.
@@ -135,6 +136,12 @@ func make_collision_body(entry: Dictionary, definitions: Dictionary, fallback: S
 		var basis := Basis(Quaternion(float(q[0]),float(q[1]),float(q[2]),float(q[3])).normalized())
 		if entry.has("scale"): basis = basis.scaled(vec(entry.scale, Vector3.ONE))
 		var inverse := Transform3D(basis,vec(entry.get("position", []))).affine_inverse()
+		var floor_vertices: Array = []
+		var original_floor: Array = cell.get("floor_vertices", [])
+		for i in range(0, original_floor.size(), 3):
+			var point := inverse * Vector3(original_floor[i],original_floor[i+1],original_floor[i+2])
+			floor_vertices.append_array([point.x,point.y,point.z])
+		source_floor = {"floor_vertices":floor_vertices,"floor_triangles":cell.get("floor_triangles", [])}
 		for portal: Dictionary in cell.get("portals", []):
 			var local := portal.duplicate()
 			local["exterior_shell"] = bool(cell.get("is_exterior",false))
@@ -145,7 +152,7 @@ func make_collision_body(entry: Dictionary, definitions: Dictionary, fallback: S
 				vertices.append_array([point.x,point.y,point.z])
 			local["vertices"] = vertices
 			portals.append(local)
-	var shapes: Array = collision_builder.build_cell_extent(source.get("extent", {}), portals) if not portals.is_empty() else collision_builder.build_extent(source.get("extent", {}))
+	var shapes: Array = collision_builder.build_cell_extent(source.get("extent", {}), portals, source_floor) if not portals.is_empty() else collision_builder.build_extent(source.get("extent", {}))
 	var authored := not shapes.is_empty()
 	# Keep an explicit compatibility fallback for assets whose source declares
 	# no collision extent; source POB walls with valid extents never use LOD faces.

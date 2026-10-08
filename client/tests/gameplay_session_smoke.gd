@@ -8,6 +8,11 @@ class Vehicles extends Node:
 	func observe(_state:Dictionary)->void:observed+=1
 class Medic extends Node:
 	func tracked_pose()->Dictionary:return {"tracked":true,"hand":[1,2,3],"held":true}
+class GuardRig extends Node:
+	var value:Dictionary={"mode":"none"}
+	var feedback_count:=0
+	func guard_payload(_app:Node,_weapon:Dictionary)->Dictionary:return value.duplicate(true)
+	func guard_feedback(_value:Dictionary)->void:feedback_count+=1
 class Stage extends Node3D:
 	var current_cell:Dictionary={"cell_id":"98:2","building_object_id":"98"}
 class Host extends Node:
@@ -20,6 +25,7 @@ class Host extends Node:
 	var stage:Stage
 	var vehicles:Vehicles
 	var medic:Medic
+	var combat_rig:GuardRig
 	var asset_status:Label
 	var calls:Array=[]
 	var response:Dictionary={"ok":true,"source_kind":"core3_gameplay_session","character_id":"123","session_id":"native-one","session_live":true,"sequence":0,"snapshot":{"vehicles":{},"player":{"ham":[900,800,700],"max_ham":[1000,1000,1000],"wounds":[0,0,0],"posture":0,"dead":false,"incapacitated":false,"shock_wounds":0}}}
@@ -57,6 +63,20 @@ func run()->void:
 	session.busy=true;session._process(.3)
 	check(session.next_update<=0,"Heartbeat clock includes in-flight latency")
 	session.busy=false
+	app.vehicles.driving=false
+	app.combat_rig=GuardRig.new();app.add_child(app.combat_rig)
+	app.combat_rig.value={"mode":"boxing"}
+	await session.update_pose()
+	check(app.calls.back().payload.guard_pose.mode=="boxing" and session.next_update<=.35,"Held guard sends through owned native session at guard cadence")
+	var before:=app.calls.size()
+	session._process(.4)
+	await process_frame
+	check(app.calls.size()==before+1 and session.last_guard_mode=="boxing","Stationary guard refresh bypasses idle heartbeat suppression")
+	app.combat_rig.value={"mode":"none"};session.next_update=1
+	before=app.calls.size();session._process(.01)
+	await process_frame
+	check(app.calls.size()==before+1 and app.calls.back().payload.guard_pose=={"mode":"none"},"Lowering guard sends release without waiting for normal cadence")
+	check(app.combat_rig.feedback_count>=3,"Native receipts feed guard feedback")
 	var foreign:Dictionary=app.response.duplicate(true);foreign.session_id="another"
 	check(not session.accept(foreign) and session.session_id=="native-one","Unsolicited update cannot replace session identity")
 	foreign=app.response.duplicate(true);foreign.character_id="foreign"
@@ -67,7 +87,7 @@ func run()->void:
 	await session.update_pose()
 	check(session.live,"Transient busy response retains session without fabricating a new confirmation")
 	app.response={"ok":false,"error":"gone"};await session.update_pose()
-	check(not session.live and app.asset_status.text=="gone","Persistent lost connection is visible")
+	check(not session.live and not app.asset_status.text.is_empty() and app.asset_status.text==session.last_error,"Persistent lost connection is visible")
 	session.reset();check(session.session_id.is_empty() and not session.live and not session.busy,"Logout reset fences outstanding identity")
 	var budget:=preload("res://scripts/native_poll_budget.gd").new();budget.interval_ms=1000
 	check(budget.admit("a",0,false),"First optional status receives budget")

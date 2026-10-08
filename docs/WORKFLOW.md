@@ -1643,4 +1643,4 @@ accrue and both tools remain recoverable. The initial90-second shutdown wait
 expired while the native process was still closing after its shutdown-complete
 log; it subsequently exited without force, and readback passed after restart.
 The optional restart smoke now permits240 seconds for full process exit before
-starting another database writer. This update has not been deployed to the VPS.
+starting another database writer. The subsequent user-authorized deployment passed live audit and authenticated HTTPS survey-limit verification; see `docs/VPS_DEPLOYMENT.md` (Persistent survey limits).

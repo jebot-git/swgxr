@@ -873,3 +873,26 @@ Validation before deployment included 111 Python tests, the verified native
 build receipt and the previously recorded 400 client checks and 15 native
 loadout policy assertions. No production client payload was published and the
 VR client remained closed.
+
+## Persistent survey limits — 2026-10-08
+
+Committed and pushed current client/server work as `2e154f0`, then deployed the
+verified native survey update to `87.106.27.237`. The nine-file bundle changes
+eight installed files; the matching native client is included for verification.
+Native executable SHA256:
+`4836934a17a18821282ef589a65b6e98259ee507f331c27f91f22f8070e4ca84`.
+
+The server completed graceful save-and-exit before SQL, BerkeleyDB,
+authentication, private configuration and previous-runtime backups were taken at
+`/home/blux/swgxr/runtime/deploy/pre-survey-limits-20261008T200129Z`.
+Post-update audit passed: native readiness, unchanged account/character counts,
+all ten original ground planets, preserved private configuration and the active,
+enabled daily restart timer at 05:00 UTC.
+
+Authenticated certificate-verified HTTPS against the existing disposable tester
+confirmed the deployed native gathering limits: one tool per survey type and a
+100000-unit resource stack maximum. No new live character or VR client launch
+was needed. Before deployment, 50 Python regression tests and the native build
+receipt passed; survey behavior had passed 15 local native checks and six restart
+persistence checks. The old VPS remains offline.
+Receipts: `runtime/deploy/survey-limits-live/{applied,audit-after,tls-health-after}.json`.

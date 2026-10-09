@@ -47,7 +47,7 @@ def refresh(directory):
             except Exception as exc:
                 results[path] = dict(ready=False, error=repr(exc))
         descriptor['incapacitated_pose'] = results[path]
-        failures = [f for f in catalog['failures'] if f.get('template') == descriptor['template'] and f.get('phase') in ('wearable', 'client_data')]
+        failures = [f for f in catalog['failures'] if f.get('template') == descriptor['template'] and f.get('phase') in ('wearable', 'client_data', 'cdf_attachment')]
         descriptor['appearance_complete'] = not failures
         if failures:
             descriptor['appearance_failures'] = failures

@@ -1,0 +1,327 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SquadLeaderPolicy.h
+@@ -0,0 +1,22 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <string>
++namespace corecu { namespace squadleader {
++constexpr double Range=48.;
++struct Ability {const char* id;const char* label;const char* grant;const char* skill;int seconds,cooldown,action,mind;};
++inline const Ability* ability(const std::string& id){
++ static const Ability all[]={{"steady_aim","Steady Aim","steadyaim","outdoors_squadleader_offense_01",12,45,60,30},{"rally","Rally","rally","outdoors_squadleader_support_01",12,60,70,40},{"form_up","Form Up","formup","outdoors_squadleader_defense_01",6,45,60,40},{"boost_morale","Boost Morale","boostmorale","outdoors_squadleader_defense_04",15,90,40,60},{"retreat","Retreat","retreat","outdoors_squadleader_support_03",8,60,80,30}};
++ for(const auto& a:all)if(id==a.id)return &a;return nullptr;
++}
++inline double bounded(double x,double hi){return std::isfinite(x)?std::max(0.,std::min(hi,x)):0.;}
++struct Bonuses {double output=0,regen=0;int melee=0,ranged=0;void merge(const Bonuses& b){output=std::max(output,b.output);regen=std::max(regen,b.regen);melee=std::max(melee,b.melee);ranged=std::max(ranged,b.ranged);}};
++// Original branch grants become bounded useful group benefits. No direct combat
++// expertise is granted to an ungrouped Squad Leader.
++inline Bonuses bonuses(int offense,int mobility,int melee,int ranged,bool master){Bonuses b;b.output=std::min(.10,.02*bounded(offense,4)+(master?.02:0));b.regen=std::min(.10,.02*bounded(mobility,4)+(master?.02:0));b.melee=int(std::ceil(bounded(melee,30)*.5));b.ranged=int(std::ceil(bounded(ranged,30)*.5));return b;}
++inline double output(double passive,bool steady){return 1.+bounded(passive,.10)+(steady?.15:0.);}
++inline double received(bool rally){return rally?.85:1.;}
++inline double regeneration(double passive,bool morale,int attribute){return attribute==3 || attribute==6?1.+bounded(passive,.10)+(morale?.50:0.):1.;}
++inline double movement(bool retreat){return retreat?1.20:1.;}
++inline double status(double base,bool formup){return bounded(base+(formup?20:0),100);}
++} }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSquadLeader.h
+@@ -0,0 +1,71 @@
++#pragma once
++#include "SquadLeaderPolicy.h"
++#include "PistoleerPolicy.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/tangible/weapon/WeaponObject.h"
++#include "server/zone/objects/creature/buffs/Buff.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include <chrono>
++#include <vector>
++class SwgxrSquadLeader {
++ using Json=JSONSerializationType;using Vec=std::array<double,3>;
++ static long long wallMillis(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static Vec position(CreatureObject* c){auto p=c->getWorldPosition();return {{p.getX(),p.getZ(),p.getY()}};}
++ static uint64 cell(CreatureObject* c){auto p=c->getParent().get();return p && p->isCellObject()?p->getObjectID():0;}
++ static String key(const std::string& id){return String(("swgxr_squad_"+id).c_str());}
++ static void recoverAfter(CreatureObject* c,const std::string& id,int seconds){c->addCooldown(key(id),seconds*1000);c->getPlayerObject()->setScreenPlayData("swgxr_squad",String((id+"_until").c_str()),String(std::to_string(wallMillis()+seconds*1000).c_str()));}
++ static int boxes(CreatureObject* c,const char* branch){int n=0;for(int i=1;i<=4;++i)n+=c->hasSkill(String((std::string("outdoors_squadleader_")+branch+"_0"+std::to_string(i)).c_str()))?1:0;return n;}
++ static bool local(CreatureObject* c,CreatureObject* member){return sameParty(c,member) && cell(c)==cell(member) && c->isInRange(member,corecu::squadleader::Range) && CollisionManager::checkLineOfSight(c,member);}
++ static bool affected(CreatureObject* c,const std::string& id){
++  if(!validParty(c) || !c->hasBuff(key(id).hashCode()))return false;
++  auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_squad",String((id+"_source").c_str()));if(raw.isEmpty())return false;
++  uint64 source=0;try{source=std::stoull(raw.toCharArray());}catch(...){return false;}
++  auto group=c->getGroup();for(int i=0;i<group->getGroupSize();++i){ManagedReference<CreatureObject*> member=group->getGroupMember(i);if(member && member->getObjectID()==source){auto epoch=c->getPlayerObject()->getScreenPlayData("swgxr_squad",String((id+"_source_epoch").c_str()));return sameParty(c,member) && learned(member,id) && epoch==member->getPlayerObject()->getScreenPlayData("swgxr_squad","membership_epoch");}}
++  return false;
++ }
++ static void apply(CreatureObject* source,CreatureObject* member,const corecu::squadleader::Ability& a){
++  if(std::string(a.id)=="form_up"){if(member->isDizzied())member->removeStateBuff(CreatureState::DIZZY);if(member->isStunned())member->removeStateBuff(CreatureState::STUNNED);}
++  ManagedReference<Buff*> buff=new Buff(member,key(a.id).hashCode(),a.seconds,BuffType::STATE);Locker lock(buff,member);member->addBuff(buff);
++  member->getPlayerObject()->setScreenPlayData("swgxr_squad",String((std::string(a.id)+"_source").c_str()),String(std::to_string(source->getObjectID()).c_str()));member->getPlayerObject()->setScreenPlayData("swgxr_squad",String((std::string(a.id)+"_source_epoch").c_str()),source->getPlayerObject()->getScreenPlayData("swgxr_squad","membership_epoch"));recoverAfter(member,std::string(a.id)+"_received",a.cooldown);
++ }
++public:
++ static void leave(CreatureObject* c){if(!c || !c->getPlayerObject())return;auto previous=c->getPlayerObject()->getScreenPlayData("swgxr_squad","membership_epoch");uint64 epoch=0;try{epoch=std::stoull(previous.toCharArray());}catch(...){}c->getPlayerObject()->setScreenPlayData("swgxr_squad","membership_epoch",String(std::to_string(epoch+1).c_str()));for(auto id:{"steady_aim","rally","form_up","boost_morale","retreat"})c->removeBuff(key(id).hashCode());}
++ static bool online(CreatureObject* c){return c && c->isPlayerCreature() && c->getPlayerObject() && c->isOnline() && c->getZone() && !c->isDead() && !c->isIncapacitated();}
++ static bool sameParty(CreatureObject* c,CreatureObject* other){auto group=c?c->getGroup():nullptr;return online(c) && online(other) && group && c->getGroupID()!=0 && other->getGroupID()==c->getGroupID() && other->getZone()==c->getZone() && group->hasMember(c) && group->hasMember(other) && other->isHealableBy(c);}
++ static bool validParty(CreatureObject* c){if(!online(c) || !c->getGroup())return false;auto group=c->getGroup();if(!group->hasMember(c))return false;for(int i=0;i<group->getGroupSize();++i){ManagedReference<CreatureObject*> m=group->getGroupMember(i);if(m && m!=c && sameParty(c,m))return true;}return false;}
++ static bool learned(CreatureObject* c,const std::string& id){const auto a=corecu::squadleader::ability(id);return c && a && c->getPlayerObject() && c->hasSkill("outdoors_squadleader_novice") && c->hasSkill(a->skill) && c->getPlayerObject()->hasAbility(a->grant);}
++ static bool equipped(CreatureObject* c){auto w=c?c->getWeapon():nullptr;return w && w->isASubChildOf(c) && !w->isBroken() && w->isCertifiedFor(c);}
++ static corecu::squadleader::Bonuses passives(CreatureObject* c){
++  corecu::squadleader::Bonuses out;if(!validParty(c))return out;auto group=c->getGroup();
++  for(int i=0;i<group->getGroupSize();++i){ManagedReference<CreatureObject*> member=group->getGroupMember(i);if(!sameParty(c,member) || !member->hasSkill("outdoors_squadleader_novice"))continue;out.merge(corecu::squadleader::bonuses(boxes(member,"offense"),boxes(member,"movement"),member->getSkillMod("group_melee_defense"),member->getSkillMod("group_ranged_defense"),member->hasSkill("outdoors_squadleader_master")));}return out;
++ }
++ static double outputDamageScale(CreatureObject* c){return corecu::squadleader::output(passives(c).output,affected(c,"steady_aim"));}
++ static double receivedDamageScale(CreatureObject* c){return corecu::squadleader::received(affected(c,"rally"));}
++ static int defenseBonus(CreatureObject* c,bool ranged){auto p=passives(c);return ranged?p.ranged:p.melee;}
++ static double regenerationScale(CreatureObject* c,int attribute){return corecu::squadleader::regeneration(passives(c).regen,affected(c,"boost_morale"),attribute);}
++ static double movementScale(CreatureObject* c){return corecu::squadleader::movement(affected(c,"retreat"));}
++ static double statusRating(CreatureObject* c,double base){return corecu::squadleader::status(base,affected(c,"form_up"));}
++ static double cooldown(CreatureObject* c,const std::string& id){if(!c || !c->getPlayerObject())return 0;auto t=c->getCooldownTime(key(id));double remaining=t?std::max(0.,-t->miliDifference()/1000.):0.;auto saved=c->getPlayerObject()->getScreenPlayData("swgxr_squad",String((id+"_until").c_str()));if(!saved.isEmpty())try{remaining=std::max(remaining,corecu::squadleader::bounded((std::stoll(saved.toCharArray())-wallMillis())/1000.,120));}catch(...){}return remaining;}
++ static Json snapshot(CreatureObject* c){
++  Json out={{"group_id",std::to_string(c->getGroupID())},{"abilities",Json::array()},{"targets",Json::array()}};auto p=passives(c);out["passives"]={{"active",validParty(c)},{"scope","same_planet"},{"damage_bonus",p.output},{"action_mind_regen_bonus",p.regen},{"melee_defense",p.melee},{"ranged_defense",p.ranged}};
++  // Migrate lingering pre-CU buffs. Their raw accuracy, slope and burst-run
++  // modifiers are neither used nor advertised by the CU implementation.
++  for(auto legacy:{"squadleader","rally","steadyaim","retreat"})if(c->hasBuff(String(legacy).hashCode()))c->removeBuff(String(legacy).hashCode());
++  for(auto id:{"steady_aim","rally","form_up","boost_morale","retreat"}){const auto a=corecu::squadleader::ability(id);if(!learned(c,id))continue;auto buff=c->getBuff(key(id).hashCode());out["abilities"].push_back({{"id",id},{"label",a->label},{"category","support"},{"activation","squadleader_support"},{"friendly_target",true},{"native_authority",true},{"ultimate",false},{"learned",true},{"conditions_met",validParty(c) && equipped(c) && !c->isRidingMount()},{"cooldown_remaining_seconds",cooldown(c,id)},{"cooldown_seconds",a->cooldown},{"duration_seconds",a->seconds},{"range_m",corecu::squadleader::Range},{"max_range_m",corecu::squadleader::Range},{"action_cost",a->action},{"mind_cost",a->mind},{"active",affected(c,id)},{"active_remaining_seconds",affected(c,id) && buff?std::max(0.f,buff->getTimeLeft()):0.},{"description",std::string(id)=="steady_aim"?"Nearby group: +15% direct attack damage for 12 seconds; no raw accuracy bonus.":std::string(id)=="rally"?"Nearby group: take 15% less direct attack damage for 12 seconds.":std::string(id)=="form_up"?"Nearby group: clear stun and dizzy; +20 status resistance rating for 6 seconds within the existing baseline cap.":std::string(id)=="boost_morale"?"Nearby group: +50% existing Action and Mind regeneration for 15 seconds. No immediate healing or wound redistribution.":"Nearby group: +20% voluntary movement speed for 8 seconds. Tracking-driven movement is unchanged."},{"scope","nearby_group"}});}
++  if(!validParty(c) || !c->hasSkill("outdoors_squadleader_novice"))return out;auto group=c->getGroup();for(int i=0;i<group->getGroupSize();++i){ManagedReference<CreatureObject*> m=group->getGroupMember(i);if(!m || m==c)continue;Locker lock(m,c);if(!local(c,m))continue;out["targets"].push_back({{"id",std::to_string(m->getObjectID())},{"name",std::string(m->getFirstName().toCharArray())},{"position",position(m)},{"height_m",double(m->getHeight(false))},{"eligible",true},{"dead",false},{"incapacitated",false}});}return out;
++ }
++ static Json run(CreatureObject* c,const Json& request){
++  auto id=request.at("ability_id").get<std::string>();const auto a=corecu::squadleader::ability(id);auto w=c->getWeapon();if(!a || !learned(c,id) || !validParty(c) || !equipped(c) || c->isRidingMount() || std::to_string(w->getObjectID())!=request.at("item_id").get<std::string>())throw std::runtime_error("native_squadleader_unavailable");
++  auto shot=request.at("shot_id").get<std::string>();if(shot.size()<8 || shot.size()>80)throw std::runtime_error("invalid_shot_id");Json accepted=Json::array();auto saved=c->getPlayerObject()->getScreenPlayData("swgxr_squad","accepted_shots");if(!saved.isEmpty())try{accepted=Json::parse(saved.toCharArray());}catch(...){}if(!accepted.is_array())accepted=Json::array();for(const auto& old:accepted)if(old==shot)throw std::runtime_error("duplicate_shot");if(cooldown(c,id)>0 || cooldown(c,"command")>0)throw std::runtime_error("native_squadleader_cooldown");
++  Vec o{},d{};for(auto field:{"origin","direction"}){const auto& v=request.at(field);if(!v.is_array() || v.size()!=3)throw std::runtime_error("invalid_squadleader_pose");for(int i=0;i<3;++i)if(!v[i].is_number())throw std::runtime_error("invalid_squadleader_pose");}for(int i=0;i<3;++i){o[i]=request["origin"][i].get<double>();d[i]=request["direction"][i].get<double>();}if(!corecu::pistoleer::validPose(o,d,position(c)))throw std::runtime_error("invalid_squadleader_pose");double norm=std::sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);for(auto& component:d)component/=norm;
++  auto targetId=request.at("target_id").get<std::string>();auto group=c->getGroup();ManagedReference<CreatureObject*> target=nullptr;for(int i=0;i<group->getGroupSize();++i){auto m=group->getGroupMember(i);if(m && m!=c && std::to_string(m->getObjectID())==targetId){target=m;break;}}if(!target)throw std::runtime_error("native_squadleader_target_unavailable");
++  {Locker lock(target,c);if(!local(c,target))throw std::runtime_error("native_squadleader_target_unavailable");auto center=position(target);center[1]+=std::max(.5,double(target->getHeight(false))*.5);double along=0,len=0;for(int i=0;i<3;++i){double x=center[i]-o[i];along+=x*d[i];len+=x*x;}if(along<=0 || len-along*along>2.25)throw std::runtime_error("native_squadleader_target_outside_aim");}
++  std::vector<ManagedReference<CreatureObject*>> recipients;for(int i=0;i<group->getGroupSize();++i){ManagedReference<CreatureObject*> m=group->getGroupMember(i);if(!m)continue;Locker lock(m,c);if(local(c,m) && cooldown(m,id+"_received")<=0)recipients.push_back(m);}bool other=false;for(const auto& m:recipients)other=other || m!=c;if(!other)throw std::runtime_error("native_squadleader_no_eligible_recipients");
++  if(!validParty(c) || c->getGroup()!=group || !equipped(c) || c->getWeapon()!=w)throw std::runtime_error("native_squadleader_context_changed");if(c->getHAM(3)<=a->action || c->getHAM(6)<=a->mind)throw std::runtime_error("native_squadleader_insufficient_sac");
++  accepted.push_back(shot);while(accepted.size()>64)accepted.erase(accepted.begin());c->getPlayerObject()->setScreenPlayData("swgxr_squad","accepted_shots",String(accepted.dump().c_str()));recoverAfter(c,id,a->cooldown);recoverAfter(c,"command",2);c->inflictDamage(c,3,a->action,false,true,false);c->inflictDamage(c,6,a->mind,false,true,false);
++  Json affectedIds=Json::array();for(auto m:recipients){Locker lock(m,c);if(!local(c,m) || cooldown(m,id+"_received")>0)continue;apply(c,m,*a);affectedIds.push_back(std::to_string(m->getObjectID()));}
++  return {{"success",true},{"operation","squadleader"},{"ability_id",id},{"shot_id",shot},{"target_id",targetId},{"affected_ids",affectedIds},{"ham_cost_committed",true},{"hit",false},{"damage",0},{"interval_seconds",2}};
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include "CoreCuPolicy.h"
++#include "SwgxrSquadLeader.h"
+ #include "CoreCuProfessions.h"
+ #include "TkaPolicy.h"
+ #include "SwordsmanPolicy.h"
+@@ -95,7 +96,7 @@
+   // when their producer supplied zero or a different defense modifier.
+   if(index==corecu::Poison || index==corecu::Disease)existing=std::max(existing,nativeDefense(c,index));
+   existing=corecu::tka::resistance(corecu::statusBaseline(existing),tkaFocus(c));
+-  return corecu::statusBaseline(corecu::fencer::exposed(corecu::weakenedRating(existing,ratings(c)[index],debuff),index,c->hasBuff(STRING_HASHCODE("swgxr_exposed_thrust"))));
++  return SwgxrSquadLeader::statusRating(c,corecu::fencer::exposed(corecu::weakenedRating(existing,ratings(c)[index],debuff),index,c->hasBuff(STRING_HASHCODE("swgxr_exposed_thrust"))));
+  }
+  static double rating(CreatureObject* c,int index,double existing=0){
+   return corecu::preparedRating(baseline(c,index,existing),preparation(c,index));
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
+@@ -6,7 +6,7 @@
+ // An ultimate must belong to a specific advanced profession. Native command
+ // grants and weapon restrictions remain additional requirements.
+ inline std::string ultimateProfession(const std::string& id) {
+- return id=="overdrive" ? "combat_commando_master" : id=="sniper_shot" ? "combat_rifleman_master" : id=="charge_blast" ? "combat_carbine_master" : id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
++ return id=="volley_fire" ? "outdoors_squadleader_master" : id=="overdrive" ? "combat_commando_master" : id=="sniper_shot" ? "combat_rifleman_master" : id=="charge_blast" ? "combat_carbine_master" : id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
+ }
+ template<class HasSkill>
+ bool ultimateAllowed(const std::string& id,HasSkill hasSkill) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
+@@ -1,6 +1,7 @@
+ #ifndef SWGXR_MOVEMENT_H
+ #define SWGXR_MOVEMENT_H
+ #include "SwgxrPlanets.h"
++#include "SwgxrSquadLeader.h"
+ #include "server/zone/objects/player/PlayerObject.h"
+ #include "MovementBudget.h"
+ #include <chrono>
+@@ -24,7 +25,7 @@
+  static double monotonic(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::map<uint64,Record>& records(){static std::map<uint64,Record> value;return value;}
+  static std::mutex& gate(){static std::mutex value;return value;}
+- static double maxSpeed(CreatureObject* c){return std::max(0.0,double(c->getRunSpeed()*c->getSpeedMultiplierMod()));}
++ static double maxSpeed(CreatureObject* c){return std::max(0.0,double(c->getRunSpeed()*c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)));}
+  static Record read(CreatureObject* c){
+   std::lock_guard<std::mutex> lock(gate());auto it=records().find(c->getObjectID());
+   if(it!=records().end())return it->second;
+@@ -63,12 +64,12 @@
+  static Json snapshot(CreatureObject* c){return {
+   {"controls",controls(c)},{"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
+   {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
+-  {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
+-  {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()},
++  {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
++  {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
+   {"slope_mod_angle_radians",c->getSlopeModAngle()},{"slope_mod_percent",c->getSlopeModPercent()},
+   {"water_mod_percent",c->getWaterModPercent()},{"swim_height",c->getSwimHeight()},
+   {"turn_scale",c->getTurnScale()},{"current_speed",c->getCurrentSpeed()},
+-  {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()},
++  {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
+   {"movement_allowed",c->isMovementAllowed()},{"frozen",c->isFrozen()},{"swimming",c->isSwimming()}};}
+  static void begin(CreatureObject* c){
+   if(!c || !c->isPlayerCreature() || !c->getPlayerObject() || !c->getZone())return;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SteadyaimCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SteadyaimCommand.h
+@@ -15,6 +15,9 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// CoreCU: held-weapon friendly VATS uses the authoritative support bridge.
++		return GENERALERROR;
++
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/RallyCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/RallyCommand.h
+@@ -16,6 +16,9 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// CoreCU: held-weapon friendly VATS uses the authoritative support bridge.
++		return GENERALERROR;
++
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/FormupCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/FormupCommand.h
+@@ -15,6 +15,9 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// CoreCU: held-weapon friendly VATS uses the authoritative support bridge.
++		return GENERALERROR;
++
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/BoostmoraleCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/BoostmoraleCommand.h
+@@ -17,6 +17,9 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// CoreCU: held-weapon friendly VATS uses the authoritative support bridge.
++		return GENERALERROR;
++
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/RetreatCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/RetreatCommand.h
+@@ -51,6 +51,9 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// CoreCU: held-weapon friendly VATS uses the authoritative support bridge.
++		return GENERALERROR;
++
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -3282,7 +3282,7 @@
+         // basis points (500-1500), so read its owner-validated active buff directly.
+         const double metabolic = corecu::doctor::regen(SwgxrDoctorPreparation::strength(getBuff(BuffCRC::getMedicalBuff(2)),2));
+         auto regenerate = [&](int attribute, double& carry) {
+-            const double amount = getBaseHAM(attribute) * CoreCuResources::regen(attribute,isInCombat()) * corecu::medicine::regeneration(getHAM(attribute+2),getBaseHAM(attribute+2)) * elapsed * SwgxrSpice::regenScale(asCreatureObject(),attribute) * metabolic;
++            const double amount = getBaseHAM(attribute) * CoreCuResources::regen(attribute,isInCombat()) * corecu::medicine::regeneration(getHAM(attribute+2),getBaseHAM(attribute+2)) * elapsed * SwgxrSpice::regenScale(asCreatureObject(),attribute) * metabolic * SwgxrSquadLeader::regenerationScale(asCreatureObject(),attribute);
+             return corecu::regeneration::tick(amount, carry, Math::max(0,getMaxHAM(attribute)-getWounds(attribute)-getHAM(attribute)));
+         };
+         healthTick = regenerate(0,corecuHealthRegenCarry);
+--- a/MMOCoreORB/src/server/zone/objects/group/GroupObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/group/GroupObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/SwgxrSquadLeader.h"
+ /*
+  * GroupObjectImplementation.cpp
+  *
+@@ -189,6 +190,8 @@
+ 	info(true) << "Group ID: " << getObjectID() << " Removing Member: " << memberRemoved->getDisplayedName();
+ #endif
+ 
++	SwgxrSquadLeader::leave(memberRemoved);
++
+ 	uint64 memberRemovedID = memberRemoved->getObjectID();
+ 	bool wasLeader = getLeaderID() == memberRemovedID;
+ 
+@@ -404,6 +407,7 @@
+ 
+ 		try {
+ 			Locker clocker(groupMember, _this.getReferenceUnsafeStaticCast());
++			SwgxrSquadLeader::leave(groupMember);
+ 
+ 			if (groupMember->isPlayerCreature()) {
+ 				PlayerObject* ghost = groupMember->getPlayerObject();
+@@ -472,35 +476,10 @@
+ }
+ 
+ void GroupObjectImplementation::addGroupModifiers(CreatureObject* player) {
+-	if (player == nullptr)
+-		return;
+-
+-	Reference<CreatureObject*> leader = getLeader();
+-
+-	if (leader == nullptr)
+-		return;
+-
+-	if (!leader->isPlayerCreature())
+-		return;
+-
+-	int duration = 300;
+-
+-	String action = "squadleader";
+-
+-	if (player->hasBuff(action.hashCode()))
+-		player->removeBuff(action.hashCode());
+-
+-	ManagedReference<SquadLeaderBuff*> buff = new SquadLeaderBuff(player, leader, action.hashCode(), duration);
+-
+-	Locker locker(buff);
+-
+-	buff->setSkillModifier("slope_move", leader->getSkillMod("group_slope_move"));
+-	buff->setSkillModifier("private_group_ranged_defense", leader->getSkillMod("group_ranged_defense"));
+-	buff->setSkillModifier("private_group_melee_defense", leader->getSkillMod("group_melee_defense"));
+-	buff->setSkillModifier("burst_run", leader->getSkillMod("group_burst_run"));
+-	player->addBuff(buff);
+-
+-	buff->addObservers();
++ // CU bonuses are evaluated from current online same-planet group membership.
++ // Retire the old building-limited, renewable slope/burst/defense buff.
++ if (player && player->hasBuff(STRING_HASHCODE("squadleader")))
++  player->removeBuff(STRING_HASHCODE("squadleader"));
+ }
+ 
+ void GroupObjectImplementation::removeGroupModifiers(CreatureObject* player, bool isLeader) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/buffs/SquadLeaderBuff.idl
++++ b/MMOCoreORB/src/server/zone/objects/creature/buffs/SquadLeaderBuff.idl
+@@ -71,20 +71,15 @@
+ 
+ 	@dirty
+ 	public boolean qualifiesForActivation() {
+-		if (!player|| !leader || leader.isDead() || leader.isIncapacitated())
+-			return false;
+-
+-		return SquadLeaderCommand.isValidGroupAbilityTarget(leader, player, false);
+-	}
++        // The pre-CU renewable building aura is retired. Current group bonuses
++        // are evaluated natively from online same-planet membership instead.
++        return false;
++    }
+ 
+ 	@read
+ 	public boolean checkRenew() {
+-		if (!leader || !player || player.getGroupID() != leader.getGroupID()) {
+-			return false;
+-		}
+-
+-		return true;
+-	}
++        return false;
++    }
+ 
+ 	@preLocked
+ 	public void addObservers() {

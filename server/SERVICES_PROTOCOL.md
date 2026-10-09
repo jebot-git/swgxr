@@ -30,7 +30,7 @@ sequence and transport must be reconciled with other persistent session replies.
 - `open`: `terminal_id`; `mission_refresh` uses that original terminal's manager.
   Mission operations use `mission_id`. Acceptance retains original limits,
   professions, objectives and persistence. Destroy, hunting, reconnaissance,
-  delivery and crafting offers are supported. Other original offers remain
+  delivery, crafting and PvE bounty offers are supported. Other original offers remain
   visible with `supported:false` and a `blocked_reason`.
 - Bazaar browsing uses numeric source `category_id` and zero-based `page`.
   Original `AuctionManager::checkItemCategory` filters before 100-row pagination;
@@ -194,3 +194,51 @@ endpoints. Client success, tier and reward claims are never forwarded.
 `preconnected:[{color,cells}]`. Endpoint faces are unit axial normals. The hidden
 solution remains native. Item reservation, expiry, abandonment and lasting slice
 results are native responsibilities; local meshes only present the attempt.
+
+## PvE bounty investigations
+
+Patch `0118-pve-bounty-hunting.patch` connects the existing native mission manager,
+bounty objective, informants and asynchronous droid tasks to services. Bounty
+terminals retain `open`, `mission_refresh`, `mission_accept` and `mission_abort`.
+Novice Bounty Hunter, original mission limits, owned offers and terminal proximity
+remain required. Native generation and acceptance reject player bounties.
+NPC death and reward settlement use the original objective observers; no client
+completion, spawn or reward action exists.
+
+Additional POST service actions require a stable `request_id` and owned character:
+
+| Action | Required intent | Native operation |
+| --- | --- | --- |
+| `bounty_informant` | `target_id` | Contact a nearby eligible original informant for the owned mission. |
+| `bounty_probe` | `item_id`, `search_planet` | Consume an owned probe charge and launch a search on the selected loaded original ground planet. |
+| `bounty_seek` | `item_id` | Consume an owned seeker charge for a local search. |
+| `bounty_track` | `item_id` | Consume an owned seeker charge for learned repeated local tracking. |
+
+`search_planet` is a canonical planet name, separate from `planet`/`zone`, which
+still fence the player's source context. A probe automatically transmits the
+mission's biological signature; there is no public `bounty_transmit` action.
+Owned top-level inventory, learned investigation skills, objective stage,
+outdoor/unmounted use and active task reservations are checked natively.
+Durable service receipts prevent a retry from consuming another charge. Consuming
+actions include the committed inventory through the existing service snapshot
+and attribute fence. The adapter forwards no claimed search result, reward,
+target coordinates, charge count or player-target authority.
+
+`state.bounty` contains `pve_only:true`, `mission_id`, mission `level`/`stage`,
+`signature`, `planet_known`, revealed `planet`, selected `search_planet`, current
+`status`/`message`, `searching`/`tracking`, and a native
+`waypoint:{active,planet,position}`. `planets` lists loaded supported search
+destinations. `droids` contains owned IDs, `kind:probe|seeker`, remaining `uses`
+and native `call_enabled`/`find_enabled`/`track_enabled` flags. Nearby `informants`
+include native identities, appearance/position/cell fields, level and eligibility.
+Optional `probe` state presents the original delivery task; it grants no separate
+client authority. Mission rows carry the same discovery state and expose a
+position only after a native waypoint is revealed.
+
+The client uses the existing inventory trigger, service popup, NPC interaction,
+datapad and map surfaces. The probe's selected planet is part of the actual
+native search. Probe success reveals a planet, while seeker success reveals
+coordinates; original probabilistic failures and timing remain. Cancellation
+invalidates pending tasks and cleans up deployed droids. Persistent mission state
+remains authoritative across sessions; transient task recovery is handled by the
+native objective rather than a client timer.

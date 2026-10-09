@@ -8,7 +8,7 @@ from prepare_inventory import InventoryImporter, ROOT
 class InventoryCacheTests(unittest.TestCase):
     def test_reconversion_repairs_cached_bytes_before_publishing_hash(self):
         with tempfile.TemporaryDirectory() as folder:
-            importer=InventoryImporter(ROOT/'runtime/assets/active_tre',Path(folder))
+            importer=InventoryImporter(ROOT/'runtime/asset_sources/active_tre',Path(folder))
             template='object/weapon/ranged/pistol/pistol_cdef.iff'
             first=importer.convert(template)
             self.assertEqual(first['status'],'ready',first['failures'])

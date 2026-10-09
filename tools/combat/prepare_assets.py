@@ -23,6 +23,10 @@ CURVES = ('translation_x','translation_y','translation_z','rotation_x','rotation
           'distance','shape_size','spread','rate','speed','inherit_velocity','cluster_count','cluster_radius','life','weight')
 
 
+def profile_family(balance, override):
+    return override.get('native_family', balance['classes'][override['class']].get('native_family', ''))
+
+
 def curve(node):
     data = node.children[0].data
     interpolation, sample, count = struct.unpack_from('<3i', data)
@@ -79,9 +83,10 @@ class Assets(StaticAssets):
         if root.tag != 'PEFT': raise ValueError('Unsupported particle appearance '+root.tag)
         for emitter in root.walk('EMTR'):
             version = emitter.children[0]
-            # 0009 and 0011 share the entire decoded prefix; the later ground
-            # collision/LOD extension stays opaque in remaining_source_hex.
-            if version.tag not in ('0009', '0011'): raise ValueError('Unsupported EMTR '+version.tag)
+            # The supplied 0009/0011/0012 emitters share this decoded prefix
+            # and their tagged curves/quad data. Version-specific extensions
+            # remain opaque, byte-for-byte, rather than guessed simulation.
+            if version.tag not in ('0009', '0011', '0012'): raise ValueError('Unsupported EMTR '+version.tag)
             waves = [curve(n) for n in version.children if n.tag=='WVFM']
             if len(waves)!=16: raise ValueError('Unexpected emitter curves')
             data = next(n.data for n in version.children if n.tag=='0000')
@@ -90,7 +95,7 @@ class Assets(StaticAssets):
                 nonlocal pos
                 values = struct.unpack_from('<'+fmt,data,pos);pos += struct.calcsize('<'+fmt)
                 return values[0] if len(values)==1 else list(values)
-            info = {'name':name,'curves':dict(zip(CURVES,waves))}
+            info = {'name':name,'source_version':version.tag,'curves':dict(zip(CURVES,waves))}
             for key, fmt in [('direction','i'),('generation','i'),('shape','i'),('loop_immediately','B'),
                              ('emitter_life_min','f'),('emitter_life_max','f'),('max_particles','f'),
                              ('one_shot','B'),('count_min','i'),('count_max','i'),('random_rotation','B'),
@@ -99,6 +104,9 @@ class Assets(StaticAssets):
             info['sound'],pos = cstring(data,pos)
             info['local_space'] = read('B')
             info['ground_collision'] = read('B'); info['kill_on_collision'] = read('B')
+            for flag in ('loop_immediately','one_shot','random_rotation','visible',
+                         'local_space','ground_collision','kill_on_collision'):
+                if info[flag] not in (0,1): raise ValueError('Unsupported emitter prefix '+flag)
             info['remaining_source_hex'] = data[pos:].hex()
             timing = version.first('PTIM').children[0]
             info['timing'] = list(struct.unpack('<4f2i',timing.data))
@@ -170,9 +178,9 @@ class Assets(StaticAssets):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/combat')
-    args=parser.parse_args(); imp=Assets(args.tre_dir,args.out)
+    args=parser.parse_args(); imp=Assets(args.tre_dir,args.out, bounded_particle_graphs=True)
     balance=json.loads((ROOT/'client/combat/balance.json').read_text())
     rows=datatable(imp.read('datatables/weapon/weapon.iff'));weapons={}
     for key, override in balance['weapons'].items():
@@ -195,7 +203,7 @@ def main():
                 weapons[key]={'kind':'melee','attachment':{'arrangement':arrangement,'slots':slots},'shared_template':shared,
                               'parts':parts,'client_data':client_data,'effects':events}
                 continue
-            muzzle=None
+            muzzle=None; muzzle_metadata={}
             appearance=cstring(properties['appearanceFilename'])[0]
             hp_sources=[part['mesh'] for part in parts]
             while appearance.endswith('.apt'):
@@ -205,9 +213,13 @@ def main():
                 meshroot=parse_iff(imp.read(hp_source))
                 for hp in meshroot.walk('HPNT'):
                     name=cstring(hp.data,48)[0]
-                    if name=='muzzle':
+                    # Original heavy models use muzzle2, including its unusual
+                    # source orientation. Preserve the full transform for the rig.
+                    if name=='muzzle' or (name=='muzzle2' and profile_family(balance, override)=='commando'):
                         matrix=struct.unpack_from('<12f',hp.data)
                         muzzle=[matrix[3],matrix[7],-matrix[11]]
+                        muzzle_metadata={'muzzle_hardpoint':name,'muzzle_source':hp_source,
+                                         'muzzle_source_matrix':list(matrix)}
             if muzzle is None: raise ValueError('Missing original muzzle hardpoint')
             index=struct.unpack_from('<i',properties['weaponEffectIndex'],1)[0]
             effect_id=cstring(properties.get('weaponEffect',b'bolt\0'))[0]
@@ -216,7 +228,7 @@ def main():
             slots=[]
             for arg in parse_iff(imp.read(arrangement)).walk('ARG '):
                 slots.append([s.decode('ascii') for s in arg.data.split(b'\0') if s])
-            record={'attachment':{'arrangement':arrangement,'slots':slots},'shared_template':shared,'parts':parts,'muzzle':muzzle,'effect_row':row,'effects':{}}
+            record={'attachment':{'arrangement':arrangement,'slots':slots},'shared_template':shared,'parts':parts,'muzzle':muzzle,**muzzle_metadata,'effect_row':row,'effects':{}}
             weapons[key]=record
             for phase,column in [('fire','Fire Client Effect'),('hit','Hit (Other) Client Effect'),('hit_creature','Hit (Creature) Client Effect')]:
                 try: record['effects'][phase]=imp.effect(row[column])
@@ -248,6 +260,7 @@ def main():
             'failures':imp.failures+imp.audio_importer.failures,
             'limitations':['Source mesh and texture content retained. Godot lighting is not original SWG shader execution.',
             'Particle descriptions retained; runtime supports quad effects, not original engine pixel equivalence.',
+            'Nested particle attachment motion is flattened; source emitters, textures and explicit omission records are retained.',
             'CEF camera shake intentionally suppressed: effects never drive the tracked head.',
             'CEF light colors, duration and range retained; Godot attenuation differs from the original engine.']}
     (args.out/'assets.json').write_text(json.dumps(output,separators=(',',':')))

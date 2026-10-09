@@ -38,7 +38,7 @@ def main():
     ap.add_argument('--unshield',type=Path,default=None)
     ap.add_argument('--output-root',type=Path,help='Isolated extraction root containing media/, tre/, logs/ and inventory; required for BIN/CUE')
     ap.add_argument('--bootstrap-unshield',action='store_true',help='Build pinned open-source unshield locally if not installed')
-    args=ap.parse_args();images=args.images or sorted(ROOT.glob('LucasArts-StarWarsGalaxiesAnEmpireDivided-*.iso'))
+    args=ap.parse_args();images=args.images or sorted((ROOT/'runtime/asset_sources/media/base').glob('*.iso')) or sorted(ROOT.glob('LucasArts-StarWarsGalaxiesAnEmpireDivided-*.iso'))
     if not images:ap.error('No original LucasArts base ISO images found; pass another installation set explicitly')
     raw=[p for p in images if p.suffix.lower() in ('.bin','.cue')]
     if raw and (len(images)!=1 or args.output_root is None):ap.error('Pass one BIN/CUE with --output-root to isolate its InstallShield cabinets')
@@ -55,10 +55,10 @@ def main():
         subprocess.run(['cmake','--build',str(local/'build'),'-j4'],check=True)
         unshield=local/'build/src/unshield'
     if not unshield:ap.error('Install unshield, pass --unshield PATH, or use --bootstrap-unshield')
-    output=args.output_root.resolve() if args.output_root else ROOT/'runtime/assets'
-    media=output/'media' if args.output_root else ROOT/'runtime/media'
+    output=args.output_root.resolve() if args.output_root else ROOT/'runtime/asset_sources/extracted/base'
+    media=output/'media'
     tre=output/'tre';media.mkdir(parents=True,exist_ok=True);tre.mkdir(parents=True,exist_ok=True)
-    logdir=output/'logs' if args.output_root else ROOT/'runtime/logs';logdir.mkdir(parents=True,exist_ok=True)
+    logdir=output/'logs';logdir.mkdir(parents=True,exist_ok=True)
     sources=[]
     for image in images:
         image=image.resolve()

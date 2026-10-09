@@ -1,0 +1,304 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -43,7 +43,7 @@
+   if(command==nullptr || command->doQueueCommand(c,0,UnicodeString(""))!=QueueCommand::SUCCESS)throw std::runtime_error("native_feign_rejected");
+  }
+  static std::string commandName(const std::string& ability){
+-  if(corecu::marksman::contains(ability) || (corecu::pistoleer::contains(ability) && !corecu::pistoleer::ability(ability).gesture))return "attack";
++  if((corecu::carbineer::contains(ability) && !corecu::carbineer::ability(ability).gesture && !corecu::carbineer::ability(ability).ultimate) || corecu::marksman::contains(ability) || (corecu::pistoleer::contains(ability) && !corecu::pistoleer::ability(ability).gesture))return "attack";
+   if(ability=="lethal_shot")return "overchargeshot2";if(ability=="last_ditch")return "lastditch";if(ability=="low_blow")return "lowblow";
+   if(ability=="restraining_shot" || ability=="concussion_shot_improved" || ability.empty())return "attack";
+   throw std::runtime_error("unsupported_native_ability");
+@@ -56,6 +56,7 @@
+   if(ability.empty())return true;
+   if(corecu::marksman::contains(ability))return SwgxrMarksman::learned(c,ability);
+   if(corecu::pistoleer::contains(ability))return SwgxrPistoleer::learned(c,ability);
++  if(corecu::carbineer::contains(ability))return SwgxrCarbineer::learned(c,ability);
+   if(ability=="last_ditch" && !corecu::ultimateAllowed(ability,[c](const std::string& skill){return c->hasSkill(String(skill.c_str()));}))return false;
+   if(ability=="lethal_shot")return c->hasSkill("combat_marksman_master");
+   if(ability=="restraining_shot")return c->hasSkill("combat_smuggler_novice");
+@@ -98,6 +99,7 @@
+   if(!w || !w->isRangedWeapon())return out;
+   for(const auto& row:SwgxrMarksman::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPistoleer::abilities(c))out.push_back(row);
++  for(const auto& row:SwgxrCarbineer::abilities(c))out.push_back(row);
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -69,7 +69,7 @@
+  }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+-  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);for(auto ability:{"double_tap","disarming_shot","showdown"})out["ability_target_available"][ability]=SwgxrPistoleer::targetReady(ai);out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);for(auto ability:{"double_tap","disarming_shot","showdown"})out["ability_target_available"][ability]=SwgxrPistoleer::targetReady(ai);for(auto ability:{"crippling_shot","wild_shot","charge_shot"})out["ability_target_available"][ability]=SwgxrCarbineer::targetReady(ai);out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+@@ -149,14 +149,14 @@
+   if(!c->getZone())throw std::runtime_error("native_player_zone_unavailable");
+   Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);bool truncated=false;
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+-  SwgxrPistoleer::refresh(c);
++  SwgxrPistoleer::refresh(c);SwgxrCarbineer::refresh(c);
+   for(auto& entry:session.volleys){auto& v=entry.second;if(id(c->getWeapon())!=v.item || SwgxrCombatLoadout::saved(c).at("revision").get<uint64>()!=v.revision || !SwgxrPistoleer::learned(c,"showdown") || !SwgxrCombatLoadout::allows(c,"showdown"))v.invalidated=true;}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",SwgxrPistoleer::interval(c,"")},{"special_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"kind",weapon->isMeleeWeapon()?"melee":"ranged"},{"unarmed",weapon->isUnarmedWeapon()},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["carbineer"]=SwgxrCarbineer::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -233,6 +233,15 @@
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   SwgxrBrawler::refreshBuffs(c);const CombatQueueCommand* command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  if(verb=="carbineer"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
++   for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
++   if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
++   if(SwgxrVehicles::seated(c))throw std::runtime_error("native_carbineer_unavailable");
++   if(request.value("ability_id",std::string())=="charge_blast" && !SwgxrCombatLoadout::allows(c,"charge_blast"))throw std::runtime_error("native_ability_not_equipped");
++   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
++   auto out=SwgxrCarbineer::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++  }
+   if(verb=="pistoleer"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+    for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
+@@ -372,10 +381,10 @@
+    if(!SwgxrSmuggler::learned(c,ability))throw std::runtime_error("native_ability_not_learned");
+    if(!(skill->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_ability_wrong_weapon");
+    if(!skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("native_ability_state");
+-   const bool marksman=corecu::marksman::contains(ability),pistoleer=corecu::pistoleer::contains(ability),showdown=ability=="showdown";
+-   if((marksman && !SwgxrMarksman::compatible(c,ability)) || (pistoleer && (!SwgxrPistoleer::compatible(c) || corecu::pistoleer::ability(ability).gesture)))throw std::runtime_error("native_ability_wrong_weapon");
++   const bool marksman=corecu::marksman::contains(ability),pistoleer=corecu::pistoleer::contains(ability),carbineer=corecu::carbineer::contains(ability),showdown=ability=="showdown";
++   if((marksman && !SwgxrMarksman::compatible(c,ability)) || (pistoleer && (!SwgxrPistoleer::compatible(c) || corecu::pistoleer::ability(ability).gesture)) || (carbineer && (!SwgxrCarbineer::compatible(c) || corecu::carbineer::ability(ability).gesture || corecu::carbineer::ability(ability).ultimate)))throw std::runtime_error("native_ability_wrong_weapon");
+    const auto boundTarget=request.value("target_id",std::string());
+-   if((marksman || pistoleer) && boundTarget.empty())throw std::runtime_error("ability_requires_target");
++   if((marksman || pistoleer || carbineer) && boundTarget.empty())throw std::runtime_error("ability_requires_target");
+    std::string volleyID;int volleyIndex=0;corecu::pistoleer::Volley* volley=nullptr;uint64 revision=0;
+    if(showdown){
+     if(!request.contains("volley_index") || !request.at("volley_index").is_number_integer() || !request.contains("volley_id") || !request.at("volley_id").is_string())throw std::runtime_error("invalid_showdown_volley");
+@@ -394,19 +403,19 @@
+     if(chosen==nullptr || !chosen->isAiAgent() || chosen->getZone()!=c->getZone())throw std::runtime_error("invalid_ability_target");
+     Locker lock(chosen,c);auto victim=chosen->asAiAgent();
+     if(victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c))throw std::runtime_error("ability_target_unavailable");
+-    if((marksman && !SwgxrMarksman::targetReady(victim,ability)) || (pistoleer && !SwgxrPistoleer::targetReady(victim)))throw std::runtime_error("ability_target_unavailable");
++    if((marksman && !SwgxrMarksman::targetReady(victim,ability)) || (pistoleer && !SwgxrPistoleer::targetReady(victim)) || (carbineer && !SwgxrCarbineer::targetReady(victim)))throw std::runtime_error("ability_target_unavailable");
+     if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c) || !skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("ability_conditions_changed");
+    }
+    if(request.contains("two_hands") && !request["two_hands"].is_boolean())throw std::runtime_error("invalid_firing_grip");
+    auto pose=request.value("firing_posture",std::string("standing"));if(pose!="standing" && pose!="crouched" && pose!="prone")throw std::runtime_error("invalid_firing_posture");
+    double gripScale=corecu::projectile::rangeScale(weapon->isPistolWeapon(),request.value("two_hands",!weapon->isPistolWeapon()));
+    double multiplier=ability=="last_ditch"?SwgxrSmuggler::multiplier(c):(ability=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:skill->getDamageMultiplier());
+-   if(marksman)multiplier=SwgxrMarksman::damage(c,ability);if(pistoleer)multiplier=corecu::pistoleer::ability(ability).damage;
++   if(marksman)multiplier=SwgxrMarksman::damage(c,ability);if(pistoleer)multiplier=corecu::pistoleer::ability(ability).damage;if(carbineer)multiplier=corecu::carbineer::ability(ability).damage;
+    if(!volley){
+-    if(marksman || pistoleer){int action=marksman?corecu::marksman::ability(ability).action:corecu::pistoleer::ability(ability).action,mind=marksman?corecu::marksman::ability(ability).mind:corecu::pistoleer::ability(ability).mind;action=corecu::pistoleer::cost(action,SwgxrPistoleer::active(c),ability);mind=corecu::pistoleer::cost(mind,SwgxrPistoleer::active(c),ability);if(c->getHAM(3)<=action || c->getHAM(6)<=mind)throw std::runtime_error("insufficient_ham");c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);}
++    if(marksman || pistoleer || carbineer){int action=marksman?corecu::marksman::ability(ability).action:carbineer?corecu::carbineer::ability(ability).action:corecu::pistoleer::ability(ability).action,mind=marksman?corecu::marksman::ability(ability).mind:carbineer?corecu::carbineer::ability(ability).mind:corecu::pistoleer::ability(ability).mind;action=corecu::pistoleer::cost(action,SwgxrPistoleer::active(c),ability);mind=corecu::pistoleer::cost(mind,SwgxrPistoleer::active(c),ability);if(c->getHAM(3)<=action || c->getHAM(6)<=mind)throw std::runtime_error("insufficient_ham");c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);}
+     else if(ability=="last_ditch"){if(c->getHAM(3)<=1 || c->getHAM(6)<=1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
+     else {SwgxrPreparedRangedCommand launch(*skill);double scale=SwgxrPistoleer::costScale(c,ability);launch.setHealthCostMultiplier(skill->getHealthCostMultiplier()*scale);launch.setActionCostMultiplier(skill->getActionCostMultiplier()*scale);launch.setMindCostMultiplier(skill->getMindCostMultiplier()*scale);CreatureAttackData costs("",&launch,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+-    if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(1000*(pistoleer?corecu::pistoleer::ability(ability).cooldown:marksman?SwgxrMarksman::interval(c,ability):30*SwgxrSpice::cooldownScale(c))));
++    if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(1000*(carbineer?corecu::carbineer::ability(ability).cooldown:pistoleer?corecu::pistoleer::ability(ability).cooldown:marksman?SwgxrMarksman::interval(c,ability):30*SwgxrSpice::cooldownScale(c))));
+    }
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;result["ham_cost_committed"]=!volley;
+    double recovery=SwgxrPistoleer::interval(c,ability);s.nextFire=stamp+std::max(showdown?corecu::pistoleer::VolleySpacing:0.,recovery);result["interval_seconds"]=showdown && volleyIndex<2?corecu::pistoleer::VolleySpacing:recovery;
+@@ -419,10 +428,10 @@
+   auto targetID=request.at("target_id").get<std::string>();if(!shot.target.empty() && targetID!=shot.target)throw std::runtime_error("ability_target_mismatch");auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["contact_authority"]="client";
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage || weapon->getDamageType()!=shot.damageType || weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+   SwgxrConfirmedProjectileCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));double distanceScale=corecu::projectile::damageScale(travel,shot.nearRange,shot.idealRange,shot.range,shot.nearModifier,shot.idealModifier,shot.farModifier,shot.firingPosture);prepaid.setDamageMultiplier(shot.multiplier*distanceScale);result["range_damage_multiplier"]=distanceScale;prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+-  const bool marksman=corecu::marksman::contains(shot.ability),pistoleer=corecu::pistoleer::contains(shot.ability);
++  const bool marksman=corecu::marksman::contains(shot.ability),pistoleer=corecu::pistoleer::contains(shot.ability),carbineer=corecu::carbineer::contains(shot.ability);
+   corecu::pistoleer::Volley* volley=nullptr;if(shot.ability=="showdown"){auto found=s.volleys.find(shot.volley);if(found==s.volleys.end() || found->second.invalidated || c->getWeapon()!=weapon || !SwgxrPistoleer::compatible(c) || !SwgxrPistoleer::learned(c,"showdown") || !SwgxrCombatLoadout::allows(c,"showdown") || SwgxrCombatLoadout::saved(c).at("revision").get<uint64>()!=found->second.revision)throw std::runtime_error("showdown_volley_unavailable");volley=&found->second;}
+-  if((marksman || pistoleer) && (!target->isAiAgent() || target->asAiAgent()->isPet() || target->asAiAgent()->isIncapacitated()))throw std::runtime_error("ability_target_unavailable");
+-  if(marksman || pistoleer)prepaid.setPoolsToDamage(1);
++  if((marksman || pistoleer || carbineer) && (!target->isAiAgent() || target->asAiAgent()->isPet() || target->asAiAgent()->isIncapacitated()))throw std::runtime_error("ability_target_unavailable");
++  if(marksman || pistoleer || carbineer)prepaid.setPoolsToDamage(1);
+   Json before=actor(c,tangible,s);int nativeResult=QueueCommand::SUCCESS,hits=0;
+   const int blows=marksman?corecu::marksman::ability(shot.ability).blows:pistoleer?corecu::pistoleer::ability(shot.ability).blows:1;
+   for(int i=0;i<blows;++i){
+@@ -433,6 +442,7 @@
+   result["resolved_hits"]=hits;
+   if(marksman && target->isCreatureObject())SwgxrMarksman::effects(c,target->asCreatureObject(),shot.ability,before["health"].get<int>()-target->asCreatureObject()->getHAM(0));
+   int landed=target->isCreatureObject()?std::max(0,before["health"].get<int>()-target->asCreatureObject()->getHAM(0)):0;
++  if(carbineer && target->isCreatureObject())SwgxrCarbineer::effects(c,target->asCreatureObject(),shot.ability,landed);
+   if(pistoleer && target->isCreatureObject() && (!volley || volley->effect(landed)))SwgxrPistoleer::effects(c,target->asCreatureObject(),shot.ability,landed);
+ if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
+   result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMarksman.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMarksman.h
+@@ -4,12 +4,13 @@
+ #include "CombatQueueCommand.h"
+ #include "SwgxrSpice.h"
+ #include "SwgxrPistoleer.h"
++#include "SwgxrCarbineer.h"
+ class SwgxrMarksman {
+  using Json=JSONSerializationType;
+ public:
+  static bool bleedImproved(CreatureObject* c){return c->hasSkill("combat_pistol_novice") && c->getPlayerObject() && c->getPlayerObject()->hasAbility("healthShot2");}
+  static double damage(CreatureObject* c,const std::string& id){return id=="bleeding_shot" && bleedImproved(c)?1.:corecu::marksman::ability(id).damage;}
+- static bool learned(CreatureObject* c,const std::string& id){auto a=corecu::marksman::ability(id);return *a.skill && c->hasSkill("combat_marksman_novice") && c->hasSkill(a.skill);}
++ static bool learned(CreatureObject* c,const std::string& id){if(id=="suppression_fire" && SwgxrCarbineer::compatible(c) && SwgxrCarbineer::suppressionTrained(c))return true;auto a=corecu::marksman::ability(id);return *a.skill && c->hasSkill("combat_marksman_novice") && c->hasSkill(a.skill);}
+  static bool compatible(CreatureObject* c,const std::string& id){auto w=c->getWeapon();return w && w->isCertifiedFor(c) && !w->isBroken() && corecu::marksman::compatible(id,w->isRangedWeapon(),w->isPistolWeapon(),w->isCarbineWeapon());}
+  static bool targetReady(CreatureObject* a,const std::string& id){
+   if(!a || !a->isAiAgent() || a->asAiAgent()->isPet() || a->isDead() || a->isIncapacitated())return false;
+@@ -28,6 +29,7 @@
+    Json row={{"id",id},{"label",a.label},{"activation","native_ranged"},{"ultimate",false},{"source_command","attack"},{"native_authority",true},{"sac_policy","fixed"},{"base_sac",{{"health",0},{"action",corecu::pistoleer::cost(a.action,boosted,id)},{"mind",corecu::pistoleer::cost(a.mind,boosted,id)}}},{"conditions_met",source->checkStateMask(c) && source->checkInvalidLocomotions(c)},{"max_range_m",w->getMaxRange()},{"min_range_m",0},{"damage_multiplier",damage(c,id)},{"interval_seconds",SwgxrPistoleer::interval(c,id)},{"hit_count",a.blows},{"cooldown_seconds",interval(c,id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"requires_control_available",a.control},{"excludes_bosses",key=="warning_shot"}};
+    row["weapon_requirement"]=key=="controlled_burst"?"Certified carbine; Marksman Carbine II.":key=="bleeding_shot"?"Certified pistol; Marksman Pistol IV.":"Certified ranged weapon; Marksman support training.";
+    row["description"]=key=="suppression_fire"?"Light hit and -20 enemy accuracy for up to 6 seconds, resisted as Blind. Single target; shared control recovery applies.":key=="warning_shot"?"Merged Threaten/Warning Shot: light hit and a resisted attack hesitation, 2 seconds at Support I or 3 at Support III. Retains enemy threat; bosses immune. Shared control recovery applies.":key=="controlled_burst"?"One aimed contact resolves three 0.65x native damage hits against the selected enemy. Each retains normal dodge/block; Action, Mind and cooldown are paid once. No blind, dizzy or stun.":"Moderate hit and a resisted Health bleed budget of 30% of landed damage over at most 12 seconds. Shares the non-stacking Fencer bleed channel; stronger remaining budget wins. Droids immune.";
++   if(key=="suppression_fire" && SwgxrCarbineer::compatible(c) && SwgxrCarbineer::suppressionTrained(c)){row["carbineer_upgrade"]=true;row["weapon_requirement"]="Certified carbine; Carbineer Suppression Fire II. Marksman support training is optional.";row["description"]="Carbineer upgrade: light hit and -25 enemy accuracy for up to 6 seconds, resisted as Blind. Same Suppression Fire cooldown and shared control recovery.";}
+    if(key=="bleeding_shot"){row["bleed_budget_fraction"]=bleedImproved(c)?.4:.3;row["pistoleer_upgrade"]=bleedImproved(c);if(bleedImproved(c))row["description"]="Pistoleer Health Shot II upgrade: 1.0x direct damage plus a resisted 40% Health bleed budget over at most 12 seconds. Same Bleeding Shot cooldown and shared Fencer channel; stronger remaining budget wins.";}
+    out.push_back(row);
+   }return out;
+@@ -39,13 +41,13 @@
+   int existing=a->getSkillMod(bleed?"bleeding_defense":suppression?"blind_defense":"warcry_defense");
+   double rating=CoreCuCombat::rating(a,bleed?corecu::Bleed:suppression?corecu::Blind:corecu::Snare,existing);
+   if(spec.control)a->addCooldown("corecu_control_recovery",8000);
+-  if(System::random(99)>=corecu::statusChance(85,rating))return;
++  if(System::random(99)>=(spec.control?SwgxrCarbineer::chance(c,rating):corecu::statusChance(85,rating)))return;
+   if(bleed){
+    // Reuse the bounded shared channel, including native cures, absorption and tick-preserving refresh.
+    int budget=corecu::marksman::bleedBudget(damage,bleedImproved(c));
+    if(budget>0)a->addDotState(c,CreatureState::BLEEDING,STRING_HASHCODE("swgxr_fencer_bleed"),budget,0,corecu::marksman::BleedSeconds,-1,existing);
+   }else if(suppression){
+-   ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_suppression_fire"),corecu::statusDuration(corecu::marksman::SuppressionSeconds,rating),BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier("private_accuracy_bonus",-corecu::marksman::AccuracyPenalty);a->addBuff(buff);
++   ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_suppression_fire"),corecu::statusDuration(corecu::marksman::SuppressionSeconds,rating),BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier("private_accuracy_bonus",-(SwgxrCarbineer::compatible(c) && SwgxrCarbineer::suppressionTrained(c)?25:corecu::marksman::AccuracyPenalty));a->addBuff(buff);
+   }else a->setNextAttackDelay(c,"swgxr_warning_shot",0,corecu::statusDuration(corecu::marksman::hesitationSeconds(c->hasSkill("combat_marksman_support_03")),rating));
+  }
+ };
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCarbineer.h
+@@ -0,0 +1,75 @@
++#pragma once
++#include "CarbineerPolicy.h"
++#include "SwgxrTka.h"
++#include "ProjectileContactPolicy.h"
++class SwgxrCarbineer {
++ using Json=JSONSerializationType;
++ static double targetDistance(AiAgent* a,const corecu::warcry::Vec& origin){auto p=a->getWorldPosition();double x=p.getX()-origin[0],y=p.getZ()-origin[1]+std::max(.25,std::min(1.,double(a->getHeight(false))*.65)),z=p.getY()-origin[2];return std::sqrt(x*x+y*y+z*z);}
++ static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& origin,const corecu::warcry::Vec& direction,double range,double cosine){
++  if(!targetReady(a) || a->getZone()!=c->getZone() || !a->isAttackableBy(c))return false;
++  auto p=a->getWorldPosition();double dx=p.getX()-origin[0],dy=p.getZ()-origin[1]+std::max(.25,std::min(1.,double(a->getHeight(false))*.65)),dz=p.getY()-origin[2],distance=targetDistance(a,origin);
++  return distance<=range && (distance<.001 || (dx*direction[0]+dy*direction[1]+dz*direction[2])/distance>=cosine) && CollisionManager::checkLineOfSight(c,a);
++ }
++public:
++ static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isCarbineWeapon() && w->isCertifiedFor(c) && !w->isBroken();}
++ static bool suppressionTrained(CreatureObject* c){return c->hasSkill("combat_carbine_novice") && c->getPlayerObject() && c->getPlayerObject()->hasAbility("suppressionFire2");}
++ static bool learned(CreatureObject* c,const std::string& id){
++  if(!corecu::carbineer::contains(id) || !c->hasSkill("combat_carbine_novice") || !c->getPlayerObject())return false;
++  if(id=="tactical_brace")return c->hasSkill("combat_carbine_ability_02");if(id=="charge_blast")return c->hasSkill("combat_carbine_master");
++  return c->getPlayerObject()->hasAbility(corecu::carbineer::ability(id).grant) || (id=="wild_shot" && c->getPlayerObject()->hasAbility("wildShot2")) || (id=="charge_shot" && c->getPlayerObject()->hasAbility("chargeShot2")) || (id=="full_auto_sweep" && c->getPlayerObject()->hasAbility("fullAutoArea2"));
++ }
++ static bool targetReady(CreatureObject* a){return a && a->isAiAgent() && !a->asAiAgent()->isPet() && !a->isDead() && !a->isIncapacitated();}
++ static bool active(CreatureObject* c){return compatible(c) && learned(c,"tactical_brace") && !c->isDead() && !c->isIncapacitated() && c->hasBuff(STRING_HASHCODE("swgxr_tactical_brace"));}
++ static void refresh(CreatureObject* c){if(!compatible(c) || !learned(c,"tactical_brace") || c->isDead() || c->isIncapacitated())c->removeBuff(STRING_HASHCODE("swgxr_tactical_brace"));}
++ static double chance(CreatureObject* c,double rating,bool wildRank2=false){return corecu::carbineer::chance(rating,active(c),wildRank2);}
++ static bool conditions(CreatureObject* c,const std::string& id){return compatible(c) && !c->isDead() && !c->isIncapacitated() && !c->isRidingMount() && (id!="tactical_brace" || !active(c));}
++ static double cooldown(CreatureObject* c,const std::string& id){auto t=c->getCooldownTime(String(("swgxr_smuggler_"+id).c_str()));return t?std::max(0.,-t->miliDifference()/1000.):0.;}
++ static double interval(CreatureObject* c,const std::string& id){return id=="tactical_brace"?.25:std::max(corecu::carbineer::ability(id).recovery,c->getWeapon()?double(CombatManager::instance()->calculateWeaponAttackSpeed(c,c->getWeapon(),1)):1.5);}
++ static void effects(CreatureObject* c,CreatureObject* a,const std::string& id,int damage){
++  using namespace corecu::carbineer;auto spec=ability(id);if(damage<=0 || !targetReady(a) || spec.effect==None)return;
++  const bool kd=spec.effect==Knockdown,stun=spec.effect==Stun;int immunity=kd?CommandEffect::KNOCKDOWN:stun?CommandEffect::STUN:CommandEffect::NEXTATTACKDELAY;
++  if(a->hasEffectImmunity(immunity) || (hard(spec) && !a->checkCooldownRecovery("corecu_control_recovery")) || (kd && (!a->checkKnockdownRecovery() || a->isKnockedDown())))return;
++  if(hard(spec))a->addCooldown("corecu_control_recovery",8000);
++  double rating=CoreCuCombat::rating(a,kd?corecu::Knockdown:stun?corecu::Stun:corecu::Snare,a->getSkillMod(kd?"knockdown_defense":stun?"stun_defense":"resistance_states"));
++  if(System::random(99)>=chance(c,rating,id=="wild_shot" && c->getPlayerObject() && c->getPlayerObject()->hasAbility("wildShot2")))return;
++  int seconds=corecu::statusDuration(spec.duration,rating);
++  if(kd){a->setPosture(CreaturePosture::KNOCKEDDOWN,false,true);a->addCooldown("knockdownRecovery",8000);a->setPostureChangeDelay(seconds*1000);a->removeBuff(STRING_HASHCODE("burstrun"));a->removeBuff(STRING_HASHCODE("retreat"));ManagedReference<AiAgent*> target=a->asAiAgent();
++   Core::getTaskManager()->scheduleTask([target](){Locker lock(target);if(!target->isDead() && !target->isIncapacitated() && target->isKnockedDown() && !target->hasPostureChangeDelay())target->setPosture(CreaturePosture::UPRIGHT,false,true);},"SwgxrCarbineerStand",seconds*1000+1);
++  }else if(stun)a->setStunnedState(seconds);
++  else {const bool sweep=id=="full_auto_sweep";ManagedReference<Buff*> buff=new Buff(a,sweep?STRING_HASHCODE("swgxr_full_auto_sweep"):STRING_HASHCODE("swgxr_crippling_shot"),seconds,BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier(sweep?"private_carbineer_sweep":"private_carbineer_crippling",spec.slow);a->addBuff(buff);}
++ }
++ static Json snapshot(CreatureObject* c){refresh(c);Json out=Json::object();for(auto id:{"crippling_shot","wild_shot","charge_shot","full_auto_sweep","tactical_brace","charge_blast"}){auto a=corecu::carbineer::ability(id);out[id]={{"learned",learned(c,id)},{"conditions_met",conditions(c,id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"cooldown_seconds",a.cooldown},{"action_cost",a.action},{"mind_cost",a.mind},{"interval_seconds",interval(c,id)}};}
++  auto buff=c->getBuff(STRING_HASHCODE("swgxr_tactical_brace"));auto& row=out["tactical_brace"];row["active"]=active(c);row["active_remaining_seconds"]=active(c) && buff?std::max(0.f,buff->getTimeLeft()):0.;row["duration_seconds"]=corecu::carbineer::BuffSeconds;row["control_chance_bonus"]=corecu::carbineer::BraceBonus;return out;
++ }
++ static Json abilities(CreatureObject* c){Json out=Json::array();if(!compatible(c))return out;auto state=snapshot(c);auto w=c->getWeapon();
++  for(auto id:{"crippling_shot","wild_shot","charge_shot","full_auto_sweep","tactical_brace","charge_blast"}){if(!learned(c,id))continue;auto a=corecu::carbineer::ability(id);auto row=state[id];std::string key=id;
++   row["id"]=id;row["label"]=a.label;row["activation"]=a.gesture?"carbineer_gesture":a.ultimate?"carbineer_ultimate":"native_ranged";row["ultimate"]=a.ultimate;row["native_authority"]=true;row["source_command"]="attack";row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",a.action},{"mind",a.mind}};row["damage_multiplier"]=a.damage;row["hit_count"]=1;row["max_range_m"]=corecu::carbineer::range(a,w->getMaxRange());row["min_range_m"]=0;row["target_cap"]=a.targets;row["ammo_cost"]=corecu::carbineer::area(a)?3:key=="tactical_brace"?0:1;row["control_chance_bonus"]=active(c)?10:0;
++   row["weapon_requirement"]="Certified carbine and corresponding Carbineer training. Movement spread remains unchanged.";
++   row["description"]=key=="crippling_shot"?"Light hit and a resisted 40% movement slow for up to 6 seconds. Strongest active slow wins.":key=="wild_shot"?"Moderate hit and resisted native Stun for up to 3 seconds; reduces combat effectiveness, without freezing movement. Wild Shot II improves application chance.":key=="charge_shot"?"Moderate hit and resisted knockdown for up to 2 seconds; shared control recovery applies.":key=="full_auto_sweep"?"A 75-degree muzzle cone, up to 18 metres and five nearest enemies with line of sight. One 0.5x hit each and a resisted 35% movement slow for up to 4 seconds; strongest slow wins.":key=="tactical_brace"?"For 8 seconds, carbine crowd-control application gains 10 percentage points after resistance, capped at 95%. Durations, immunities and recovery are unchanged.":"A 90-degree muzzle cone, up to 20 metres and six nearest enemies with line of sight. One 0.75x hit each and resisted knockdown for up to 3 seconds; shared control recovery applies.";
++   if(a.gesture){row["category"]="gesture";row["trigger_description"]=key=="full_auto_sweep"?"Support the carbine with both grips and release both triggers. Sweep horizontally, reverse, return forward, then briefly settle.":"Support with both grips and release both triggers. From level, cant into a chest-height ready pose, hold for 0.8 seconds, then return level.";}
++   if(key=="tactical_brace"){row["self_only"]=true;row["required_profession_skill"]="combat_carbine_ability_02";}
++   if(a.ultimate){row["required_profession_skill"]="combat_carbine_master";row["profession_requirement"]="Master Carbineer";row["trigger_description"]="Support the carbine, release both triggers, then press both together. The blast follows the actual muzzle direction.";}
++   out.push_back(row);
++  }return out;
++ }
++ static Json run(CreatureObject* c,const Json& request){
++  auto id=request.at("ability_id").get<std::string>();auto spec=corecu::carbineer::ability(id);refresh(c);auto w=c->getWeapon();
++  if((!spec.gesture && !spec.ultimate) || !learned(c,id) || !conditions(c,id) || std::to_string(w->getObjectID())!=request.at("item_id").get<std::string>() || !w->isASubChildOf(c))throw std::runtime_error("native_carbineer_unavailable");
++  if(!request.contains("two_hands") || !request["two_hands"].is_boolean() || !request["two_hands"].get<bool>())throw std::runtime_error("native_carbineer_requires_support");
++  if(cooldown(c,id)>0)throw std::runtime_error("native_carbineer_cooldown");
++  auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(!source || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c))throw std::runtime_error("native_carbineer_attack_unavailable");
++  auto p=c->getWorldPosition();corecu::warcry::Vec feet{{p.getX(),p.getZ(),p.getY()}},o{},d{};
++  for(auto key:{"origin","direction"}){const auto& v=request.at(key);if(!v.is_array() || v.size()!=3)throw std::runtime_error("invalid_carbineer_pose");for(int i=0;i<3;++i)if(!v[i].is_number())throw std::runtime_error("invalid_carbineer_pose");}
++  for(int i=0;i<3;++i){o[i]=request["origin"][i].get<double>();d[i]=request["direction"][i].get<double>();}if(!corecu::pistoleer::validPose(o,d,feet))throw std::runtime_error("invalid_carbineer_pose");double length=std::sqrt(d[0]*d[0]+d[1]*d[1]+d[2]*d[2]);for(auto& axis:d)axis/=length;
++  if(!request.value("target_id",std::string()).empty())throw std::runtime_error("invalid_carbineer_target");
++  const double range=corecu::carbineer::range(spec,w->getMaxRange()*corecu::projectile::rangeScale(false,true));std::vector<ManagedReference<AiAgent*>> targets;
++  if(corecu::carbineer::area(spec)){SortedVector<TreeEntry*> nearby(32,32);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range+3,&nearby,true);for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent())continue;auto a=obj->asAiAgent();Locker lock(a,c);if(eligible(c,a,o,d,range,spec.cosine))targets.push_back(a);}
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double ad=targetDistance(a,o),bd=targetDistance(b,o);return ad==bd?a->getObjectID()<b->getObjectID():ad<bd;});}
++  if(c->getWeapon()!=w || !conditions(c,id))throw std::runtime_error("native_carbineer_unavailable");
++  if(c->getHAM(3)<=spec.action || c->getHAM(6)<=spec.mind)throw std::runtime_error("native_carbineer_insufficient_sac");c->inflictDamage(c,3,spec.action,false,true,false);c->inflictDamage(c,6,spec.mind,false,true,false);c->addCooldown(String(("swgxr_smuggler_"+id).c_str()),spec.cooldown*1000);
++  Json out={{"success",true},{"operation","carbineer"},{"shot_id",request.at("shot_id")},{"ability_id",id},{"interval_seconds",interval(c,id)},{"ham_cost_committed",true},{"hit",false},{"damage",0},{"targets",Json::array()}};
++  if(id=="tactical_brace"){ManagedReference<Buff*> buff=new Buff(c,STRING_HASHCODE("swgxr_tactical_brace"),corecu::carbineer::BuffSeconds,BuffType::STATE);Locker lock(buff,c);c->addBuff(buff);return out;}
++  int total=0,count=0;for(auto& a:targets){if(count>=spec.targets)break;Locker lock(a,c);if(c->getWeapon()!=w || !eligible(c,a,o,d,range,spec.cosine))continue;SwgxrTkaStrike strike(*source,spec.damage);strike.setRange(int(std::ceil(range+3)));int before=a->getHAM(0);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);int damage=code==QueueCommand::SUCCESS?std::max(0,before-a->getHAM(0)):0;effects(c,a,id,damage);total+=damage;++count;out["targets"].push_back({{"target_id",std::to_string(a->getObjectID())},{"damage",damage},{"native_result",code}});}
++  out["hit"]=total>0;out["damage"]=total;return out;
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CarbineerPolicy.h
+@@ -0,0 +1,23 @@
++#pragma once
++#include "CoreCuPolicy.h"
++#include "PistoleerPolicy.h"
++namespace corecu { namespace carbineer {
++enum Effect { None, Slow, Stun, Knockdown };
++struct Ability {const char* label;const char* grant;double damage,range,cosine,recovery;int action,mind,cooldown,targets,duration,slow;Effect effect;bool gesture,ultimate;};
++inline Ability ability(const std::string& id){
++ if(id=="crippling_shot")return {"Crippling Shot","cripplingShot",.6,0,1,0,55,20,16,1,6,40,Slow,false,false};
++ if(id=="wild_shot")return {"Wild Shot","wildShot1",.7,0,1,0,60,25,18,1,3,0,Stun,false,false};
++ if(id=="charge_shot")return {"Charge Shot","chargeShot1",.8,0,1,0,75,30,24,1,2,0,Knockdown,false,false};
++ if(id=="full_auto_sweep")return {"Full Auto Sweep","fullAutoArea1",.5,18,.793353340291,1.5,90,30,20,5,4,35,Slow,true,false};
++ if(id=="tactical_brace")return {"Tactical Brace","",0,0,1,.25,50,25,60,0,8,0,None,true,false};
++ if(id=="charge_blast")return {"Charge Blast","",.75,20,.707106781187,2,150,80,120,6,3,0,Knockdown,false,true};
++ return {"","",0,0,1,0,0,0,0,0,0,0,None,false,false};
++}
++inline bool contains(const std::string& id){return *ability(id).label;}
++inline bool area(const Ability& a){return a.targets>1;}
++inline bool hard(const Ability& a){return a.effect==Stun || a.effect==Knockdown;}
++inline double chance(double rating,bool brace,bool wildRank2=false){return clamp(statusChance(wildRank2?90:85,rating)+(brace?10:0),0,95);}
++inline double range(const Ability& a,double supported){return std::max(0.,a.range>0?std::min(a.range,supported):supported);}
++inline int strongestSlow(int existing,int crippling,int sweep){return std::min(100,std::max({0,existing,crippling,sweep}));}
++constexpr int BuffSeconds=8, BraceBonus=10;
++}}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
+@@ -6,7 +6,7 @@
+ // An ultimate must belong to a specific advanced profession. Native command
+ // grants and weapon restrictions remain additional requirements.
+ inline std::string ultimateProfession(const std::string& id) {
+- return id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
++ return id=="charge_blast" ? "combat_carbine_master" : id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
+ }
+ template<class HasSkill>
+ bool ultimateAllowed(const std::string& id,HasSkill hasSkill) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -1,4 +1,5 @@
+ #include "server/zone/objects/creature/commands/PikemanPolicy.h"
++#include "server/zone/objects/creature/commands/CarbineerPolicy.h"
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ /*
+  * AiAgentImplementation.cpp
+@@ -2680,7 +2681,7 @@
+ 	if ((walk && movementState != AiAgent::FLEEING) || posture == CreaturePosture::PRONE)
+ 		newSpeed = walkSpeed;
+ 
+-	newSpeed *= 1.f - corecu::pikeman::strongestSlow(getSkillMod("private_swgxr_snare"),getSkillMod("private_swgxr_hamstring"),getSkillMod("private_pikeman_pin"),getSkillMod("private_pikeman_drive")) / 100.f;
++	newSpeed *= 1.f - corecu::carbineer::strongestSlow(corecu::pikeman::strongestSlow(getSkillMod("private_swgxr_snare"),getSkillMod("private_swgxr_hamstring"),getSkillMod("private_pikeman_pin"),getSkillMod("private_pikeman_drive")),getSkillMod("private_carbineer_crippling"),getSkillMod("private_carbineer_sweep")) / 100.f;
+ 
+ 	if (hasState(CreatureState::IMMOBILIZED))
+ 		newSpeed = newSpeed / 2.f;

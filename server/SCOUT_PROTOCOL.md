@@ -76,7 +76,7 @@ Validation: `tests.test_bioengineer_sampling`, `tests.test_scout_protocol`,
 `profession_combat_smoke.gd` and `profession_xr_input_smoke.gd` pass with
 `--headless --xr-mode off` (dummy renderer, mocked tracking/backend). The new
 Core3 patch replays against all predecessors. Original icon provenance is in
-`runtime/combat/abilities/catalog.json`; results and exact limits are recorded in
+`runtime/assets/combat/abilities/catalog.json`; results and exact limits are recorded in
 `runtime/evidence/bioengineer-sampling.json`.
 
 Not deployed or validated in a live headset. Full native compilation and actual
@@ -168,3 +168,55 @@ actual Rescue threat transfer and asynchronous skill-gated tracking.
 final-charge object destruction, receipt replay and exact truncation-count checks
 to an already passing full fixture report. Its zone changes and one-charge setup
 are explicitly administrator prerequisites, not shuttle-travel validation.
+
+## Commando grenades
+
+`/scout/grenade` shares the authenticated Scout request/receipt path and accepts
+`item_id`, `target_id`, source `position`, `request_id` and optional native cell
+context. It never accepts a damage, landing-point or charge claim. The inventory
+and hip tool expose `tool_kind: "grenade"`, `throwable_kind`, native charges,
+`grenade_radius_m` and `grenade_cooldown_seconds`. Targets expose a separate
+`grenade_eligible` flag; trap eligibility remains creature-specific.
+
+Acceptance rechecks owned equipment, its original certification, combat legality,
+32 m reach, LOS, cell, resources and cooldown. It immediately reserves one charge
+and 6% base Action / 2% base Mind, then records a locked native landing position
+with a two-second fuse. The mutation includes `request_id`, `item_id`,
+`target_id`, `landing_position`, `fuse_seconds`, `detonation_at_ms`, `radius_m`,
+`throwable_kind` and `charge_consumed`. State includes `server_time_ms`, remaining
+`grenade_cooldown` and at most one `grenade_pending` receipt. The client uses
+native time plus request latency to keep presentation from extending the fuse.
+
+Shared recovery is 12 seconds, falling to 9 with thrown-speed training. Imperial,
+Thermal and Proton also retain 12/18/24-second family recovery across item swaps.
+The last-charge object stays alive through settlement so its final throw has
+native weapon data and original presentation, then is destroyed. Settlement
+latches the pending receipt before effects: duplicate task/status delivery cannot
+repeat damage. Pending records over ten seconds late expire without an explosion.
+This uses Core3 item/character persistence; it is not a database-wide crash
+transaction across item charges, HAM and the receipt.
+
+Detonation uses the locked point, current eligible enemies, blast LOS and native
+armor/secondary defenses. Up to six targets share bounded damage with radial
+falloff and a 2.5-packet aggregate cap. Cryoban applies a resisted 25% slow for up
+to three seconds; Glop applies up to two seconds of voluntary movement restraint.
+Both use shared eight-second control recovery and at most 105 raw potency.
+Neither adds an armor debuff or poison effect.
+
+## Squad Leader Volley Fire on throwables
+
+Direct `trap` and `grenade` actions may carry the paired `volley_mark_id` and
+`volley_target_id`; the latter must equal their ordinary `target_id`. These are
+references to the thrower's native, unspent party mark, not a client guarantee
+flag. Native range, ownership, supplies and costs are checked before acceptance.
+An accepted throw reserves that member's one guaranteed primary hit and returns
+`volley_consumed`; rejected throws leave it available. Native delayed execution
+remains, and subsequent target movement does not revoke the accepted range
+check. Separate control/DoT resistance still resolves normally.
+
+The guarantee applies to the marked primary target. Grenade collateral retains
+the accepted landing point, normal blast LOS/falloff and aggregate/target caps;
+it does not follow a moving marked enemy. Normal grenade flights and original
+explosion effects therefore retain their native locked landing point. Pure
+status actions and ongoing ticks cannot spend a mark. See the
+[Volley Fire contract](LIVE_COMBAT_PROTOCOL.md#squad-leader-support-and-volley-fire).

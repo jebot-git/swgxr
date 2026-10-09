@@ -56,7 +56,8 @@ def refresh_model_references(root, changes):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--ensure',action='store_true');parser.add_argument('--assets',type=Path,default=ASSETS);args=parser.parse_args()
-    root=args.assets;paths=candidates(root);archives=root/'active_tre';stamp=root/'static_material_state.json'
+    root=args.assets;paths=candidates(root);archives=ROOT/'runtime/asset_sources/active_tre';stamp=ROOT/'runtime/asset_reports/static_material_state.json'
+    stamp.parent.mkdir(parents=True,exist_ok=True)
     current=signature(paths,archives)
     previous=json.loads(stamp.read_text()) if stamp.exists() else {}
     if args.ensure and previous.get('signature')==current and previous.get('failures',1)==0:
@@ -98,7 +99,7 @@ def main():
     updated_catalogs=refresh_model_references(root,hash_changes)
     report={'schema_version':SCHEMA_VERSION,'files_checked':len(paths),'static_surfaces':surface_count,'updated_files':changed,'classification_changes':classification,'failures':failures,'dependencies':dependencies,'geometry_modified':False}
     report['updated_catalogs']=updated_catalogs
-    (root/'static_material_report.json').write_text(json.dumps(report,indent=2))
+    (ROOT/'runtime/asset_reports/static_material_report.json').write_text(json.dumps(report,indent=2))
     stamp.write_text(json.dumps({'schema_version':SCHEMA_VERSION,'signature':signature(paths,archives),'failures':len(failures)},indent=2))
     print(json.dumps({'updated_files':len(changed),'classification_changes':len(classification),'failures':len(failures),'geometry_modified':False}))
     if failures:raise SystemExit(1)

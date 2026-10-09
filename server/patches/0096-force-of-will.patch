@@ -1,0 +1,408 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ForceOfWillPolicy.h
+@@ -0,0 +1,16 @@
++#pragma once
++#include <algorithm>
++#include <cstdint>
++namespace corecu { namespace forceofwill {
++constexpr int CooldownSeconds=600;
++constexpr double HealthFraction=.15;
++inline int recoveredHealth(int current,int maximum,int wounds) {
++ const int effective=std::max(1,maximum-std::max(0,wounds));
++ const int floor=int((int64_t(effective)*15+99)/100);
++ return std::min(effective,std::max(current,floor));
++}
++inline bool eligible(bool learned,bool unarmed,bool incapacitated,bool dead,bool feigning,bool cloning,bool pinned,bool recoveryPending) {
++ return learned && unarmed && incapacitated && !dead && !feigning && !cloning && !pinned && recoveryPending;
++}
++inline double remaining(uint64_t deadline,uint64_t now){return deadline>now?(deadline-now)/1000.:0.;}
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrForceOfWill.h
+@@ -0,0 +1,37 @@
++#pragma once
++#include "ForceOfWillPolicy.h"
++#include "SwgxrSpice.h"
++#include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
++#include <chrono>
++class SwgxrForceOfWill {
++ using Json=JSONSerializationType;
++ static uint64 now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++public:
++ static bool learned(CreatureObject* c){return c->isPlayerCreature() && c->getPlayerObject() && c->hasSkill("combat_unarmed_novice") && c->hasSkill("combat_unarmed_accuracy_04");}
++ static double cooldown(CreatureObject* c){
++  uint64 deadline=0;auto p=c->getPlayerObject();if(p){auto text=p->getScreenPlayData("swgxr_tka","force_of_will_deadline");if(!text.isEmpty())try{deadline=std::stoull(text.toCharArray());}catch(...) {return corecu::forceofwill::CooldownSeconds;}}
++  auto old=c->getCooldownTime("tkaForceOfWill");
++  return std::max(corecu::forceofwill::remaining(deadline,now()),old?std::max(0.,-old->miliDifference()/1000.):0.);
++ }
++ static bool conditions(CreatureObject* c){
++  auto p=c->getPlayerObject();auto w=c->getWeapon();
++  return corecu::forceofwill::eligible(learned(c),w && w->isUnarmedWeapon() && w->isCertifiedFor(c),c->isIncapacitated(),c->isDead(),c->isFeigningDeath() || c->hasBuff(STRING_HASHCODE("private_feign_buff")),!p || p->isCloning() || p->isOnLoadScreen(),SwgxrSpice::pinnedHam(c),c->getPendingTask("incapacitationRecovery")!=nullptr);
++ }
++ static Json snapshot(CreatureObject* c){return {{"learned",learned(c)},{"conditions_met",conditions(c)},{"cooldown_remaining_seconds",cooldown(c)},{"cooldown_seconds",corecu::forceofwill::CooldownSeconds},{"health_fraction",corecu::forceofwill::HealthFraction}};}
++ // Caller owns the creature lock. Both the native command and life route use this path.
++ static void recover(CreatureObject* c){
++  if(!conditions(c))throw std::runtime_error("native_force_of_will_unavailable");
++  if(cooldown(c)>0)throw std::runtime_error("native_force_of_will_cooldown");
++  auto task=c->getPendingTask("incapacitationRecovery");auto p=c->getPlayerObject();
++  p->setScreenPlayData("swgxr_tka","force_of_will_deadline",String(std::to_string(now()+corecu::forceofwill::CooldownSeconds*1000).c_str()));
++  c->addCooldown("tkaForceOfWill",corecu::forceofwill::CooldownSeconds*1000);
++  p->updateToDatabase();
++  task->cancel();c->removePendingTask("incapacitationRecovery");
++  c->setHAM(0,corecu::forceofwill::recoveredHealth(c->getHAM(0),c->getMaxHAM(0),c->getWounds(0)));
++  SwgxrLiveRecovery::touch(c->getObjectID(),false);
++  c->setPosture(CreaturePosture::UPRIGHT,true,true);
++  c->notifyObservers(ObserverEventType::CREATUREREVIVED,nullptr,0);
++  if(p->getForcePowerMax()>0 && p->getForcePower()<p->getForcePowerMax())p->activateForcePowerRegen();
++  c->updateToDatabase();
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include "TkaPolicy.h"
++#include "SwgxrForceOfWill.h"
+ #include <vector>
+ #include "CoreCuCombat.h"
+ #include "CombatQueueCommand.h"
+@@ -52,6 +53,14 @@
+    if(focus){row["self_only"]=true;row["required_profession_skill"]="combat_unarmed_master";row["profession_requirement"]="Master Teras Kasi Artist";}
+    else {auto a=corecu::tka::attack(id);row["category"]="gesture";row["max_range_m"]=a.range;row["max_targets"]=a.targets;row["blows"]=a.blows;}
+    out.push_back(row);
++  }
++  if(SwgxrForceOfWill::learned(c)){
++   auto row=SwgxrForceOfWill::snapshot(c);
++   row["id"]="force_of_will";row["label"]="Force of Will";row["category"]="gesture";row["activation"]="life_recovery";row["ultimate"]=false;row["self_only"]=true;
++   row["description"]="Recover early from incapacitation with at least 15% of effective maximum Health. Ten-minute cooldown persists across relogs. Wounds, fatigue, incapacitation count, threat and Action/Mind remain unchanged. Cannot resurrect.";
++   row["trigger_description"]="While incapacitated, release then hold the offhand stick. Normal recovery starts after 1 second; keep holding for 3 seconds total for Force of Will.";
++   row["weapon_requirement"]="Certified unarmed family only.";row["required_profession_skill"]="combat_unarmed_accuracy_04";row["profession_requirement"]="Teras Kasi, Master Meditative Techniques";
++   row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",0},{"mind",0}};out.push_back(row);
+   }return out;
+  }
+  static void threat(CreatureObject* c,AiAgent* target,int damage,bool challenge=false){if(target && !target->isDead() && target->getThreatMap() && damage>0)target->getThreatMap()->addAggro(c,corecu::tka::threat(damage,challenge));}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ForceOfWillCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ForceOfWillCommand.h
+@@ -1,116 +1,11 @@
+-#include "SwgxrSpice.h"
+-/*
+-				Copyright <SWGEmu>
+-		See file COPYING for copying conditions.*/
+-
+-#ifndef FORCEOFWILLCOMMAND_H_
+-#define FORCEOFWILLCOMMAND_H_
+-
+-#include "templates/params/creature/CreatureAttribute.h"
+-#include "server/zone/objects/creature/buffs/Buff.h"
+-
++/* Copyright <SWGEmu>. See file COPYING for copying conditions. */
++#pragma once
++#include "SwgxrForceOfWill.h"
+ class ForceOfWillCommand : public QueueCommand {
+-
+-	void doDowner(CreatureObject* player, int buffDownerValue, float duration) const {
+-			String buffname = "skill.buff.forceofwill";
+-			uint32 buffcrc = buffname.hashCode();
+-
+-			Reference<Buff*> buff = new Buff(player, buffname.hashCode(), duration, BuffType::SKILL);
+-
+-			Locker locker(buff);
+-
+-			buff->setAttributeModifier(CreatureAttribute::HEALTH, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::STRENGTH, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::CONSTITUTION, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::ACTION, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::QUICKNESS, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::STAMINA, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::MIND, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::FOCUS, -buffDownerValue);
+-			buff->setAttributeModifier(CreatureAttribute::WILLPOWER, -buffDownerValue);
+-			player->addBuff(buff);
+-		}
+-
+ public:
+-
+-	ForceOfWillCommand(const String& name, ZoneProcessServer* server)
+-		: QueueCommand(name, server) {
+-
+-	}
+-
+-
+-	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+-		if (!checkStateMask(creature))
+-			return INVALIDSTATE;
+-
+-		if (!creature->isPlayerCreature())
+-			return GENERALERROR;
+-
+-		CreatureObject* player = cast<CreatureObject*>(creature);
+-
+-		Reference<Task*> incapTask = player->getPendingTask("incapacitationRecovery");
+-
+-		if (!creature->isIncapacitated() || incapTask == nullptr || !incapTask->isScheduled()) {
+-			creature->sendSystemMessage("@teraskasi:forceofwill_fail"); //You must be incapacitated to perform that command.
+-			return GENERALERROR;
+-		}
+-
+-		if (!checkInvalidLocomotions(creature))
+-			return INVALIDLOCOMOTION;
+-
+-		if (!player->checkCooldownRecovery("tkaForceOfWill")) {
+-			player->sendSystemMessage("@teraskasi:forceofwill_lost"); //You have already expired your opportunity for forced recapacitation.
+-			return GENERALERROR;
+-		}
+-
+-		int meditateMod = player->getSkillMod("meditate");
+-		int roll = System::random(100);
+-		int deltaRoll = meditateMod - roll;
+-
+-		//Handle our failures.
+-		if (roll < 5 || roll > meditateMod) {
+-			player->sendSystemMessage("@teraskasi:forceofwill_unsuccessful"); //You are unable to keep yourself centered, and become lost in unconsciousness.
+-			AtomicTime nextExecutionTime;
+-			Core::getTaskManager()->getNextExecutionTime(incapTask, nextExecutionTime);
+-			player->addCooldown("tkaForceOfWill", nextExecutionTime.miliDifference()); //Disable the command until the current incapacitation is up.
+-
+-			return GENERALERROR;
+-		}
+-
+-		//Handle successes.
+-		if (deltaRoll < 10) {
+-			player->addWounds(CreatureAttribute::HEALTH, 100, true, false);
+-			player->addWounds(CreatureAttribute::STRENGTH, 100, true, false);
+-			player->addWounds(CreatureAttribute::CONSTITUTION, 100, true, false);
+-			player->addWounds(CreatureAttribute::ACTION, 100, true, false);
+-			player->addWounds(CreatureAttribute::QUICKNESS, 100, true, false);
+-			player->addWounds(CreatureAttribute::STAMINA, 100, true, false);
+-			player->addWounds(CreatureAttribute::MIND, 100, true, false);
+-			player->addWounds(CreatureAttribute::FOCUS, 100, true, false);
+-			player->addWounds(CreatureAttribute::WILLPOWER, 100, true, false);
+-			player->addShockWounds(100, true);
+-
+-			player->sendSystemMessage("@teraskasi:forceofwill_crit_fail"); //You strain to bring yourself back to consciousness.
+-		} else if (deltaRoll < 40) {
+-			player->addShockWounds(100, true);
+-			doDowner(player, 200, 300);
+-			player->sendSystemMessage("@teraskasi:forceofwill_marginal"); //A strong sense of fatigue overcomes you as you return to consciousness.
+-		} else if (deltaRoll < 70) {
+-			doDowner(player, 100, 120);
+-			player->sendSystemMessage("@teraskasi:forceofwill_normal"); //You recapacitate with a marginal groginess.
+-		} else {
+-			player->sendSystemMessage("@teraskasi:forceofwill_exceptional"); //Through precise focus and concentration, you recapacitate with nominal side effects.
+-		}
+-
+-		player->setPosture(CreaturePosture::UPRIGHT, true);
+-		incapTask->cancel();
+-		player->removePendingTask("incapacitationRecovery");
+-		player->addCooldown("tkaForceOfWill", uint64((3600 * 1000) * SwgxrSpice::cooldownScale(player)));
+-
+-		player->removeFeignedDeath();
+-
+-		return SUCCESS;
+-	}
++ ForceOfWillCommand(const String& name,ZoneProcessServer* server):QueueCommand(name,server){}
++ int doQueueCommand(CreatureObject* c,const uint64& target,const UnicodeString& arguments) const override {
++  try{SwgxrForceOfWill::recover(c);return SUCCESS;}
++  catch(const std::exception& e){c->sendSystemMessage(String(e.what()));return GENERALERROR;}
++ }
+ };
+-
+-#endif //FORCEOFWILLCOMMAND_H_
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/MeditateCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/MeditateCommand.h
+@@ -1,65 +1,9 @@
+-/*
+-				Copyright <SWGEmu>
+-		See file COPYING for copying conditions.*/
+-
+-#ifndef MEDITATECOMMAND_H_
+-#define MEDITATECOMMAND_H_
+-
+-#include "server/zone/objects/creature/CreatureObject.h"
+-#include "server/zone/objects/player/events/MeditateTask.h"
+-
++/* Copyright <SWGEmu>. See file COPYING for copying conditions. */
++#pragma once
+ class MeditateCommand : public QueueCommand {
+ public:
+-
+-	MeditateCommand(const String& name, ZoneProcessServer* server)
+-		: QueueCommand(name, server) {
+-
+-	}
+-
+-	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+-
+-		if (!checkStateMask(creature)) {
+-			creature->sendSystemMessage("@teraskasi:med_fail");
+-			return INVALIDSTATE;
+-		}
+-
+-		if (!checkInvalidLocomotions(creature))
+-			return INVALIDLOCOMOTION;
+-
+-		if (!creature->isPlayerCreature())
+-			return GENERALERROR;
+-
+-		if (creature->isInCombat()) {
+-			creature->sendSystemMessage("@jedi_spam:not_while_in_combat");
+-			return GENERALERROR;
+-		}
+-
+-		// Meditate
+-		CreatureObject* player = cast<CreatureObject*>(creature);
+-
+-		Reference<Task*> task = player->getPendingTask("meditate");
+-
+-		if (task != nullptr) {
+-			player->sendSystemMessage("@jedi_spam:already_in_meditative_state");
+-			return GENERALERROR;
+-		}
+-
+-		// Meditate Task
+-		Reference<MeditateTask*> meditateTask = new MeditateTask(player);
+-		meditateTask->setMoodString(player->getMoodString());
+-		player->sendSystemMessage("@teraskasi:med_begin");
+-
+-		player->setMeditateState();
+-
+-		player->addPendingTask("meditate", meditateTask, 3500);
+-
+-		PlayerManager* playermgr = server->getZoneServer()->getPlayerManager();
+-		player->registerObserver(ObserverEventType::POSTURECHANGED, playermgr);
+-
+-		return SUCCESS;
+-
+-	}
+-
++ MeditateCommand(const String& name,ZoneProcessServer* server):QueueCommand(name,server){}
++ int doQueueCommand(CreatureObject* c,const uint64& target,const UnicodeString& arguments) const override {
++  c->sendSystemMessage("Meditate is retired in SWGXR combat balance.");return GENERALERROR;
++ }
+ };
+-
+-#endif //MEDITATECOMMAND_H_
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/PowerBoostCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/PowerBoostCommand.h
+@@ -1,85 +1,9 @@
+-/*
+-				Copyright <SWGEmu>
+-		See file COPYING for copying conditions.*/
+-
+-#ifndef POWERBOOSTCOMMAND_H_
+-#define POWERBOOSTCOMMAND_H_
+-
+-#include "templates/params/creature/CreatureAttribute.h"
+-#include "server/zone/objects/creature/buffs/PowerBoostBuff.h"
+-
+-#include "server/zone/objects/player/events/ForceMeditateTask.h"
+-
+-
++/* Copyright <SWGEmu>. See file COPYING for copying conditions. */
++#pragma once
+ class PowerBoostCommand : public QueueCommand {
+ public:
+-
+-	PowerBoostCommand(const String& name, ZoneProcessServer* server)
+-		: QueueCommand(name, server) {
+-	}
+-
+-	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+-
+-		if (!checkStateMask(creature))
+-			return INVALIDSTATE;
+-
+-		if (!creature->isPlayerCreature())
+-			return GENERALERROR;
+-
+-		//return GENERALERROR;
+-
+-		//TODO: fix powerboost cancel
+-
+-		// Replaced INVALIDLOCOMOTION check to return message if user is not meditating.
+-		if(!creature->isMeditating()) {
+-			creature->sendSystemMessage("@teraskasi:powerboost_fail"); // You must be meditating to perform that command.
+-			return GENERALERROR;
+-
+-		}
+-		// check if user is FORCE meditating as Jedi instead of just regular TK meditate.
+-		Reference<ForceMeditateTask*> medTask = creature->getPendingTask("forcemeditate").castTo<ForceMeditateTask*>();
+-
+-		if (medTask != nullptr) {
+-			creature->sendSystemMessage("@error_message:wrong_state"); // You cannot complete that action while in your current state.
+-			return GENERALERROR;
+-		}
+-
+-		CreatureObject* player = cast<CreatureObject*>(creature);
+-
+-		uint32 buffcrc = BuffCRC::SKILL_BUFF_POWERBOOST;
+-
+-		if(player->hasBuff(buffcrc)) {
+-			player->sendSystemMessage("@teraskasi:powerboost_active"); // [meditation] You are unable to channel your energies any further.
+-			return GENERALERROR;
+-		}
+-
+-		int baseMind = player->getBaseHAM(CreatureAttribute::MIND);
+-
+-		int pbBonus = baseMind / 2;
+-
+-		int meditateMod = player->getSkillMod("meditate");
+-
+-		/*
+-		 * Taken from scrapbook
+-		 * Duration: 5 min + (meditate skill mod/100 * 5min)
+-		 */
+-		int duration = 300 + ((meditateMod/100) * 300);
+-
+-		if(player->getHAM(CreatureAttribute::MIND) <= pbBonus) {
+-			player->sendSystemMessage("@teraskasi:powerboost_mind"); // [mediation] You currently lack the mental capacity to focus your energies.
+-			return GENERALERROR;
+-		}
+-
+-		String buffname = "skill.buff.powerboost";
+-		ManagedReference<Buff*> buff = new PowerBoostBuff(player, buffname, buffname.hashCode(), pbBonus, duration);
+-
+-		Locker locker(buff);
+-
+-		player->addBuff(buff);
+-
+-		return SUCCESS;
+-	}
+-
++ PowerBoostCommand(const String& name,ZoneProcessServer* server):QueueCommand(name,server){}
++ int doQueueCommand(CreatureObject* c,const uint64& target,const UnicodeString& arguments) const override {
++  c->sendSystemMessage("Power Boost is retired in SWGXR combat balance.");return GENERALERROR;
++ }
+ };
+-
+-#endif //POWERBOOSTCOMMAND_H_
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -153,7 +153,7 @@
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -205,6 +205,7 @@
+   if(verb=="session"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");auto q=request.at("session");if(SwgxrVehicles::seated(c) && q.value("action",std::string())=="logout"){auto original=q;SwgxrVehicles::detach(c);auto where=SwgxrServices::sessionState(c,Json::object())["location"];for(auto key:{"position","building_id","cell_index","heading_radians"})q[key]=where[key];q["receipt_request"]=original;}return SwgxrServices::sessionState(c,q);}
+   if(verb=="life"){
+    auto action=request.at("life_action").get<std::string>();result["life_action"]=action;
++   if(action=="force_of_will"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");SwgxrForceOfWill::recover(c);return result;}
+    if(action=="recover"){
+     if(!c->isIncapacitated() || c->isDead())throw std::runtime_error("native_player_not_incapacitated");if(!SwgxrLiveRecovery::request(c->getObjectID()))throw std::runtime_error("recovery_session_unavailable");
+     if(c->getPendingTask("incapacitationRecovery")==nullptr){auto task=new PlayerIncapacitationRecoverTask(c,false);c->addPendingTask("incapacitationRecovery",task,250);}return result;
+--- a/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/skill/SkillManager.cpp
+@@ -228,7 +228,7 @@
+ }
+ 
+ void SkillManager::addAbility(PlayerObject* ghost, const String& abilityName, bool notifyClient) {
+-    if(corecu::medicine::retired(abilityName.toCharArray()))return;
++    if(corecu::medicine::retired(abilityName.toCharArray()) || abilityName.toLowerCase()=="meditate" || abilityName.toLowerCase()=="powerboost")return;
+ 	if (ghost == nullptr) {
+ 		return;
+ 	}

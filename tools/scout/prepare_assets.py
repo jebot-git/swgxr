@@ -7,10 +7,14 @@ sys.path.insert(0,str(ROOT/'tools/assets'))
 from swg_formats import TreSet,parse_iff,cstring
 from interior_layout import template_properties
 from source_metadata import build as source_metadata
-sources=TreSet(ROOT/'runtime/assets/active_tre');provenance={}
+sources=TreSet(ROOT/'runtime/asset_sources/active_tre');provenance={}
 def read(path):
  raw=sources.read(path);provenance[path]={'sha256':hashlib.sha256(raw).hexdigest(),'bytes':len(raw),'archive':sources.entries[path][0].name};return raw
 templates=set();camps={};failures=[]
+# Grenades share the physical trap grip/throw path. Only the original supported
+# certified families are imported; generic poison/fallback supplies stay outside it.
+templates.update('object/weapon/ranged/grenade/grenade_'+name+'.iff' for name in (
+ 'fragmentation_light','fragmentation','cryoban','glop','imperial_detonator','thermal_detonator','proton'))
 for folder in ['object/tangible/scout','object/tangible/camp']:
  for p in (SCRIPTS/folder).rglob('*.lua'):
   if p.stem not in ('objects','serverobjects'):templates.add(str(p.relative_to(SCRIPTS)).replace('.lua','.iff'))
@@ -33,6 +37,7 @@ args=[sys.executable,str(ROOT/'tools/assets/prepare_inventory.py')]
 for template in sorted(templates):args+=['--template',template.replace('/shared_','/')]
 subprocess.run(args,check=True,cwd=ROOT)
 subprocess.run([sys.executable,str(ROOT/'tools/combat/prepare_abilities.py')],check=True,cwd=ROOT)
+subprocess.run([sys.executable,str(ROOT/'tools/combat/prepare_grenades.py')],check=True,cwd=ROOT)
 metadata=source_metadata(read,json.loads((ROOT/'runtime/assets/inventory/catalog.json').read_text()),provenance)
 failures.extend(metadata.pop('failures'))
 out=ROOT/'runtime/assets/scout';out.mkdir(parents=True,exist_ok=True)

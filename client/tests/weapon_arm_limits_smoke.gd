@@ -33,7 +33,7 @@ func verify(tracked, combat, label: String) -> void:
 			check(hold.basis.orthonormalized().is_equal_approx(target.basis.orthonormalized()),label+" source palm orientation")
 func run() -> void:
 	create_timer(75).timeout.connect(func(): quit(2))
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var origin:XROrigin3D=load("res://xr/player_rig.tscn").instantiate(); root.add_child(origin)
 	var body=origin.get_node("PlayerBody"); body.set_physics_process(false)
 	var camera:XRCamera3D=origin.get_node("XRCamera3D"); camera.position=Vector3(0,1.7,0)

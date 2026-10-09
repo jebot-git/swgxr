@@ -28,7 +28,7 @@ func run()->void:
 	host.menu=PanelContainer.new();host.add_child(host.menu);host.menu.hide()
 	host.stage=Node3D.new();host.add_child(host.stage);host.player=CharacterBody3D.new();host.add_child(host.player)
 	var head:=Camera3D.new();host.add_child(head)
-	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
+	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
 	var rig:=preload("res://combat/ranged_rig.gd").new();host.add_child(rig);check(rig.configure(head,host.player,[profile]),"Original ranged rig configures")
 	rig.set_process(false);rig.set_physics_process(false)
 	var live:=preload("res://combat/live_world.gd").new();host.add_child(live);live.configure(host,rig,host.stage,host.player);live.set_process(false);host.live_combat=live;host.live_combat_reserved=true

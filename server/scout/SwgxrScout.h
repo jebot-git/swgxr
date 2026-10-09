@@ -1,3 +1,4 @@
+#include "templates/tangible/TrapTemplate.h"
 #include "SwgxrMovement.h"
 #include "SwgxrSpice.h"
 #ifndef SWGXR_SCOUT_H
@@ -6,6 +7,7 @@
 #include "SwgxrGathering.h"
 #include "SwgxrBioEngineer.h"
 #include "SwgxrRanger.h"
+#include "SwgxrGrenade.h"
 #include "SwgxrTerrainModification.h"
 #include "server/zone/objects/area/CampSiteActiveArea.h"
 #include "server/zone/objects/tangible/components/CampKitMenuComponent.h"
@@ -37,30 +39,32 @@ class SwgxrScout {
    }
   }return result;
  }
+ static void targetObjects(CreatureObject* c,SortedVector<TreeEntry*>& objects){auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),64,&objects,true);}
  static Json snapshot(CreatureObject* c){
   Json state={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
   state["inspect_available"]=c->getSkillMod("creature_knowledge")>=5;state["creature_knowledge"]=c->getSkillMod("creature_knowledge");
+  SwgxrGrenade::status(c,state);
   SwgxrBioEngineer::status(c,state);
   state["ranger"]=SwgxrRanger::status(c);
   state["inventory"]=SwgxrInventory::snapshot(c);
   auto burst=c->getBuff(STRING_HASHCODE("burstrun"));state["burst_remaining"]=burst!=nullptr?burst->getTimeLeft():0.f;
   for(int i=0;i<9;++i)state["ham"].push_back(c->getHAM(i));
-  auto root=c->getSlottedObject("inventory");if(root!=nullptr){std::vector<SceneObject*> todo{root};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto container=todo.back();todo.pop_back();if(!seen.insert(container->getObjectID()).second)continue;for(int i=0;i<container->getContainerObjectsSize();++i){auto o=container->getContainerObject(i);if(o->isTrapObject() || o->isCampKit())state["items"].push_back(SwgxrInventory::describe(o,c));else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
+  auto root=c->getSlottedObject("inventory");if(root!=nullptr){std::vector<SceneObject*> todo{root};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto container=todo.back();todo.pop_back();if(!seen.insert(container->getObjectID()).second)continue;for(int i=0;i<container->getContainerObjectsSize();++i){auto o=container->getContainerObject(i);if(o->isTrapObject() || o->isCampKit() || SwgxrGrenade::supported(o))state["items"].push_back(SwgxrInventory::describe(o,c));else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
   auto gathering=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,gathering.value("hip_tool_id",std::string()));if(hip!=nullptr)state["hip_tool"]=SwgxrInventory::describe(hip,c);
-  SortedVector<TreeEntry*> objects(256,256);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),64,&objects,true);
-  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || !o->isCreatureObject())continue;Locker targetLock(o,c);bool trapEligible=eligible(c,o),dnaEligible=SwgxrBioEngineer::eligible(c,o);if(!trapEligible && !dnaEligible)continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
+  SortedVector<TreeEntry*> objects(256,256);targetObjects(c,objects);
+  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || !o->isCreatureObject())continue;Locker targetLock(o,c);bool trapEligible=eligible(c,o),dnaEligible=SwgxrBioEngineer::eligible(c,o),grenadeEligible=SwgxrGrenade::eligible(c,o);if(!trapEligible && !dnaEligible && !grenadeEligible)continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
    entry["bounds"]=nullptr;
    if(volume!=nullptr){const auto& sphere=volume->getBoundingSphere();const auto& center=sphere.getCenter();double radius=sphere.getRadius()*scale;
     if(std::isfinite(radius) && radius>0 && radius<=128)entry["bounds"]={{"center",Json::array({center.getX()*scale,center.getY()*scale,center.getZ()*scale})},{"radius",radius},{"source","original_appearance_sphere"}};
    }
-   entry["dna_eligible"]=dnaEligible;entry["eligible"]=trapEligible;state["targets"].push_back(entry);}
+   entry["grenade_eligible"]=grenadeEligible;entry["dna_eligible"]=dnaEligible;entry["eligible"]=trapEligible;state["targets"].push_back(entry);}
   return state;
  }
 public:
  static Json run(CreatureObject* c,const Json& request){
   SwgxrPlanets::require(c,request);
-  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";
-  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";bool indoor=verb=="status" || verb=="grenade" || verb=="holster" || verb=="return_tool";
+  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && !indoor && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
   auto p=SwgxrGathering::position(request);
   if(!c->isDead() && !c->isIncapacitated()){
    if(!ranger && !inspect)SwgxrMovement::move(c,request);
@@ -79,7 +83,7 @@ public:
     if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
     if(ranger)SwgxrRanger::execute(c,request,mutation);
     else if(verb=="holster" || verb=="return_tool"){
-     auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject())throw std::runtime_error("Scout belt only accepts owned traps");
+     auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject() && !SwgxrGrenade::supported(trap))throw std::runtime_error("Scout belt requires an owned trap or supported grenade");
      auto q=request;q["tool_id"]=id(trap);SwgxrGathering::execute(c,g,q);SwgxrGathering::save(c,g);
     }else if(verb=="forage"){
      if(!c->hasSkill("outdoors_scout_novice") || c->getPendingTask("foraging")!=nullptr || c->isInCombat())throw std::runtime_error("Foraging unavailable or already in progress");
@@ -105,6 +109,10 @@ public:
      auto terminal=SwgxrGathering::object(c,request.at("terminal_id").get<std::string>()).castTo<Terminal*>();if(terminal==nullptr || !c->isInRange(terminal,16))throw std::runtime_error("Camp terminal out of range");auto camp=dynamic_cast<StructureObject*>(terminal->getControlledObject());
      if(camp==nullptr || !camp->isCampStructure() || camp->getOwnerObjectID()!=c->getObjectID())throw std::runtime_error("Only the camp owner can disband");
      CampTerminalMenuComponent component;component.disbandCamp(terminal,c);
+    }else if(verb=="grenade"){
+     auto g=SwgxrGathering::load(c);auto item=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!SwgxrGrenade::supported(item))throw std::runtime_error("Owned supported grenade required");
+     auto target=SwgxrGathering::object(c,request.at("target_id").get<std::string>());if(!target || !target->isCreatureObject())throw std::runtime_error("Grenade target required");
+     SwgxrGrenade::accept(c,static_cast<WeaponObject*>(item.get()),target->asCreatureObject(),request,mutation);
     }else if(verb=="trap"){
      auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());
      if(!trap->isTrapObject())throw std::runtime_error("Owned trap required");
@@ -112,11 +120,14 @@ public:
      // a hip trap into its reserved owner inventory for the source command.
      bool hip=g.value("hip_tool_id",std::string())==id(trap);auto root=c->getSlottedObject("inventory");
      auto target=SwgxrGathering::object(c,request.at("target_id").get<std::string>());if(!eligible(c,target) || target->getZone()!=c->getZone())throw std::runtime_error("Invalid trap target");
-     if(!CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("Trap target obstructed");
+     auto trapData=dynamic_cast<TrapTemplate*>(trap->getObjectTemplate());if(!trapData)throw std::runtime_error("Native trap template required");
+     auto launchTrap=[&](TangibleObject* marked){if(marked && marked!=target)throw std::runtime_error("native_volley_target_mismatch");
+     if(!marked && !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("Trap target obstructed");
      if(hip){SwgxrGathering::transfer(c,trap,root);g["hip_tool_id"]="";SwgxrGathering::save(c,g);}
      try{command(c,"throwtrap",target->getObjectID(),String(id(trap).c_str()));}catch(...){if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}throw;}
      if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}
-     mutation["target_id"]=id(target);mutation["item_id"]=id(trap);
+     mutation["target_id"]=id(target);mutation["item_id"]=id(trap);if(marked)mutation["volley_deferred"]=true;return mutation;};
+     mutation=SwgxrVolleyFire::attack(c,request,trapData->getMaxRange(),launchTrap);
     }else throw std::runtime_error("Unsupported scout action");
     receipts.push_back({{"key",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
    }

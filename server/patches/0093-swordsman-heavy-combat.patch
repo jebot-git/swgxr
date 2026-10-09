@@ -1,0 +1,282 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwordsmanPolicy.h
+@@ -0,0 +1,33 @@
++#pragma once
++#include "CoreCuPolicy.h"
++#include <string>
++namespace corecu { namespace swordsman {
++struct Ability {const char* label;const char* skill;double damage,cooldown,recovery;int action,mind;bool gesture,ultimate,control;};
++inline Ability ability(const std::string& id){
++ if(id=="rending_cut")return {"Rending Cut","combat_2hsword_novice",1.15,12,1.5,70,25,false,false,false};
++ if(id=="disrupting_blow")return {"Disrupting Blow","combat_2hsword_ability_02",.9,18,1.5,65,30,false,false,true};
++ if(id=="hamstring")return {"Hamstring","combat_2hsword_speed_02",.9,16,1.5,60,25,false,false,true};
++ if(id=="decisive_strike")return {"Decisive Strike","combat_2hsword_accuracy_04",3,20,2,100,40,false,false,false};
++ if(id=="overhead_cleave")return {"Overhead Cleave","combat_2hsword_novice",2,10,2,100,35,true,false,false};
++ if(id=="ground_slam")return {"Ground Slam","combat_2hsword_support_03",1.25,18,2.25,100,40,true,false,false};
++ if(id=="armour_break")return {"Armour Break","combat_2hsword_master",1.75,120,2,140,80,false,true,false};
++ return {"","",0,0,0,0,0,false,false,false};
++}
++// Explicit original named encounter leaders below the generic boss level band.
++// Wild queen/king species are tagged by their lair role, not by substring matching.
++inline bool namedBoss(const std::string& name){
++ for(auto id:{"lord_nyax","tusken_king","tusken_king_quest","warren_agro_droid_boss","flail_boss","gungan_boss","rebel_gungan_boss","kobola_pitboss","kobola_underboss","neo_cobral_boss","neo_cobral_overlord","rorgungan_boss","alkhara_bandit_king"})if(name==id)return true;
++ return false;
++}
++inline bool boss(int level,bool tagged){return tagged || level>150;}
++inline bool executeReady(int health,int maximum,int level,bool tagged){return maximum>0 && health>0 && double(health)<.30*maximum && !boss(level,tagged);}
++// Target level only; no player level or relative-level gate. Bosses cannot execute.
++inline double executionMultiplier(int level,bool tagged){return boss(level,tagged)?0.:3.-1.75*clamp((level-30.)/120.,0,1);}
++inline double fracturedResistance(double resistance,int channel,bool active){
++ if(!active || (channel!=1 && channel!=2))return resistance;
++ const double r=clamp(resistance,0,.5);
++ // score=8000*r/(1-r); halve that score, then reapply score/(8000+score).
++ return r/(2-r);
++}
++constexpr int FractureSeconds=8;
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSwordsman.h
+@@ -0,0 +1,88 @@
++#pragma once
++#include "SwordsmanPolicy.h"
++#include "SwgxrTka.h"
++#include "MeleePolicy.h"
++class SwgxrSwordsman {
++ using Json=JSONSerializationType;
++ static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& feet,const corecu::warcry::Vec& d,double range,double cosine){
++  corecu::tka::Attack shape{range,cosine,0,0,0,1,1,0,0};
++  if(!a || a->getZone()!=c->getZone() || a->isPet() || a->isDead() || a->isIncapacitated() || !a->isAttackableBy(c))return false;
++  auto p=a->getWorldPosition();return corecu::tka::inCone(feet,d,{{p.getX(),p.getZ(),p.getY()}},shape) && CollisionManager::checkLineOfSight(c,a);
++ }
++ static bool targetReady(AiAgent* a,const std::string& id){
++  if(id=="decisive_strike")return corecu::swordsman::executeReady(a->getHAM(0),a->getMaxHAM(0)-a->getWounds(0),a->getLevel(),CoreCuCombat::boss(a));
++  if(id=="armour_break")return !a->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));
++  return !corecu::swordsman::ability(id).control || a->checkCooldownRecovery("corecu_control_recovery");
++ }
++ static void effects(CreatureObject* c,AiAgent* a,const std::string& id,int damage){
++  if(damage<=0 || a->isDead() || a->isIncapacitated())return;
++  if(id=="armour_break"){
++   // Target is locked; do not refresh or stack another Swordsman's opening.
++   if(a->hasBuff(STRING_HASHCODE("swgxr_fractured_armour")))return;
++   ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_fractured_armour"),corecu::swordsman::FractureSeconds,BuffType::STATE);Locker lock(buff,a);a->addBuff(buff);
++  }else if(id=="rending_cut"){
++   int strength=corecu::dotTickBudget(damage,1,20,20,damage*.4);
++   if(strength>0)a->addDotState(c,CreatureState::BLEEDING,STRING_HASHCODE("swgxr_rending_cut"),strength,0,20,95,a->getSkillMod("bleeding_defense"));
++  }else if(corecu::swordsman::ability(id).control){
++   a->addCooldown("corecu_control_recovery",8000);
++   double rating=CoreCuCombat::rating(a,corecu::Snare,a->getSkillMod(id=="disrupting_blow"?"warcry_defense":"resistance_states"));
++   if(System::random(99)>=corecu::statusChance(95,rating))return;
++   if(id=="disrupting_blow")a->setNextAttackDelay(c,"swgxr_disrupting_blow",0,corecu::statusDuration(3,rating));
++   else{ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_hamstring"),corecu::statusDuration(5,rating),BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier("private_swgxr_hamstring",30);a->addBuff(buff);}
++  }
++ }
++public:
++ static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isTwoHandMeleeWeapon() && !w->isJediTwoHandedWeapon() && w->isCertifiedFor(c) && !w->isBroken();}
++ static bool learned(CreatureObject* c,const std::string& id){auto a=corecu::swordsman::ability(id);return a.damage>0 && c->hasSkill("combat_2hsword_novice") && c->hasSkill(a.skill);}
++ static bool conditions(CreatureObject* c){return compatible(c) && c->getPosture()==0 && !c->isDead() && !c->isIncapacitated() && !c->isRidingMount();}
++ static double cooldown(CreatureObject* c,const std::string& id){auto t=c->getCooldownTime(String(("corecu_swordsman_"+id).c_str()));return t?std::max(0.,-t->miliDifference()/1000.):0.;}
++ static double interval(CreatureObject* c,const corecu::swordsman::Ability& a){return std::max(a.recovery,double(CombatManager::instance()->calculateWeaponAttackSpeed(c,c->getWeapon(),1)));}
++ static Json snapshot(CreatureObject* c){Json out=Json::object();for(auto id:{"rending_cut","disrupting_blow","hamstring","decisive_strike","overhead_cleave","ground_slam","armour_break"}){auto a=corecu::swordsman::ability(id);out[id]={{"learned",learned(c,id)},{"conditions_met",conditions(c)},{"cooldown_remaining_seconds",cooldown(c,id)},{"cooldown_seconds",a.cooldown},{"action_cost",a.action},{"mind_cost",a.mind},{"interval_seconds",c->getWeapon()?interval(c,a):a.recovery}};}return out;}
++ static Json abilities(CreatureObject* c){Json out=Json::array();if(!compatible(c))return out;auto state=snapshot(c);
++  for(auto id:{"rending_cut","disrupting_blow","hamstring","decisive_strike","overhead_cleave","ground_slam","armour_break"}){if(!learned(c,id))continue;auto a=corecu::swordsman::ability(id);auto row=state[id];std::string key=id;
++   row["id"]=id;row["label"]=a.label;row["activation"]=a.gesture?"swordsman_gesture":"native_melee";row["ultimate"]=a.ultimate;row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",a.action},{"mind",a.mind}};row["damage_multiplier"]=a.damage;row["max_range_m"]=corecu::melee::reach(c->getWeapon()->getMaxRange(),false);row["requires_control_available"]=a.control;
++   row["description"]=key=="rending_cut"?"Strong hit and a non-stacking Health bleed, budgeted from landed damage.":key=="disrupting_blow"?"Moderate damage and a resisted brief attack delay; shared control recovery applies.":key=="hamstring"?"Moderate damage and a resisted brief movement slow; shared control recovery applies.":key=="decisive_strike"?"Finisher below 30% Health. Damage tapers from 3x at combat level 30 or below to 1.25x at 150. Ineffective against bosses.":key=="overhead_cleave"?"Heavy single-target strike. Uses native weapon recovery, with a 2-second minimum.":key=="ground_slam"?"Strong primary hit and weak collateral on up to two nearby enemies. No bonus threat or hard control.":"Heavy hit opens an 8-second window of 50% lower Kinetic/Energy armour scores. Allies benefit. Cannot stack or refresh an active opening.";
++   row["weapon_requirement"]="Certified two-handed melee weapon; Swordsman training required.";
++   if(a.gesture){row["category"]="gesture";row["trigger_description"]=key=="overhead_cleave"?"Hold with both hands, release triggers, raise above your head and make a committed downward strike.":"Hold with both hands and triggers released. From a lower ready position, drive down toward the virtual ground point ahead; stop above the physical floor.";}
++   if(a.ultimate){row["required_profession_skill"]="combat_2hsword_master";row["profession_requirement"]="Master Swordsman";row["trigger_description"]="Hold the weapon with both hands, aim at the enemy, release both triggers, then press both together.";}
++   if(key=="decisive_strike"){row["target_health_below"]=.3;row["excludes_bosses"]=true;}
++   out.push_back(row);
++  }return out;
++ }
++ static Json run(CreatureObject* c,const Json& request){
++  auto id=request.at("ability_id").get<std::string>();auto spec=corecu::swordsman::ability(id);auto w=c->getWeapon();
++  if(!learned(c,id) || !conditions(c) || std::to_string(w->getObjectID())!=request.at("item_id").get<std::string>() || !w->isASubChildOf(c))throw std::runtime_error("native_swordsman_unavailable");
++  if(cooldown(c,id)>0)throw std::runtime_error("native_swordsman_cooldown");
++  auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));
++  if(!source || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c))throw std::runtime_error("native_swordsman_attack_unavailable");
++  auto p=c->getWorldPosition();corecu::warcry::Vec feet{{p.getX(),p.getZ(),p.getY()}},o{},d{};
++  for(auto key:{"origin","direction"}){const auto& v=request.at(key);if(!v.is_array() || v.size()!=3)throw std::runtime_error("invalid_swordsman_pose");for(int i=0;i<3;++i)if(!v[i].is_number())throw std::runtime_error("invalid_swordsman_pose");}
++  for(int i=0;i<3;++i){o[i]=request["origin"][i].get<double>();d[i]=request["direction"][i].get<double>();}
++  if(!corecu::warcry::validPose(o,d,feet))throw std::runtime_error("invalid_swordsman_pose");
++  const std::string bound=request.value("target_id",std::string());if(spec.gesture?!bound.empty():bound.empty())throw std::runtime_error("invalid_swordsman_target");
++  double range=corecu::melee::reach(w->getMaxRange(),false);if(id=="ground_slam")range=std::min(range,2.5);
++  std::vector<ManagedReference<AiAgent*>> targets;SortedVector<TreeEntry*> nearby(32,32);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range,&nearby,true);
++  for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent())continue;auto a=obj->asAiAgent();Locker lock(a,c);
++   if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;
++   if(eligible(c,a,feet,d,range,spec.gesture?.866025403784:.5) && targetReady(a,id))targets.push_back(a);
++  }
++  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
++  if(targets.empty())throw std::runtime_error("native_swordsman_target_unavailable");
++  // Hold the primary lock through validation and spending; changed boss/Health/buff gates cannot consume SAC.
++  auto primary=targets.front();Locker primaryLock(primary,c);
++  if(!eligible(c,primary,feet,d,range,spec.gesture?.866025403784:.5) || !targetReady(primary,id) || c->getWeapon()!=w)throw std::runtime_error("native_swordsman_target_unavailable");
++  if(c->getHAM(3)<=spec.action || c->getHAM(6)<=spec.mind)throw std::runtime_error("native_swordsman_insufficient_sac");
++  c->inflictDamage(c,3,spec.action,false,true,false);c->inflictDamage(c,6,spec.mind,false,true,false);c->addCooldown(String(("corecu_swordsman_"+id).c_str()),int(spec.cooldown*1000));
++  Json out={{"success",true},{"shot_id",request.at("shot_id")},{"ability_id",id},{"interval_seconds",interval(c,spec)},{"hit",false},{"damage",0},{"targets",Json::array()}};
++  int total=0;auto hit=[&](AiAgent* a,double multiplier){
++   SwgxrTkaStrike strike(*source,multiplier);strike.setRange(int(std::ceil(range)));int before=a->getHAM(0);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);int damage=std::max(0,before-a->getHAM(0));
++   if(code==QueueCommand::SUCCESS)effects(c,a,id,damage);total+=damage;out["targets"].push_back({{"id",std::to_string(a->getObjectID())},{"damage",damage},{"native_result",code}});
++  };
++  hit(primary,id=="decisive_strike"?corecu::swordsman::executionMultiplier(primary->getLevel(),CoreCuCombat::boss(primary)):spec.damage);
++  primaryLock.release();
++  if(id=="ground_slam"){int count=1;for(auto a:targets){if(a==primary)continue;if(count>=3)break;Locker lock(a,c);
++   if(!eligible(c,a,feet,d,range,.866025403784))continue;hit(a,.35);++count;
++  }}
++  out["hit"]=total>0;out["damage"]=total;return out;
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuCombat.h
+@@ -2,7 +2,9 @@
+ #include "CoreCuPolicy.h"
+ #include "CoreCuProfessions.h"
+ #include "TkaPolicy.h"
++#include "SwordsmanPolicy.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
+ #include "server/zone/objects/tangible/weapon/WeaponObject.h"
+ #include "server/zone/objects/creature/commands/effect/CommandEffect.h"
+ #include "templates/params/creature/CreatureState.h"
+@@ -12,6 +14,12 @@
+ 
+ class CoreCuCombat {
+ public:
++ static bool boss(CreatureObject* c){
++  if(!c)return false;if(corecu::swordsman::boss(c->getLevel(),c->getSkillMod("swgxr_boss")>0))return true;
++  auto ai=c->isAiAgent()?c->asAiAgent():nullptr;auto t=ai?ai->getCreatureTemplate():nullptr;
++  return t && corecu::swordsman::namedBoss(t->getTemplateName().toCharArray());
++ }
++ static double bodyResistance(CreatureObject* c,int channel,double resistance){return corecu::swordsman::fracturedResistance(resistance,channel,c && c->hasBuff(STRING_HASHCODE("swgxr_fractured_armour")));}
+  static bool tkaFocus(CreatureObject* c){return c && c->getWeapon() && c->getWeapon()->isUnarmedWeapon() && c->getWeapon()->isCertifiedFor(c) && c->hasSkill("combat_unarmed_master") && !c->isDead() && !c->isIncapacitated() && c->hasBuff(STRING_HASHCODE("swgxr_indomitable_focus"));}
+  static int centerDefense(CreatureObject* c){return corecu::tka::center(c->getSkillMod("private_center_of_being"),c->getSkillMod("unarmed_center_of_being_efficacy"),tkaFocus(c));}
+  static std::array<double,corecu::StatusCount> ratings(CreatureObject* c){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
+@@ -6,7 +6,7 @@
+ // An ultimate must belong to a specific advanced profession. Native command
+ // grants and weapon restrictions remain additional requirements.
+ inline std::string ultimateProfession(const std::string& id) {
+- return id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : "";
++ return id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : "";
+ }
+ template<class HasSkill>
+ bool ultimateAllowed(const std::string& id,HasSkill hasSkill) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -2,6 +2,7 @@
+ #include "SwgxrWarcry.h"
+ #include "SwgxrBrawler.h"
+ #include "SwgxrTka.h"
++#include "SwgxrSwordsman.h"
+ #include "SwgxrTaunt.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+@@ -77,6 +78,7 @@
+    taunt["max_range_m"]=taunt["range_m"];taunt["cooldown_seconds"]=taunt["interval_seconds"];out.push_back(taunt);
+   }if(feignAvailable(c))out.push_back({{"id","feign_death"},{"label","Feign Death"},{"category","gesture"},{"activation","feign_posture"},{"ultimate",false},{"description","Use the learned Feign Death ability to break enemy attention. Core3 controls eligibility and recovery."},{"trigger_description","While grounded, look straight upward briefly, or lower yourself and look upward. Stand upright and look forward to recover."},{"weapon_requirement","Any weapon family, including unarmed."}});
+   for(const auto& row:SwgxrTka::abilities(c))out.push_back(row);
++  for(const auto& row:SwgxrSwordsman::abilities(c))out.push_back(row);
+   if(!w || !w->isRangedWeapon())return out;
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -68,7 +68,7 @@
+  }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+-  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+@@ -153,7 +153,7 @@
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -229,6 +229,16 @@
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   SwgxrBrawler::refreshBuffs(c);const CombatQueueCommand* command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  if(verb=="swordsman"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
++   for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
++   if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
++   if(SwgxrVehicles::seated(c))throw std::runtime_error("native_swordsman_unavailable");
++   auto ability=request.at("ability_id").get<std::string>();
++   if(!corecu::swordsman::ability(ability).gesture && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_swordsman_not_equipped");
++   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
++   auto out=SwgxrSwordsman::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++  }
+   if(verb=="tka"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+    for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -2422,7 +2422,9 @@
+ 		break;
+ 	}
+ 
+-	return (int)resist;
++	if ((damageType == SharedWeaponObjectTemplate::KINETIC || damageType == SharedWeaponObjectTemplate::ENERGY) && defender->hasBuff(STRING_HASHCODE("swgxr_fractured_armour")))
++        return int(100*CoreCuCombat::bodyResistance(defender,damageType,resist/100.));
++    return (int)resist;
+ }
+ 
+ int CombatManager::getArmorVehicleReduction(VehicleObject* defender, int damageType) const {
+@@ -2552,7 +2554,7 @@
+     swgxr::armour::Damage split(damage,profile);
+     auto psg=getPSGArmor(defender);auto armor=getArmorObject(defender,hitLocation);
+     auto resist=[&](ArmorObject* item,int type){return item && !item->isBroken() && !item->isVulnerable(type)?getArmorObjectReduction(item,type)/100.:0.;};
+-    const double bodyBase=resist(armor,profile.base),bodyElement=resist(armor,profile.element);
++    const double bodyBase=CoreCuCombat::bodyResistance(defender,profile.base,resist(armor,profile.base)),bodyElement=CoreCuCombat::bodyResistance(defender,profile.element,resist(armor,profile.element));
+     const double shield=corecu::elemental(profile.element)?resist(psg,profile.element):0.;
+     const double rawBase=split.base,rawElement=split.element;
+     split.mitigate(bodyBase,corecu::equipmentResistance(profile.element,bodyElement,shield));
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -2679,7 +2679,7 @@
+ 	if ((walk && movementState != AiAgent::FLEEING) || posture == CreaturePosture::PRONE)
+ 		newSpeed = walkSpeed;
+ 
+-	newSpeed *= 1.f - std::min(100, std::max(0, getSkillMod("private_swgxr_snare"))) / 100.f;
++	newSpeed *= 1.f - std::min(100, std::max(0, std::max(getSkillMod("private_swgxr_snare"),getSkillMod("private_swgxr_hamstring")))) / 100.f;
+ 
+ 	if (hasState(CreatureState::IMMOBILIZED))
+ 		newSpeed = newSpeed / 2.f;
+--- a/MMOCoreORB/src/server/zone/managers/creature/LairObserverImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/creature/LairObserverImplementation.cpp
+@@ -21,6 +21,7 @@
+ #include "server/zone/managers/creature/SpawnLairMobileTask.h"
+ #include "server/chat/ChatManager.h"
+ #include "server/zone/managers/combat/CombatManager.h"
++#include "server/zone/managers/skill/SkillModManager.h"
+ 
+ //#define DEBUG_WILD_LAIRS
+ // #define DEBUG_LAIR_HEALING
+@@ -727,6 +728,8 @@
+ 	agent->setHomeLocation(x, z, y);
+ 	agent->setHomeObject(lair);
+ 	agent->setLairTemplateCRC(lairTemplateCRC);
++	// Explicit encounter role, independent of level or localized display name.
++	if(lairTemplate->getBossMobiles()->contains(templateToSpawn))agent->addSkillMod(SkillModManager::ABILITYBONUS,"swgxr_boss",1,false);
+ 
+ 	if (spawnScout) {
+ 		agent->addObjectFlag(ObjectFlag::SCOUT);
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
+@@ -190,7 +190,8 @@
+ 			// to not reset it
+ 			if (dot.isPast()) {
+ 				newVec.add(newDot);
+-			} else if (newDot.getStrength() >= dot.getStrength()) {
++			} else if (objectID == STRING_HASHCODE("swgxr_rending_cut") || newDot.getStrength() >= dot.getStrength()) {
++				// Rending Cut refreshes one shared bleed using this hit's bounded strength.
+ 				// but we only want to reuse the tick if the old dot has not
+ 				// expired yet but is being replaced due to strength
+ 				newDot.setNextTick(dot.getNextTick());

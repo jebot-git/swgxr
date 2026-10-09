@@ -10,9 +10,10 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = ROOT / 'vendor/Core3'
-TRE = ROOT / 'runtime/assets/active_tre'
+TRE = ROOT / 'runtime/asset_sources/active_tre'
 sys.path.insert(0, str(ROOT))
 from server.planets import SUPPORTED_PLANETS, planet
+from server.jtl_catalog import SHIP_TEMPLATES
 
 
 def configured_planets(source):
@@ -36,9 +37,12 @@ def select_planets(option, existing=''):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--planets', help='all or comma-separated original ground planets; omission preserves existing selection')
+    parser.add_argument('--jtl', action=argparse.BooleanOptionalAction, default=None, help='Enable bounded noncombat yacht test zone; omission preserves existing choice')
     args = parser.parse_args()
     target = CORE / 'MMOCoreORB/bin/conf/config-local.lua'
-    planets = select_planets(args.planets, target.read_text() if target.exists() else '')
+    existing = target.read_text() if target.exists() else ''
+    planets = select_planets(args.planets, existing)
+    jtl = args.jtl if args.jtl is not None else bool(re.search(r'JTLEnabled\s*=\s*true',existing))
     config = CORE / 'MMOCoreORB/bin/conf/config.lua'
     if not config.exists() or not TRE.exists():
         raise SystemExit('Provision Core3 and extract the supplied media first.')
@@ -59,10 +63,12 @@ Core3.DBPass = "123456"
 Core3.ZoneGalaxyID = 2
 Core3.ZonesEnabled = {"tatooine"}
 Core3.SpaceZonesEnabled = {}
-Core3.TrePath = "/workspace/runtime/assets/active_tre"
+Core3.TrePath = "/workspace/runtime/asset_sources/active_tre"
 Core3.TreFiles = {
 '''
     prefix = prefix.replace('Core3.ZonesEnabled = {"tatooine"}', 'Core3.ZonesEnabled = {' + ','.join(json.dumps(p) for p in planets) + '}')
+    if jtl:
+        prefix = prefix.replace('Core3.SpaceZonesEnabled = {}', 'Core3.SpaceZonesEnabled = {"space_tatooine"}\nCore3.JTL = { JTLEnabled = true, SwgxrTesterYachts = true, SwgxrDisableCombatSpawns = true, SwgxrShipTemplates = {'+','.join(json.dumps(t) for t in SHIP_TEMPLATES)+'} }')
     suffix = '''}
 Core3.MakePing = 0
 Core3.MakeStatus = 0
@@ -78,6 +84,8 @@ Core3.AutoReg = 1
 Core3.SWGXR = { RetailGroundOnly = true, StartAtStarport = true, SpawnX = 3599.894, SpawnY = -4780.4487, SpawnZ = 5.0 }
 Core3.PlayerCreationManager = { EnableTutorial = false }
 '''
+    if jtl:
+        suffix = suffix.replace('RetailGroundOnly = true', 'RetailGroundOnly = false')
     target = CORE / 'MMOCoreORB/bin/conf/config-local.lua'
     # Core3 may be starting while another build refreshes configuration.
     # Rename a complete sibling file so its Lua parser never sees a truncated file.

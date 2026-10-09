@@ -6,7 +6,7 @@ from swg_formats import TreSet
 ROOT=Path(__file__).resolve().parents[2]
 def main():
     path=ROOT/'runtime/assets/mos_eisley/scene.json'
-    scene=json.loads(path.read_text());tre=TreSet(scene['provenance'].get('tre_directory',str(ROOT/'runtime/assets/tre')))
+    scene=json.loads(path.read_text());tre=TreSet(scene['provenance'].get('tre_directory',str(ROOT/'runtime/asset_sources/extracted/base/tre')))
     assert scene['provenance']['starport_object_id']==1106368
     meshes=scene['meshes'];starport=[i for i in scene['instances'] if i['object_id']==1106368]
     assert len(starport)==17, f'Expected all 17 starport cells, got {len(starport)}'
@@ -30,9 +30,15 @@ def main():
         assert i['mesh'] in meshes
         assert abs(sum(x*x for x in i['quaternion'])-1)<0.002
     cells=scene.get('cells',{})
-    assert len(cells)==17, 'Original POB cell ownership must not be flattened'
+    starport_cells={key for key,cell in cells.items() if cell['building_object_id']==1106368}
+    assert len(starport_cells)==17, 'Original starport POB cell ownership must not be flattened'
+    assert starport_cells=={instance['cell_id'] for instance in starport}, 'Every original starport cell must retain its instance'
     for key,cell in cells.items():
-        assert key==f"{cell['building_object_id']}:{cell['cell_index']}"
+        if 'cell_index' in cell:
+            assert key==f"{cell['building_object_id']}:{cell['cell_index']}"
+        else:
+            assert cell['is_exterior'] and cell['building_object_id']==0
+            assert key==f"{cell['source_object_id']}:floor:"+hashlib.sha256(cell['source_collision_id'].encode()).hexdigest()[:8]
         v=cell['floor_vertices'];indices=cell['floor_indices']
         assert len(v)%3==0 and len(indices)%3==0
         assert all(math.isfinite(x) for x in v)

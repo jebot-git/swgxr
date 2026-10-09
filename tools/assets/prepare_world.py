@@ -44,7 +44,7 @@ def refresh_interiors(args,assets,nodes,layout_nodes):
  print(json.dumps({key:value for key,value in report.items() if key!='buildings'},indent=2),flush=True)
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('--planet',choices=PLANETS,default='tatooine');p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');p.add_argument('--out',type=Path,default=None);p.add_argument('--chunk-size',type=int,default=256);p.add_argument('--refresh-interiors',action='store_true',help='Refresh only original ILF decorations in an existing world, preserving terrain and other placements');p.add_argument('--stage',type=Path,default=ROOT/'runtime/assets/mos_eisley/scene.json');args=p.parse_args();args.out=args.out or path_for(args.planet,"world")
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--planet',choices=PLANETS,default='tatooine');p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');p.add_argument('--out',type=Path,default=None);p.add_argument('--chunk-size',type=int,default=256);p.add_argument('--refresh-interiors',action='store_true',help='Refresh only original ILF decorations in an existing world, preserving terrain and other placements');p.add_argument('--stage',type=Path,default=ROOT/'runtime/assets/mos_eisley/scene.json');args=p.parse_args();args.out=args.out or path_for(args.planet,"world")
  assert args.chunk_size>0
  assets=StaticAssets(args.tre_dir,args.out);snapshot=f'snapshot/{args.planet}.ws';root=parse_iff(assets.read(snapshot));names=root.first('OTNL').data[4:].split(b'\0');nodes=[]
  for node in root.walk('NODE'):

@@ -18,13 +18,18 @@ class MeleeProtocolTests(unittest.TestCase):
         self.data = dict(character_id='123', session_id='owned', shot_id='s1', item_id='456', origin=[0,1,0], direction=[0,0,1])
 
     def test_only_intent_is_forwarded(self):
-        self.hub.request('owner', 'melee', dict(self.data, target_id='999', damage=99999, ability_id='kill', hit=True))
+        self.hub.request('owner', 'melee', dict(self.data, target_id='999', damage=99999, hit=True))
         command = self.hub._exchange.call_args.args[1]
         self.assertEqual(command['action'], 'melee')
         for key in ('shot_id', 'item_id', 'origin', 'direction'):
             self.assertEqual(command[key], self.data[key])
         for key in ('target_id', 'damage', 'ability_id', 'hit'):
             self.assertNotIn(key, command)
+
+    def test_unknown_melee_ability_is_rejected(self):
+        with self.assertRaises(ValueError):
+            self.hub.request('owner', 'melee', dict(self.data, target_id='999', ability_id='kill'))
+        self.hub._exchange.assert_not_called()
 
     def test_foreign_identity_is_rejected(self):
         for change in ({'character_id':'999'}, {'session_id':'foreign'}):

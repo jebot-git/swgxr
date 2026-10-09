@@ -13,13 +13,13 @@ except ImportError:
  from inventory_protocol import inventory_snapshot
  from character_protocol import decode_customization
  from datapad_protocol import display,template_label
-ACTIONS=('inspect','holster','return_tool','status','forage','trap','camp','disband','mask_scent','discard_mask_scent','burst_run','sample_dna','discard_sample_dna','ranger_status','conceal','rescue','area_track')
+ACTIONS=('inspect','holster','return_tool','status','forage','trap','grenade','camp','disband','mask_scent','discard_mask_scent','burst_run','sample_dna','discard_sample_dna','ranger_status','conceal','rescue','area_track')
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported scout action')
  p=data.get('position')
  if not isinstance(p,list) or len(p)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) or abs(v)>(2048 if i==1 else 8192) for i,v in enumerate(p)):raise ValueError('Finite source position required')
  out={'action':action,'position':p,**planet_context(data)}
- if action in ('ranger_status','conceal','rescue','area_track'):
+ if action in ('ranger_status','conceal','rescue','area_track','grenade'):
   building=data.get('building_id','0');cell=data.get('cell_index',0)
   if not isinstance(building,str) or not building.isascii() or not building.isdigit() or not 0<=int(building)<2**64 or type(cell)is not int or not 0<=cell<=255 or (int(building)==0)!=(cell==0):raise ValueError('Invalid native cell context')
   out.update(building_id=building,cell_index=cell)
@@ -30,7 +30,7 @@ def command(action,data):
   key=data.get('request_id','')
   if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique scout request_id required')
   out['request_id']=key
- for field in {'inspect':('target_id',),'holster':('item_id',),'return_tool':('item_id',),'trap':('item_id','target_id'),'camp':('item_id',),'disband':('terminal_id',),'sample_dna':('target_id',),'conceal':('item_id',),'rescue':('target_id',)}.get(action,()):
+ for field in {'inspect':('target_id',),'holster':('item_id',),'return_tool':('item_id',),'trap':('item_id','target_id'),'grenade':('item_id','target_id'),'camp':('item_id',),'disband':('terminal_id',),'sample_dna':('target_id',),'conceal':('item_id',),'rescue':('target_id',)}.get(action,()):
   value=data.get(field)
   if not isinstance(value,str) or not value.isascii() or not value.isdigit() or not 0<int(value)<2**64:raise ValueError('Invalid '+field)
   out[field]=value
@@ -47,6 +47,9 @@ def command(action,data):
   if not isinstance(hand,list) or len(hand)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) or abs(v)>10000 for v in hand):raise ValueError('Finite tracked hand_position required')
   if sum((a-b)**2 for a,b in zip(hand,p))>3.5**2:raise ValueError('Tracked hand outside physical reach')
   out['hand_position']=hand
+ try:from .squad_leader_protocol import mark_intent
+ except ImportError:from squad_leader_protocol import mark_intent
+ out.update(mark_intent(data,action,target_id=out.get('target_id')))
  return out
 
 def snapshot(raw,oid,attributes=None):
@@ -55,6 +58,18 @@ def snapshot(raw,oid,attributes=None):
  if out.get('character_id')!=str(oid) or out.get('source_kind')!='core3_scout':raise ValueError('Missing owned native scout response')
  state=out.get('state',{})
  if state.get('character_id')!=str(oid) or len(state.get('targets',[]))>96 or len(state.get('camps',[]))>16:raise ValueError('Invalid scout snapshot bounds')
+ if 'grenade_pending' in state:
+  pending=state['grenade_pending']
+  if not isinstance(pending,list) or len(pending)>1:raise ValueError('Invalid grenade pending bounds')
+  for receipt in pending:
+   if not isinstance(receipt,dict):raise ValueError('Invalid grenade pending receipt')
+   point=receipt.get('landing_position')
+   if not isinstance(point,list) or len(point)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) or abs(v)>10000 for v in point):raise ValueError('Invalid native grenade landing position')
+   if receipt.get('fuse_seconds')!=2.0 or type(receipt.get('detonation_at_ms')) is not int or receipt['detonation_at_ms']<0:raise ValueError('Invalid native grenade timing')
+   if type(receipt.get('radius_m')) not in (int,float) or not 0<receipt['radius_m']<=8:raise ValueError('Invalid native grenade radius')
+ if 'grenade_cooldown' in state:
+  value=state['grenade_cooldown']
+  if type(value) not in (int,float) or not math.isfinite(value) or not 0<=value<=24:raise ValueError('Invalid native grenade cooldown')
  ranger=state.get('ranger',{})
  if len(ranger.get('targets',[]))>64 or len(ranger.get('kits',[]))>256 or len(ranger.get('tracking',{}).get('results',[]))>256:raise ValueError('Invalid ranger snapshot bounds')
  for row in ranger.get('tracking',{}).get('results',[])+ranger.get('targets',[]):

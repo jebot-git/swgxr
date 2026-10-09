@@ -64,7 +64,7 @@ def export(core3, balance):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--core3', type=Path, default=ROOT / 'vendor/Core3')
-    parser.add_argument('--output', type=Path, default=ROOT / 'runtime/combat/catalog.json')
+    parser.add_argument('--output', type=Path, default=ROOT / 'runtime/assets/combat/catalog.json')
     args = parser.parse_args()
     balance_path = ROOT / 'client/combat/balance.json'
     catalog = export(args.core3, json.loads(balance_path.read_text()))

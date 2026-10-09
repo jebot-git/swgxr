@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT/'tools/assets'));sys.path.insert(0,str(ROOT))
 from server.character_protocol import assets
 from prepare_datapad import Importer
-OUT=ROOT/'runtime/assets/crafting';imp=Importer(ROOT/'runtime/assets/active_tre',OUT)
+OUT=ROOT/'runtime/assets/crafting';imp=Importer(ROOT/'runtime/asset_sources/active_tre',OUT)
 icons={}
 for name in assets().entries:
  if name.startswith('texture/ui_res_') and name.endswith('.dds'):

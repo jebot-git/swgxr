@@ -14,8 +14,8 @@ from prepare_datapad import Elements
 
 
 def main():
-    tre = TreSet(ROOT / 'runtime/assets/active_tre')
-    out = ROOT / 'runtime/combat/abilities'
+    tre = TreSet(ROOT / 'runtime/asset_sources/active_tre')
+    out = ROOT / 'runtime/assets/combat/abilities'
     out.mkdir(parents=True, exist_ok=True)
     ui = tre.read('ui/ui_styles.inc')
     styles = {attrs.get('name', '').lower(): attrs for tag, attrs in Elements(ui.decode()).items if tag.lower() == 'imagestyle'}

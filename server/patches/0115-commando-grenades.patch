@@ -1,0 +1,273 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GrenadePolicy.h
+@@ -0,0 +1,37 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <string>
++#include "CoreCuPolicy.h"
++namespace corecu { namespace grenade {
++constexpr int TargetCap=6;
++constexpr double FuseSeconds=2., AggregateMultiplier=2.5, Range=32.;
++enum Control { None, Slow, Restrain };
++struct Spec { const char* kind; double radius, damage, familyCooldown; Control control; int duration; double qualityLow,qualityHigh; };
++inline Spec spec(const std::string& path){
++ const std::string root="object/weapon/ranged/grenade/grenade_";
++ if(path==root+"fragmentation_light.iff")return {"fragmentation_light",4,180,0,None,0,175,465};
++ if(path==root+"fragmentation.iff")return {"fragmentation",5,360,0,None,0,300,873};
++ if(path==root+"cryoban.iff")return {"cryoban",5,270,0,Slow,3,255,460};
++ if(path==root+"glop.iff")return {"glop",4,240,0,Restrain,2,330,1060};
++ if(path==root+"imperial_detonator.iff")return {"imperial",6,360,12,None,0,972.5,1494.5};
++ if(path==root+"thermal_detonator.iff")return {"thermal",7,360,18,None,0,952,1280};
++ if(path==root+"proton.iff")return {"proton",8,360,24,None,0,1611.5,2217};
++ return {"",0,0,0,None,0,0,1};
++}
++inline bool supported(const std::string& path){return spec(path).radius>0;}
++inline double progress(int thrownSpeed){return corecu::clamp(thrownSpeed/40.,0.,1.);}
++inline double recovery(int thrownSpeed){return 12.-3.*progress(thrownSpeed);}
++inline double potency(int thrownSpeed){return 80.+25.*progress(thrownSpeed);}
++inline double chance(int thrownSpeed,double resistance){return corecu::learnedStatusChance(80, potency(thrownSpeed)-80, resistance);}
++// Source recipe means map the complete crafting band to the same 140/245..1
++// quality range as the equivalent T21. Original template defaults may fall
++// below the recipe band; exceptional components cannot exceed its ceiling.
++constexpr double MinimumQuality=140./245.;
++inline double quality(const Spec& s,double minimum,double maximum){return MinimumQuality+(1.-MinimumQuality)*corecu::clamp(((minimum+maximum)*.5-s.qualityLow)/(s.qualityHigh-s.qualityLow),0,1);}
++inline double packet(const Spec& s,int thrownSpeed,double q){return s.damage*(.8+.2*progress(thrownSpeed))*corecu::clamp(q,MinimumQuality,1.);}
++inline double falloff(double distance,double radius){return radius>0 && distance>=0 && distance<=radius ? 1.-.65*distance/radius : 0.;}
++inline double aggregateScale(double weights){return weights>AggregateMultiplier?AggregateMultiplier/weights:1.;}
++inline bool due(long long now,long long at){return now>=at;}
++inline bool expired(long long now,long long at){return now-at>10000;}
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGrenade.h
+@@ -0,0 +1,68 @@
++#pragma once
++#include "GrenadePolicy.h"
++#include "SwgxrTka.h"
++#include "SwgxrBlastSight.h"
++#include "SwgxrGathering.h"
++#include <chrono>
++class SwgxrGrenadeStrike : public SwgxrTkaStrike {
++ double cap;
++public:
++ SwgxrGrenadeStrike(const CombatQueueCommand& source,double damage):SwgxrTkaStrike(source,1),cap(damage){setMinDamage(damage/1.5);setMaxDamage(damage/1.5);setRange(128);}
++ bool usesClientProjectileContact() const override {return true;}
++ bool usesNormalizedWeaponDamage() const override {return true;}
++ bool allowsWeaponDots() const override {return false;}
++ double getPhysicalDamageCap() const override {return cap;}
++};
++// All acceptance and settlement occurs under the existing native character lock.
++// The pending record is terminal before damage, so reconnect/task races cannot
++// replay an explosion. A crash can lose an accepted explosion, never duplicate it.
++class SwgxrGrenade {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static Json load(CreatureObject* c){auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_grenade","state");return raw.isEmpty()?Json{{"cooldown_until_ms",0},{"families",Json::object()},{"pending",Json::array()}}:Json::parse(raw.toCharArray());}
++ static void save(CreatureObject* c,const Json& s){c->getPlayerObject()->setScreenPlayData("swgxr_grenade","state",String(s.dump().c_str()));}
++ static double distance(CreatureObject* a,const Json& p){auto q=a->getWorldPosition();double x=q.getX()-p[0].get<double>(),y=q.getZ()-p[1].get<double>(),z=q.getY()-p[2].get<double>();return std::sqrt(x*x+y*y+z*z);}
++ static bool blastSight(CreatureObject* c,CreatureObject* a,const Json& p){return SwgxrBlastSight::clear(c,a,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}});}
++ static void control(CreatureObject* c,CreatureObject* a,const corecu::grenade::Spec& spec,int speed){
++  if(spec.control==corecu::grenade::None || a->isDead() || a->isIncapacitated() || a->hasEffectImmunity(CommandEffect::NEXTATTACKDELAY) || !a->checkCooldownRecovery("corecu_control_recovery"))return;
++  a->addCooldown("corecu_control_recovery",8000);double rating=CoreCuCombat::rating(a,corecu::Snare,a->getSkillMod("resistance_states"));
++  if(System::random(99)>=corecu::grenade::chance(speed,rating))return;
++  int duration=corecu::statusDuration(spec.duration,rating);
++  bool glop=spec.control==corecu::grenade::Restrain;ManagedReference<Buff*> buff=new Buff(a,glop?STRING_HASHCODE("swgxr_glop"):STRING_HASHCODE("swgxr_cryoban"),duration,BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier(glop?"private_commando_glop":"private_commando_cryo",glop?100:25);a->addBuff(buff);
++ }
++ static void clean(CreatureObject* c,const Json& row){auto object=c->getZoneServer()->getObject(std::stoull(row.at("item_id").get<std::string>()));auto w=object && object->isWeaponObject()?static_cast<WeaponObject*>(object.get()):nullptr;if(!w)return;Locker lock(w,c);if(w->getUseCount()==0){w->destroyObjectFromWorld(true);w->destroyObjectFromDatabase(true);}}
++ static void explode(CreatureObject* c,const Json& row){
++  if(!c->getZone() || c->getZone()->getZoneName().toCharArray()!=row.at("zone").get<std::string>() || c->getParentID()!=row.at("parent_id").get<uint64>() || c->isDead() || corecu::grenade::expired(now(),row.at("detonation_at_ms").get<long long>()))return;
++  auto object=c->getZoneServer()->getObject(std::stoull(row.at("item_id").get<std::string>()));auto w=object && object->isWeaponObject()?static_cast<WeaponObject*>(object.get()):nullptr;
++  auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("throwgrenade"));if(!w || !source)return;
++  auto spec=corecu::grenade::spec(row.at("template").get<std::string>());auto point=row.at("landing_position");std::vector<ManagedReference<CreatureObject*>> targets;
++  SortedVector<TreeEntry*> nearby(64,64);c->getZone()->getInRangeObjects(point[0].get<float>(),point[1].get<float>(),point[2].get<float>(),spec.radius+2,&nearby,true);
++  for(int i=0;i<nearby.size();++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(!o->isCreatureObject())continue;auto a=o->asCreatureObject();Locker lock(a,c);if(eligible(c,a) && distance(a,point)<=spec.radius && blastSight(c,a,point))targets.push_back(a);}
++  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<CreatureObject*>& a,const ManagedReference<CreatureObject*>& b){double da=distance(a,point),db=distance(b,point);return da==db?a->getObjectID()<b->getObjectID():da<db;});if(targets.size()>corecu::grenade::TargetCap)targets.resize(corecu::grenade::TargetCap);
++  double sum=0;for(auto& a:targets)sum+=corecu::grenade::falloff(distance(a,point),spec.radius);double scale=corecu::grenade::aggregateScale(sum),remaining=row.at("packet").get<double>()*corecu::grenade::AggregateMultiplier;
++  for(auto& a:targets){Locker lock(a,c);if(!eligible(c,a) || !blastSight(c,a,point))continue;double damage=std::min(remaining,row.at("packet").get<double>()*corecu::grenade::falloff(distance(a,point),spec.radius)*scale);if(damage<=0)continue;remaining-=damage;SwgxrGrenadeStrike strike(*source,damage);int before=a->getHAM(0);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);if(code==QueueCommand::SUCCESS && a->getHAM(0)<before)control(c,a,spec,row.at("thrown_speed").get<int>());}
++ }
++public:
++ static long long now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static bool supported(SceneObject* o){return o && o->isWeaponObject() && static_cast<WeaponObject*>(o)->isThrownWeapon() && corecu::grenade::supported(o->getObjectTemplate()->getFullTemplateString().toCharArray());}
++ static bool eligible(CreatureObject* c,SceneObject* o){auto a=o?o->asCreatureObject():nullptr;return a && a!=c && a->getZone()==c->getZone() && a->getParentID()==c->getParentID() && !a->isDead() && !a->isIncapacitated() && a->isAttackableBy(c);}
++ static void settle(CreatureObject* c){auto s=load(c);Json due=Json::array(),pending=Json::array();for(auto& row:s["pending"]){if(corecu::grenade::due(now(),row.at("detonation_at_ms").get<long long>()))due.push_back(row);else pending.push_back(row);}if(due.empty())return;s["pending"]=pending;save(c,s);for(auto& row:due){try{explode(c,row);}catch(...){clean(c,row);throw;}clean(c,row);}}
++ static void status(CreatureObject* c,Json& state){settle(c);auto s=load(c);state["server_time_ms"]=now();state["grenade_cooldown"]=std::max(0.,(s.value("cooldown_until_ms",0LL)-now())/1000.);state["grenade_pending"]=Json::array();for(auto& row:s["pending"]){auto visible=row;for(auto key:{"template","zone","parent_id","packet","thrown_speed"})visible.erase(key);state["grenade_pending"].push_back(visible);}}
++ static void accept(CreatureObject* c,WeaponObject* w,CreatureObject* target,const Json& request,Json& mutation){
++  settle(c);Locker targetLock(target,c);auto spec=corecu::grenade::spec(w->getObjectTemplate()->getFullTemplateString().toCharArray());auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("throwgrenade"));
++  if(!supported(w) || !w->isCertifiedFor(c) || w->isBroken() || w->getUseCount()<1 || !source || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c) || c->isRidingMount())throw std::runtime_error("grenade_equipment_or_training_required");
++  if(!eligible(c,target) || !c->isInRange(target,corecu::grenade::Range) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("grenade_target_unavailable");
++  auto p=target->getWorldPosition();auto throwZone=c->getZone();auto throwParent=c->getParentID();targetLock.release();
++  Locker itemLock(w,c);auto gathering=SwgxrGathering::load(c);if(SwgxrGathering::ownedTool(c,gathering,id(w)).get()!=w)throw std::runtime_error("grenade_ownership_changed");
++  if(c->getZone()!=throwZone || c->getParentID()!=throwParent || c->isDead() || c->isIncapacitated() || c->isRidingMount() || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c) || !w->isCertifiedFor(c) || w->isBroken() || w->getUseCount()<1)throw std::runtime_error("grenade_equipment_or_state_changed");
++  if(distance(c,Json::array({p.getX(),p.getZ(),p.getY()}))>corecu::grenade::Range)throw std::runtime_error("grenade_target_unavailable");
++  auto s=load(c);auto stamp=now();if(s.value("cooldown_until_ms",0LL)>stamp || s["families"].value(spec.kind,0LL)>stamp)throw std::runtime_error("grenade_cooldown");
++  int action=std::max(1,int(std::ceil(c->getBaseHAM(3)*.06))),mind=std::max(1,int(std::ceil(c->getBaseHAM(6)*.02)));if(c->getHAM(3)<=action || c->getHAM(6)<=mind)throw std::runtime_error("grenade_insufficient_sac");
++  int speed=c->getSkillMod("thrown_speed");Json row={{"request_id",request.at("request_id")},{"item_id",id(w)},{"target_id",id(target)},{"landing_position",Json::array({p.getX(),p.getZ(),p.getY()})},{"fuse_seconds",corecu::grenade::FuseSeconds},{"detonation_at_ms",stamp+2000},{"radius_m",spec.radius},{"throwable_kind",spec.kind},{"template",std::string(w->getObjectTemplate()->getFullTemplateString().toCharArray())},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"parent_id",c->getParentID()},{"packet",corecu::grenade::packet(spec,speed,corecu::grenade::quality(spec,w->getMinDamage(),w->getMaxDamage()))},{"thrown_speed",speed}};
++  // Reserve the item immediately, including its last charge. Zero-charge remains
++  // alive until settlement so the final throw retains weapon and visual metadata.
++  w->setUseCount(w->getUseCount()-1,true);c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);s["cooldown_until_ms"]=stamp+int(corecu::grenade::recovery(speed)*1000);s["families"][spec.kind]=stamp+int(spec.familyCooldown*1000);s["pending"].push_back(row);save(c,s);
++  mutation.update(row);for(auto key:{"template","zone","parent_id","packet","thrown_speed"})mutation.erase(key);mutation["charge_consumed"]=true;
++  ManagedReference<CreatureObject*> player=c;Core::getTaskManager()->scheduleTask([player](){Locker lock(player);SwgxrGrenade::settle(player);},"SwgxrGrenadeDetonation",2001);
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -6,6 +6,7 @@
+ #include "SwgxrGathering.h"
+ #include "SwgxrBioEngineer.h"
+ #include "SwgxrRanger.h"
++#include "SwgxrGrenade.h"
+ #include "SwgxrTerrainModification.h"
+ #include "server/zone/objects/area/CampSiteActiveArea.h"
+ #include "server/zone/objects/tangible/components/CampKitMenuComponent.h"
+@@ -37,53 +38,51 @@
+    }
+   }return result;
+  }
++ static void targetObjects(CreatureObject* c,SortedVector<TreeEntry*>& objects){auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),64,&objects,true);}
+  static Json snapshot(CreatureObject* c){
+   Json state={{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"server_time",std::time(nullptr)},{"scout",c->hasSkill("outdoors_scout_novice")},{"forage_available",c->hasSkill("outdoors_scout_novice") && learned(c,"forage")},{"foraging",c->getPendingTask("foraging")!=nullptr},{"mask_scent_available",c->getSkillMod("mask_scent")>0 && learned(c,"maskscent")},{"mask_scent_active",c->hasBuff(STRING_HASHCODE("skill_buff_mask_scent_self"))},{"mask_scent_cooldown",cooldown(c,"skill_buff_mask_scent_self")},{"mask_scent_duration",6*c->getSkillMod("mask_scent")},{"burst_available",learned(c,"burstrun")},{"burst_active",c->hasBuff(STRING_HASHCODE("burstrun"))},{"burst_cooldown",cooldown(c,"burstrun")},{"trap_cooldown",cooldown(c,"throwtrap")},{"trap_pending",c->getPendingTask("throwtrap")!=nullptr},{"slope_move",c->getSkillMod("slope_move")},{"slope_fraction",c->getSlopeModPercent()},{"harvesting",c->getSkillMod("creature_harvesting")},{"foraging_mod",c->getSkillMod("foraging")},{"burst_run_mod",c->getSkillMod("burst_run")},{"camps",camps(c)},{"targets",Json::array()},{"items",Json::array()},{"hip_tool",nullptr},{"ham",Json::array()}};
+   state["inspect_available"]=c->getSkillMod("creature_knowledge")>=5;state["creature_knowledge"]=c->getSkillMod("creature_knowledge");
++  SwgxrGrenade::status(c,state);
+   SwgxrBioEngineer::status(c,state);
+   state["ranger"]=SwgxrRanger::status(c);
+   state["inventory"]=SwgxrInventory::snapshot(c);
+   auto burst=c->getBuff(STRING_HASHCODE("burstrun"));state["burst_remaining"]=burst!=nullptr?burst->getTimeLeft():0.f;
+   for(int i=0;i<9;++i)state["ham"].push_back(c->getHAM(i));
+-  auto root=c->getSlottedObject("inventory");if(root!=nullptr){std::vector<SceneObject*> todo{root};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto container=todo.back();todo.pop_back();if(!seen.insert(container->getObjectID()).second)continue;for(int i=0;i<container->getContainerObjectsSize();++i){auto o=container->getContainerObject(i);if(o->isTrapObject() || o->isCampKit())state["items"].push_back(SwgxrInventory::describe(o,c));else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
++  auto root=c->getSlottedObject("inventory");if(root!=nullptr){std::vector<SceneObject*> todo{root};std::set<uint64> seen;while(!todo.empty() && seen.size()<256){auto container=todo.back();todo.pop_back();if(!seen.insert(container->getObjectID()).second)continue;for(int i=0;i<container->getContainerObjectsSize();++i){auto o=container->getContainerObject(i);if(o->isTrapObject() || o->isCampKit() || SwgxrGrenade::supported(o))state["items"].push_back(SwgxrInventory::describe(o,c));else if(o->getContainerVolumeLimit()>0 && !o->isFactoryCrate() && !o->isCraftingTool())todo.push_back(o);}}}
+   auto gathering=SwgxrGathering::load(c);auto hip=SwgxrGathering::object(c,gathering.value("hip_tool_id",std::string()));if(hip!=nullptr)state["hip_tool"]=SwgxrInventory::describe(hip,c);
+-  SortedVector<TreeEntry*> objects(256,256);c->getZone()->getInRangeObjects(c->getPositionX(),c->getPositionZ(),c->getPositionY(),64,&objects,true);
+-  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || !o->isCreatureObject())continue;Locker targetLock(o,c);bool trapEligible=eligible(c,o),dnaEligible=SwgxrBioEngineer::eligible(c,o);if(!trapEligible && !dnaEligible)continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
++  SortedVector<TreeEntry*> objects(256,256);targetObjects(c,objects);
++  for(int i=0;i<objects.size() && state["targets"].size()<96;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || !o->isCreatureObject())continue;Locker targetLock(o,c);bool trapEligible=eligible(c,o),dnaEligible=SwgxrBioEngineer::eligible(c,o),grenadeEligible=SwgxrGrenade::eligible(c,o);if(!trapEligible && !dnaEligible && !grenadeEligible)continue;auto entry=visual(o);double scale=o->asCreatureObject()->getHeight(false);auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;
+    entry["bounds"]=nullptr;
+    if(volume!=nullptr){const auto& sphere=volume->getBoundingSphere();const auto& center=sphere.getCenter();double radius=sphere.getRadius()*scale;
+     if(std::isfinite(radius) && radius>0 && radius<=128)entry["bounds"]={{"center",Json::array({center.getX()*scale,center.getY()*scale,center.getZ()*scale})},{"radius",radius},{"source","original_appearance_sphere"}};
+    }
+-   entry["dna_eligible"]=dnaEligible;entry["eligible"]=trapEligible;state["targets"].push_back(entry);}
++   entry["grenade_eligible"]=grenadeEligible;entry["dna_eligible"]=dnaEligible;entry["eligible"]=trapEligible;state["targets"].push_back(entry);}
+   return state;
+  }
+ public:
+  static Json run(CreatureObject* c,const Json& request){
+   SwgxrPlanets::require(c,request);
+-  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";
+-  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
++  auto verb=request.value("action",std::string("status"));bool ranger=SwgxrRanger::action(verb);bool inspect=verb=="inspect";bool indoor=verb=="status" || verb=="grenade" || verb=="holster" || verb=="return_tool";
++  if(!c || !c->getPlayerObject() || !c->getZone() || !SwgxrPlanets::supported(c->getZone()->getZoneName()) || (!ranger && !inspect && !indoor && c->getParent().get()!=nullptr))throw std::runtime_error("Scout actions require outdoors a supported planet");
+   auto p=SwgxrGathering::position(request);
+-  auto applyPose=[&](){
+   if(!c->isDead() && !c->isIncapacitated()){
+-   if(!inspect)SwgxrMovement::move(c,request);
++   if(!ranger && !inspect)SwgxrMovement::move(c,request);
+    if(request.contains("posture") && !c->isKnockedDown() && c->getPendingTask("foraging")==nullptr){
+     auto posture=request.at("posture").get<std::string>();if(posture!="standing" && posture!="kneeling" && posture!="prone")throw std::runtime_error("Invalid tracked posture");
+     c->setPosture(posture=="prone"?CreaturePosture::PRONE:posture=="kneeling"?CreaturePosture::CROUCHED:CreaturePosture::UPRIGHT,true);
+    }
+   }
+-  };
+   if(inspect){if(c->getSkillMod("creature_knowledge")<5)throw std::runtime_error("creature_knowledge_required");auto target=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>()));if(!target || !target->isCreatureObject() || target->isPlayerCreature() || target->getZone()!=c->getZone() || target->getParentID()!=c->getParentID() || !c->isInRange(target,64) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("creature_inspection_out_of_reach");Locker targetLock(target,c);target->sendAttributeListTo(c);Json inspection={{"id",id(target)},{"name",std::string(target->getDisplayedName().toCharArray())}};return {{"backend","core3"},{"zone",SwgxrPlanets::name(c)},{"source_kind","core3_scout"},{"character_id",id(c)},{"state",snapshot(c)},{"mutation",{{"success",true},{"action",verb},{"inspection",inspection}}}};}
+   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_scout","receipts");Json receipts=raw.isEmpty()?Json::array():Json::parse(raw.toCharArray());Json mutation={{"success",true},{"action",verb}};
+-  if(verb=="status" || verb=="ranger_status")applyPose();
+   if(verb!="status" && verb!="ranger_status"){
+    auto semantic=request;if(ranger)for(auto field:{"position","building_id","cell_index","zone","planet","hand_position","posture"})semantic.erase(field);
+    const auto key=request.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("Invalid request id");bool replay=false;
+    for(auto& r:receipts)if(r["key"]==key){if(r["request"]!=semantic)throw std::runtime_error("Request id reused");mutation=r["mutation"];mutation["replayed"]=true;replay=true;break;}
+    if(!replay){
+-    applyPose();
+     if(c->isDead() || c->isIncapacitated())throw std::runtime_error("Player cannot act");
+     if(ranger)SwgxrRanger::execute(c,request,mutation);
+     else if(verb=="holster" || verb=="return_tool"){
+-     auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject())throw std::runtime_error("Scout belt only accepts owned traps");
++     auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!trap->isTrapObject() && !SwgxrGrenade::supported(trap))throw std::runtime_error("Scout belt requires an owned trap or supported grenade");
+      auto q=request;q["tool_id"]=id(trap);SwgxrGathering::execute(c,g,q);SwgxrGathering::save(c,g);
+     }else if(verb=="forage"){
+      if(!c->hasSkill("outdoors_scout_novice") || c->getPendingTask("foraging")!=nullptr || c->isInCombat())throw std::runtime_error("Foraging unavailable or already in progress");
+@@ -109,6 +108,10 @@
+      auto terminal=SwgxrGathering::object(c,request.at("terminal_id").get<std::string>()).castTo<Terminal*>();if(terminal==nullptr || !c->isInRange(terminal,16))throw std::runtime_error("Camp terminal out of range");auto camp=dynamic_cast<StructureObject*>(terminal->getControlledObject());
+      if(camp==nullptr || !camp->isCampStructure() || camp->getOwnerObjectID()!=c->getObjectID())throw std::runtime_error("Only the camp owner can disband");
+      CampTerminalMenuComponent component;component.disbandCamp(terminal,c);
++    }else if(verb=="grenade"){
++     auto g=SwgxrGathering::load(c);auto item=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());if(!SwgxrGrenade::supported(item))throw std::runtime_error("Owned supported grenade required");
++     auto target=SwgxrGathering::object(c,request.at("target_id").get<std::string>());if(!target || !target->isCreatureObject())throw std::runtime_error("Grenade target required");
++     SwgxrGrenade::accept(c,static_cast<WeaponObject*>(item.get()),target->asCreatureObject(),request,mutation);
+     }else if(verb=="trap"){
+      auto g=SwgxrGathering::load(c);auto trap=SwgxrGathering::ownedTool(c,g,request.at("item_id").get<std::string>());
+      if(!trap->isTrapObject())throw std::runtime_error("Owned trap required");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGathering.h
+@@ -19,6 +19,7 @@
+  friend class SwgxrCorpses;
+  friend class SwgxrCrafting;
+  friend class SwgxrScout;
++ friend class SwgxrGrenade;
+  friend class SwgxrMedic;
+  friend class SwgxrSlicing;
+  using Json=JSONSerializationType;
+@@ -34,7 +35,7 @@
+  }
+  static ManagedReference<SceneObject*> ownedTool(CreatureObject* c,Json& s,const std::string& key){
+   auto tool=object(c,key);auto store=escrow(c,s);
+-  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !SwgxrSlicingData::tool(tool) && !tool->isTrapObject() && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_basic.iff" && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_advanced.iff"))throw std::runtime_error("Item is not a source tool");
++  if(tool==nullptr || (dynamic_cast<ToolTangibleObject*>(tool.get())==nullptr && !SwgxrSlicingData::tool(tool) && !tool->isTrapObject() && !corecu::grenade::supported(tool->getObjectTemplate()->getFullTemplateString().toCharArray()) && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_basic.iff" && tool->getObjectTemplate()->getFullTemplateString()!="object/tangible/medicine/medikit_tool_advanced.iff"))throw std::runtime_error("Item is not a source tool");
+   bool hip=s.value("hip_tool_id",std::string())==key && store!=nullptr && tool->getParent().get()==store;
+   bool knifeEquipped=SwgxrSlicingData::tool(tool) && tool->getParent().get()==c && c->getSlottedObject("hold_r").get()==tool.get();
+   if(!SwgxrEquipment::inInventory(tool,c) && !hip && !knifeEquipped)throw std::runtime_error("Tool is not in owned inventory or hip escrow");return tool;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -8,6 +8,7 @@
+ #include "SwgxrEquipment.h"
+ #include "SwgxrMedicalItem.h"
+ #include "DoctorPolicy.h"
++#include "GrenadePolicy.h"
+ #include "CoreCuMedicine.h"
+ #include "SwgxrCombatMedicEffects.h"
+ #include "SwgxrSlicingData.h"
+@@ -54,7 +55,12 @@
+    {"split_block_reason",!stack?"not_a_stack":count<=1?"quantity_too_small":!space?"ancestor_capacity":""}};
+   SwgxrEquipment::enrich(result,o,c);SwgxrSlicingData::describe(result,o,c);
+   auto tool=dynamic_cast<ToolTangibleObject*>(o);auto survey=dynamic_cast<SurveyTool*>(o);
+-  result["tool_kind"]=SwgxrSlicingData::tool(o)?"slicing":(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isCamoKit()?"camouflage":o->isTrapObject()?"trap":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  result["tool_kind"]=SwgxrSlicingData::tool(o)?"slicing":(o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_basic.iff" || o->getObjectTemplate()->getFullTemplateString()=="object/tangible/medicine/medikit_tool_advanced.iff")?"medical":o->isCamoKit()?"camouflage":o->isTrapObject()?"trap":corecu::grenade::supported(o->getObjectTemplate()->getFullTemplateString().toCharArray())?"grenade":o->isCampKit()?"camp":o->isFishingPoleObject()?"fishing":survey!=nullptr?"survey":o->isCraftingTool()?"crafting":tool!=nullptr?"other":"";
++  if(o->isWeaponObject() && corecu::grenade::supported(o->getObjectTemplate()->getFullTemplateString().toCharArray())){
++   auto w=static_cast<WeaponObject*>(o);auto spec=corecu::grenade::spec(o->getObjectTemplate()->getFullTemplateString().toCharArray());
++   result["throwable_kind"]=spec.kind;result["grenade_radius_m"]=spec.radius;result["grenade_cooldown_seconds"]=corecu::grenade::recovery(c->getSkillMod("thrown_speed"));result["grenade_family_cooldown_seconds"]=spec.familyCooldown;
++   result["grenade_range_m"]=corecu::grenade::Range;result["grenade_available"]=w->isCertifiedFor(c) && w->getUseCount()>0 && !w->isBroken();result["grenade_fuse_seconds"]=corecu::grenade::FuseSeconds;
++  }
+   if(auto pack=dynamic_cast<WoundPack*>(o)){result["wound_medpack"]=!pack->isDroidReconstructionKit() && pack->getAttribute()==0;result["wound_attribute"]=int(pack->getAttribute());result["wound_skill_required"]=pack->getMedicineUseRequired();}
+   if(auto pack=dynamic_cast<PharmaceuticalObject*>(o)){
+    auto action=SwgxrMedicalItem::command(pack);result["medical_item"]=!action.isEmpty();result["medical_command"]=std::string(action.toCharArray());
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMovement.h
+@@ -53,8 +53,15 @@
+   }
+   ~RequestScope(){requestRevision()=previous;}
+  };
++ // Control affects intentional movement only. Tracking-driven room movement
++ // still follows the established spatial movement budget, never a head snap.
++ static Json controls(CreatureObject* c){
++  int slow=0;for(auto mod:{"private_swgxr_snare","private_swgxr_hamstring","private_pikeman_pin","private_pikeman_drive","private_carbineer_crippling","private_carbineer_sweep","private_commando_cryo"})slow=std::max(slow,c->getSkillMod(mod));
++  if(c->hasState(CreatureState::IMMOBILIZED))slow=std::max(slow,50);slow=std::max(0,std::min(100,slow));bool root=c->hasState(CreatureState::FROZEN) || c->getSkillMod("private_commando_glop")>0;
++  return {{"slow_percent",slow},{"rooted",root},{"voluntary_scale",root?0.:1.-slow/100.}};
++ }
+  static Json snapshot(CreatureObject* c){return {
+-  {"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
++  {"controls",controls(c)},{"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
+   {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
+   {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
+   {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()},
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -2681,10 +2681,8 @@
+ 	if ((walk && movementState != AiAgent::FLEEING) || posture == CreaturePosture::PRONE)
+ 		newSpeed = walkSpeed;
+ 
+-	newSpeed *= 1.f - corecu::carbineer::strongestSlow(corecu::pikeman::strongestSlow(getSkillMod("private_swgxr_snare"),getSkillMod("private_swgxr_hamstring"),getSkillMod("private_pikeman_pin"),getSkillMod("private_pikeman_drive")),getSkillMod("private_carbineer_crippling"),getSkillMod("private_carbineer_sweep")) / 100.f;
+-
+-	if (hasState(CreatureState::IMMOBILIZED))
+-		newSpeed = newSpeed / 2.f;
++	newSpeed *= 1.f - std::max(std::max({getSkillMod("private_commando_glop"),getSkillMod("private_commando_cryo"),hasState(CreatureState::IMMOBILIZED)?50:0}),corecu::carbineer::strongestSlow(corecu::pikeman::strongestSlow(getSkillMod("private_swgxr_snare"),getSkillMod("private_swgxr_hamstring"),getSkillMod("private_pikeman_pin"),getSkillMod("private_pikeman_drive")),getSkillMod("private_carbineer_crippling"),getSkillMod("private_carbineer_sweep"))) / 100.f;
++
+ 
+ 	if (hasState(CreatureState::FROZEN))
+ 		newSpeed = 0.01f;

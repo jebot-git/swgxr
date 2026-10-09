@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Native party gestures and original group leadership, disposable local players only."""
-import json,re,secrets,time
+import json,math,re,secrets,time
 from urllib.parse import urlencode
 from services_smoke import ROOT,req,redact
 from equipment_smoke import console
@@ -112,13 +112,16 @@ end
    time.sleep(.1)
   check(level>report['levels'][d['id']] and party['leader_id']==c['id'],'Learning Squad Leader while grouped promotes highest-level Squad Leader')
   check(lua(c['id']+',surrender')=='false','Original individual surrender removes leader Squad Leader novice')
-  expected=list(map(float,lua(d['id']+',leader_mods').split(',')))
+  source=list(map(float,lua(d['id']+',leader_mods').split(',')))
+  expected=[math.ceil(min(30,max(0,value))*.5) for value in source]
   for _ in range(30):
-   party=state(a);actual=list(map(float,lua(a['id']+',mods').split(',')))
-   if party['leader_id']==d['id'] and actual==expected:break
+   party=state(a);support=refresh(a)['squad_leader']['passives']
+   actual=[support['ranged_defense'],support['melee_defense']]
+   legacy=list(map(float,lua(a['id']+',mods').split(',')))
+   if party['leader_id']==d['id'] and actual==expected and legacy==[0,0]:break
    time.sleep(.1)
-  report['surrender_modifiers']={'remaining_leader':expected,'member':actual}
-  check(max(expected)>0 and actual==expected and party['leader_id']==d['id'],'Individual surrender elects remaining Squad Leader and applies exact positive native group modifiers')
+  report['surrender_modifiers']={'remaining_leader_source':source,'expected_cu':expected,'member':actual,'retired_legacy':legacy}
+  check(max(expected)>0 and actual==expected and legacy==[0,0] and party['leader_id']==d['id'],'Individual surrender elects remaining Squad Leader and applies bounded CU passives without legacy modifiers')
   lua(c['id']+',outdoors_squadleader_novice')
   for _ in range(30):
    if state(a)['leader_id']==c['id']:break
@@ -127,6 +130,8 @@ end
   check(ent(c,'group_leave').get('ok'),'Existing leave command removes leader')
   check(state(c)['id']=='0' and state(a)['leader_id']==d['id'],'Leaving leader promotes remaining Squad Leader')
   check(ent(d,'group_leave').get('ok') and state(d)['id']=='0','Squad Leader can leave through existing native command')
+  support=refresh(a)['squad_leader']['passives']
+  check(support['damage_bonus']==0 and support['action_mind_regen_bonus']==0 and support['melee_defense']==0 and support['ranged_defense']==0,'Last Squad Leader departure immediately removes CU support bonuses')
   replay=ent(a,'group_bump',**d_receipt)
   check(replay.get('mutation',{}).get('replayed') is True and state(d)['id']=='0','Consumed gesture replay after Leave returns receipt without rejoining')
   reverse=ent(d,'group_bump',target_id=a['id'],group_bump_id=d_receipt['group_bump_id'],request_id=d_receipt['request_id'])

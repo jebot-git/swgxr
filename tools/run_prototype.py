@@ -56,7 +56,9 @@ def inventory_assets(snapshot=None, snapshot_path=None):
     if not (ROOT / 'runtime/assets/services/bazaar_categories.json').exists():
         subprocess.run([sys.executable,str(ROOT / 'tools/assets/prepare_bazaar_categories.py')],check=True,cwd=ROOT)
     scout_catalog = load_json(ROOT / 'runtime/assets/scout/catalog.json')
-    if scout_catalog.get('schema') != 2 or not scout_catalog.get('camouflage_kits') or not scout_catalog.get('ranger_skills'):
+    if (scout_catalog.get('schema') != 2 or not scout_catalog.get('camouflage_kits') or not scout_catalog.get('ranger_skills')
+            or 'object/weapon/ranged/grenade/grenade_proton.iff' not in scout_catalog.get('templates', [])
+            or not load_json(ROOT/'runtime/assets/grenades/assets.json').get('grenade_effects')):
         subprocess.run([sys.executable,str(ROOT / 'tools/scout/prepare_assets.py')],check=True,cwd=ROOT)
     if not (ROOT / 'runtime/assets/crafting/catalog.json').exists():
         subprocess.run([sys.executable,str(ROOT/'tools/crafting/prepare_assets.py')],check=True,cwd=ROOT)
@@ -218,17 +220,19 @@ def combat_assets():
     if not extensions.exists() or 'godot-steam-audio' not in extensions.read_text():
         subprocess.run(['godot', '--headless', '--xr-mode', 'off', '--audio-driver', 'Dummy',
                         '--path', str(ROOT / 'client'), '--editor', '--import', '--quit'], check=True, env=client_environment())
-    if not (ROOT / 'runtime/combat/catalog.json').is_file():
+    combat_balance = ROOT/'client/combat/balance.json'
+    if load_json(ROOT/'runtime/assets/combat/catalog.json').get('balance_sha256') != hashlib.sha256(combat_balance.read_bytes()).hexdigest():
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/export_catalog.py')], check=True, cwd=ROOT)
-    if not (ROOT / 'runtime/assets/combat/assets.json').is_file():
+    if (set(load_json(ROOT/'runtime/assets/combat/assets.json').get('weapons', {}))
+            != set(load_json(combat_balance).get('weapons', {}))):
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_assets.py')], check=True, cwd=ROOT)
-    if not (ROOT / 'runtime/combat/abilities/catalog.json').is_file() or any(not (ROOT / 'runtime/combat/abilities' / (name + '.png')).is_file() for name in ('sampledna','animalattack','tame','emboldenpets','enragepets','mount','dismount','pethigh','petlow','trainmount','conceal','rescue','areatrack')):
+    if not (ROOT / 'runtime/assets/combat/abilities/catalog.json').is_file() or any(not (ROOT / 'runtime/assets/combat/abilities' / (name + '.png')).is_file() for name in ('sampledna','animalattack','tame','emboldenpets','enragepets','mount','dismount','pethigh','petlow','trainmount','conceal','rescue','areatrack')):
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_abilities.py')], check=True, cwd=ROOT)
     if not (ROOT / 'runtime/assets/professions/catalog.json').is_file():
         subprocess.run([sys.executable, str(ROOT / 'tools/assets/prepare_professions.py')], check=True, cwd=ROOT)
-    if not (ROOT / 'runtime/combat/player_postures/catalog.json').is_file():
+    if not (ROOT / 'runtime/assets/combat/player_postures/catalog.json').is_file():
         subprocess.run([sys.executable, str(ROOT / 'tools/combat/prepare_player_feedback.py')], check=True, cwd=ROOT)
-    if len(load_json(ROOT / 'runtime/entertainment/catalog.json').get('effects', [])) < 21:
+    if len(load_json(ROOT / 'runtime/assets/entertainment/catalog.json').get('effects', [])) < 21:
         subprocess.run([sys.executable, str(ROOT / 'tools/entertainment/prepare_assets.py')], check=True, cwd=ROOT)
     subprocess.run([sys.executable, str(ROOT / 'tools/entertainment/prepare_image_design.py'), '--ensure'], check=True, cwd=ROOT)
 

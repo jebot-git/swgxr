@@ -23,7 +23,7 @@ func _initialize() -> void: call_deferred("run")
 
 func run() -> void:
 	create_timer(45).timeout.connect(func(): push_error("Combat smoke timeout"); quit(2))
-	catalog = JSON.parse_string(FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../runtime/combat/catalog.json")))
+	catalog = JSON.parse_string(FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../runtime/assets/combat/catalog.json")))
 	var balance: Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://combat/balance.json"))
 	var expected: Array=[]; var exported: Array=[]
 	for key: String in balance.weapons:

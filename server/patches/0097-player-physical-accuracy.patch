@@ -1,0 +1,51 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
+@@ -77,6 +77,10 @@
+ 	uint32 weaponType;
+ 
+ public:
++	// Only server-created wrappers reached after physical contact/gesture validation
++	// opt in. This is never a Lua command property or client request argument.
++	virtual bool usesPhysicalContactAccuracy() const { return false; }
++
+ 	enum AnimGenTypes {
+ 		GENERATE_NONE, // Uses animation as given - Default
+ 		GENERATE_RANGED, // Generates _light|_medium as well as appends _face with headshots
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -17,6 +17,7 @@
+ class SwgxrPreparedRangedCommand : public CombatQueueCommand {
+ public:
+  explicit SwgxrPreparedRangedCommand(const CombatQueueCommand& source):CombatQueueCommand(source){}
++ bool usesPhysicalContactAccuracy() const override {return true;}
+  int doQueueCommand(CreatureObject* creature,const uint64& target,const UnicodeString& arguments) const override {return doCombatAction(creature,target,arguments);}
+ };
+ class SwgxrSmuggler {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/tangible/threat/ThreatMap.h"
+ class SwgxrTkaStrike : public CombatQueueCommand {
+ public:
++ bool usesPhysicalContactAccuracy() const override {return true;}
+  SwgxrTkaStrike(const CombatQueueCommand& source,double multiplier):CombatQueueCommand(source) {
+   setDamageMultiplier(multiplier);setAreaAction(false);setConeAction(false);setPoolsToDamage(1);
+   setHealthCostMultiplier(0);setActionCostMultiplier(0);setMindCostMultiplier(0);setForceCostMultiplier(0);
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -2097,6 +2097,15 @@
+ */
+ 
+ int CombatManager::getHitChance(TangibleObject* attacker, CreatureObject* creoDefender, WeaponObject* weapon, const CreatureAttackData& data, int damage, int bonusAccuracy) const {
++	// Physical contacts already passed native ownership, target, range and LOS
++	// validation. Never turn a player's accepted hit into an innate miss, dodge,
++	// counter or ricochet. Armour and tracked physical guards resolve downstream;
++	// status application keeps its separate resistance checks. Ordinary commands,
++	// NPCs, companions and force/state-only actions retain their own resolver.
++	if (attacker->isPlayerCreature() && data.getCommand()->usesPhysicalContactAccuracy()
++		&& !data.isForceAttack() && !data.isStateOnlyAttack())
++		return HitStatus::HIT;
++
+ 	// AttackData
+ 	float accuracyWeapon = 0.f;
+ 	int accuracySkill = 0;

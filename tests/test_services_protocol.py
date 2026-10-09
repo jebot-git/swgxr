@@ -22,6 +22,16 @@ class ServicesProtocolTests(unittest.TestCase):
   for points in ({'underworld':1},{'rebel':True},{'rebel':-1},{'rebel':1.5},{'rebel':2000000001},[],None):
    with self.subTest(points=points),self.assertRaises(ValueError):command('pay',dict(request,faction_points=points))
   with self.assertRaises(ValueError):command('pay',dict(request,amount=0,faction_points={}))
+ def test_forget_requires_skill_and_stable_request_without_trainer(self):
+  request={'skill_id':'combat_rifleman_speed_04','request_id':'forget_001'}
+  result=command('skill_forget',request)
+  self.assertEqual(result['skill_id'],request['skill_id'])
+  self.assertNotIn('terminal_id',result)
+  self.assertNotIn('terminal_id',command('skill_forget',dict(request,terminal_id='123')))
+  for invalid in ('',None,'combat_rifleman;delete','a'*97,True):
+   with self.subTest(invalid=invalid),self.assertRaises(ValueError):command('skill_forget',dict(request,skill_id=invalid))
+  for invalid in ('',None,'tiny'):
+   with self.assertRaises(ValueError):command('skill_forget',dict(request,request_id=invalid))
  def test_positions(self):
   for p in ([0,float('nan'),0],[0,9000,0],[True,0,0],[0,0]):
    with self.assertRaises(ValueError):command('status',{'position':p})

@@ -1,5 +1,7 @@
 extends PanelContainer
 
+signal ship_action_requested(entry: Dictionary)
+signal forget_skill_requested(skill_id: String)
 signal call_vehicle_requested(entry: Dictionary)
 signal recall_vehicle_requested(entry: Dictionary)
 signal droid_action_requested(entry: Dictionary)
@@ -17,6 +19,7 @@ var catalog_directory := ""
 var entries: Array = []
 var filtered_entries: Array = []
 var mission_parcels: Array = []
+var bounty_missions:Array=[]
 var harvesting_deeds:Array=[]
 var factory_blueprints:Array=[]
 var vendors: Array = []
@@ -54,7 +57,10 @@ var cancel_mission_button: Button
 var delete_button: Button
 var vehicle_button: Button
 var busy := false
+var ships: Array = []
 var professions: Control
+var forget_button: Button
+var selected_skill_detail: Dictionary = {}
 
 var vehicle_assets=preload("res://scripts/inventory_assets.gd").new()
 var vehicle_previews: Dictionary={}
@@ -93,9 +99,19 @@ func set_mission_parcels(values:Array)->void:
 	mission_parcels=values.duplicate(true)
 	set_entries(entries.filter(func(entry):return not entry.get("reference_only",false) and entry.get("type","")!="mission_parcel"))
 
+func set_bounty_missions(values:Array)->void:
+	if values==bounty_missions:return
+	bounty_missions=values.duplicate(true)
+	set_entries(entries)
+
 func set_harvesting_deeds(values:Array)->void:
 	if values==harvesting_deeds:return
 	harvesting_deeds=values.duplicate(true)
+	set_entries(entries)
+
+func set_ships(values:Array)->void:
+	if values == ships: return
+	ships = values.duplicate(true)
 	set_entries(entries)
 
 func set_vendors(values:Array)->void:
@@ -136,7 +152,7 @@ func build_ui() -> void:
 	header.add_child(close_button)
 	var tabs := HBoxContainer.new()
 	column.add_child(tabs)
-	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
+	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["ships","Ships"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
 		var button := make_button(descriptor[1])
 		button.toggle_mode = true
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -165,7 +181,7 @@ func build_ui() -> void:
 	map.visible = false
 	map.cursor_selected.connect(func(_position: Vector3): update_coordinates())
 	content.add_child(map)
-	map.custom_minimum_size.y=232 # Leave room for the frame, filters and action rows in the wrist viewport.
+	map.custom_minimum_size.y=224 # Frame, filters and action rows must fit the 625 px wrist viewport.
 	map_filters=HFlowContainer.new();map_filters.visible=false;content.add_child(map_filters)
 	for descriptor in [["city","Cities"],["poi","POI"],["bazaar","Bazaar"],["mission","Missions"],["bank","Bank"],["crafting","Crafting"],["travel","Travel"],["trainer","Trainers"]]:
 		var button:=make_button(descriptor[1]);button.toggle_mode=true;button.button_pressed=true
@@ -249,9 +265,15 @@ func build_detail() -> void:
 	delete_button.pressed.connect(func():
 		if not busy and can_delete(selected_entry): delete_entry_requested.emit(selected_entry.duplicate(true)))
 	box.add_child(delete_button)
+	forget_button = make_button("Forget skill")
+	forget_button.hide()
+	forget_button.pressed.connect(func():
+		if not busy and professions.forget_status(str(selected_skill_detail.get("skill_id", ""))).get("eligible", false):
+			forget_skill_requested.emit(str(selected_skill_detail.skill_id)))
+	box.add_child(forget_button)
 	cancel_mission_button=make_button("Cancel mission")
 	cancel_mission_button.visible=false
-	cancel_mission_button.tooltip_text="Abandon this mission and remove its parcel, components and unfinished crafting job."
+	cancel_mission_button.tooltip_text="Abandon this mission and remove its associated mission items and investigation."
 	cancel_mission_button.pressed.connect(func():
 		if not busy and not cancellable_mission_id(selected_entry).is_empty():cancel_mission_requested.emit(selected_entry.duplicate(true)))
 	box.add_child(cancel_mission_button)
@@ -259,7 +281,8 @@ func build_detail() -> void:
 	vehicle_button.visible=false
 	vehicle_button.pressed.connect(func():
 		if busy:return
-		if selected_entry.get("category","")=="pets":droid_action_requested.emit(selected_entry.duplicate(true))
+		if selected_entry.get("category","")=="ships":ship_action_requested.emit(selected_entry.duplicate(true))
+		elif selected_entry.get("category","")=="pets":droid_action_requested.emit(selected_entry.duplicate(true))
 		elif selected_entry.get("category","")=="vehicles":
 			if selected_entry.get("spawned",false):recall_vehicle_requested.emit(selected_entry.duplicate(true))
 			else:call_vehicle_requested.emit(selected_entry.duplicate(true)))
@@ -311,7 +334,8 @@ func set_planet(value:String)->void:
 
 func set_entries(values: Array) -> void:
 	build_ui()
-	entries = values.filter(func(entry):return entry.get("type","") not in ["mission_parcel","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
+	entries = values.filter(func(entry):return entry.get("type","") not in ["ship","mission_parcel","bounty_mission","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
+	entries.append_array(ships.duplicate(true))
 	# PLAY baselines identify the control device; vehicle snapshots identify its
 	# actual mobile. Retain that authoritative association across waypoint and
 	# datapad refreshes, without guessing a hull from the device filename.
@@ -326,6 +350,7 @@ func set_entries(values: Array) -> void:
 		if vehicle_details.has(id):retained[id]=vehicle_details[id]
 	vehicle_details=retained
 	entries.append_array(mission_parcels.duplicate(true))
+	entries.append_array(bounty_missions.duplicate(true))
 	entries.append_array(vendors.duplicate(true))
 	entries.append_array(harvesting_deeds.duplicate(true))
 	entries.append_array(factory_blueprints.duplicate(true))
@@ -351,16 +376,30 @@ func set_experience(values: Dictionary, complete := true) -> void:
 	build_ui()
 	professions.set_experience(values, complete)
 
+func set_skill_forgetting_available(value:bool,reason:String="")->void:
+	build_ui();professions.set_forgetting_available(value,reason)
+
+func set_forget_skills(values: Array, points: int = -1) -> void:
+	build_ui()
+	professions.set_forget_skills(values, points)
+
 func show_skill_detail(detail: Dictionary) -> void:
 	if not is_instance_valid(detail_title) or category != "skills": return
 	selected_entry = {}
+	selected_skill_detail = detail.duplicate(true)
 	vehicle_button.visible=false
+	delete_button.visible = false
 	delete_button.disabled = true
+	forget_button.visible = detail.get("state", "") == "Learned"
+	var forget: Dictionary = detail.get("forget", {})
+	forget_button.disabled = busy or not forget.get("eligible", false)
+	forget_button.text = "Forget · regain %d skill points" % int(forget.get("refunded_points", 0))
+	forget_button.tooltip_text = str(forget.get("reason", ""))
 	if is_instance_valid(cancel_mission_button):cancel_mission_button.visible=false
 	detail_title.text = str(detail.name)
 	detail_type.text = str(detail.state)
 	detail_description.text = str(detail.description)
-	detail_attributes.text = "Training is available from profession trainers."
+	detail_attributes.text = ("%d skill points available. " % int(detail.skill_points) if int(detail.get("skill_points", -1)) >= 0 else "") + (str(forget.get("reason", "")) + "\nForgetting refunds skill points; spent XP and credits are not refunded." if forget_button.visible else "Training is available from profession trainers.")
 	detail_preview.visible = false
 
 func set_status(text: String) -> void:
@@ -371,6 +410,7 @@ func set_status(text: String) -> void:
 func set_busy(value: bool, status := "") -> void:
 	build_ui()
 	busy = value
+	if is_instance_valid(forget_button):forget_button.disabled = value or not professions.forget_status(str(selected_skill_detail.get("skill_id", ""))).get("eligible", false)
 	waypoint_button.disabled = value
 	delete_button.disabled = value or not can_delete(selected_entry)
 	cancel_mission_button.disabled=value or cancellable_mission_id(selected_entry).is_empty()
@@ -384,6 +424,9 @@ func set_player_position(value: Vector3) -> void:
 
 func select_category(id: String) -> void:
 	selected_entry = {}
+	selected_skill_detail = {}
+	forget_button.visible = false
+	delete_button.visible = true
 	vehicle_button.visible=false
 	delete_button.disabled = true
 	if is_instance_valid(cancel_mission_button):cancel_mission_button.visible=false
@@ -420,9 +463,10 @@ func select_entry(index: int) -> void:
 	if index < 0 or index >= filtered_entries.size(): return
 	var entry: Dictionary = filtered_entries[index]
 	selected_entry = entry
-	vehicle_button.visible=entry.get("category","")=="vehicles" or (entry.get("category","")=="pets" and (entry.get("native_droid",false) or entry.get("native_pet",false)))
+	vehicle_button.visible=entry.get("category","") in ["vehicles","ships"] or (entry.get("category","")=="pets" and (entry.get("native_droid",false) or entry.get("native_pet",false)))
 	vehicle_button.text=("Recall " if entry.get("spawned",false) else "Call ")+(("droid" if entry.get("pet_kind","droid")=="droid" else "pet") if entry.get("category","")=="pets" else "vehicle")
-	vehicle_button.disabled=busy
+	if entry.get("category","")=="ships":vehicle_button.text=str(entry.get("action_label","Return to ground" if entry.get("launched",false) else "Prepare launch"))
+	vehicle_button.disabled=busy or (entry.get("category","")=="ships" and not entry.get("available",true))
 	delete_button.disabled = busy or not can_delete(entry)
 	cancel_mission_button.visible=not cancellable_mission_id(entry).is_empty()
 	cancel_mission_button.disabled=busy

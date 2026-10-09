@@ -1,0 +1,92 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -153,7 +153,7 @@
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["warcry"]["equipped"]=SwgxrCombatLoadout::allows(c,"warcry");
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -233,7 +233,7 @@
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+    for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+-   if(SwgxrVehicles::seated(c) || !SwgxrCombatLoadout::allows(c,"warcry"))throw std::runtime_error("native_warcry_not_equipped");
++   if(SwgxrVehicles::seated(c))throw std::runtime_error("native_warcry_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+    auto out=SwgxrWarcry::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,5 +1,6 @@
+ #include "CoreCuCombat.h"
+ #include "SwgxrWarcry.h"
++#include "SwgxrTaunt.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+ #define SWGXR_SMUGGLER_H
+@@ -64,7 +65,14 @@
+   }
+  }
+  static Json abilities(CreatureObject* c){
+-  Json out=Json::array();auto w=c->getWeapon();if(SwgxrWarcry::learned(c) && w && !w->isUnarmedWeapon())out.push_back(SwgxrWarcry::ability(c));if(!w || !w->isRangedWeapon())return out;
++  Json out=Json::array();auto w=c->getWeapon();if(SwgxrWarcry::learned(c) && w && !w->isUnarmedWeapon() && (w->isMeleeWeapon() || w->isRangedWeapon()))out.push_back(SwgxrWarcry::ability(c));auto taunt=SwgxrTaunt::snapshot(c);if(w && taunt.at("learned").get<bool>()){
++   taunt["id"]="taunt";taunt["label"]="Taunt";taunt["category"]="gesture";taunt["activation"]="chest_beats";taunt["ultimate"]=false;
++   taunt["description"]="Challenge the eligible enemy under your head reticle to draw its attention.";
++   taunt["trigger_description"]="Beat your chest twice with a free clenched hand (grip held, trigger released) while looking at the enemy.";
++   taunt["weapon_requirement"]="Any certified equipped weapon, including unarmed; requires a free hand.";
++   taunt["max_range_m"]=taunt["range_m"];taunt["cooldown_seconds"]=taunt["interval_seconds"];out.push_back(taunt);
++  }if(feignAvailable(c))out.push_back({{"id","feign_death"},{"label","Feign Death"},{"category","gesture"},{"activation","feign_posture"},{"ultimate",false},{"description","Use the learned Feign Death ability to break enemy attention. Core3 controls eligibility and recovery."},{"trigger_description","While grounded, look straight upward briefly, or lower yourself and look upward. Stand upright and look forward to recover."},{"weapon_requirement","Any weapon family, including unarmed."}});
++  if(!w || !w->isRangedWeapon())return out;
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrWarcry.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrWarcry.h
+@@ -16,7 +16,7 @@
+  static bool weapon(CreatureObject* c){auto w=c->getWeapon();return w && !w->isUnarmedWeapon() && (w->isMeleeWeapon() || w->isRangedWeapon()) && w->isCertifiedFor(c);}
+  static double cooldown(CreatureObject* c){auto t=c->getCooldownTime("corecu_warcry");return t?std::max(0.,-t->miliDifference()/1000.):0.;}
+  static Json snapshot(CreatureObject* c){return {{"learned",learned(c)},{"conditions_met",weapon(c) && !c->isDead() && !c->isIncapacitated() && !c->isRidingMount() && c->getPosture()==0},{"cooldown_remaining_seconds",cooldown(c)},{"action_cost",corecu::warcry::ActionCost},{"mind_cost",corecu::warcry::MindCost},{"interval_seconds",1.}};}
+- static Json ability(CreatureObject* c){auto row=snapshot(c);row["id"]="warcry";row["label"]="Warcry";row["description"]="Raise your held weapon above your head, lower it slightly and pump it upward. Delays attacks and reduces enemy damage in a forward cone. Replaces Warcry and Intimidate.";row["activation"]="overhead_weapon_pump";row["ultimate"]=false;row["cooldown_seconds"]=corecu::warcry::Cooldown;row["max_range_m"]=corecu::warcry::Range;row["base_sac"]={{"health",0},{"action",corecu::warcry::ActionCost},{"mind",corecu::warcry::MindCost}};return row;}
++ static Json ability(CreatureObject* c){auto row=snapshot(c);row["id"]="warcry";row["label"]="Warcry";row["description"]="Raise your held weapon above your head, lower it slightly and pump it upward. Delays attacks and reduces enemy damage in a forward cone. Replaces Warcry and Intimidate.";row["activation"]="overhead_weapon_pump";row["category"]="gesture";row["trigger_description"]="Hold grip with both triggers released. Raise the weapon above your head, lower it slightly, then pump upward while facing enemies.";row["weapon_requirement"]="A certified held melee or ranged weapon; unavailable unarmed.";row["ultimate"]=false;row["cooldown_seconds"]=corecu::warcry::Cooldown;row["max_range_m"]=corecu::warcry::Range;row["base_sac"]={{"health",0},{"action",corecu::warcry::ActionCost},{"mind",corecu::warcry::MindCost}};return row;}
+  static Json run(CreatureObject* c,const Json& request){
+   if(!learned(c))throw std::runtime_error("native_warcry_not_learned");
+   if(!snapshot(c).at("conditions_met").get<bool>() || std::to_string(c->getWeapon()->getObjectID())!=request.at("item_id").get<std::string>())throw std::runtime_error("native_warcry_unavailable");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatLoadout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatLoadout.h
+@@ -19,6 +19,7 @@
+   if(w->isPolearmWeaponObject())return "polearms";
+   return "other";
+  }
++ static bool gesture(const Json& row){return row.value("category",std::string())=="gesture";}
+  static Json empty(){return {{"slots",Json::array({"","","",""})},{"ultimate",""},{"revision",0}};}
+  static Json saved(CreatureObject* c){
+   auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_combat_loadout",String(family(c).c_str()));
+@@ -34,14 +35,14 @@
+   auto out=saved(c);out["family"]=family(c);
+   // Lost skills leave empty usable slots; stored preferences never grant skills.
+   std::set<std::string> regular,ultimate;
+-  for(const auto& row:catalog)(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
++  for(const auto& row:catalog)if(!gesture(row))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
+   for(auto& id:out["slots"])if(!regular.count(id.get<std::string>()))id="";
+   if(!ultimate.count(out["ultimate"].get<std::string>()))out["ultimate"]="";
+   return out;
+  }
+  static Json equipped(CreatureObject* c,const Json& catalog){
+   auto selected=selection(snapshot(c,catalog));Json out=Json::array();
+-  for(const auto& row:catalog)if(selected.contains(row.at("id").get<std::string>()))out.push_back(row);
++  for(const auto& row:catalog)if(!gesture(row) && selected.contains(row.at("id").get<std::string>()))out.push_back(row);
+   return out;
+  }
+  static bool allows(CreatureObject* c,const std::string& id){
+@@ -53,7 +54,7 @@
+   if(c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
+   auto old=saved(c);if(q.at("revision")!=old.at("revision"))throw std::runtime_error("loadout_revision_changed");
+   auto selected=selection(q);std::set<std::string> regular,ultimate;
+-  for(const auto& row:SwgxrSmuggler::abilities(c))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
++  for(const auto& row:SwgxrSmuggler::abilities(c))if(!gesture(row))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
+   if(!selected.valid(regular,ultimate))throw std::runtime_error("loadout_ability_not_eligible");
+   Json value={{"slots",q.at("slots")},{"ultimate",selected.ultimate},{"revision",old.at("revision").get<uint64>()+1}};
+   c->getPlayerObject()->setScreenPlayData("swgxr_combat_loadout",String(family(c).c_str()),String(value.dump().c_str()));

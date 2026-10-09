@@ -3,6 +3,12 @@ extends RefCounted
 signal recovery_requested(posture: int, automatic: bool)
 signal life_action_requested(action: String)
 const LIFE_HOLD_SECONDS := 1.0
+const FORCE_HOLD_SECONDS := 3.0
+const ForceOfWill = preload("res://combat/force_of_will.gd")
+var force_of_will: Dictionary = {}
+var force_available := false
+var force_hold_seconds := 0.0
+var force_hold_armed := false
 const LIFE_VIEW_SECONDS := 0.32
 var motion := SwgViewPosture.new()
 var stance = preload("res://combat/firing_posture.gd").new()
@@ -58,7 +64,7 @@ func configure(player: CharacterBody3D, view: Camera3D, xr: XROrigin3D = null) -
 	camera.add_child(life_label)
 	var fade := camera.get_node_or_null("Fade")
 	if fade != null: fade.layers = 1 # Local head layer is excluded by the XR camera.
-	var path := "res://../runtime/combat/player_postures/catalog.json"
+	var path := "res://../runtime/assets/combat/player_postures/catalog.json"
 	if FileAccess.file_exists(path):
 		source = JSON.parse_string(FileAccess.get_file_as_string(path))
 		var curve := PackedVector2Array()
@@ -92,6 +98,10 @@ func reset() -> void:
 	recovery_remaining_seconds = -1.0
 	recovery_requested_authoritatively = false
 	cloning = false
+	force_of_will = {}
+	force_available = false
+	force_hold_seconds = 0.0
+	force_hold_armed = false
 	life_hold_seconds = 0.0
 	life_jump_armed = false
 	life_view_offset = 0.0
@@ -128,6 +138,11 @@ func observe(context: Dictionary) -> void:
 	recovery_remaining_seconds = float(countdown) if (countdown is float or countdown is int) and is_finite(float(countdown)) else -1.0
 	recovery_requested_authoritatively = bool(context.get("recovery_requested",false))
 	cloning = bool(context.get("cloning",false))
+	force_of_will = context.force_of_will.duplicate(true) if context.get("force_of_will") is Dictionary else {}
+	force_available = ForceOfWill.available(context)
+	if not force_available:
+		force_hold_seconds = 0.0
+		force_hold_armed = false
 	var feigning:bool=bool(context.get("feigning_death",false)) and posture!=14
 	if posture == observed_posture and feigning==feigning_death: return
 	feigning_death=feigning
@@ -139,6 +154,8 @@ func observe(context: Dictionary) -> void:
 		life_view_time = 0.0
 		life_hold_seconds = 0.0
 		life_jump_armed = false
+		force_hold_seconds = 0.0
+		force_hold_armed = false
 		life_action_pending = false
 		life_action = ""
 		life_status = ""
@@ -148,28 +165,41 @@ func observe(context: Dictionary) -> void:
 	update_life_label()
 
 func update_life_input(pressed: bool, tracked: bool, delta: float) -> void:
-	if not life_locked or observed_posture != 13 or not tracked or not body.active:
+	if not life_locked or observed_posture != 13 or not tracked or not body.active or cloning or not is_finite(delta) or delta < 0 or delta > 0.25:
 		life_hold_seconds = 0.0
 		life_jump_armed = false
+		force_hold_seconds = 0.0
+		force_hold_armed = false
 		return
 	if not pressed:
 		life_jump_armed = true
 		life_hold_seconds = 0.0
-	elif life_jump_armed and not life_action_pending and not recovery_requested_authoritatively and not cloning:
-		life_hold_seconds += clampf(delta, 0.0, 0.1)
-		if life_hold_seconds >= LIFE_HOLD_SECONDS:
-			life_jump_armed = false
-			request_life_action("recover", tracked)
+		force_hold_armed = force_available
+		force_hold_seconds = 0.0
+	else:
+		# Continue the longer hold across the ordinary recovery acknowledgement.
+		if force_hold_armed and force_available:
+			force_hold_seconds = minf(FORCE_HOLD_SECONDS, force_hold_seconds + minf(delta, 0.1))
+		if life_jump_armed and not life_action_pending and not recovery_requested_authoritatively:
+			life_hold_seconds += minf(delta, 0.1)
+			if life_hold_seconds >= LIFE_HOLD_SECONDS:
+				life_jump_armed = false
+				request_life_action("recover", tracked)
+		if force_hold_armed and force_available and force_hold_seconds >= FORCE_HOLD_SECONDS and not life_action_pending:
+			force_hold_armed = false
+			request_life_action("force_of_will", tracked)
 	update_life_label()
 
 func request_life_action(action: String, tracked: bool = true) -> bool:
 	if not life_locked or life_action_pending or cloning or not tracked or not body.active: return false
-	if action != "medical_transport" and not (action == "recover" and observed_posture == 13): return false
+	if action != "medical_transport" and not (action in ["recover", "force_of_will"] and observed_posture == 13): return false
+	if action == "force_of_will" and not force_available: return false
+	if action != "recover": force_hold_armed = false
 	if action == "recover" and recovery_requested_authoritatively: return false
 	life_action_pending = true
 	life_action = action
 	life_hold_seconds = 0.0
-	life_status = "Requesting recovery…" if action == "recover" else "Requesting medical transport…"
+	life_status = "Requesting Force of Will…" if action == "force_of_will" else "Requesting recovery…" if action == "recover" else "Requesting medical transport…"
 	update_life_label()
 	life_action_requested.emit(action)
 	return true
@@ -177,9 +207,13 @@ func request_life_action(action: String, tracked: bool = true) -> bool:
 func resolve_life_action(success: bool, message: String = "") -> void:
 	# A reply acknowledges an intent. Only observe() changes the confirmed pose.
 	var previous := life_action
+	if not success:
+		force_hold_armed = false
+		force_hold_seconds = 0.0
+		life_jump_armed = false
 	life_action_pending = false
 	life_action = ""
-	life_status = message if not message.is_empty() else ("Waiting for Core3 recovery…" if previous == "recover" else "Waiting for Core3 medical transport…") if success else "Core3 rejected the request. Release the control before retrying."
+	life_status = message if not message.is_empty() else ("Waiting for Core3 recovery…" if previous in ["recover", "force_of_will"] else "Waiting for Core3 medical transport…") if success else "Core3 rejected the request. Release the control before retrying."
 	update_life_label()
 
 func life_readout() -> Dictionary:
@@ -187,6 +221,7 @@ func life_readout() -> Dictionary:
 		"action":life_action, "status":life_status, "hold_progress":clampf(life_hold_seconds/LIFE_HOLD_SECONDS,0,1),
 		"recovery_remaining_seconds":recovery_remaining_seconds,
 		"recovery_requested":recovery_requested_authoritatively,"cloning":cloning,
+		"force_of_will_available":force_available,"force_of_will_progress":clampf(force_hold_seconds/FORCE_HOLD_SECONDS,0,1),
 		"title":"Incapacitated" if observed_posture == 13 else "Dead"}
 
 func update_life_label() -> void:
@@ -203,6 +238,8 @@ func update_life_label() -> void:
 	if not life_action_pending and not cloning:
 		if observed_posture == 13:
 			if not recovery_requested_authoritatively: lines.append("Hold offhand stick: recover  %d%%" % roundi(100.0*life_hold_seconds/LIFE_HOLD_SECONDS))
+			if force_available: lines.append("Keep holding offhand stick for 3 s: Force of Will  %d%%" % roundi(100.0*force_hold_seconds/FORCE_HOLD_SECONDS))
+			elif bool(force_of_will.get("learned",false)) and float(force_of_will.get("cooldown_remaining_seconds",0)) > 0: lines.append("Force of Will: %.0f s cooldown" % float(force_of_will.cooldown_remaining_seconds))
 			lines.append("A: give up and respawn at a medical facility")
 		else: lines.append("A: respawn at a medical facility")
 	life_label.text = "\n".join(lines)

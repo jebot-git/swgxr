@@ -290,7 +290,7 @@ class InventoryImporter:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tre-dir', type=Path, default=ROOT / 'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT / 'runtime/asset_sources/active_tre')
     parser.add_argument('--out', type=Path, default=ROOT / 'runtime/assets/inventory')
     parser.add_argument('--template', action='append', default=[])
     parser.add_argument('--snapshot', type=Path, action='append', default=[])

@@ -154,6 +154,9 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 	return true
 func _process(delta:float)->void:
 	if not is_instance_valid(app):return
+	if is_instance_valid(app.get("space")) and app.space.aboard():
+		if not owner_session.is_empty():reset()
+		return
 	if priming:
 		if not app.world_ready:return
 		priming=false

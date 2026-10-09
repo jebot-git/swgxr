@@ -1,5 +1,6 @@
 #include "performance_gesture.h"
 #include <godot_cpp/core/class_db.hpp>
+#include <algorithm>
 #include <cmath>
 using namespace godot;
 void SwgPerformanceGesture::_bind_methods() {

@@ -11,7 +11,7 @@ from prepare_planet_entities import source_union
 
 class MultiPlanetTests(unittest.TestCase):
     def test_media_and_travel_are_original(self):
-        tre=TreSet(ROOT/'runtime/assets/active_tre')
+        tre=TreSet(ROOT/'runtime/asset_sources/active_tre')
         for planet in PLANETS:
             with self.subTest(planet=planet):
                 for name in (f'terrain/{planet}.trn',f'snapshot/{planet}.ws',f'datatables/environment/{planet}.iff',f'terrain/environment/{planet}.iff'):self.assertIn(name,tre.entries)

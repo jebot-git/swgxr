@@ -8,7 +8,7 @@ from terrain_formats import terrain
 from planet_config import PLANETS, origin_for, path_for
 ROOT=Path(__file__).resolve().parents[2]
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"terrain");args.out.mkdir(parents=True,exist_ok=True)
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');ap.add_argument('--out',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"terrain");args.out.mkdir(parents=True,exist_ok=True)
  tre=TreSet(args.tre_dir);deps={};failures=[]
  def read(name):
   raw=tre.read(name);deps[name]={'archive':tre.entries[name][0].name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()};return raw

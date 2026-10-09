@@ -13,7 +13,7 @@ def main():
  sys.path.insert(0,str(ROOT/'tools/assets'))
  from character_formats import datatable
  from swg_formats import TreSet
- entries=datatable(TreSet(ROOT/'runtime/assets/active_tre').read('datatables/xp/species.iff'))
+ entries=datatable(TreSet(ROOT/'runtime/asset_sources/active_tre').read('datatables/xp/species.iff'))
  bonuses=dict(value.split(':')for row in entries if (value:=row.get('human','')))
  species_multiplier=(100+int(bonuses.get('combat_rangedspecialize_pistol',bonuses.get('all','0'))))/100
  path=ROOT/'runtime/server/pve-fixture.json'

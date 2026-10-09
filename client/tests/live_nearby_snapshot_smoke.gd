@@ -28,7 +28,7 @@ func run()->void:
 	var stage:=Node3D.new();host.add_child(stage);stage.set_meta("manifest",{"origin":[3790,5,-4780]})
 	var body:=CharacterBody3D.new();host.add_child(body)
 	var head:=Camera3D.new();host.add_child(head);head.position.y=1.7
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var profile:Dictionary=catalog.weapons.pistol_fwg5.duplicate(true);profile.item_id=str(saved.snapshot.weapon.item_id);profile.source_kind="core3_weapon_instance";profile.certified=true
 	var rig:=Rig.new();host.add_child(rig);check(rig.configure(head,body,[profile]),"Actual original FWG5 profile configures with recorded native item identity")
 	rig.set_process(false);rig.set_physics_process(false)

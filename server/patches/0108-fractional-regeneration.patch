@@ -1,0 +1,164 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObject.idl
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObject.idl
+@@ -199,6 +199,11 @@
+ 	protected transient byte actionWoundHeal;
+ 	protected transient byte mindWoundHeal;
+ 
++	// CoreCU fractions are process-local; never serialize a regeneration bank.
++	protected transient double corecuHealthRegenCarry;
++	protected transient double corecuActionRegenCarry;
++	protected transient double corecuMindRegenCarry;
++
+ 	protected transient byte currentWeather;
+ 	protected transient byte currentWind;
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -1,5 +1,6 @@
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ #include "server/zone/objects/creature/commands/CoreCuResources.h"
++#include "server/zone/objects/creature/commands/CoreCuRegenPolicy.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpiceMedicine.h"
+@@ -111,6 +112,7 @@
+ 	currentWeather = 0;
+ 	currentWind = 0;
+ 	spawnerID = 0;
++	corecuHealthRegenCarry = corecuActionRegenCarry = corecuMindRegenCarry = 0.;
+ 
+ 	if (creditObject == nullptr) {
+ 		creditObject = getCreditObject();
+@@ -859,6 +861,7 @@
+ 
+ void CreatureObjectImplementation::setCombatState() {
+ 	//lastCombatAction.update();
++	corecuHealthRegenCarry = 0.;
+ 
+ 	if (!(stateBitmask & CreatureState::COMBAT)) {
+ 		stateBitmask |= CreatureState::COMBAT;
+@@ -936,6 +939,7 @@
+ }
+ 
+ bool CreatureObjectImplementation::setState(uint64 state, bool notifyClient) {
++	if (state & CreatureState::COMBAT) corecuHealthRegenCarry = 0.;
+ 	if (!(stateBitmask & state)) {
+ 		stateBitmask |= state;
+ 
+@@ -1169,6 +1173,15 @@
+ void CreatureObjectImplementation::setHAM(int type, int value,
+ 		bool notifyClient) {
+     if (type % 3 == 0 && SwgxrSpice::pinnedHam(asCreatureObject())) value = 1;
++	if ((isPlayerCreature() || isPet()) && type % 3 == 0) {
++		if (SwgxrSpice::pinnedHam(asCreatureObject()) || isDead() || isIncapacitated()) {
++			corecuHealthRegenCarry = corecuActionRegenCarry = corecuMindRegenCarry = 0.;
++		} else if (value >= maxHamList.get(type) - wounds.get(type)) {
++			if (type == 0) corecuHealthRegenCarry = 0.;
++			else if (type == 3) corecuActionRegenCarry = 0.;
++			else if (type == 6) corecuMindRegenCarry = 0.;
++		}
++	}
+ 	if (hamList.get(type) == value)
+ 		return;
+ 
+@@ -1830,6 +1843,8 @@
+ }
+ 
+ void CreatureObjectImplementation::setPosture(int newPosture, bool immediate, bool notifyClient) {
++	if (newPosture == CreaturePosture::INCAPACITATED || newPosture == CreaturePosture::DEAD)
++		corecuHealthRegenCarry = corecuActionRegenCarry = corecuMindRegenCarry = 0.;
+ 	if (posture == newPosture)
+ 		return;
+ 
+@@ -3247,13 +3262,33 @@
+ }
+ 
+ void CreatureObjectImplementation::activateHAMRegeneration(int latency) {
+-    if (SwgxrSpice::pinnedHam(asCreatureObject())) { SwgxrSpice::pinHam(asCreatureObject()); return; }
+-	if (isIncapacitated() || isDead())
+-		return;
++    if (SwgxrSpice::pinnedHam(asCreatureObject())) {
++        corecuHealthRegenCarry = corecuActionRegenCarry = corecuMindRegenCarry = 0.;
++        SwgxrSpice::pinHam(asCreatureObject()); return;
++    }
++	if (isIncapacitated() || isDead()) {
++		corecuHealthRegenCarry = corecuActionRegenCarry = corecuMindRegenCarry = 0.;
++		return;
++	}
+ 
+ 	if (!isPlayerCreature() && !isPet() && isInCombat())
+ 		return;
+ 
++	uint32 healthTick = 0, actionTick = 0, mindTick = 0;
++
++    if (isPlayerCreature() || isPet()) {
++        const double elapsed = latency / 1000. * (isKneeling() ? 1.25 : isSitting() ? 1.75 : 1.);
++        // BUFF skill-mod aggregation caps values at 125; the preparation stores
++        // basis points (500-1500), so read its owner-validated active buff directly.
++        const double metabolic = corecu::doctor::regen(SwgxrDoctorPreparation::strength(getBuff(BuffCRC::getMedicalBuff(2)),2));
++        auto regenerate = [&](int attribute, double& carry) {
++            const double amount = getBaseHAM(attribute) * CoreCuResources::regen(attribute,isInCombat()) * corecu::medicine::regeneration(getHAM(attribute+2),getBaseHAM(attribute+2)) * elapsed * SwgxrSpice::regenScale(asCreatureObject(),attribute) * metabolic;
++            return corecu::regeneration::tick(amount, carry, Math::max(0,getMaxHAM(attribute)-getWounds(attribute)-getHAM(attribute)));
++        };
++        healthTick = regenerate(0,corecuHealthRegenCarry);
++        actionTick = regenerate(3,corecuActionRegenCarry);
++        mindTick = regenerate(6,corecuMindRegenCarry);
++    } else {
+ 	float modifier = (float)latency/1000.f;
+ 
+ 	if (isKneeling())
+@@ -3262,26 +3297,18 @@
+ 		modifier *= 1.75f;
+ 
+ 	// this formula gives the amount of regen per second
+-	uint32 healthTick = (uint32) ceil((float) Math::max(0, getHAM(
++	healthTick = (uint32) ceil((float) Math::max(0, getHAM(
+ 			CreatureAttribute::CONSTITUTION)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 0));
+-	uint32 actionTick = (uint32) ceil((float) Math::max(0, getHAM(
++	actionTick = (uint32) ceil((float) Math::max(0, getHAM(
+ 			CreatureAttribute::STAMINA)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 3));
+-	uint32 mindTick = (uint32) ceil((float) Math::max(0, getHAM(
++	mindTick = (uint32) ceil((float) Math::max(0, getHAM(
+ 			CreatureAttribute::WILLPOWER)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 6));
+ 
+-    if (isPlayerCreature() || isPet()) {
+-        healthTick = (uint32)ceil(getBaseHAM(0)*CoreCuResources::regen(0,isInCombat())*corecu::medicine::regeneration(getHAM(2),getBaseHAM(2))*modifier*SwgxrSpice::regenScale(asCreatureObject(),0)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
+-        actionTick = (uint32)ceil(getBaseHAM(3)*CoreCuResources::regen(3,isInCombat())*corecu::medicine::regeneration(getHAM(5),getBaseHAM(5))*modifier*SwgxrSpice::regenScale(asCreatureObject(),3)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
+-        mindTick = (uint32)ceil(getBaseHAM(6)*CoreCuResources::regen(6,isInCombat())*corecu::medicine::regeneration(getHAM(8),getBaseHAM(8))*modifier*SwgxrSpice::regenScale(asCreatureObject(),6)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
++        // Preserve legacy NPC ceil/minimum behavior; fractional CoreCU ticks may be zero.
++        if (healthTick < 1) healthTick = 1;
++        if (actionTick < 1) actionTick = 1;
++        if (mindTick < 1) mindTick = 1;
+     }
+-	if (healthTick < 1 && !((isPlayerCreature() || isPet()) && isInCombat()))
+-		healthTick = 1;
+-
+-	if (actionTick < 1)
+-		actionTick = 1;
+-
+-	if (mindTick < 1)
+-		mindTick = 1;
+ 
+ 	healDamage(asCreatureObject(), CreatureAttribute::HEALTH, healthTick, true, false);
+ 	healDamage(asCreatureObject(), CreatureAttribute::ACTION, actionTick, true, false);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuRegenPolicy.h
+@@ -0,0 +1,18 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++
++namespace corecu { namespace regeneration {
++// Retain less than one resource point, never an unspent integer healing bank.
++// The accumulator is transient and advances only for an eligible, missing pool.
++inline int tick(double amount, double& carry, int missing) {
++ if (missing <= 0 || !std::isfinite(amount) || amount <= 0.) { carry = 0.; return 0; }
++ if (!std::isfinite(carry) || carry < 0. || carry >= 1.) carry = 0.;
++ const double total = amount + carry;
++ if (total >= missing) { carry = 0.; return missing; }
++ // Integer elapsed milliseconds still accumulate small binary rounding errors.
++ const int applied = std::min(missing, int(std::floor(total + 1e-9)));
++ carry = applied == missing ? 0. : std::max(0., total - applied);
++ return applied;
++}
++} }

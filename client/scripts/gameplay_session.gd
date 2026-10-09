@@ -57,6 +57,7 @@ func accept(result: Dictionary, starting:=false) -> bool:
 	last_confirmed_ms=Time.get_ticks_msec();last_error=""
 	weapon_state=snapshot.weapon.duplicate(true) if snapshot.get("weapon") is Dictionary else {}
 	player_state=preload("res://combat/movement_reconciliation.gd").annotate(snapshot.player,result);pending_transport=transport.duplicate(true)
+	if snapshot.get("jtl") is Dictionary:player_state.jtl=snapshot.jtl
 	var rig:Variant=app.get("combat_rig")
 	if is_instance_valid(rig) and rig.has_method("guard_feedback"):rig.guard_feedback(player_state.get("physical_guard",{}))
 	if pending_transport.is_empty():pending_ack="";notified_transport_id=""
@@ -95,7 +96,8 @@ func valid_player(value: Dictionary) -> bool:
 func request_life_action(action: String) -> bool:
 	if not live or not life_action_pending.is_empty() or not pending_transport.is_empty() or bool(player_state.get("cloning",false)):return false
 	var posture:=int(player_state.get("posture",0))
-	if not ((action=="recover" and posture==13) or (action=="medical_transport" and posture in [13,14])):return false
+	if not ((action in ["recover","force_of_will"] and posture==13) or (action=="medical_transport" and posture in [13,14])):return false
+	if action=="force_of_will" and not preload("res://combat/force_of_will.gd").available(player_state):return false
 	life_action_pending=action;next_update=0
 	return true
 func acknowledge_transport(id: String) -> bool:
@@ -150,6 +152,7 @@ func _process(delta: float) -> void:
 	if not pending_ack.is_empty():update_pose();return
 	if not life_action_pending.is_empty():send_life_action();return
 	if not app.world_ready:return
+	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	var combat:Variant=app.get("gameplay_combat")
 	# Stale combat cannot submit its commands. Give the owned heartbeat priority
 	# so that the queued gestures cannot prevent their own authority recovery.

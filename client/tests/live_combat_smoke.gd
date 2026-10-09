@@ -27,7 +27,7 @@ func run()->void:
 	var stage:=Node3D.new();host.add_child(stage);stage.set_meta("manifest",{"origin":[3500,5,-4800]})
 	var body:=CharacterBody3D.new();host.add_child(body)
 	var head:=Camera3D.new();host.add_child(head);head.position=Vector3(0,1.7,0)
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var profile:Dictionary=catalog.weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
 	var rig:=Rig.new();host.add_child(rig);check(rig.configure(head,body,[profile]),"Original FWG5 rig configures")
 	rig.set_process(false);rig.set_physics_process(false)
@@ -52,15 +52,16 @@ func run()->void:
 	check(live.actors["102"].visual.position.y==0,"Original lair authored origin is not bottom-aligned")
 	check(live.actors["101"].global_position.is_equal_approx(Vector3(0,0,-10)),"SWG source Z reflects to actual stage coordinates")
 	check(is_equal_approx(rig.weapons[0].state.effective_rpm(),20) and rig.weapons[0].state.ability_state==null,"Native cadence overrides prototype RPM and local HAM costs")
-	var shot:Dictionary={"item_id":"987","weapon_id":"pistol_fwg5","sequence":1,"range":100.0,"speed":100.0,"core3":profile.core3,"range_scale":1.0,"condition_fraction":1.0}
+	var shot:Dictionary={"item_id":"987","weapon_id":"pistol_fwg5","sequence":1,"range":100.0,"speed":100.0,"core3":profile.core3,"range_scale":1.1,"two_hands":true,"firing_posture":"prone","condition_fraction":1.0}
 	var registered:=live.register_shot(shot,Transform3D(Basis.IDENTITY,Vector3(0,0.3,0)),Vector3.ZERO)
 	shot.item_id="wrong";shot.core3.minDamage=999999
-	check(not registered.is_empty() and live.shots[registered.shot_id].shot.item_id=="987" and registered.range==50,"Launch identity and source weapon/range snapshot are immutable")
+	check(not registered.is_empty() and live.shots[registered.shot_id].shot.item_id=="987" and is_equal_approx(registered.range,55),"Launch snapshot preserves server base range and two-handed pistol scaling")
 	check(live.register_shot(registered,Transform3D.IDENTITY,Vector3.ZERO).is_empty(),"Native3s cooldown rejects immediate duplicate launch")
 	var hit:Dictionary={"collider":live.actors["101"],"position":Vector3(0,0.3,-10),"normal":Vector3.BACK}
 	rig.rounds_sim.resolve_hit(registered,hit,10)
 	check(live.actors["101"].record.health==100 and not live.actors["101"].record.dead,"Local projectile contact cannot mutate live HP or death")
 	check(live.queue.size()==2 and live.queue[0].kind=="fire" and live.queue[1].kind=="impact","Contact queues behind registration with same immutable shot ID")
+	check(live.queue[0].payload.two_hands and live.queue[0].payload.firing_posture=="prone" and not live.queue[0].payload.has("damage"),"Server receives launch pose/grip, never client damage")
 	var response:=envelope.duplicate(true);response.sequence=5;response.mutation={"success":true,"operation":"fire","shot_id":registered.shot_id};host.reply=response
 	await live.pump()
 	check(live.shots[registered.shot_id].accepted and host.calls[-1].path.ends_with("/fire"),"Fire acknowledgement precedes impact transport")
@@ -98,6 +99,13 @@ func run()->void:
 	var queued:=live.queue.size()
 	live.contact(guarded,live.actors["103"].core3_identity(),Vector3.ZERO,Vector3.UP,0)
 	check(live.queue.size()==queued and not live.shots[guarded.shot_id].contacted,"Unavailable entity cannot receive even a forged client contact")
+	var space:=envelope.duplicate(true);space.sequence=11;space.snapshot.actors=[];space.snapshot.weapon=null;space.snapshot.player.space_active=true
+	space.snapshot.player.jtl={"scope":"noncombat_yacht","enabled":true,"ship":{"id":"1234","station":"pilot"}}
+	check(live.accept_response(space) and not live.is_ready() and live.weapon.is_empty() and live.queue.is_empty(),"Validated noncombat yacht snapshot accepts absent weapon and discards ground attacks")
+	var guest:=space.duplicate(true);guest.sequence=12;guest.snapshot.player.jtl.scope="noncombat_navigation";guest.snapshot.player.jtl.ship.owner_id="999999";guest.snapshot.player.jtl.ship.station="gunner"
+	check(live.accept_response(guest) and live.weapon.is_empty() and not live.is_ready(),"Authenticated guest gunner accepts native noncombat state without owning the ship")
+	var unproven:=space.duplicate(true);unproven.sequence=13;unproven.snapshot.player.erase("jtl")
+	check(not live.accept_response(unproven),"Space flag alone cannot bypass combat weapon validation")
 	live.fail("Transport lost")
 	check(not live.is_ready() and live.actors.is_empty() and live.queue.is_empty() and not rig.allowed,"Transport failure removes hit targets and disarms player")
 	var report:Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"server_mocked":true,"gpu_tested":false,"headset_tested":false}

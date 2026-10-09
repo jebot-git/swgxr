@@ -75,7 +75,7 @@ def source_bounds(model,head_index):
 
 def prepare():
     evidence=audit()
-    tre=TreSet(ROOT/'runtime/assets/active_tre')
+    tre=TreSet(ROOT/'runtime/asset_sources/active_tre')
     templates={}
     provenance={}
     failures=[row for row in evidence['missing'] if row['phase']!='partial_appearance']
@@ -112,7 +112,7 @@ def prepare():
     inputs.update(ROOT/row['model'] for row in evidence['creatures'])
     inputs.update(ROOT/row['catalog'] for row in evidence['creatures'])
     inputs.update((ROOT/'runtime/assets/planets').glob('*/entities/sources.json'))
-    inputs.update((ROOT/'runtime/assets/active_tre').glob('*.tre'))
+    inputs.update((ROOT/'runtime/asset_sources/active_tre').glob('*.tre'))
     inputs.update(ROOT/path for path in evidence['source_hashes'] if (ROOT/path).is_file())
     report['freshness']={'version':VERSION,'inputs':{str(path.relative_to(ROOT)):stamp(path) for path in sorted(inputs) if path.exists()}}
     out=OUT

@@ -52,7 +52,7 @@ func run()->void:
 	var app:=Harness.new();root.add_child(app);app.backend_url="http://127.0.0.1:%d"%endpoint.server.get_local_port();app.datapad_account="fixture";app.datapad_character_id="123";app.world_ready=true;app.live_combat_reserved=true
 	app.menu=PanelContainer.new();app.add_child(app.menu);app.menu.hide();app.stage=Node3D.new();app.add_child(app.stage);app.player=CharacterBody3D.new();app.add_child(app.player)
 	var head:=Camera3D.new();app.add_child(head)
-	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
+	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
 	var rig:=preload("res://combat/ranged_rig.gd").new();app.add_child(rig);rig.configure(head,app.player,[profile]);rig.set_process(false);rig.set_physics_process(false)
 	var live:=preload("res://combat/live_world.gd").new();app.add_child(live);live.configure(app,rig,app.stage,app.player);app.live_combat=live
 	check(await live.start(Vector3.ZERO,0),"Production live session starts through actual loopback HTTP")

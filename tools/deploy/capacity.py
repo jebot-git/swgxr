@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 from server.planets import SUPPORTED_PLANETS
+from server.jtl_catalog import SHIP_TEMPLATES
 
 PROFILE = {
     'name': 'corecu-tatooine-32', 'target_players': 32, 'session_limit': 0,
@@ -15,7 +16,12 @@ PROFILE = {
 ALL_PLANETS_PROFILE = dict(PROFILE, name='corecu-all-planets-12cpu-24gb',
     planets=list(SUPPORTED_PLANETS), zone_threads=6, navmesh_jobs=2,
     db_buffer_pool_mib=1024, minimum_vcpus=12, minimum_ram_gib=22)
-PROFILES = {p['name']:p for p in (PROFILE, ALL_PLANETS_PROFILE)}
+JTL_TEST_PROFILE = dict(ALL_PLANETS_PROFILE, name='corecu-all-planets-jtl-test-12cpu-24gb',
+    space_enabled=True, space_zones=['space_tatooine'], tester_yachts=True,
+    ship_templates=list(SHIP_TEMPLATES),
+    space_combat_spawns=False, registration_enabled=True,
+    registration_invites_required=False, registration_grants_client_access=True)
+PROFILES = {p['name']:p for p in (PROFILE, ALL_PLANETS_PROFILE, JTL_TEST_PROFILE)}
 
 
 def validate(value):
@@ -51,7 +57,14 @@ def configuration_status(remote):
             if not re.search(r'^Core3\.'+key+r'\s*=\s*'+str(value)+r'\s*$',config,re.M):issues.append('Capacity overlay missing '+key)
         zones=re.findall(r'^Core3\.ZonesEnabled\s*=\s*\{([^}\n]*)\}\s*$',config,re.M)
         if len(zones)!=1 or re.findall(r'"([a-z0-9]+)"',zones[0])!=profile['planets']:issues.append('Enabled planets do not match the deployment profile.')
-        if not re.search(r'^Core3\.SpaceZonesEnabled\s*=\s*\{\s*\}\s*$',config,re.M):issues.append('Live test profile requires space disabled.')
+        space=re.findall(r'^Core3\.SpaceZonesEnabled\s*=\s*\{([^}\n]*)\}\s*$',config,re.M)
+        if len(space)!=1 or re.findall(r'"([a-z0-9_]+)"',space[0])!=profile.get('space_zones',[]):issues.append('Space zones do not match the deployment profile.')
+        if profile['space_enabled']:
+            ships=re.findall(r'^Core3\.JTL\.SwgxrShipTemplates\s*=\s*\{([^}\n]*)\}\s*$',config,re.M)
+            if len(ships)!=1 or re.findall(r'"([^"]+)"',ships[0])!=profile['ship_templates']:issues.append('Enabled ship templates do not match converted tester assets.')
+            if not re.search(r'^Core3\.SWGXR\.RetailGroundOnly\s*=\s*false\s*$',config,re.M):issues.append('ShipManager initialization is still disabled by RetailGroundOnly.')
+            for key in ('JTLEnabled','SwgxrTesterYachts','SwgxrDisableCombatSpawns'):
+                if not re.search(r'^Core3\.JTL\.'+key+r'\s*=\s*true\s*$',config,re.M):issues.append('JtL tester configuration missing '+key)
         zones=re.findall(r'^activeZones\s*=\s*"([^"]*)"\s*$',resources,re.M)
         if zones!=[','.join(profile['planets'])]:issues.append('Resource planets do not match the deployment profile.')
         for name in ('SWGXR_MAX_NATIVE_SESSIONS','SWGXR_MAX_VOICE_CLIENTS'):

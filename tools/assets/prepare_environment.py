@@ -62,7 +62,7 @@ def snapshot(imp, planet="tatooine"):
  return [resolve(oid) for oid in nodes]
 
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=None);ap.add_argument('--world',type=Path,default=None);ap.add_argument('--npc-placements',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"environment");args.world=args.world or path_for(args.planet,"world")/"world.json";args.npc_placements=args.npc_placements or path_for(args.planet,"ambient")/"placements.json";imp=EnvironmentImporter(args.tre_dir,args.out)
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--planet',choices=PLANETS,default='tatooine');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');ap.add_argument('--out',type=Path,default=None);ap.add_argument('--world',type=Path,default=None);ap.add_argument('--npc-placements',type=Path,default=None);args=ap.parse_args();args.out=args.out or path_for(args.planet,"environment");args.world=args.world or path_for(args.planet,"world")/"world.json";args.npc_placements=args.npc_placements or path_for(args.planet,"ambient")/"placements.json";imp=EnvironmentImporter(args.tre_dir,args.out)
  rows=datatable(imp.read(f'datatables/environment/{args.planet}.iff'));families={}
  for row in rows:
   family=row['Environment Family Name'];entry=families.setdefault(family,{'weather_variants':[]});entry['weather_variants'].append(row)

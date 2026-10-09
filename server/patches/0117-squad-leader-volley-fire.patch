@@ -1,0 +1,773 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/VolleyFirePolicy.h
+@@ -0,0 +1,42 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <cstdint>
++#include <map>
++#include <mutex>
++#include <set>
++#include <string>
++namespace corecu { namespace volley {
++constexpr double Duration=12, Cooldown=120, CastRange=64;
++constexpr int Action=80, Mind=40;
++// Group departures invalidate captured charges even if the same character rejoins
++// before the next combat snapshot. No player or group object lock is taken here.
++inline std::mutex& epochMutex(){static std::mutex value;return value;}
++inline std::map<uint64_t,uint64_t>& epochs(){static std::map<uint64_t,uint64_t> value;return value;}
++inline uint64_t epoch(uint64_t member){std::lock_guard<std::mutex> lock(epochMutex());return epochs()[member];}
++inline void leave(uint64_t member){std::lock_guard<std::mutex> lock(epochMutex());++epochs()[member];}
++struct Mark {
++ std::string id;uint64_t group=0,caster=0,target=0,zone=0,casterEpoch=0;double expires=0;
++ std::map<uint64_t,uint64_t> members;std::set<uint64_t> spent;
++ bool permits(uint64_t member,uint64_t actualGroup,uint64_t actualZone,double now)const{
++  auto found=members.find(member);return now<expires && actualGroup==group && actualZone==zone &&
++   found!=members.end() && found->second==epoch(member) && casterEpoch==epoch(caster) && !spent.count(member);
++ }
++ bool consume(uint64_t member,uint64_t actualGroup,uint64_t actualZone,double now){if(!permits(member,actualGroup,actualZone,now))return false;spent.insert(member);return true;}
++};
++struct Context {uint64_t attacker=0,target=0;bool resolved=false;};
++inline Context*& current(){static thread_local Context* value=nullptr;return value;}
++class Scope {
++ Context context;Context* previous;
++public:
++ Scope(uint64_t attacker,uint64_t target):context{attacker,target,false},previous(current()){current()=&context;}
++ ~Scope(){current()=previous;}
++ bool resolved()const{return context.resolved;}
++};
++inline bool guaranteed(uint64_t attacker,uint64_t target){auto p=current();return p && p->attacker==attacker && p->target==target;}
++inline bool hitAvailable(uint64_t attacker,uint64_t target){return guaranteed(attacker,target) && !current()->resolved;}
++inline bool claimHit(uint64_t attacker,uint64_t target){if(!hitAvailable(attacker,target))return false;current()->resolved=true;return true;}
++inline void resolved(uint64_t attacker,uint64_t target){if(guaranteed(attacker,target))current()->resolved=true;}
++inline uint64_t target(uint64_t attacker){auto p=current();return p && p->attacker==attacker?p->target:0;}
++inline bool inRange(double distance,double range){return std::isfinite(distance) && std::isfinite(range) && distance>=0 && range>0 && distance<=range;}
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVolleyFire.h
+@@ -0,0 +1,58 @@
++#pragma once
++#include "VolleyFirePolicy.h"
++#include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "system/thread/Mutex.h"
++#include <chrono>
++#include <memory>
++class SwgxrVolleyFire {
++ using Json=JSONSerializationType;
++ struct State {corecu::volley::Mark mark;std::set<uint64> reserved;};
++ static Mutex& mutex(){static Mutex value;return value;}
++ static std::map<uint64,State>& marks(){static std::map<uint64,State> value;return value;}
++ static long long millis(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static double now(){return millis()/1000.;}
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
++ static uint64 zone(CreatureObject* c){return c->getZone()?c->getZone()->getObjectID():0;}
++ static bool ready(CreatureObject* c){return c && c->isPlayerCreature() && c->isOnline() && c->getZone() && !c->isDead() && !c->isIncapacitated();}
++ static bool enemy(CreatureObject* c,TangibleObject* target){return target && target!=c && target->getZone()==c->getZone() && !target->isDestroyed() && target->isAttackableBy(c) && (target->isLairObject() || (target->isAiAgent() && !target->asAiAgent()->isPet() && !target->asAiAgent()->isDead() && !target->asAiAgent()->isIncapacitated()));}
++ static void prune(){auto stamp=now();for(auto it=marks().begin();it!=marks().end();)if(it->second.mark.expires<=stamp)it=marks().erase(it);else ++it;}
++ static Json position(SceneObject* target){auto p=target->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
++ static void finish(CreatureObject* c,const std::string& markID,uint64 group,bool consumed){Locker guard(&mutex(),c);auto found=marks().find(group);if(found==marks().end() || found->second.mark.id!=markID)return;found->second.reserved.erase(c->getObjectID());if(consumed)found->second.mark.spent.insert(c->getObjectID());}
++public:
++ static bool learned(CreatureObject* c){return c->hasSkill("outdoors_squadleader_master") && c->getPlayerObject() && c->getPlayerObject()->hasAbility("volleyFire");}
++ static double cooldown(CreatureObject* c){auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_volley_fire","until_ms");if(raw.isEmpty())return 0;try{return std::max(0.,std::min(corecu::volley::Cooldown,(std::stoll(raw.toCharArray())-millis())/1000.));}catch(...){return corecu::volley::Cooldown;}}
++ static double receivedCooldown(CreatureObject* c){auto raw=c->getPlayerObject()->getScreenPlayData("swgxr_volley_fire","received_until_ms");if(raw.isEmpty())return 0;try{return std::max(0.,std::min(corecu::volley::Cooldown,(std::stoll(raw.toCharArray())-millis())/1000.));}catch(...){return corecu::volley::Cooldown;}}
++ static Json snapshot(CreatureObject* c){
++  Json out={{"learned",learned(c)},{"conditions_met",ready(c)&&c->isGrouped()&&!c->isRidingMount()},{"cooldown_seconds",corecu::volley::Cooldown},{"cooldown_remaining_seconds",cooldown(c)},{"duration_seconds",corecu::volley::Duration},{"recipient_cooldown_remaining_seconds",receivedCooldown(c)},{"action_cost",corecu::volley::Action},{"mind_cost",corecu::volley::Mind},{"range_m",corecu::volley::CastRange},{"mark",nullptr}};
++  Locker guard(&mutex(),c);prune();auto found=marks().find(c->getGroupID());if(found==marks().end() || !ready(c) || !found->second.mark.permits(c->getObjectID(),c->getGroupID(),zone(c),now()))return out;
++  auto& mark=found->second.mark;auto object=c->getZoneServer()->getObject(mark.target);auto target=object && object->isTangibleObject()?object->asTangibleObject():nullptr;if(!target)return out;Locker targetLock(target,c);if(!enemy(c,target))return out;
++  out["mark"]={{"id",mark.id},{"target_id",std::to_string(mark.target)},{"remaining_seconds",std::max(0.,mark.expires-now())},{"position",position(target)},{"height",target->isCreatureObject()?target->asCreatureObject()->getHeight(false):2.},{"range_m",corecu::volley::CastRange},{"charges",1},{"per_member",true}};return out;
++ }
++ static Json abilities(CreatureObject* c){Json out=Json::array();auto w=c->getWeapon();if(!learned(c) || !w || (!w->isMeleeWeapon()&&!w->isRangedWeapon()))return out;auto row=snapshot(c);row.erase("mark");row["id"]="volley_fire";row["label"]="Volley Fire";row["native_family"]="squad_leader";row["activation"]="squad_leader_ultimate";row["ultimate"]=true;row["native_authority"]=true;row["required_profession_skill"]="outdoors_squadleader_master";row["profession_requirement"]="Master Squad Leader";row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",corecu::volley::Action},{"mind",corecu::volley::Mind}};row["max_range_m"]=corecu::volley::CastRange;row["min_range_m"]=0;row["ammo_cost"]=0;row["damage_multiplier"]=0;row["interval_seconds"]=1.;row["weapon_requirement"]="Any certified equipped weapon, including unarmed.";row["trigger_description"]="Aim at an enemy and use the selected ultimate chord.";row["description"]="Mark one enemy for 12 seconds. Each current eligible party member can consume their own reticle with one accepted attack within that attack's native range. It hits without an aim or avoidance roll; normal damage, armour, supply and costs remain. Cooldown 120 seconds.";out.push_back(row);return out;}
++ static Json activate(CreatureObject* c,const Json& request){
++  if(!learned(c) || !ready(c) || !c->isGrouped() || c->isRidingMount())throw std::runtime_error("native_volley_fire_unavailable");auto w=c->getWeapon();if(!w || !w->isCertifiedFor(c) || w->isBroken() || id(w)!=request.at("item_id").get<std::string>() || (!w->isUnarmedWeapon()&&!w->isASubChildOf(c)))throw std::runtime_error("native_volley_weapon_unavailable");
++  if(cooldown(c)>0)throw std::runtime_error("native_volley_fire_cooldown");auto object=c->getZoneServer()->getObject(std::stoull(request.at("target_id").get<std::string>()));auto target=object && object->isTangibleObject()?object->asTangibleObject():nullptr;if(!target)throw std::runtime_error("native_volley_target_unavailable");
++  {Locker lock(target,c);if(!enemy(c,target) || target->getParentID()!=c->getParentID() || !corecu::volley::inRange(c->getDistanceTo(target),corecu::volley::CastRange) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("native_volley_target_unavailable");}
++  corecu::volley::Mark fresh;auto group=c->getGroup();{Locker groupLock(group,c);if(c->getGroup()!=group)throw std::runtime_error("native_volley_group_changed");fresh.group=group->getObjectID();for(int i=0;i<group->getGroupSize();++i){auto member=group->getGroupMember(i);if(ready(member)&&member->getZone()==c->getZone()&&receivedCooldown(member)<=0)fresh.members[member->getObjectID()]=corecu::volley::epoch(member->getObjectID());}}
++  bool other=false;for(const auto& member:fresh.members)other=other||member.first!=c->getObjectID();if(!other)throw std::runtime_error("native_volley_party_required");if(c->getHAM(3)<=corecu::volley::Action || c->getHAM(6)<=corecu::volley::Mind)throw std::runtime_error("native_volley_insufficient_sac");
++  Locker guard(&mutex(),c);prune();if(cooldown(c)>0)throw std::runtime_error("native_volley_fire_cooldown");auto previous=marks().find(fresh.group);if(previous!=marks().end())throw std::runtime_error("native_volley_fire_already_active");
++  fresh.id="volley_"+id(c)+"_"+std::to_string(millis());fresh.caster=c->getObjectID();fresh.casterEpoch=corecu::volley::epoch(fresh.caster);fresh.target=target->getObjectID();fresh.zone=zone(c);fresh.expires=now()+corecu::volley::Duration;
++  // Receiving the ultimate starts a persistent shared recipient recovery; a
++  // second Squad Leader cannot chain fresh accuracy charges onto this member.
++  for(const auto& member:fresh.members){auto object=c->getZoneServer()->getObject(member.first);if(!object || !object->isCreatureObject())continue;auto recipient=object->asCreatureObject();Locker lock(recipient,c);recipient->getPlayerObject()->setScreenPlayData("swgxr_volley_fire","received_until_ms",String(std::to_string(millis()+int(corecu::volley::Cooldown*1000)).c_str()));}
++  c->inflictDamage(c,3,corecu::volley::Action,false,true,false);c->inflictDamage(c,6,corecu::volley::Mind,false,true,false);c->getPlayerObject()->setScreenPlayData("swgxr_volley_fire","until_ms",String(std::to_string(millis()+int(corecu::volley::Cooldown*1000)).c_str()));marks()[fresh.group].mark=fresh;
++  return {{"success",true},{"operation","squadleader"},{"shot_id",request.at("shot_id")},{"ability_id","volley_fire"},{"target_id",id(target)},{"volley_mark_id",fresh.id},{"eligible_members",fresh.members.size()},{"interval_seconds",1.},{"ham_cost_committed",true}};
++ }
++ // The reservation is atomic but never pins a world-object lock while another
++ // attack is executing. Only the same member's charge is reserved. A native
++ // resolved hit is terminal even if an exception interrupts its response.
++ template<class Resolve> static Json attack(CreatureObject* c,const Json& request,double range,Resolve resolve){
++  const bool marked=request.contains("volley_mark_id") || request.contains("volley_target_id");if(!marked)return resolve(nullptr);
++  const auto markID=request.at("volley_mark_id").get<std::string>(),targetID=request.at("volley_target_id").get<std::string>();ManagedReference<TangibleObject*> target;uint64 group=c->getGroupID();
++  {Locker guard(&mutex(),c);prune();auto found=marks().find(group);if(found==marks().end() || found->second.mark.id!=markID || std::to_string(found->second.mark.target)!=targetID || !ready(c) || !found->second.mark.permits(c->getObjectID(),group,zone(c),now()) || found->second.reserved.count(c->getObjectID()))throw std::runtime_error("native_volley_mark_unavailable");auto object=c->getZoneServer()->getObject(found->second.mark.target);target=object && object->isTangibleObject()?object->asTangibleObject():nullptr;if(!target)throw std::runtime_error("native_volley_target_unavailable");Locker targetLock(target,c);if(!enemy(c,target) || !corecu::volley::inRange(c->getDistanceTo(target),range))throw std::runtime_error("native_volley_target_out_of_range");found->second.reserved.insert(c->getObjectID());}
++  corecu::volley::Scope scope(c->getObjectID(),target->getObjectID());
++  try{Json out=resolve(target);bool consumed=scope.resolved() || out.value("volley_deferred",false);finish(c,markID,group,consumed);if(consumed){out["volley_consumed"]=true;out["volley_mark_id"]=markID;out["volley_target_id"]=targetID;}return out;}catch(...){finish(c,markID,group,scope.resolved());throw;}
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -13,6 +13,7 @@
+ #include "SwgxrPlanets.h"
+ #include "AttackCommand.h"
+ #include "SwgxrSmuggler.h"
++#include "SwgxrSquadLeader.h"
+ #include "SwgxrCombatLoadout.h"
+ #include "server/zone/objects/player/events/SwgxrLiveRecovery.h"
+ #include "server/zone/objects/player/events/PlayerIncapacitationRecoverTask.h"
+@@ -157,7 +158,7 @@
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["carbineer"]=SwgxrCarbineer::snapshot(c);out["player"]["rifleman"]=SwgxrRifleman::snapshot(c);out["player"]["commando"]=SwgxrCommando::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["carbineer"]=SwgxrCarbineer::snapshot(c);out["player"]["rifleman"]=SwgxrRifleman::snapshot(c);out["player"]["commando"]=SwgxrCommando::snapshot(c);out["player"]["squad_leader"]=SwgxrSquadLeader::snapshot(c);out["player"]["squad_leader"]["volley_fire"]=SwgxrVolleyFire::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -180,6 +181,30 @@
+   }
+   c->sendTo(c,true,true);Json ids=Json::array();std::set<uint64> seen;ownedReplication(c,c,ids,seen);auto ghost=c->getPlayerObject();for(int i=0;i<ghost->getWaypointListSize();++i){auto point=ghost->getWaypoint(i);if(point!=nullptr){point->sendAttributeListTo(c);ids.push_back(id(point));}}
+   return {{"object_ids",ids},{"location",SwgxrServices::sessionState(c,Json::object())["location"]}};
++ }
++ // Bind a marked attack before normal dispatch. Every family still owns its
++ // original validation, costs, cadence, ammo/charge and area packet budget.
++ static Json volleyAction(CreatureObject* c,Session& session,const Json& request){
++  if(!request.contains("volley_mark_id")&&!request.contains("volley_target_id"))return action(c,session,request);
++  auto verb=request.at("action").get<std::string>(),ability=request.value("ability_id",std::string());auto w=c->getWeapon();if(!w)throw std::runtime_error("native_volley_weapon_unavailable");
++  if(verb!="fire"&&verb!="melee"&&verb!="commando"&&verb!="tka"&&verb!="swordsman"&&verb!="pikeman"&&verb!="fencer"&&verb!="pistoleer"&&verb!="carbineer")throw std::runtime_error("native_volley_requires_attack");
++  for(auto self:{"overdrive","run_and_gun","tactical_brace","indomitable_focus","flawless_assault","center_of_being","berserk"})if(ability==self)throw std::runtime_error("native_volley_requires_attack");
++  double range=w->isMeleeWeapon()?corecu::melee::reach(w->getMaxRange(),w->isUnarmedWeapon()):w->getMaxRange()*corecu::projectile::rangeScale(w->isPistolWeapon(),request.value("two_hands",!w->isPistolWeapon()));
++  if(SwgxrCommando::supported(w)){auto spec=corecu::commando::weapon(SwgxrCommando::family(w));range=std::min(ability=="acid_spray"?14.:spec.range,double(w->getMaxRange()));}
++  if(verb=="tka")range=corecu::tka::attack(ability).range;
++  if(verb=="swordsman"&&ability=="ground_slam")range=std::min(range,2.5);
++  if(verb=="pistoleer")range=corecu::pistoleer::fanRange(range);
++  if(verb=="carbineer")range=corecu::carbineer::range(corecu::carbineer::ability(ability),range);
++  return SwgxrVolleyFire::attack(c,request,range,[&](TangibleObject* target){
++   Json q=request;if(target){auto requested=q.value("target_id",std::string());if(!requested.empty()&&requested!=id(target))throw std::runtime_error("native_volley_target_mismatch");if((verb=="fire"&&!SwgxrCommando::supported(w))||verb=="melee")q["target_id"]=id(target);}
++   auto out=action(c,session,q);if(!target||verb!="fire"||!out.value("success",true))return out;
++   // A registered launch resolves its one guaranteed contact here. Its client
++   // projectile is cosmetic and its consumed receipt rejects any later impact.
++   auto point=position(target);point[1]=point[1].get<double>()+(target->isCreatureObject()?std::max(.25,std::min(1.,double(target->asCreatureObject()->getHeight(false))*.65)):.8);
++   Json impact={{"action","impact"},{"session_id",request.at("session_id")},{"shot_id",request.at("shot_id")},{"target_id",id(target)},{"hit_position",point},{"projectile_age_seconds",0.}};
++   // Heavy launch validation already selected the correct native supply path.
++   auto hit=action(c,session,impact);for(auto key:{"hit","damage","targets","target_id","native_result","before","after","resolved_hits","damage_multiplier","range_damage_multiplier"})if(hit.contains(key))out[key]=hit[key];out["contact_authority"]="native_volley_fire";return out;
++  });
+  }
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   SwgxrMovement::RequestScope movementRequest(c,request);
+@@ -234,6 +259,12 @@
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   SwgxrBrawler::refreshBuffs(c);const CombatQueueCommand* command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  if(verb=="squadleader"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");if(SwgxrVehicles::seated(c))throw std::runtime_error("native_squad_leader_unavailable");
++   auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);double length=distance(direction,Json::array({0,0,0}));if(length<.9 || length>1.1 || distance(origin,position(c))>2.5)throw std::runtime_error("invalid_squad_leader_pose");
++   auto ability=request.at("ability_id").get<std::string>();if(ability=="volley_fire" && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_ability_not_equipped");
++   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);auto out=ability=="volley_fire"?SwgxrVolleyFire::activate(c,request):SwgxrSquadLeader::run(c,request);s.nextFire=stamp+out.value("interval_seconds",1.);return out;
++  }
+   // Heavy launch/impact dispatch is separate from ordinary bolt receipts. Native
+   // cones/beams select geometry; rockets retain physical client contacts.
+   if(verb=="commando" || (verb=="fire" && SwgxrCommando::supported(c->getWeapon())) || (verb=="impact" && SwgxrCommando::pending(c,request))){
+@@ -344,7 +375,7 @@
+     if(boundTarget.empty() || !SwgxrBrawler::learned(c,ability) || !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_melee_ability_not_equipped");
+     command=SwgxrBrawler::command(c,ability);if(!command || !command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || !(command->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_melee_ability_unavailable");
+     if(SwgxrBrawler::cooldown(c,ability)>0)throw std::runtime_error("native_melee_ability_cooldown");
+-   }else if(!boundTarget.empty())throw std::runtime_error("target_requires_melee_ability");
++   }else if(!boundTarget.empty() && !corecu::volley::target(c->getObjectID()))throw std::runtime_error("target_requires_melee_ability");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);
+    if(distance(origin,position(c))>2.5)throw std::runtime_error("invalid_melee_origin");
+    double norm=distance(direction,Json::array({0,0,0}));if(norm<.95 || norm>1.05)throw std::runtime_error("invalid_melee_direction");
+@@ -360,7 +391,8 @@
+     auto p=position(object);auto bounds=impactBounds(object);double r=std::min(.6,bounds["radius"].get<double>()*bounds["scale"].get<double>());
+     double candidate=corecu::melee::score(o,d,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}},r,2*r,range);
+     if(!ability.empty())candidate=SwgxrBrawler::facing(o,d,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}})?0:-1;
+-    if(candidate<0 || candidate>=best || !c->isInRange(target,range) || !CollisionManager::checkLineOfSight(c,target))continue;
++    bool forced=corecu::volley::guaranteed(c->getObjectID(),target->getObjectID());if(forced)candidate=-.5;
++    if((candidate<0&&!forced) || candidate>=best || !c->isInRange(target,range) || (!forced&&!CollisionManager::checkLineOfSight(c,target)))continue;
+     best=candidate;chosen=target;
+    }
+    if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c))throw std::runtime_error("weapon_changed_during_melee");
+@@ -376,10 +408,10 @@
+    result["ham_cost_committed"]=true;result["hit"]=false;result["damage"]=0;result["target_id"]="";
+    if(chosen==nullptr)return result;
+    Locker targetLock(chosen,c);
+-   if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || !c->isInRange(chosen,range) || !CollisionManager::checkLineOfSight(c,chosen))return result;
++   if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || !c->isInRange(chosen,range) || (!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID())&&!CollisionManager::checkLineOfSight(c,chosen)))return result;
+    auto finalPosition=position(chosen);auto finalBounds=impactBounds(chosen);double finalRadius=std::min(.6,finalBounds["radius"].get<double>()*finalBounds["scale"].get<double>());
+-   if(!ability.empty() && !SwgxrBrawler::facing(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}}))return result;
+-   if(ability.empty() && corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
++   if(!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()) && !ability.empty() && !SwgxrBrawler::facing(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}}))return result;
++   if(!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()) && ability.empty() && corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
+    SwgxrPreparedRangedCommand prepaid(*command);if(SwgxrBrawler::control(ability))SwgxrBrawler::boundEffects(prepaid);if(ability=="challenging_strike"){prepaid.setDamageMultiplier(.75);prepaid.setPoolsToDamage(1);}prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
+    Json before=actor(c,chosen,s);c->setTargetID(0,true);int code=prepaid.doCombatAction(c,chosen->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,chosen,s);
+    result["native_result"]=code;result["success"]=code==QueueCommand::SUCCESS;result["target_id"]=id(chosen);result["before"]=before;result["after"]=after;
+@@ -415,11 +447,11 @@
+    if(!volley && stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(!volley && !ability.empty() && SwgxrSmuggler::cooldown(c,ability)>0)throw std::runtime_error("native_ability_cooldown");
+    if(!boundTarget.empty()){
+-    if(ability.empty())throw std::runtime_error("target_requires_ability");
++    if(ability.empty() && !corecu::volley::target(c->getObjectID()))throw std::runtime_error("target_requires_ability");
+     auto chosen=c->getZoneServer()->getObject(std::stoull(boundTarget));
+-    if(chosen==nullptr || !chosen->isAiAgent() || chosen->getZone()!=c->getZone())throw std::runtime_error("invalid_ability_target");
+-    Locker lock(chosen,c);auto victim=chosen->asAiAgent();
+-    if(victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c))throw std::runtime_error("ability_target_unavailable");
++    if(chosen==nullptr || (!chosen->isAiAgent() && !(ability.empty() && chosen->isLairObject() && corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()))) || chosen->getZone()!=c->getZone())throw std::runtime_error("invalid_ability_target");
++    Locker lock(chosen,c);auto victim=chosen->isAiAgent()?chosen->asAiAgent():nullptr;
++    if(victim && (victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c)))throw std::runtime_error("ability_target_unavailable");
+     if((marksman && !SwgxrMarksman::targetReady(victim,ability)) || (pistoleer && !SwgxrPistoleer::targetReady(victim)) || (carbineer && !SwgxrCarbineer::targetReady(victim)) || (rifleman && !SwgxrRifleman::targetReady(victim)))throw std::runtime_error("ability_target_unavailable");
+     if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c) || !skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("ability_conditions_changed");
+    }
+@@ -441,8 +473,8 @@
+    Shot shot;shot.rifleman=rifleman;shot.target=boundTarget;shot.ability=ability;shot.volley=volleyID;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange()*gripScale;shot.nearRange=weapon->getPointBlankRange()*gripScale;shot.idealRange=weapon->getIdealRange()*gripScale;shot.nearModifier=weapon->getPointBlankAccuracy();shot.idealModifier=weapon->getIdealAccuracy();shot.farModifier=weapon->getMaxRangeAccuracy();shot.firingPosture=pose=="prone"?2:pose=="crouched"?1:0;shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);return result;
+   }
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+-  if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3)throw std::runtime_error("projectile_range_or_time");
+-  double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
++  if(stamp-shot.time>8)throw std::runtime_error("expired_shot");const bool guaranteed=corecu::volley::target(c->getObjectID())!=0;auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(!guaranteed && (travel>shot.range+2 || travel>160*age+3))throw std::runtime_error("projectile_range_or_time");
++  double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(!guaranteed && (dot<-.5 || travel*travel-dot*dot>9))throw std::runtime_error("projectile_direction");
+   auto targetID=request.at("target_id").get<std::string>();if(!shot.target.empty() && targetID!=shot.target)throw std::runtime_error("ability_target_mismatch");auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["contact_authority"]="client";
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage || weapon->getDamageType()!=shot.damageType || weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+   SwgxrConfirmedProjectileCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));double distanceScale=corecu::projectile::damageScale(travel,shot.nearRange,shot.idealRange,shot.range,shot.nearModifier,shot.idealModifier,shot.farModifier,shot.firingPosture);double impactMultiplier=shot.multiplier;if(shot.ability=="surprise_shot" && target->isCreatureObject())impactMultiplier*=corecu::rifleman::surprise(target->asCreatureObject()->getHAM(0),target->asCreatureObject()->getMaxHAM(0)-target->asCreatureObject()->getWounds(0));prepaid.setDamageMultiplier(impactMultiplier*distanceScale);prepaid.setRiflemanPiercing(shot.ability=="piercing_shot");result["damage_multiplier"]=impactMultiplier;result["range_damage_multiplier"]=distanceScale;prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+@@ -480,7 +512,7 @@
+    sessions.emplace(c->getObjectID(),fresh);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+-  if(verb!="start" && verb!="stop")try{out["mutation"]=action(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
++  if(verb!="start" && verb!="stop")try{out["mutation"]=volleyAction(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+   out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,3 +1,4 @@
++#include "SwgxrVolleyFire.h"
+ #include "CoreCuCombat.h"
+ #include "SwgxrWarcry.h"
+ #include "SwgxrBrawler.h"
+@@ -103,6 +104,7 @@
+   for(const auto& row:SwgxrFencer::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPikeman::abilities(c)){for(auto it=out.begin();it!=out.end();)if(it->at("id")==row.at("id"))it=out.erase(it);else ++it;out.push_back(row);}
+   for(const auto& row:SwgxrCommando::abilities(c))out.push_back(row);
++  for(const auto& row:SwgxrVolleyFire::abilities(c))out.push_back(row);
+   if(!w || !w->isRangedWeapon() || SwgxrCommando::supported(w))return out;
+   for(const auto& row:SwgxrMarksman::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPistoleer::abilities(c))out.push_back(row);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCommando.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCommando.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "CommandoPolicy.h"
+ #include "PistoleerPolicy.h"
+ #include "CombatQueueCommand.h"
+@@ -34,17 +35,18 @@
+  static Vec position(SceneObject* o){auto p=o->getWorldPosition();return {{p.getX(),p.getZ(),p.getY()}};}
+  static uint64 cell(SceneObject* o){auto parent=o->getParent().get();return parent && parent->isCellObject()?parent->getObjectID():0;}
+  static const CombatQueueCommand* command(CreatureObject* c){auto q=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(!q || !q->checkStateMask(c) || !q->checkInvalidLocomotions(c))throw std::runtime_error("native_commando_attack_unavailable");return q;}
+- static bool eligible(CreatureObject* c,TangibleObject* a){return a && a!=c && a->getZone()==c->getZone() && cell(a)==cell(c) && !a->isDestroyed() && a->isAttackableBy(c) && (a->isLairObject() || (a->isAiAgent() && !a->asAiAgent()->isPet() && !a->asAiAgent()->isDead() && !a->asAiAgent()->isIncapacitated()));}
++ static bool eligible(CreatureObject* c,TangibleObject* a){return a && a!=c && a->getZone()==c->getZone() && (cell(a)==cell(c) || corecu::volley::guaranteed(c->getObjectID(),a->getObjectID())) && !a->isDestroyed() && a->isAttackableBy(c) && (a->isLairObject() || (a->isAiAgent() && !a->asAiAgent()->isPet() && !a->asAiAgent()->isDead() && !a->asAiAgent()->isIncapacitated()));}
+  static Vec centre(TangibleObject* a){auto p=position(a);p[1]+=a->isCreatureObject()?std::max(.25,std::min(1.,double(a->asCreatureObject()->getHeight(false))*.65)):.8;return p;}
+  static double radius(TangibleObject* a){return a->isCreatureObject()?std::max(.15,std::min(.6,double(a->asCreatureObject()->getHeight(false))*.3)):.6;}
+  static std::vector<Candidate> targets(CreatureObject* c,const Vec& o,const Vec& d,double range,double cone,double beam,double blast,const std::string& bound){
+   std::vector<Candidate> out;auto p=c->getWorldPosition();SortedVector<TreeEntry*> nearby(128,128);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range+blast+4,&nearby,true);
+   for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent() && !obj->isLairObject())continue;auto a=obj->asTangibleObject();Locker lock(a,c);
+-   if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;if(!eligible(c,a) || !(blast>0?SwgxrBlastSight::clear(c,a,o):CollisionManager::checkLineOfSight(c,a)))continue;
++   if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;if(!eligible(c,a) || (!corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()) && !(blast>0?SwgxrBlastSight::clear(c,a,o):CollisionManager::checkLineOfSight(c,a))))continue;
+    auto point=centre(a);double distance=corecu::commando::magnitude(corecu::commando::delta(point,o));double weight=blast>0?corecu::commando::blastWeight(distance,blast):corecu::commando::weight(o,d,point,range,cone,beam,radius(a));
++   if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))weight=1.;
+    if(weight>0)out.push_back({a,weight,distance});
+   }
+-  std::sort(out.begin(),out.end(),[](const Candidate& a,const Candidate& b){return a.distance==b.distance?a.target->getObjectID()<b.target->getObjectID():a.distance<b.distance;});
++  std::sort(out.begin(),out.end(),[&](const Candidate& a,const Candidate& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a.target->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b.target->getObjectID());if(av!=bv)return av;return a.distance==b.distance?a.target->getObjectID()<b.target->getObjectID():a.distance<b.distance;});
+   if(out.size()>corecu::commando::TargetCap)out.resize(corecu::commando::TargetCap);return out;
+  }
+  static void burn(CreatureObject* c,TangibleObject* target,int damage){
+@@ -53,7 +55,7 @@
+  }
+  static Json resolve(CreatureObject* c,WeaponObject* w,const CombatQueueCommand* source,std::vector<Candidate>& chosen,double damage,double range,bool flame,const Vec* blastOrigin=nullptr){
+   Json out={{"targets",Json::array()},{"hit",false},{"damage",0}};std::vector<double> requested;for(const auto& a:chosen)requested.push_back(a.weight);auto weights=corecu::commando::weights(requested);int total=0;
+-  for(unsigned i=0;i<chosen.size();++i){auto a=chosen[i].target;Locker lock(a,c);if(!eligible(c,a) || !(blastOrigin?SwgxrBlastSight::clear(c,a,*blastOrigin):CollisionManager::checkLineOfSight(c,a)))continue;
++  for(unsigned i=0;i<chosen.size();++i){auto a=chosen[i].target;Locker lock(a,c);if(!eligible(c,a) || (!corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()) && !(blastOrigin?SwgxrBlastSight::clear(c,a,*blastOrigin):CollisionManager::checkLineOfSight(c,a))))continue;
+    int before=a->isCreatureObject()?a->asCreatureObject()->getHAM(0):a->getMaxCondition()-a->getConditionDamage();SwgxrCommandoStrike strike(*source,w,damage,weights[i],range+8,blastOrigin!=nullptr);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);
+    int after=a->isCreatureObject()?a->asCreatureObject()->getHAM(0):a->getMaxCondition()-a->getConditionDamage();int dealt=code==QueueCommand::SUCCESS?std::max(0,before-after):0;if(flame)burn(c,a,dealt);total+=dealt;out["targets"].push_back({{"target_id",std::to_string(a->getObjectID())},{"damage",dealt},{"native_result",code}});
+   }
+@@ -92,7 +94,7 @@
+   if(verb=="impact"){
+    auto found=shots.find(shotID);if(found==shots.end() || found->second.session!=request.at("session_id").get<std::string>() || found->second.spent)throw std::runtime_error("unknown_or_spent_commando_shot");auto& shot=found->second;shot.spent=true;
+    Vec hit{};const auto& h=request.at("hit_position");if(!h.is_array() || h.size()!=3)throw std::runtime_error("invalid_commando_impact");for(int i=0;i<3;++i){if(!h[i].is_number())throw std::runtime_error("invalid_commando_impact");hit[i]=h[i].get<double>();}
+-   if(stamp-shot.time>8 || !corecu::commando::validImpact(shot.origin,shot.direction,hit,shot.range,request.value("projectile_age_seconds",-1.),stamp-shot.time) || c->getZone()->getObjectID()!=shot.zone || cell(c)!=shot.cell)throw std::runtime_error("invalid_commando_impact");
++   if(stamp-shot.time>8 || (!corecu::volley::target(c->getObjectID()) && !corecu::commando::validImpact(shot.origin,shot.direction,hit,shot.range,request.value("projectile_age_seconds",-1.),stamp-shot.time)) || c->getZone()->getObjectID()!=shot.zone || cell(c)!=shot.cell)throw std::runtime_error("invalid_commando_impact");
+    if(shot.weapon->getMinDamage()!=shot.minDamage || shot.weapon->getMaxDamage()!=shot.maxDamage || shot.weapon->getDamageType()!=shot.damageType || shot.weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+    auto target=request.at("target_id").get<std::string>();if(!shot.target.empty() && target!=shot.target)throw std::runtime_error("ability_target_mismatch");
+    auto chosen=targets(c,hit,shot.direction,shot.range,0,0,shot.blast,shot.target);if(!shot.target.empty()){
+@@ -111,7 +113,7 @@
+   for(int i=0;i<3;++i){o[i]=request["origin"][i].get<double>();d[i]=request["direction"][i].get<double>();}if(!corecu::pistoleer::validPose(o,d,position(c)))throw std::runtime_error("invalid_commando_pose");double length=corecu::commando::magnitude(d);for(auto& x:d)x/=length;
+   auto bound=request.value("target_id",std::string());if((focus || spray)?bound.empty():!bound.empty())throw std::runtime_error("invalid_commando_target");auto source=command(c);
+   double range=std::min(spray?14.:spec.range,double(w->getMaxRange())),cone=spray?30:focus?0:spec.cone,beam=focus?.15:spec.radius;
+-  auto chosen=targets(c,o,d,range,cone,beam,0,focus?bound:std::string());if(focus || spray){auto target=c->getZoneServer()->getObject(std::stoull(bound));if(!target || !target->isTangibleObject())throw std::runtime_error("native_commando_target_unavailable");auto a=target->asTangibleObject();Locker lock(a,c);if(!eligible(c,a) || !CollisionManager::checkLineOfSight(c,a) || corecu::commando::magnitude(corecu::commando::delta(centre(a),o))>range+radius(a))throw std::runtime_error("native_commando_target_unavailable");if(verb!="fire" && std::none_of(chosen.begin(),chosen.end(),[&](const Candidate& v){return v.target==a;}))throw std::runtime_error("native_commando_target_unavailable");if(focus && !chosen.empty())chosen[0].weight=1.;}
++  auto chosen=targets(c,o,d,range,cone,beam,0,focus?bound:std::string());if(focus || spray){auto target=c->getZoneServer()->getObject(std::stoull(bound));if(!target || !target->isTangibleObject())throw std::runtime_error("native_commando_target_unavailable");auto a=target->asTangibleObject();Locker lock(a,c);if(!eligible(c,a) || (!corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()) && (!CollisionManager::checkLineOfSight(c,a) || corecu::commando::magnitude(corecu::commando::delta(centre(a),o))>range+radius(a))))throw std::runtime_error("native_commando_target_unavailable");if(verb!="fire" && std::none_of(chosen.begin(),chosen.end(),[&](const Candidate& v){return v.target==a;}))throw std::runtime_error("native_commando_target_unavailable");if(focus && !chosen.empty())chosen[0].weight=1.;}
+   bool boosted=active(c);double q=corecu::commando::quality(f,w->getMinDamage(),w->getMaxDamage()),damage=corecu::commando::damage(f,q,focus,spray,training(c))*(boosted?corecu::commando::OverdriveDamage:1.);pay(c,w,f,ability);
+   Receipt receipt;receipt.weapon=w;receipt.session=request.at("session_id").get<std::string>();receipt.ability=ability;receipt.target=focus?bound:std::string();receipt.origin=o;receipt.direction=d;receipt.time=stamp;receipt.range=range;receipt.damage=damage;receipt.minDamage=w->getMinDamage();receipt.maxDamage=w->getMaxDamage();receipt.damageType=w->getDamageType();receipt.armorPiercing=w->getArmorPiercing();receipt.blast=focus?0:spec.blast;receipt.zone=c->getZone()->getObjectID();receipt.cell=cell(c);receipt.spent=verb!="fire";shots.emplace(shotID,receipt);
+   Json out={{"success",true},{"operation",verb},{"shot_id",shotID},{"ability_id",ability},{"interval_seconds",over?.25:interval(c,f)},{"ham_cost_committed",true},{"charge_committed",spec.charged && !over},{"hit",false},{"damage",0},{"delivery",spec.delivery}};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTka.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "TkaPolicy.h"
+ #include "SwgxrForceOfWill.h"
+ #include <vector>
+@@ -19,6 +20,7 @@
+  using Json=JSONSerializationType;
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& feet,const corecu::warcry::Vec& direction,const corecu::tka::Attack& spec) {
+   if(!a || a->getZone()!=c->getZone() || a->isDead() || a->isIncapacitated() || a->isPet() || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),spec.range);
+   auto p=a->getWorldPosition();return corecu::tka::inCone(feet,direction,{{p.getX(),p.getZ(),p.getY()}},spec) && CollisionManager::checkLineOfSight(c,a);
+  }
+ public:
+@@ -84,7 +86,7 @@
+    if(!source || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c))throw std::runtime_error("native_tka_attack_unavailable");
+    SortedVector<TreeEntry*> nearby(32,32);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),spec.range,&nearby,true);
+    for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent())continue;auto a=obj->asAiAgent();Locker lock(a,c);if(eligible(c,a,feet,d,spec))targets.push_back(a);}
+-   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
+    if(targets.empty())throw std::runtime_error("no_eligible_tka_target");
+   }
+   c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSwordsman.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSwordsman.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "SwordsmanPolicy.h"
+ #include "SwgxrTka.h"
+ #include "MeleePolicy.h"
+@@ -7,6 +8,7 @@
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& feet,const corecu::warcry::Vec& d,double range,double cosine){
+   corecu::tka::Attack shape{range,cosine,0,0,0,1,1,0,0};
+   if(!a || a->getZone()!=c->getZone() || a->isPet() || a->isDead() || a->isIncapacitated() || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),range);
+   auto p=a->getWorldPosition();return corecu::tka::inCone(feet,d,{{p.getX(),p.getZ(),p.getY()}},shape) && CollisionManager::checkLineOfSight(c,a);
+  }
+  static bool targetReady(AiAgent* a,const std::string& id){
+@@ -66,7 +68,7 @@
+    if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;
+    if(eligible(c,a,feet,d,range,spec.gesture?.866025403784:.5) && targetReady(a,id))targets.push_back(a);
+   }
+-  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
++  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
+   if(targets.empty())throw std::runtime_error("native_swordsman_target_unavailable");
+   // Hold the primary lock through validation and spending; changed boss/Health/buff gates cannot consume SAC.
+   auto primary=targets.front();Locker primaryLock(primary,c);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPikeman.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPikeman.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "PikemanPolicy.h"
+ #include "SwgxrTka.h"
+ #include "MeleePolicy.h"
+@@ -7,6 +8,7 @@
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& feet,const corecu::warcry::Vec& d,double range,double cosine){
+   corecu::tka::Attack shape{range,cosine,0,0,0,1,1,0,0};
+   if(!a || a->getZone()!=c->getZone() || a->isPet() || a->isDead() || a->isIncapacitated() || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),range);
+   auto p=a->getWorldPosition();return corecu::tka::inCone(feet,d,{{p.getX(),p.getZ(),p.getY()}},shape) && CollisionManager::checkLineOfSight(c,a);
+  }
+  static bool targetReady(AiAgent* a,const std::string& id){auto spec=corecu::pikeman::ability(id);return corecu::pikeman::ready(spec,a->checkCooldownRecovery("corecu_control_recovery")) && (!corecu::pikeman::targeted(spec) || spec.effect!=corecu::pikeman::Knockdown || (a->checkKnockdownRecovery() && !a->isKnockedDown()));}
+@@ -69,7 +71,7 @@
+     if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;
+     if(eligible(c,a,feet,d,range,spec.cosine) && targetReady(a,id))targets.push_back(a);
+    }
+-   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
+    if(targets.empty())throw std::runtime_error("native_pikeman_target_unavailable");
+   }
+   auto primary=targets.front();Locker primaryLock(primary,c);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFencer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFencer.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "FencerPolicy.h"
+ #include "SwgxrTka.h"
+ #include "MeleePolicy.h"
+@@ -7,6 +8,7 @@
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& feet,const corecu::warcry::Vec& d,double range,double cosine){
+   corecu::tka::Attack shape{range,cosine,0,0,0,1,1,0,0};
+   if(!a || a->getZone()!=c->getZone() || a->isPet() || a->isDead() || a->isIncapacitated() || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),range);
+   auto p=a->getWorldPosition();return corecu::tka::inCone(feet,d,{{p.getX(),p.getZ(),p.getY()}},shape) && CollisionManager::checkLineOfSight(c,a);
+  }
+  static bool targetReady(AiAgent* a,const std::string& id){return !corecu::fencer::ability(id).control || a->checkCooldownRecovery("corecu_control_recovery");}
+@@ -77,7 +79,7 @@
+     if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;
+     if(eligible(c,a,feet,d,range,spec.gesture?.866025403784:.5) && targetReady(a,id))targets.push_back(a);
+    }
+-   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;double x=c->getDistanceTo(a),y=c->getDistanceTo(b);return x==y?a->getObjectID()<b->getObjectID():x<y;});
+    if(targets.empty())throw std::runtime_error("native_fencer_target_unavailable");
+   }
+   auto pay=[&](){if(c->getHAM(3)<=spec.action || c->getHAM(6)<=spec.mind)throw std::runtime_error("native_fencer_insufficient_sac");c->inflictDamage(c,3,spec.action,false,true,false);c->inflictDamage(c,6,spec.mind,false,true,false);c->addCooldown(String(("corecu_fencer_"+id).c_str()),int(spec.cooldown*1000));};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPistoleer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPistoleer.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "PistoleerPolicy.h"
+ #include "CommandoPolicy.h"
+ #include "SwgxrTka.h"
+@@ -7,6 +8,7 @@
+  using Json=JSONSerializationType;
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& origin,const corecu::warcry::Vec& direction,double range){
+   if(!a || a->getZone()!=c->getZone() || !targetReady(a) || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),range);
+   auto p=a->getWorldPosition();double dx=p.getX()-origin[0],dy=p.getZ()-origin[1],dz=p.getY()-origin[2];
+   // Target body centre keeps muzzle-height fanning usable against human-sized enemies.
+   dy+=std::max(.25,std::min(1.,double(a->getHeight(false))*.65));double distance=std::sqrt(dx*dx+dy*dy+dz*dz);
+@@ -61,7 +63,7 @@
+   std::vector<ManagedReference<AiAgent*>> targets;
+   if(id=="fan_shot"){SortedVector<TreeEntry*> nearby(32,32);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range+3,&nearby,true);
+    for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent())continue;auto a=obj->asAiAgent();Locker lock(a,c);if(eligible(c,a,o,d,range))targets.push_back(a);}
+-   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){auto x=a->getWorldPosition(),y=b->getWorldPosition();double ax=x.getX()-o[0],ay=x.getZ()-o[1],az=x.getY()-o[2],bx=y.getX()-o[0],by=y.getZ()-o[1],bz=y.getY()-o[2];double ad=ax*ax+ay*ay+az*az,bd=bx*bx+by*by+bz*bz;return ad==bd?a->getObjectID()<b->getObjectID():ad<bd;});
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;auto x=a->getWorldPosition(),y=b->getWorldPosition();double ax=x.getX()-o[0],ay=x.getZ()-o[1],az=x.getY()-o[2],bx=y.getX()-o[0],by=y.getZ()-o[1],bz=y.getY()-o[2];double ad=ax*ax+ay*ay+az*az,bd=bx*bx+by*by+bz*bz;return ad==bd?a->getObjectID()<b->getObjectID():ad<bd;});
+   }
+   if(c->getWeapon()!=w || !conditions(c,id))throw std::runtime_error("native_pistoleer_unavailable");
+   if(c->getHAM(3)<=spec.action || c->getHAM(6)<=spec.mind)throw std::runtime_error("native_pistoleer_insufficient_sac");c->inflictDamage(c,3,spec.action,false,true,false);c->inflictDamage(c,6,spec.mind,false,true,false);c->addCooldown(String(("swgxr_smuggler_"+id).c_str()),spec.cooldown*1000);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCarbineer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCarbineer.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "VolleyFirePolicy.h"
+ #include "CarbineerPolicy.h"
+ #include "SwgxrTka.h"
+ #include "ProjectileContactPolicy.h"
+@@ -7,6 +8,7 @@
+  static double targetDistance(AiAgent* a,const corecu::warcry::Vec& origin){auto p=a->getWorldPosition();double x=p.getX()-origin[0],y=p.getZ()-origin[1]+std::max(.25,std::min(1.,double(a->getHeight(false))*.65)),z=p.getY()-origin[2];return std::sqrt(x*x+y*y+z*z);}
+  static bool eligible(CreatureObject* c,AiAgent* a,const corecu::warcry::Vec& origin,const corecu::warcry::Vec& direction,double range,double cosine){
+   if(!targetReady(a) || a->getZone()!=c->getZone() || !a->isAttackableBy(c))return false;
++  if(corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()))return corecu::volley::inRange(c->getDistanceTo(a),range);
+   auto p=a->getWorldPosition();double dx=p.getX()-origin[0],dy=p.getZ()-origin[1]+std::max(.25,std::min(1.,double(a->getHeight(false))*.65)),dz=p.getY()-origin[2],distance=targetDistance(a,origin);
+   return distance<=range && (distance<.001 || (dx*direction[0]+dy*direction[1]+dz*direction[2])/distance>=cosine) && CollisionManager::checkLineOfSight(c,a);
+  }
+@@ -64,7 +66,7 @@
+   if(!request.value("target_id",std::string()).empty())throw std::runtime_error("invalid_carbineer_target");
+   const double range=corecu::carbineer::range(spec,w->getMaxRange()*corecu::projectile::rangeScale(false,true));std::vector<ManagedReference<AiAgent*>> targets;
+   if(corecu::carbineer::area(spec)){SortedVector<TreeEntry*> nearby(32,32);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range+3,&nearby,true);for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent())continue;auto a=obj->asAiAgent();Locker lock(a,c);if(eligible(c,a,o,d,range,spec.cosine))targets.push_back(a);}
+-   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){double ad=targetDistance(a,o),bd=targetDistance(b,o);return ad==bd?a->getObjectID()<b->getObjectID():ad<bd;});}
++   std::sort(targets.begin(),targets.end(),[&](const ManagedReference<AiAgent*>& a,const ManagedReference<AiAgent*>& b){bool av=corecu::volley::guaranteed(c->getObjectID(),a->getObjectID()),bv=corecu::volley::guaranteed(c->getObjectID(),b->getObjectID());if(av!=bv)return av;double ad=targetDistance(a,o),bd=targetDistance(b,o);return ad==bd?a->getObjectID()<b->getObjectID():ad<bd;});}
+   if(c->getWeapon()!=w || !conditions(c,id))throw std::runtime_error("native_carbineer_unavailable");
+   if(c->getHAM(3)<=spec.action || c->getHAM(6)<=spec.mind)throw std::runtime_error("native_carbineer_insufficient_sac");c->inflictDamage(c,3,spec.action,false,true,false);c->inflictDamage(c,6,spec.mind,false,true,false);c->addCooldown(String(("swgxr_smuggler_"+id).c_str()),spec.cooldown*1000);
+   Json out={{"success",true},{"operation","carbineer"},{"shot_id",request.at("shot_id")},{"ability_id",id},{"interval_seconds",interval(c,id)},{"ham_cost_committed",true},{"hit",false},{"damage",0},{"targets",Json::array()}};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrScout.h
+@@ -1,3 +1,4 @@
++#include "templates/tangible/TrapTemplate.h"
+ #include "SwgxrMovement.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SCOUT_H
+@@ -119,11 +120,14 @@
+      // a hip trap into its reserved owner inventory for the source command.
+      bool hip=g.value("hip_tool_id",std::string())==id(trap);auto root=c->getSlottedObject("inventory");
+      auto target=SwgxrGathering::object(c,request.at("target_id").get<std::string>());if(!eligible(c,target) || target->getZone()!=c->getZone())throw std::runtime_error("Invalid trap target");
+-     if(!CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("Trap target obstructed");
++     auto trapData=dynamic_cast<TrapTemplate*>(trap->getObjectTemplate());if(!trapData)throw std::runtime_error("Native trap template required");
++     auto launchTrap=[&](TangibleObject* marked){if(marked && marked!=target)throw std::runtime_error("native_volley_target_mismatch");
++     if(!marked && !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("Trap target obstructed");
+      if(hip){SwgxrGathering::transfer(c,trap,root);g["hip_tool_id"]="";SwgxrGathering::save(c,g);}
+      try{command(c,"throwtrap",target->getObjectID(),String(id(trap).c_str()));}catch(...){if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}throw;}
+      if(hip){SwgxrGathering::transfer(c,trap,SwgxrGathering::escrow(c,g));g["hip_tool_id"]=id(trap);SwgxrGathering::save(c,g);}
+-     mutation["target_id"]=id(target);mutation["item_id"]=id(trap);
++     mutation["target_id"]=id(target);mutation["item_id"]=id(trap);if(marked)mutation["volley_deferred"]=true;return mutation;};
++     mutation=SwgxrVolleyFire::attack(c,request,trapData->getMaxRange(),launchTrap);
+     }else throw std::runtime_error("Unsupported scout action");
+     receipts.push_back({{"key",key},{"request",semantic},{"mutation",mutation}});while(receipts.size()>32)receipts.erase(receipts.begin());c->getPlayerObject()->setScreenPlayData("swgxr_scout","receipts",String(receipts.dump().c_str()));
+    }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGrenade.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGrenade.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "SwgxrVolleyFire.h"
+ #include "GrenadePolicy.h"
+ #include "SwgxrTka.h"
+ #include "SwgxrBlastSight.h"
+@@ -36,22 +37,27 @@
+   auto object=c->getZoneServer()->getObject(std::stoull(row.at("item_id").get<std::string>()));auto w=object && object->isWeaponObject()?static_cast<WeaponObject*>(object.get()):nullptr;
+   auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("throwgrenade"));if(!w || !source)return;
+   auto spec=corecu::grenade::spec(row.at("template").get<std::string>());auto point=row.at("landing_position");std::vector<ManagedReference<CreatureObject*>> targets;
++  uint64 forced=0;if(row.value("volley_guaranteed",false)){auto marked=c->getZoneServer()->getObject(std::stoull(row.at("target_id").get<std::string>()));if(marked && marked->isCreatureObject()){auto a=marked->asCreatureObject();Locker lock(a,c);if(a->getZone()==c->getZone() && !a->isDead() && !a->isIncapacitated() && a->isAttackableBy(c)){forced=a->getObjectID();targets.push_back(a);}}}
++  corecu::volley::Scope volley(c->getObjectID(),forced);
+   SortedVector<TreeEntry*> nearby(64,64);c->getZone()->getInRangeObjects(point[0].get<float>(),point[1].get<float>(),point[2].get<float>(),spec.radius+2,&nearby,true);
+-  for(int i=0;i<nearby.size();++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(!o->isCreatureObject())continue;auto a=o->asCreatureObject();Locker lock(a,c);if(eligible(c,a) && distance(a,point)<=spec.radius && blastSight(c,a,point))targets.push_back(a);}
+-  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<CreatureObject*>& a,const ManagedReference<CreatureObject*>& b){double da=distance(a,point),db=distance(b,point);return da==db?a->getObjectID()<b->getObjectID():da<db;});if(targets.size()>corecu::grenade::TargetCap)targets.resize(corecu::grenade::TargetCap);
+-  double sum=0;for(auto& a:targets)sum+=corecu::grenade::falloff(distance(a,point),spec.radius);double scale=corecu::grenade::aggregateScale(sum),remaining=row.at("packet").get<double>()*corecu::grenade::AggregateMultiplier;
+-  for(auto& a:targets){Locker lock(a,c);if(!eligible(c,a) || !blastSight(c,a,point))continue;double damage=std::min(remaining,row.at("packet").get<double>()*corecu::grenade::falloff(distance(a,point),spec.radius)*scale);if(damage<=0)continue;remaining-=damage;SwgxrGrenadeStrike strike(*source,damage);int before=a->getHAM(0);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);if(code==QueueCommand::SUCCESS && a->getHAM(0)<before)control(c,a,spec,row.at("thrown_speed").get<int>());}
++  for(int i=0;i<nearby.size();++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(!o->isCreatureObject())continue;auto a=o->asCreatureObject();Locker lock(a,c);if(a->getObjectID()!=forced && eligible(c,a) && distance(a,point)<=spec.radius && blastSight(c,a,point))targets.push_back(a);}
++  std::sort(targets.begin(),targets.end(),[&](const ManagedReference<CreatureObject*>& a,const ManagedReference<CreatureObject*>& b){if((a->getObjectID()==forced)!=(b->getObjectID()==forced))return a->getObjectID()==forced;double da=distance(a,point),db=distance(b,point);return da==db?a->getObjectID()<b->getObjectID():da<db;});if(targets.size()>corecu::grenade::TargetCap)targets.resize(corecu::grenade::TargetCap);
++  // Volley guarantees only the marked direct packet. Collateral and effects
++  // stay at the accepted landing point; moving enemies never move the blast.
++  auto weight=[&](CreatureObject* a){return a->getObjectID()==forced?1.:corecu::grenade::falloff(distance(a,point),spec.radius);};
++  double sum=0;for(auto& a:targets)sum+=weight(a);double scale=corecu::grenade::aggregateScale(sum),remaining=row.at("packet").get<double>()*corecu::grenade::AggregateMultiplier;
++  for(auto& a:targets){Locker lock(a,c);if(!eligible(c,a) || (!corecu::volley::guaranteed(c->getObjectID(),a->getObjectID())&&!blastSight(c,a,point)))continue;double damage=std::min(remaining,row.at("packet").get<double>()*weight(a)*scale);if(damage<=0)continue;remaining-=damage;SwgxrGrenadeStrike strike(*source,damage);int before=a->getHAM(0);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);if(code==QueueCommand::SUCCESS && a->getHAM(0)<before)control(c,a,spec,row.at("thrown_speed").get<int>());}
+  }
+ public:
+  static long long now(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
+  static bool supported(SceneObject* o){return o && o->isWeaponObject() && static_cast<WeaponObject*>(o)->isThrownWeapon() && corecu::grenade::supported(o->getObjectTemplate()->getFullTemplateString().toCharArray());}
+- static bool eligible(CreatureObject* c,SceneObject* o){auto a=o?o->asCreatureObject():nullptr;return a && a!=c && a->getZone()==c->getZone() && a->getParentID()==c->getParentID() && !a->isDead() && !a->isIncapacitated() && a->isAttackableBy(c);}
++ static bool eligible(CreatureObject* c,SceneObject* o){auto a=o?o->asCreatureObject():nullptr;return a && a!=c && a->getZone()==c->getZone() && (a->getParentID()==c->getParentID() || corecu::volley::guaranteed(c->getObjectID(),a->getObjectID())) && !a->isDead() && !a->isIncapacitated() && a->isAttackableBy(c);}
+  static void settle(CreatureObject* c){auto s=load(c);Json due=Json::array(),pending=Json::array();for(auto& row:s["pending"]){if(corecu::grenade::due(now(),row.at("detonation_at_ms").get<long long>()))due.push_back(row);else pending.push_back(row);}if(due.empty())return;s["pending"]=pending;save(c,s);for(auto& row:due){try{explode(c,row);}catch(...){clean(c,row);throw;}clean(c,row);}}
+  static void status(CreatureObject* c,Json& state){settle(c);auto s=load(c);state["server_time_ms"]=now();state["grenade_cooldown"]=std::max(0.,(s.value("cooldown_until_ms",0LL)-now())/1000.);state["grenade_pending"]=Json::array();for(auto& row:s["pending"]){auto visible=row;for(auto key:{"template","zone","parent_id","packet","thrown_speed"})visible.erase(key);state["grenade_pending"].push_back(visible);}}
+- static void accept(CreatureObject* c,WeaponObject* w,CreatureObject* target,const Json& request,Json& mutation){
++ static void acceptNative(CreatureObject* c,WeaponObject* w,CreatureObject* target,const Json& request,Json& mutation){
+   settle(c);Locker targetLock(target,c);auto spec=corecu::grenade::spec(w->getObjectTemplate()->getFullTemplateString().toCharArray());auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("throwgrenade"));
+   if(!supported(w) || !w->isCertifiedFor(c) || w->isBroken() || w->getUseCount()<1 || !source || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c) || c->isRidingMount())throw std::runtime_error("grenade_equipment_or_training_required");
+-  if(!eligible(c,target) || !c->isInRange(target,corecu::grenade::Range) || !CollisionManager::checkLineOfSight(c,target))throw std::runtime_error("grenade_target_unavailable");
++  if(!eligible(c,target) || !c->isInRange(target,corecu::grenade::Range) || (!corecu::volley::guaranteed(c->getObjectID(),target->getObjectID())&&!CollisionManager::checkLineOfSight(c,target)))throw std::runtime_error("grenade_target_unavailable");
+   auto p=target->getWorldPosition();auto throwZone=c->getZone();auto throwParent=c->getParentID();targetLock.release();
+   Locker itemLock(w,c);auto gathering=SwgxrGathering::load(c);if(SwgxrGathering::ownedTool(c,gathering,id(w)).get()!=w)throw std::runtime_error("grenade_ownership_changed");
+   if(c->getZone()!=throwZone || c->getParentID()!=throwParent || c->isDead() || c->isIncapacitated() || c->isRidingMount() || !source->checkStateMask(c) || !source->checkInvalidLocomotions(c) || !w->isCertifiedFor(c) || w->isBroken() || w->getUseCount()<1)throw std::runtime_error("grenade_equipment_or_state_changed");
+@@ -59,10 +65,16 @@
+   auto s=load(c);auto stamp=now();if(s.value("cooldown_until_ms",0LL)>stamp || s["families"].value(spec.kind,0LL)>stamp)throw std::runtime_error("grenade_cooldown");
+   int action=std::max(1,int(std::ceil(c->getBaseHAM(3)*.06))),mind=std::max(1,int(std::ceil(c->getBaseHAM(6)*.02)));if(c->getHAM(3)<=action || c->getHAM(6)<=mind)throw std::runtime_error("grenade_insufficient_sac");
+   int speed=c->getSkillMod("thrown_speed");Json row={{"request_id",request.at("request_id")},{"item_id",id(w)},{"target_id",id(target)},{"landing_position",Json::array({p.getX(),p.getZ(),p.getY()})},{"fuse_seconds",corecu::grenade::FuseSeconds},{"detonation_at_ms",stamp+2000},{"radius_m",spec.radius},{"throwable_kind",spec.kind},{"template",std::string(w->getObjectTemplate()->getFullTemplateString().toCharArray())},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"parent_id",c->getParentID()},{"packet",corecu::grenade::packet(spec,speed,corecu::grenade::quality(spec,w->getMinDamage(),w->getMaxDamage()))},{"thrown_speed",speed}};
++  if(corecu::volley::guaranteed(c->getObjectID(),target->getObjectID()))row["volley_guaranteed"]=true;
+   // Reserve the item immediately, including its last charge. Zero-charge remains
+   // alive until settlement so the final throw retains weapon and visual metadata.
+   w->setUseCount(w->getUseCount()-1,true);c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);s["cooldown_until_ms"]=stamp+int(corecu::grenade::recovery(speed)*1000);s["families"][spec.kind]=stamp+int(spec.familyCooldown*1000);s["pending"].push_back(row);save(c,s);
+   mutation.update(row);for(auto key:{"template","zone","parent_id","packet","thrown_speed"})mutation.erase(key);mutation["charge_consumed"]=true;
+   ManagedReference<CreatureObject*> player=c;Core::getTaskManager()->scheduleTask([player](){Locker lock(player);SwgxrGrenade::settle(player);},"SwgxrGrenadeDetonation",2001);
+  }
++ static void accept(CreatureObject* c,WeaponObject* w,CreatureObject* target,const Json& request,Json& mutation){
++  if(!request.contains("volley_mark_id")&&!request.contains("volley_target_id")){acceptNative(c,w,target,request,mutation);return;}
++  mutation=SwgxrVolleyFire::attack(c,request,corecu::grenade::Range,[&](TangibleObject* marked){if(marked!=target)throw std::runtime_error("native_volley_target_mismatch");Json result=Json::object();acceptNative(c,w,target,request,result);result["volley_deferred"]=true;return result;});
++ }
++
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
+@@ -1,3 +1,4 @@
++#include "VolleyFirePolicy.h"
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+ /*
+  * CombatQueueCommand.h
+@@ -235,13 +236,13 @@
+ 		if (creature->isProne() && (weapon->isMeleeWeapon() || poolsToDamage == 0))
+ 			return NOPRONE;
+ 
+-		if (!usesClientProjectileContact() && !checkDistance(creature, targetObject, rangeToCheck))
++		if (!usesClientProjectileContact() && !corecu::volley::guaranteed(creature->getObjectID(),targetObject->getObjectID()) && !checkDistance(creature, targetObject, rangeToCheck))
+ 			return TOOFAR;
+ 
+-		if (!usesClientProjectileContact() && weapon->isRangedWeapon() && creature->isProne() && checkDistance(targetObject, creature, 7))
++		if (!usesClientProjectileContact() && !corecu::volley::guaranteed(creature->getObjectID(),targetObject->getObjectID()) && weapon->isRangedWeapon() && creature->isProne() && checkDistance(targetObject, creature, 7))
+ 			return TOOCLOSE;
+ 
+-		if (!usesClientProjectileContact() && !CollisionManager::checkLineOfSight(creature, targetObject)) {
++		if (!usesClientProjectileContact() && !corecu::volley::guaranteed(creature->getObjectID(),targetObject->getObjectID()) && !CollisionManager::checkLineOfSight(creature, targetObject)) {
+ 			creature->sendSystemMessage("@cbt_spam:los_fail"); // "You lost sight of your target."
+ 			return GENERALERROR;
+ 		}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/VolleyFireCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/VolleyFireCommand.h
+@@ -16,6 +16,8 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// Replaced by native per-member Volley Fire marks; never queue free legacy attacks.
++		return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/VolleyFireAttackCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/VolleyFireAttackCommand.h
+@@ -15,6 +15,8 @@
+ 	}
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
++		// Replaced by native per-member Volley Fire marks; never queue free legacy attacks.
++		return GENERALERROR;
+ 
+ 		if (!checkStateMask(creature))
+ 			return INVALIDSTATE;
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,5 @@
++#include "server/zone/objects/creature/commands/VolleyFirePolicy.h"
++#include "server/zone/objects/creature/commands/SwgxrSquadLeader.h"
+ #include "server/zone/objects/creature/commands/CoreCuResources.h"
+ #include "server/zone/objects/creature/commands/SwgxrPhysicalGuard.h"
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+@@ -381,6 +383,7 @@
+ 
+ 		damage = applyDamage(attacker, weapon, tano, hitList, poolsToDamage, data);
+ 
++		corecu::volley::resolved(attacker->getObjectID(),tano->getObjectID());
+ 		// No Accuracy / Defense Calculation for TanO defender. setHit to HIT value.
+ 		hitList->setHit(HIT);
+ 
+@@ -449,11 +452,13 @@
+ 	if (damageMultiplier != 0) {
+ 		damage = calculateDamage(attacker, weapon, defender, data) * damageMultiplier;
+         if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
++        if(attacker->isCreatureObject())damage*=SwgxrSquadLeader::outputDamageScale(attacker->asCreatureObject());
+ 		targetHitList->setInitialDamage(damage);
+ 	}
+ 
+ 	damageMultiplier = 1.0f;
+ 
++	const bool volleyStrike=corecu::volley::hitAvailable(attacker->getObjectID(),defender->getObjectID());
+ 	if (!data.isStateOnlyAttack()) {
+ 		hitVal = getHitChance(attacker, defender, weapon, data, damage, data.getAccuracyBonus() + attacker->getSkillMod(data.getCommand()->getAccuracySkillMod()));
+ 	}
+@@ -486,7 +491,7 @@
+ 	}
+ 
+ 	// Tracked physical guards cover direct frontal melee, never force/AoE attacks.
+-	if (!data.isStateOnlyAttack() && !data.isForceAttack() && !data.getCommand()->isAreaAction() && !data.getCommand()->isConeAction() && damageMultiplier > corecu::guard::multiplier(defender->getWeapon()->isUnarmedWeapon())) {
++	if (!volleyStrike && !data.isStateOnlyAttack() && !data.isForceAttack() && !data.getCommand()->isAreaAction() && !data.getCommand()->isConeAction() && damageMultiplier > corecu::guard::multiplier(defender->getWeapon()->isUnarmedWeapon())) {
+ 		const double guard = SwgxrPhysicalGuard::resolve(defender, attacker, weapon, damage);
+ 		if (guard < 1) {
+ 			if (hitVal != BLOCK) doBlock(attacker, weapon, defender, damage);
+@@ -505,6 +510,7 @@
+ 			// TODO: animations are probably determined by which pools are damaged (high, mid, low, combos, etc)
+ 			int unmitDamage = damage;
+ 
++			damageMultiplier*=SwgxrSquadLeader::receivedDamageScale(defender);
+ 			damage = applyDamage(attacker, weapon, defender, targetHitList, damage, damageMultiplier, poolsToDamage, hitLocation, data);
+ 
+ 			if (defender->isDead() || defender->isIncapacitated()) {
+@@ -629,6 +635,7 @@
+ 	if (damageMultiplier != 0) {
+ 		damage = calculateDamage(attacker, weapon, defenderObject, data) * damageMultiplier;
+         if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
++        if(attacker->isCreatureObject())damage*=SwgxrSquadLeader::outputDamageScale(attacker->asCreatureObject());
+ 	}
+ 
+ 	damageMultiplier = 1.0f;
+@@ -677,6 +684,7 @@
+ 		}
+ 
+ 		if (damageMultiplier != 0 && damage != 0) {
++			damageMultiplier*=SwgxrSquadLeader::receivedDamageScale(defenderObject);
+ 			damage = applyDamage(attacker, weapon, defenderObject, targetHitList, damage, damageMultiplier, poolsToDamage, hitLocation, data);
+ 		}
+ 
+@@ -1675,6 +1683,7 @@
+ 		damage *= damageMultiplier;
+ 
+     if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
++        if(attacker->isCreatureObject())damage*=SwgxrSquadLeader::outputDamageScale(attacker->asCreatureObject());
+ 
+ 	defenderHitList->setInitialDamage(damage);
+ 
+@@ -2060,11 +2069,8 @@
+ 	if (attacker->isPlayerCreature())
+ 		targetDefense += defender->getSkillMod("private_defense");
+ 
+-	// SL bonuses go on top of hardcap
+-	for (int i = 0; i < defenseAccMods->size(); ++i) {
+-		const String& mod = defenseAccMods->get(i);
+-		targetDefense += defender->getSkillMod("private_group_" + mod);
+-	}
++	// Squad Leader defense is now derived from current same-planet party state
++	// in getHitChance; retired persisted private_group buffs never stack.
+ 
+ 	// food bonus goes on top as well
+ 	targetDefense += defender->getSkillMod("dodge_attack");
+@@ -2101,6 +2107,7 @@
+ */
+ 
+ int CombatManager::getHitChance(TangibleObject* attacker, CreatureObject* creoDefender, WeaponObject* weapon, const CreatureAttackData& data, int damage, int bonusAccuracy) const {
++	if(corecu::volley::claimHit(attacker->getObjectID(),creoDefender->getObjectID()))return HitStatus::HIT;
+ 	// Physical contact replaces only the player's innate hit/miss roll.
+ 	// Secondary dodge/block/counter/deflection still resolve normally. Accuracy
+ 	// stats cannot alter player damage or the secondary defense contest.
+@@ -2172,6 +2179,7 @@
+ 	// set AttackResult
+ 	accuracyTotal = accuracySkill + accuracyWeapon + accuracyPosture + accuracyBonus;
+ 	defenseTotal = defenseSkill + defensePosture;
++	if(!attacker->isPlayerCreature())defenseTotal+=SwgxrSquadLeader::defenseBonus(creoDefender,weapon->isRangedWeapon());
+ 
+ 	if (physicalContact) {
+ 		// Neutral accuracy contribution; keep native secondary-defense ratings,
+--- a/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/events/ThrowTrapTask.h
+@@ -1,3 +1,5 @@
++#include "server/zone/objects/creature/commands/VolleyFirePolicy.h"
++#include "server/zone/objects/creature/commands/SwgxrSquadLeader.h"
+ /*
+  * ThrowTrapTask.h
+  *
+@@ -28,12 +30,14 @@
+ 	ManagedWeakReference<CreatureObject*> weakAttacker;
+ 	ManagedWeakReference<CreatureObject*> weakTarget;
+ 	ManagedWeakReference<TangibleObject*> weakTrap;
++	bool volleyGuaranteed=false;
+ 
+ public:
+ 	ThrowTrapTask(CreatureObject* attacker, CreatureObject* target, TangibleObject* trap) : Task() {
+ 		weakAttacker = attacker;
+ 		weakTarget = target;
+ 		weakTrap = trap;
++		volleyGuaranteed=corecu::volley::guaranteed(attacker->getObjectID(),target->getObjectID());
+ 
+ 		setLoggingName("ThrowTrapTask");
+ 	}
+@@ -103,6 +107,8 @@
+ 		if (closeObjectsVector != nullptr) {
+ 			closeObjectsVector->safeCopyReceiversTo(closeObjects, CloseObjectsVector::CREOTYPE);
+ 		}
++
++		if(volleyGuaranteed){bool present=false;for(int i=0;i<closeObjects.size();++i)if(closeObjects.get(i)->getObjectID()==target->getObjectID())present=true;if(!present)closeObjects.add(target.get());}
+ 
+ 		// Release the lock on the target
+ 		targetLock.release();
+@@ -156,7 +162,7 @@
+ 
+ 				Locker agentLock(targetAgent, attacker);
+ 
+-				if (!targetAgent->isInRange(target, 5.f)) {
++				if (targetAgent->getZone()!=attacker->getZone() || targetAgent->isDead() || targetAgent->isIncapacitated() || !targetAgent->isInRange(target, 5.f)) {
+ 					continue;
+ 				}
+ 
+@@ -177,7 +183,7 @@
+ 				}
+ 
+ 				int roll = System::random(100);
+-				bool hit = roll < hitChance;
++				bool hit = (volleyGuaranteed && isPrimaryTarget) || roll < hitChance;
+ 
+ 				// Broadcast combat action for main target
+ 				if (isPrimaryTarget) {
+@@ -190,7 +196,7 @@
+ 
+ 				if (hit) {
+ 					// Calculate and apply damage
+-					float damage = System::random(maxDamage - minDamage) + minDamage;
++					float damage = (System::random(maxDamage - minDamage) + minDamage)*SwgxrSquadLeader::outputDamageScale(attacker);
+ 					targetAgent->inflictDamage(attacker, hamPool, damage, true, true);
+ 
+ 					// Check the creature does not have the state
+--- a/MMOCoreORB/src/server/zone/objects/group/GroupObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/group/GroupObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/VolleyFirePolicy.h"
+ #include "server/zone/objects/creature/commands/SwgxrSquadLeader.h"
+ /*
+  * GroupObjectImplementation.cpp
+@@ -191,6 +192,7 @@
+ #endif
+ 
+ 	SwgxrSquadLeader::leave(memberRemoved);
++	corecu::volley::leave(memberRemoved->getObjectID());
+ 
+ 	uint64 memberRemovedID = memberRemoved->getObjectID();
+ 	bool wasLeader = getLeaderID() == memberRemovedID;
+@@ -408,6 +410,7 @@
+ 		try {
+ 			Locker clocker(groupMember, _this.getReferenceUnsafeStaticCast());
+ 			SwgxrSquadLeader::leave(groupMember);
++			corecu::volley::leave(groupMember->getObjectID());
+ 
+ 			if (groupMember->isPlayerCreature()) {
+ 				PlayerObject* ghost = groupMember->getPlayerObject();

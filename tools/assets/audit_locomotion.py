@@ -41,7 +41,7 @@ def positions(bones, tracks, time, root_positions=True):
 
 
 def main():
-    ap=argparse.ArgumentParser();ap.add_argument('--tre-dir',type=Path,default=Path('runtime/assets/active_tre'));ap.add_argument('--characters',type=Path,default=Path('runtime/assets/characters'));ap.add_argument('--output',type=Path,default=Path('runtime/evidence/locomotion-source-audit.json'));args=ap.parse_args()
+    ap=argparse.ArgumentParser();ap.add_argument('--tre-dir',type=Path,default=Path('runtime/asset_sources/active_tre'));ap.add_argument('--characters',type=Path,default=Path('runtime/assets/characters'));ap.add_argument('--output',type=Path,default=Path('runtime/evidence/locomotion-source-audit.json'));args=ap.parse_args()
     tre=TreSet(args.tre_dir);catalog=json.loads((args.characters/'catalog.json').read_text());report={'source':'original ANS LOCT/MSGS + exported source skeleton/pose tracks','coordinate_system':'Godot Y-up -Z forward','races':{},'clips':{},'notes':['LOCT float is source average speed, validated against endpoint displacement divided by duration.','Height samples use source absolute local poses at 30Hz, quaternion normalized interpolation.','No terrain, IK, avatar height customization or headset transforms included.','The exported crouch clip is authored kneeling, not a generic symmetric physical squat.']}
     for race,definition in catalog['races'].items():
         model=json.loads((args.characters/definition['body']).read_text());summary={}

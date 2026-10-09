@@ -1,5 +1,150 @@
 # CoreCU remote test realm
 
+## Tester release build — 10 October 2026
+
+The authorized reset/deployment completed on `blux@87.106.27.237`. The 50 old
+native accounts and 47 characters were removed from active SQL/BerkeleyDB/auth
+state. Final checks report zero player accounts, zero characters and zero
+gateway credentials. One internal `swgxr_health` account is recreated by native
+readiness checks. Legacy gateway account tokens were cleared. The realm now
+runs the ten original ground planets plus noncombat `space_tatooine`, with
+invitation-free tester registration and the first-character Luxury Yacht grant.
+All managed services and native login/zone readiness pass; the daily restart
+remains enabled at **05:00 UTC**. The old VPS was not contacted or restarted.
+
+HTTPS registration, character creation, logout/login, and character/yacht
+persistence across a graceful server restart passed. The disposable validation
+accounts and characters were then removed by a second clean reset. The original
+private rollback snapshot remains at
+`runtime/deploy/pre-test-reset-20261010` on the VPS, outside the active realm and
+outside tester distributions. Final audit/count/timer receipts are in
+`runtime/evidence/release-20261010/remote-final/`. No VR client was launched.
+
+
+The runnable client archives and separate private data ZIP are collected in
+`runtime/releases/tester-distribution-20261010/`, with `START-HERE.txt` and
+`CHECKSUMS.sha256`. The Linux archive is 133,864,845 bytes, Windows is
+109,393,924 bytes, and the shared data archive is 7,953,081,442 bytes. Extract
+one client, put the unextracted data ZIP in its `data/` folder, and use
+`play-vr.sh` or `play-vr.cmd`. `import-data` installs without launching;
+`play-desktop` explicitly disables XR. Python 3.10+ is required.
+
+Both clients contain actual Godot executable/PCK exports and their native
+extensions. Linux requires glibc 2.43+ and GLIBCXX_3.4.30. Windows uses the
+standard spatial audio fallback and includes the TwoVoIP Windows binary.
+The Windows extension was built using LLVM-MinGW 20261006 UCRT, downloaded
+from its official GitHub release and verified against its SHA-256 digest.
+Windows package execution was verified under Wine on Linux; native Windows
+Vulkan/OpenXR validation remains pending. No headset was launched. Headless
+checks use the dummy renderer and do not establish GPU validation.
+
+The rebuilt private asset ZIP contains 57,066 files and all 51 original TREs.
+Every entry passed SHA-256 and ZIP CRC verification; original provenance and
+conversion limitations remain included. No replacement proprietary media was
+fetched. Assets, toolchains, build outputs and private realm state remain ignored.
+
+The fresh linked server package is
+`runtime/deploy/test-server-20261010-final.tar.gz`, using
+`corecu-all-planets-jtl-test-12cpu-24gb`. Native build receipts match current
+patches and binaries. Build fixes added the original scatter-pistol and
+lightning-rifle crafting references and an explicit C++ algorithm include.
+The voice relay now removes expired peers before broadcasting its roster and
+iterates a snapshot when audio routing can remove peers. All 736 tests pass;
+actual original-starport movement checks and both package preflights pass. The
+Windows native DLL also passes the original-starport stair ascent/descent test
+in an isolated exported test harness under Wine. Full data import into a fresh
+Linux archive extraction, repeat import, and installed-package preflight pass.
+Release evidence is under `runtime/evidence/release-20261010/`.
+
+The older source preparations and Windows build handoffs below are historical;
+they are superseded by these runnable packages.
+
+## JtL, crew and tester registration package — 10 October 2026
+
+The prepared profile `corecu-all-planets-jtl-test-12cpu-24gb` retains all ten
+ground planets and adds only `space_tatooine` for the noncombat Yacht prototype.
+Original starship terminals prepare the account's first-character Yacht or an
+eligible owned small craft. A second prompt forms crew through handshakes and
+requires a separate Launch confirmation; the pilot can remove names or walk
+away to cancel. Native POB boarding accepts only an approved small ship with
+no other occupant. POBs and gunships cannot board another POB. A parked visitor
+gets a temporary action to launch its original ship again nearby. Native
+disconnect handling ejects passengers, or the whole crew when its captain
+disconnects. The Tatooine test zone uses the original Mos Eisley station arrival
+as its explicit disconnect fallback. POB furnishing keeps the original
+100-item limit and ground-house placement rules.
+Voice stays available aboard: Sector replaces Planet, proximity stays within
+the current ship, and native party voice works across ground and space. Client
+codec and relay-policy checks passed. The current TLS integration run is blocked
+by the sandbox's socket restriction; deployed voice and live microphone testing
+remain required. See [the voice verification record](../server/VOICE_PROTOCOL.md#crewsector-verification-2026-10-10).
+The profile also stages account registration without invitations; it preserves
+password hashing, rate limits and existing account ownership.
+
+The server handoff is `runtime/deploy/test-server-source-20261009-crew.tar.gz`. It is
+**source preparation, not a deployable binary release**. The pinned Core3 and
+Engine3 source bundles, complete native patches, adapter, tests and public
+capacity/registration settings are included. Real generated-header syntax
+checks passed, but the linked build is blocked by the sandbox's read-only
+`/run/user/1000/libpod`. No stale binary is included as a substitute.
+
+On a build-capable host, restore the pinned source bundles, apply the complete
+patch stack, provide the separate original data, configure with
+`python3 tools/configure_core3.py --planets all --jtl`, and complete the native
+build and tests. Create the normal runtime package only after a current native
+build receipt passes. Stage private overlays with
+`tools/deploy/prepare_capacity_profile.py --profile corecu-all-planets-jtl-test-12cpu-24gb --source <existing-private-remote-dir> <new-staging-dir>`.
+That preserves the existing realm credentials and prepares an updated private
+gateway configuration when its authenticated database is already configured.
+The public `gateway-registration.json` is a merge policy, not a replacement
+for TLS keys, accounts or the private gateway configuration.
+
+Package preparation does not change the VPS, provision its bazaar, migrate its
+database, or authorize a VR launch. Preserve the 05:00 UTC restart and existing
+SQL/BerkeleyDB/auth state when a deployment is subsequently performed. Check
+actual creation, one-time yacht grant, terminal launch, POB persistence across
+restart, crew launch, boarding/return interruption, disconnect ejection,
+landing/logout retries, parties and leadership XP on the linked server.
+
+The matching code-only client artifacts are
+`runtime/releases/test-client-linux-20261009-crew.tar.gz` and
+`runtime/releases/test-client-windows-handoff-20261009-crew.zip`. Linux includes
+an exported executable/PCK and native libraries, requiring glibc 2.43+ and
+GLIBCXX_3.4.30. Windows remains an explicitly non-runnable source/build handoff
+because its native DLL/toolchain is unavailable. Put the separate private
+`runtime/asset_archives/test-data-20261009-crew.zip` in the extracted client's
+`data/` folder. It contains 57,066 verified files, including the original Yacht,
+eleven small-craft cockpit/exterior variants and all 51 required TREs. These
+artifacts supersede the earlier same-day packages for crew testing; no original
+game data is embedded in the code-only clients.
+
+## Tester bazaar stock — prepared 9 October 2026
+
+The user authorized the current test VPS, `87.106.27.237`, and all ten original
+ground planets. `tools/server/seed_bazaar.py plan` prepares one bounded batch at
+an original outdoor bazaar on each planet: 17 item types, 24 individual listings
+per planet, 240 total. CDEF ranged weapons, basic melee weapons, bone armor,
+medical/crafting/survey tools, small stims, a slitherhorn, a backpack and noise
+traps use original native `giveItem` defaults. Fixed tester prices are 10–75
+credits; item quality, combat stats and charges are not changed.
+
+**Prepared, not applied.** This session cannot create network sockets; SSH to
+the authorized host failed with `socket: Operation not permitted`. No remote
+account, character, inventory, listing, service or restart schedule was changed.
+The manifest is `runtime/evidence/bazaar-onboarding/manifest.json`. The apply
+path still needs execution and native listing/purchase readback on the VPS;
+offline fixtures do not establish that the live market contains these items.
+
+On the authorized host with the source manifest verified, run
+`python3 tools/server/seed_bazaar.py apply --manifest <prepared-manifest>`.
+It requires the already-running loopback adapter and trusted Core3 console,
+uses separate dedicated stock owners, and lists through normal native bazaar
+operations. Original listing fees, the 25-item seller cap and seven-day expiry
+remain. A private ledger and persistent per-item native IDs let an interrupted
+run resume without recreating sold stock or changing player listings. This is
+one initial batch, not recurring replenishment. It does not start the VR client,
+deploy the profession changes or alter the daily 05:00 UTC restart.
+
 ## Movement, player summary and party update — 8 October 2026
 
 Source release `9c709fd` was pushed to `origin/main`. Its server delta was
@@ -165,7 +310,7 @@ not relabelled or installed as a binary release. The fresh build passed 368
 Python tests and 19 native movement integration checks before deployment.
 
 On a separate build workspace with Podman available, restore the bundled sources
-before supplying original TRE archives under `runtime/assets/active_tre`:
+before supplying original TRE archives under `runtime/asset_sources/active_tre`:
 
 ```sh
 git clone source/Core3.bundle vendor/Core3

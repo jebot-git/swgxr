@@ -34,8 +34,19 @@ func observe(value:Dictionary)->void:
 	if key==context_key:return
 	context_key=key;cancel_drag();grip_armed=false;trigger_armed=false;page=0
 	if active:rebuild()
+func resize_grid_panel(height:float)->void:
+	for panel:Node3D in hologram.panels:
+		var mesh:MeshInstance3D=panel.get_child(0)
+		mesh.mesh.size=Vector2(.27,height)
+	var detail:Label3D=hologram.labels[1]
+	var expanded:=height>.36
+	detail.font_size=18 if expanded else 22
+	detail.pixel_size=.00065 if expanded else .00075
+	detail.width=360 if expanded else 320
+	detail.position.y=.215 if expanded else .165
 func toggle()->void:
 	active=not active;visible=active;cancel_drag();grip_armed=false;trigger_armed=false
+	resize_grid_panel(.47 if active else .36)
 	for marker:Node3D in hologram.markers.values():marker.visible=not active
 	hologram.labels[0].visible=not active
 	if active:rebuild()
@@ -49,6 +60,7 @@ func cancel_drag()->void:
 	if is_instance_valid(ghost):ghost.queue_free();ghost=null
 func close()->void:
 	active=false;hide();cancel_drag();grip_armed=false;trigger_armed=false
+	resize_grid_panel(.36)
 	hologram.labels[0].show()
 	for marker:Node3D in hologram.markers.values():marker.show()
 func label(parent:Node3D,text:String,at:Vector3,size:=18)->Label3D:
@@ -65,6 +77,7 @@ func definition(id:String)->Dictionary:
 	for ability:Dictionary in context.get("ability_catalog",[]):
 		if str(ability.get("id",""))==id:return ability
 	return {}
+func is_gesture(row:Dictionary)->bool:return row.get("category","")=="gesture"
 func is_ultimate(row:Dictionary)->bool:return row.get("ultimate",false) or row.get("id","")=="last_ditch"
 func rebuild()->void:
 	for parent:Node3D in [grid,slots_root,lines]:
@@ -72,7 +85,7 @@ func rebuild()->void:
 	tiles.clear();hovered=""
 	var loadout:Dictionary=context.get("ability_loadout",{})
 	var family:=str(loadout.get("family",""))
-	label(slots_root,(family.replace("_"," ").to_upper() if not family.is_empty() else "NO WEAPON LOADOUT")+"  /  4 COMBAT + 1 ULTIMATE",Vector3(0,.725,0),19)
+	label(slots_root,(family.replace("_"," ").to_upper() if not family.is_empty() else "NO WEAPON LOADOUT")+"  /  4 TARGETED + 1 ULTIMATE",Vector3(0,.725,0),19)
 	var slots:Array=loadout.get("slots",["","","",""])
 	for i in range(4):
 		var id:=str(slots[i]) if slots.size()==4 else ""
@@ -82,26 +95,32 @@ func rebuild()->void:
 			var point:Dictionary=Targets.POINTS[id];var anchor:Variant=hologram.bone_anchor(point.bones)
 			if not anchor is Vector3:anchor=Vector3(0,float(point.height)*hologram.HEIGHT,0)
 			var connector:=MeshInstance3D.new();lines.add_child(connector);connector.mesh=Targets.line_mesh([node.position-Vector3(0,.03,0),Vector3(anchor)+Vector3(0,0,.025)]);connector.material_override=Targets.material()
-	label(grid,"COMBAT ABILITIES",Vector3(0,.157,.005),20)
-	var regular:Array=[];var ultimates:Array=[]
+	label(grid,"COMBAT ABILITIES",Vector3(0,.212,.005),20)
+	var regular:Array=[];var ultimates:Array=[];var gestures:Array=[]
 	for entry:Dictionary in context.get("ability_catalog",[]):
-		if is_ultimate(entry):ultimates.append(entry)
+		if is_gesture(entry):gestures.append(entry)
+		elif is_ultimate(entry):ultimates.append(entry)
 		else:regular.append(entry)
 	for i in range(page*6,mini(regular.size(),(page+1)*6)):
 		var row:Dictionary=regular[i];var index:=i-page*6
-		tile(grid,Vector3(-.061+(index%2)*.122,.105-(index/2)*.068,.006),str(row.get("label",row.id)),"ability",str(row.id),-1,str(row.id) in slots)
-	label(grid,"ULTIMATES — CLICK",Vector3(0,-.082,.005),18)
+		tile(grid,Vector3(-.061+(index%2)*.122,.160-(index/2)*.068,.006),str(row.get("label",row.id)),"ability",str(row.id),-1,str(row.id) in slots)
+	label(grid,"ULTIMATES — ADVANCED",Vector3(0,-.027,.005),18)
 	for i in range(page*2,mini(ultimates.size(),(page+1)*2)):
 		var row:Dictionary=ultimates[i]
-		tile(grid,Vector3(-.061+(i-page*2)*.122,-.126,.006),str(row.get("label",row.id)),"ultimate",str(row.id),-1,str(row.id)==str(loadout.get("ultimate","")))
-	label(grid,"%d/%d  •  STICK TO PAGE"%[page+1,page_count()],Vector3(0,-.168,.006),14)
-	hologram.labels[1].text="ABILITY LOADOUT\n\n"+("No learned abilities for this weapon family." if regular.is_empty() and ultimates.is_empty() else "Point at an ability for details.\n\nGrip and drag a combat ability to a slot above your head.\n\nClick an ultimate to select it.\n\nDrag a slot back to the grid to clear it.")+"\n\nRight stick click: equipment"
+		tile(grid,Vector3(-.061+(i-page*2)*.122,-.071,.006),str(row.get("label",row.id)),"ultimate",str(row.id),-1,str(row.id)==str(loadout.get("ultimate","")))
+	label(grid,"GESTURES — NO SLOT",Vector3(0,-.117,.005),18)
+	for i in range(page*2,mini(gestures.size(),(page+1)*2)):
+		var row:Dictionary=gestures[i]
+		tile(grid,Vector3(-.061+(i-page*2)*.122,-.161,.006),str(row.get("label",row.id)),"gesture",str(row.id))
+	label(grid,"%d/%d  •  STICK TO PAGE"%[page+1,page_count()],Vector3(0,-.208,.006),14)
+	hologram.labels[1].text="ABILITY LOADOUT\n\n"+("No learned abilities for this weapon family." if regular.is_empty() and ultimates.is_empty() and gestures.is_empty() else "Point at an ability for details.\n\nGrip and drag a combat ability to a slot above your head.\n\nClick an ultimate to select it.\n\nPoint at a gesture for its trigger. No slot needed.")+"\n\nRight stick click: equipment"
 func page_count()->int:
-	var regular:=0;var ultimate:=0
+	var regular:=0;var ultimate:=0;var gesture:=0
 	for row:Dictionary in context.get("ability_catalog",[]):
-		if is_ultimate(row):ultimate+=1
+		if is_gesture(row):gesture+=1
+		elif is_ultimate(row):ultimate+=1
 		else:regular+=1
-	return maxi(1,maxi(ceili(regular/6.0),ceili(ultimate/2.0)))
+	return maxi(1,maxi(ceili(gesture/2.0),maxi(ceili(regular/6.0),ceili(ultimate/2.0))))
 func scroll(direction:int)->void:
 	if not drag.is_empty() or pending:return
 	page=clampi(page+direction,0,page_count()-1);rebuild()
@@ -122,9 +141,13 @@ func describe(id:String)->void:
 	if id==hovered:return
 	hovered=id;var row:=definition(id)
 	if row.is_empty():return
+	if is_gesture(row):
+		hologram.labels[1].text=str(row.get("label",id))+"\n\n"+str(row.get("description",""))+"\n\nTRIGGER\n"+str(row.get("trigger_description",""))+"\n\n"+str(row.get("weapon_requirement",""))+"\n\nNo targeting slot required."
+		return
 	var ultimate:=is_ultimate(row)
 	var part:=str(Targets.POINTS.get(id,{}).get("part",""))
-	hologram.labels[1].text=str(row.get("label",id))+"\n\n"+str(row.get("description",DESCRIPTIONS.get(id,"")))+"\n\n"+("Ultimate: both hands on weapon, press both triggers." if ultimate else "Target: "+part.capitalize())+"\n\nCooldown: %.1f s\nRange: %.1f m"%[float(row.get("cooldown_seconds",0)),float(row.get("max_range_m",0))]+"\n\n"+("Click to select" if ultimate else "Grip, drag, release over a slot")
+	var requirement:="Requires "+str(row.get("profession_requirement","an advanced profession"))+".\n" if ultimate else ""
+	hologram.labels[1].text=str(row.get("label",id))+"\n\n"+str(row.get("description",DESCRIPTIONS.get(id,"")))+"\n\n"+requirement+(str(row.get("trigger_description","Ultimate: both hands on weapon, press both triggers.")) if ultimate else "Target: "+part.capitalize())+"\n\nCooldown: %.1f s"%float(row.get("cooldown_seconds",0))+("\nSelf" if row.get("self_only",false) else "\nRange: %.1f m"%float(row.get("max_range_m",0)))+"\n\n"+("Click to select" if ultimate else "Grip, drag, release over a slot")
 func submit(value:Dictionary)->void:
 	if pending or value.is_empty() or value==context.get("ability_loadout",{}):return
 	value["revision"]=int(value.get("revision",-1))
@@ -152,7 +175,7 @@ func sample(pose:Transform3D,grip:float,trigger:float,tracked:bool)->void:
 			if pointed.get("kind","")=="slot":value=Loadout.assign(context.get("ability_loadout",{}),str(drag.id),int(pointed.index),source)
 			elif source>=0 and absf(grid.to_local(pose.origin).x)<.15 and absf(grid.to_local(pose.origin).y)<.19 and absf(grid.to_local(pose.origin).z)<.1:
 				value=context.get("ability_loadout",{}).duplicate(true);value.slots[source]=""
-			elif source>=0 and pointed.get("kind","") in ["ability","ultimate"]:
+			elif source>=0 and pointed.get("kind","") in ["ability","ultimate","gesture"]:
 				value=context.get("ability_loadout",{}).duplicate(true);value.slots[source]=""
 			cancel_drag();submit(value)
 	elif grip>=.65 and grip_armed and drag.is_empty():

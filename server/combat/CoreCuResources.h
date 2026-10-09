@@ -1,6 +1,7 @@
 #pragma once
 #include <set>
 #include "CoreCuMedicalPolicy.h"
+#include "SwgxrDoctorPreparation.h"
 #include "SwgxrSpice.h"
 #include "server/zone/objects/factorycrate/FactoryCrate.h"
 #include "server/zone/objects/manufactureschematic/ManufactureSchematic.h"
@@ -28,6 +29,7 @@ public:
  static void normalizeCompanion(CreatureObject* c){
   if(!c || !c->isPet())return;
   for(int i=1;i<9;++i)if(c->getWounds(i))c->setWounds(i,0);
+  SwgxrDoctorPreparation::normalize(c);
   // Old pet food and Doctor buffs are clamped without extending their clocks.
   auto buffs=c->getBuffList();
   for(int i=buffs->getBuffListSize()-1;i>=0;--i){
@@ -43,6 +45,12 @@ public:
  }
  static void normalize(CreatureObject* c){
   if(!c || !c->isPlayerCreature() || c->isDead() || c->isIncapacitated() || SwgxrSpice::pinnedHam(c))return;
+  // Retire TKA utilities, preserving the unrelated Jedi Force Meditate task.
+  auto meditation=c->getPendingTask("meditate");
+  if(meditation){meditation->cancel();c->removePendingTask("meditate");if(!c->getPendingTask("forcemeditate")){c->clearState(CreatureState::ALERT,true);c->setMood(c->getMoodID(),true);}}
+  auto power=c->getBuff(STRING_HASHCODE("skill.buff.powerboost"));
+  if(power){int ham[9];for(int i=0;i<9;++i)ham[i]=c->getHAM(i);c->removeBuff(STRING_HASHCODE("skill.buff.powerboost"));for(int i=0;i<9;++i)c->setHAM(i,std::min(ham[i],std::max(1,c->getMaxHAM(i)-c->getWounds(i))));}
+  for(auto name:{"meditate","powerboost"})if(c->getPlayerObject()->hasAbility(name))SkillManager::instance()->removeAbility(c->getPlayerObject(),name,true);
   for(auto name:{"diagnose","healWound","tendWound"})SkillManager::instance()->removeAbility(c->getPlayerObject(),name,true);
   // Clear obsolete wounds before the old baseline-version early return. No resource refill.
   for(int i=1;i<9;++i)if(c->getWounds(i)!=0)c->setWounds(i,0);
@@ -57,7 +65,7 @@ public:
    c->getPlayerObject()->setScreenPlayData("corecu_food","version","1");
   }
   if(selected=="healdamage")c->getPlayerObject()->setScreenPlayData("swgxr_medic","selected","");
-  if(c->getPlayerObject()->getScreenPlayData("corecu_resources","version")=="1")return;
+  if(c->getPlayerObject()->getScreenPlayData("corecu_resources","version")=="1"){SwgxrDoctorPreparation::normalize(c);return;}
   SwgxrSpice::HamAdjustment scope;
   JSONSerializationType original=JSONSerializationType::array();double fullness[9];
   for(int i=0;i<9;++i){
@@ -80,5 +88,6 @@ public:
   for(int i=0;i<9;++i)c->setHAM(i,std::max(1,int(std::round(fullness[i]*std::max(1,c->getMaxHAM(i)-c->getWounds(i))))));
   c->getPlayerObject()->setScreenPlayData("corecu_resources","original_base",String(original.dump().c_str()));
   c->getPlayerObject()->setScreenPlayData("corecu_resources","version","1");
+  SwgxrDoctorPreparation::normalize(c);
  }
 };

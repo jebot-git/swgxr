@@ -19,7 +19,7 @@ selects only the locally available TRE archives for a bounded Tatooine profile.
 
 Use `./run.sh` from the repository root for the prepared client and services.
 For backend-only startup, after the root setup workflow has extracted and
-activated the user-provided archives in `runtime/assets/active_tre`:
+activated the user-provided archives in `runtime/asset_sources/active_tre`:
 
 ```sh
 tools/server/provision.sh
@@ -268,6 +268,31 @@ explicit synthetic frontend test fixture; it grants nothing in Core3.
 
 Scout commands, native receipts, gesture controls and the persistent live-session bridge are described in [SCOUT_PROTOCOL.md](SCOUT_PROTOCOL.md). Rebuild Core3 after applying `0025-scout.patch`.
 
+## Automatic entertainer audience
+
+The native performance tick admits eligible nearby players within eight metres
+to its dance or music audience automatically. Native position, same cell, line
+of sight, living/online/noncombat state, friendly healing eligibility,
+deny-service rules and the existing venue modifier remain authoritative. Each
+recipient keeps one valid source per performance kind; overlapping performers
+do not multiply the same kind of benefit. No manual Watch, Listen or selected
+buff recipient is exposed. Native Health-wound/battle-fatigue treatment, costs,
+skill progression and inspiration strength remain in the performance session.
+Earned inspiration activates after the native 60-second minimum. Leaving stops
+accrual; already granted buffs retain their native duration.
+
+`/entertainer/status` includes native `state.audience` with
+`policy: automatic_radius`, `radius_m: 8`, `minimum_seconds: 60`,
+`refresh_seconds: 10`, and at most two `sources`. Each source reports `id`,
+`kind` (`dance` or `music`), `seconds`, `strength` and `duration_minutes`.
+These are audience accrual observations, not a claim that every source has
+already granted a buff. The shared performance-presence response wraps the
+observation as `audience: {status, observation_age_seconds, sequence, state}`.
+Missing observations are `unobserved`; those older than 12 seconds, from a
+different planet, or while presence is disabled are `stale` with `state: null`.
+Stale metadata does not remove a native buff. Visual `watching` entries carry
+`presentation_only: true` and cannot award or confirm benefits.
+
 ## Basic Medic and recipient feedback
 
 `POST /medic/{status,provision,select,heal,holster,return_tool,drag}` operates on an
@@ -306,7 +331,7 @@ checks use the dummy renderer with XR off.
 Offhand grip retrieves a hip medical focus. A focus picked from the bag with the
 main hand can be handed to the offhand by gripping near it after closing the bag.
 Offhand stick click opens/closes the independent wheel when no weapon is held;
-offhand trigger tap/release requests Tend Damage; a 0.65-second hold requests Quick Heal once, without a preceding Tend Damage cast. The client selects the requested native ability before healing and rechecks the aimed recipient after that reply. Explicit First Aid selection keeps its short-trigger fallback. Stowing preserves selection.
+Offhand trigger tap/release requests Tend Damage after a 0.30-second double-tap window. Double-tapping the held Doctor tool within that window requests learned Combat Medic Heal Mind; a 0.65-second hold requests Quick Heal once. Each sequence fires only its own action. The client binds the tool and recipient, selects the requested native ability internally before healing, and rechecks the aimed recipient after that reply. Explicit First Aid selection keeps its short-trigger fallback. Stowing cancels pending input and preserves that selection.
 
 Dragging uses native `science_medic_injury_speed_02`, two hand contacts against
 posed original avatar bones, fresh patient tracking, native incapacitation and
@@ -437,3 +462,31 @@ Validation/reproduction:
 Forward+ Vulkan is the supported render target. No live headset comfort or
 live-controller driving validation is claimed. Original engine audio/effect
 playback and vehicle customization are not part of this baseline.
+
+Commando's certified equipment kit is implemented in patches
+`0114-commando-weapons.patch` and `0115-commando-grenades.patch`. Native code owns
+normalized heavy packets, charge/cost acceptance, cooldowns, shapes, grenade
+settlement and control effects. Protocol details are in
+[LIVE_COMBAT_PROTOCOL.md](LIVE_COMBAT_PROTOCOL.md#commando-equipment-delivery) and
+[SCOUT_PROTOCOL.md](SCOUT_PROTOCOL.md#commando-grenades).
+
+Squad Leader uses patches `0116-squad-leader-support.patch` and
+`0117-squad-leader-volley-fire.patch`: current native group membership governs
+planet-wide passives, nearby support shouts and separate per-member guaranteed
+hit charges. Original obsolete buffs and queued Volley attacks are retired.
+See [the support contract](LIVE_COMBAT_PROTOCOL.md#squad-leader-support-and-volley-fire),
+[party eligibility](PARTY_PROTOCOL.md#squad-leader-cu-support) and
+[CU balance](../docs/CORECU_COMBAT.md#squad-leader-group-support-2026-10-09).
+
+PvE bounty investigations use patch `0118-pve-bounty-hunting.patch`, preserving
+native mission objectives, informants, consumable droid tasks and NPC rewards.
+Player bounty generation and acceptance are disabled. Held-tool actions reuse
+the authenticated services channel; see
+[the bounty contract](SERVICES_PROTOCOL.md#pve-bounty-investigations).
+
+Patch `0119-bounty-hunter-combat.patch` adds the single-target BH combat kit,
+bounded scatter/guidance receipts and advanced trainer coverage. See
+[the combat contract](LIVE_COMBAT_PROTOCOL.md#bounty-hunter-single-target-combat).
+Extracted production fixtures and patch replay pass; the current full native
+build is blocked by Podman permissions. Tester bazaar stock is prepared through
+`tools/server/seed_bazaar.py`; [VPS application remains pending](../docs/VPS_DEPLOYMENT.md#tester-bazaar-stock--prepared-9-october-2026).

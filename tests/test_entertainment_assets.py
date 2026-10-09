@@ -12,12 +12,12 @@ prep = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prep)
 
 
-@unittest.skipUnless((ROOT/'runtime/assets/active_tre').exists(), 'User-provided TREs required')
+@unittest.skipUnless((ROOT/'runtime/asset_sources/active_tre').exists(), 'User-provided TREs required')
 class OriginalEntertainmentAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temp = tempfile.TemporaryDirectory()
-        cls.assets = prep.Assets(ROOT/'runtime/assets/active_tre', Path(cls.temp.name), bounded_particle_graphs=True)
+        cls.assets = prep.Assets(ROOT/'runtime/asset_sources/active_tre', Path(cls.temp.name), bounded_particle_graphs=True)
         cls.failures = prep.prepare_effects(cls.assets)
 
     @classmethod
@@ -49,7 +49,7 @@ class OriginalEntertainmentAssets(unittest.TestCase):
         self.assertIn({'emitter':'ball','reason':'non_quad_particle'}, effect['bounded_omissions'])
         self.assertIn('beams', [e['name'] for e in effect['emitters']])
         self.assertIn('sparkles', [e['name'] for e in effect['emitters']])
-        strict = prep.Assets(ROOT/'runtime/assets/active_tre', Path(self.temp.name))
+        strict = prep.Assets(ROOT/'runtime/asset_sources/active_tre', Path(self.temp.name))
         with self.assertRaisesRegex(ValueError, 'non-quad'):
             strict.particle('appearance/pt_entertainer_colorlights.prt')
 
@@ -57,7 +57,7 @@ class OriginalEntertainmentAssets(unittest.TestCase):
         path = ROOT/'runtime/assets/combat/assets.json'
         if not path.exists(): self.skipTest('Prepared combat catalog required')
         combat = json.loads(path.read_text())
-        importer = prep.Assets(ROOT/'runtime/assets/active_tre', Path(self.temp.name))
+        importer = prep.Assets(ROOT/'runtime/asset_sources/active_tre', Path(self.temp.name), bounded_particle_graphs=True)
         for source, original in combat['particles'].items():
             with self.subTest(source=source):
                 importer.particle(source)
@@ -70,7 +70,7 @@ class OriginalEntertainmentAssets(unittest.TestCase):
                 self.assertEqual(current, original)
 
     def test_prepared_advanced_performances_have_every_rig_and_flourish(self):
-        path = ROOT/'runtime/entertainment/catalog.json'
+        path = ROOT/'runtime/assets/entertainment/catalog.json'
         if not path.exists(): self.skipTest('Prepared entertainment catalog required')
         data = json.loads(path.read_text())
         source = prep.catalog()
@@ -83,7 +83,7 @@ class OriginalEntertainmentAssets(unittest.TestCase):
                 self.assertTrue(all((path.parent/clip['path']).is_file() for clip in clips.values()))
 
 
-@unittest.skipUnless((ROOT/'runtime/assets/active_tre').exists(), 'User-provided TREs required')
+@unittest.skipUnless((ROOT/'runtime/asset_sources/active_tre').exists(), 'User-provided TREs required')
 class PropFreeDanceEligibility(unittest.TestCase):
     def test_empty_hands_offer_only_learned_original_dances(self):
         from server.entertainment_catalog import eligible

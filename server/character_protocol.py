@@ -40,7 +40,9 @@ CRC_TABLE = crc_table()
 
 @lru_cache(maxsize=1)
 def assets():
-    return TreSet(ROOT / 'runtime/assets/active_tre')
+    directory = ROOT / 'runtime/asset_sources/active_tre'
+    # Existing deployed realms retain their separately managed source mount.
+    return TreSet(directory if directory.is_dir() else ROOT / 'runtime/assets/active_tre')
 
 @lru_cache(maxsize=1)
 def template_names():

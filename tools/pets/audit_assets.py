@@ -20,7 +20,7 @@ def audit():
     catalogs = {}
     source_hashes = {}
     mount_source = 'datatables/mount/valid_scale_range.iff'
-    mount_raw = TreSet(base/'active_tre').read(mount_source)
+    mount_raw = TreSet(ROOT/'runtime/asset_sources/active_tre').read(mount_source)
     source_hashes[mount_source] = hashlib.sha256(mount_raw).hexdigest()
     mount_appearances = {row['appearance_name'] for row in datatable(mount_raw)}
     creatures = []

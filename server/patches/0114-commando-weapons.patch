@@ -1,0 +1,480 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -7,6 +7,7 @@
+ #include "SwgxrPikeman.h"
+ #include "SwgxrMarksman.h"
+ #include "SwgxrRifleman.h"
++#include "SwgxrCommando.h"
+ #include "SwgxrTaunt.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+@@ -101,7 +102,8 @@
+   for(const auto& row:SwgxrSwordsman::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrFencer::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPikeman::abilities(c)){for(auto it=out.begin();it!=out.end();)if(it->at("id")==row.at("id"))it=out.erase(it);else ++it;out.push_back(row);}
+-  if(!w || !w->isRangedWeapon())return out;
++  for(const auto& row:SwgxrCommando::abilities(c))out.push_back(row);
++  if(!w || !w->isRangedWeapon() || SwgxrCommando::supported(w))return out;
+   for(const auto& row:SwgxrMarksman::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPistoleer::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrCarbineer::abilities(c))out.push_back(row);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -69,7 +69,7 @@
+  }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+-  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);for(auto ability:{"double_tap","disarming_shot","showdown"})out["ability_target_available"][ability]=SwgxrPistoleer::targetReady(ai);for(auto ability:{"crippling_shot","wild_shot","charge_shot"})out["ability_target_available"][ability]=SwgxrCarbineer::targetReady(ai);for(auto ability:{"lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot"}){if(std::string(ability)!="lethal_shot" || SwgxrRifleman::headUpgrade(observer))out["ability_target_available"][ability]=SwgxrRifleman::targetReady(ai);}out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);for(auto ability:{"double_tap","disarming_shot","showdown"})out["ability_target_available"][ability]=SwgxrPistoleer::targetReady(ai);for(auto ability:{"crippling_shot","wild_shot","charge_shot"})out["ability_target_available"][ability]=SwgxrCarbineer::targetReady(ai);for(auto ability:{"lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot"}){if(std::string(ability)!="lethal_shot" || SwgxrRifleman::headUpgrade(observer))out["ability_target_available"][ability]=SwgxrRifleman::targetReady(ai);}for(auto ability:{"focused_discharge","acid_spray"})out["ability_target_available"][ability]=SwgxrRifleman::targetReady(ai);out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+@@ -149,14 +149,15 @@
+   if(!c->getZone())throw std::runtime_error("native_player_zone_unavailable");
+   Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);bool truncated=false;
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+-  SwgxrPistoleer::refresh(c);SwgxrCarbineer::refresh(c);SwgxrRifleman::refresh(c);
++  SwgxrPistoleer::refresh(c);SwgxrCarbineer::refresh(c);SwgxrRifleman::refresh(c);SwgxrCommando::refresh(c);
+   for(auto& entry:session.volleys){auto& v=entry.second;if(id(c->getWeapon())!=v.item || SwgxrCombatLoadout::saved(c).at("revision").get<uint64>()!=v.revision || !SwgxrSmuggler::learned(c,v.ability) || !SwgxrCombatLoadout::allows(c,v.ability) || (v.ability=="flurry_shot"?!SwgxrRifleman::compatible(c):!SwgxrPistoleer::compatible(c)))v.invalidated=true;}
+   auto weapon=c->getWeapon();Json profile=nullptr;if(weapon!=nullptr)profile={{"item_id",id(weapon)},{"certified",weapon->isCertifiedFor(c)},{"fire_interval_seconds",SwgxrPistoleer::interval(c,"")},{"special_interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f)},{"max_range_m",weapon->getMaxRange()},{"projectile_speed",160},{"kind",weapon->isMeleeWeapon()?"melee":"ranged"},{"unarmed",weapon->isUnarmedWeapon()},{"min_damage",weapon->getMinDamage()},{"max_damage",weapon->getMaxDamage()},{"damage_type",weapon->getDamageType()}};
++  if(weapon && SwgxrCommando::supported(weapon)){auto heavy=SwgxrCommando::profile(c);for(auto it=heavy.begin();it!=heavy.end();++it)profile[it.key()]=it.value();}
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["carbineer"]=SwgxrCarbineer::snapshot(c);out["player"]["rifleman"]=SwgxrRifleman::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);out["player"]["tka"]=SwgxrTka::snapshot(c);out["player"]["force_of_will"]=SwgxrForceOfWill::snapshot(c);if(!session.transport.empty())out["player"]["force_of_will"]["conditions_met"]=false;out["player"]["swordsman"]=SwgxrSwordsman::snapshot(c);out["player"]["pikeman"]=SwgxrPikeman::snapshot(c);out["player"]["fencer"]=SwgxrFencer::snapshot(c);out["player"]["pistoleer"]=SwgxrPistoleer::snapshot(c);out["player"]["carbineer"]=SwgxrCarbineer::snapshot(c);out["player"]["rifleman"]=SwgxrRifleman::snapshot(c);out["player"]["commando"]=SwgxrCommando::snapshot(c);out["player"]["fencer_precision"]=c->hasBuff(STRING_HASHCODE("swgxr_fencer_precision"));
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -233,6 +234,14 @@
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+   SwgxrBrawler::refreshBuffs(c);const CombatQueueCommand* command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  // Heavy launch/impact dispatch is separate from ordinary bolt receipts. Native
++  // cones/beams select geometry; rockets retain physical client contacts.
++  if(verb=="commando" || (verb=="fire" && SwgxrCommando::supported(c->getWeapon())) || (verb=="impact" && SwgxrCommando::pending(c,request))){
++   if(SwgxrVehicles::seated(c))throw std::runtime_error("native_commando_unavailable");
++   if(verb!="impact" && stamp<s.nextFire)throw std::runtime_error("cadence");
++   if(verb!="impact" && !SwgxrCombatLoadout::allows(c,request.value("ability_id",std::string())))throw std::runtime_error("native_ability_not_equipped");
++   auto out=SwgxrCommando::run(c,request);if(verb!="impact")s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++  }
+   if(verb=="rifleman"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+    for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCommando.h
+@@ -0,0 +1,123 @@
++#pragma once
++#include "CommandoPolicy.h"
++#include "PistoleerPolicy.h"
++#include "CombatQueueCommand.h"
++#include "CoreCuCombat.h"
++#include "SwgxrBlastSight.h"
++#include <chrono>
++#include <map>
++#include <vector>
++class SwgxrCommandoStrike : public CombatQueueCommand {
++ double cap;bool projectile;
++public:
++ SwgxrCommandoStrike(const CombatQueueCommand& source,WeaponObject* w,double damage,double scale,double range,bool contact=false):CombatQueueCommand(source),cap(damage*scale*1.5),projectile(contact){
++  setMinDamage(damage);setMaxDamage(damage);setDamageMultiplier(scale);setWeaponType(w->getWeaponBitmask());setRange(int(std::ceil(range)));
++  setAreaAction(false);setConeAction(false);setPoolsToDamage(1);setHealthCostMultiplier(0);setActionCostMultiplier(0);setMindCostMultiplier(0);setForceCostMultiplier(0);
++  Vector<DotEffect> empty;setDotEffects(empty);
++ }
++ bool usesClientProjectileContact() const override{return projectile;}
++ bool usesPhysicalContactAccuracy() const override{return true;}
++ bool usesNormalizedWeaponDamage() const override{return true;}
++ bool allowsWeaponDots() const override{return false;}
++ double getPhysicalDamageCap() const override{return cap;}
++ int doQueueCommand(CreatureObject* c,const uint64& target,const UnicodeString& arguments) const override{return doCombatAction(c,target,arguments);}
++};
++class SwgxrCommando {
++ using Json=JSONSerializationType;using Vec=corecu::commando::Vec;using Family=corecu::commando::Family;
++ struct Candidate {ManagedReference<TangibleObject*> target;double weight,distance;};
++ struct Receipt {ManagedReference<WeaponObject*> weapon;std::string session,ability,target;Vec origin{},direction{};double time=0,range=0,damage=0,blast=0,minDamage=0,maxDamage=0;int damageType=0,armorPiercing=0;uint64 zone=0,cell=0;bool spent=false;};
++ // Accessed only under SwgxrLiveCombat's process-wide engine-cross-lock mutex.
++ static std::map<uint64,std::map<std::string,Receipt>>& receipts(){static std::map<uint64,std::map<std::string,Receipt>> value;return value;}
++ static long long wallMillis(){return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();}
++ static void recoverAfter(CreatureObject* c,const std::string& id,int milliseconds){c->addCooldown(String(("swgxr_commando_"+id).c_str()),milliseconds);c->getPlayerObject()->setScreenPlayData("swgxr_commando",String((id+"_until").c_str()),String(std::to_string(wallMillis()+milliseconds).c_str()));}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static Vec position(SceneObject* o){auto p=o->getWorldPosition();return {{p.getX(),p.getZ(),p.getY()}};}
++ static uint64 cell(SceneObject* o){auto parent=o->getParent().get();return parent && parent->isCellObject()?parent->getObjectID():0;}
++ static const CombatQueueCommand* command(CreatureObject* c){auto q=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(!q || !q->checkStateMask(c) || !q->checkInvalidLocomotions(c))throw std::runtime_error("native_commando_attack_unavailable");return q;}
++ static bool eligible(CreatureObject* c,TangibleObject* a){return a && a!=c && a->getZone()==c->getZone() && cell(a)==cell(c) && !a->isDestroyed() && a->isAttackableBy(c) && (a->isLairObject() || (a->isAiAgent() && !a->asAiAgent()->isPet() && !a->asAiAgent()->isDead() && !a->asAiAgent()->isIncapacitated()));}
++ static Vec centre(TangibleObject* a){auto p=position(a);p[1]+=a->isCreatureObject()?std::max(.25,std::min(1.,double(a->asCreatureObject()->getHeight(false))*.65)):.8;return p;}
++ static double radius(TangibleObject* a){return a->isCreatureObject()?std::max(.15,std::min(.6,double(a->asCreatureObject()->getHeight(false))*.3)):.6;}
++ static std::vector<Candidate> targets(CreatureObject* c,const Vec& o,const Vec& d,double range,double cone,double beam,double blast,const std::string& bound){
++  std::vector<Candidate> out;auto p=c->getWorldPosition();SortedVector<TreeEntry*> nearby(128,128);c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),range+blast+4,&nearby,true);
++  for(int i=0;i<nearby.size();++i){auto obj=static_cast<SceneObject*>(nearby.get(i));if(!obj->isAiAgent() && !obj->isLairObject())continue;auto a=obj->asTangibleObject();Locker lock(a,c);
++   if(!bound.empty() && std::to_string(a->getObjectID())!=bound)continue;if(!eligible(c,a) || !(blast>0?SwgxrBlastSight::clear(c,a,o):CollisionManager::checkLineOfSight(c,a)))continue;
++   auto point=centre(a);double distance=corecu::commando::magnitude(corecu::commando::delta(point,o));double weight=blast>0?corecu::commando::blastWeight(distance,blast):corecu::commando::weight(o,d,point,range,cone,beam,radius(a));
++   if(weight>0)out.push_back({a,weight,distance});
++  }
++  std::sort(out.begin(),out.end(),[](const Candidate& a,const Candidate& b){return a.distance==b.distance?a.target->getObjectID()<b.target->getObjectID():a.distance<b.distance;});
++  if(out.size()>corecu::commando::TargetCap)out.resize(corecu::commando::TargetCap);return out;
++ }
++ static void burn(CreatureObject* c,TangibleObject* target,int damage){
++  if(!target->isCreatureObject() || damage<=0)return;auto a=target->asCreatureObject();if(a->isDead() || a->isIncapacitated() || a->hasDotImmunity(CreatureState::ONFIRE) || (a->isAiAgent() && (a->asAiAgent()->getCreatureBitmask()&ObjectFlag::NODOT)))return;
++  int budget=corecu::commando::burnBudget(damage);if(budget>0)a->addDotState(c,STRING_HASHCODE("swgxr_commando_burn"),CreatureState::ONFIRE,budget,CreatureAttribute::HEALTH,6,95,a->getSkillMod("resistance_fire"));
++ }
++ static Json resolve(CreatureObject* c,WeaponObject* w,const CombatQueueCommand* source,std::vector<Candidate>& chosen,double damage,double range,bool flame,const Vec* blastOrigin=nullptr){
++  Json out={{"targets",Json::array()},{"hit",false},{"damage",0}};std::vector<double> requested;for(const auto& a:chosen)requested.push_back(a.weight);auto weights=corecu::commando::weights(requested);int total=0;
++  for(unsigned i=0;i<chosen.size();++i){auto a=chosen[i].target;Locker lock(a,c);if(!eligible(c,a) || !(blastOrigin?SwgxrBlastSight::clear(c,a,*blastOrigin):CollisionManager::checkLineOfSight(c,a)))continue;
++   int before=a->isCreatureObject()?a->asCreatureObject()->getHAM(0):a->getMaxCondition()-a->getConditionDamage();SwgxrCommandoStrike strike(*source,w,damage,weights[i],range+8,blastOrigin!=nullptr);c->setTargetID(0,true);int code=strike.doCombatAction(c,a->getObjectID(),"",w);c->setTargetID(0,true);
++   int after=a->isCreatureObject()?a->asCreatureObject()->getHAM(0):a->getMaxCondition()-a->getConditionDamage();int dealt=code==QueueCommand::SUCCESS?std::max(0,before-after):0;if(flame)burn(c,a,dealt);total+=dealt;out["targets"].push_back({{"target_id",std::to_string(a->getObjectID())},{"damage",dealt},{"native_result",code}});
++  }
++  out["damage"]=total;out["hit"]=total>0;return out;
++ }
++ static void pay(CreatureObject* c,WeaponObject* w,Family family,const std::string& ability){
++  auto spec=corecu::commando::weapon(family);bool over=ability=="overdrive",focus=ability=="focused_discharge",spray=ability=="acid_spray";
++  int action=over?80:corecu::commando::action(family,training(c),active(c),focus,spray),mind=over?40:corecu::commando::mind(family,focus,spray);
++  Locker lock(w,c);if(c->getWeapon()!=w || !compatible(c) || (spec.charged && !over && w->getUseCount()<1))throw std::runtime_error("native_commando_empty_or_changed_weapon");
++  if(c->getHAM(3)<=action || c->getHAM(6)<=mind)throw std::runtime_error("native_commando_insufficient_sac");
++  c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,mind,false,true,false);
++  if(spec.charged && !over){w->setUseCount(w->getUseCount()-1,true);if(w->getUseCount()==0){ManagedReference<WeaponObject*> empty=w;Core::getTaskManager()->scheduleTask([empty](){Locker lock(empty);if(empty->getUseCount()==0){empty->destroyObjectFromWorld(true);empty->destroyObjectFromDatabase(true);}},"SwgxrCommandoEmptyWeapon",9000);}}
++  if(!ability.empty())recoverAfter(c,ability,1000*(over?corecu::commando::OverdriveCooldown:focus?corecu::commando::FocusCooldown:corecu::commando::SprayCooldown));
++  recoverAfter(c,"fire",int(1000*(over?.25:interval(c,family))));
++ }
++public:
++ static Family family(WeaponObject* w){return w?corecu::commando::classify(w->getObjectTemplate()->getFullTemplateString().toCharArray()):corecu::commando::None;}
++ static bool supported(WeaponObject* w){return family(w)!=corecu::commando::None;}
++ static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && supported(w) && c->hasSkill("combat_commando_novice") && w->isCertifiedFor(c) && !w->isBroken();}
++ static double training(CreatureObject* c){Vector<String> list;c->getSkillList()->getStringList(list);double value=0;for(int i=0;i<list.size();++i)value+=corecu::progressWeight("combat_commando",list.get(i).toCharArray());return corecu::clamp(value,0,1);}
++ static bool learned(CreatureObject* c,const std::string& id){if(!c->hasSkill("combat_commando_novice"))return false;if(id.empty() || id=="focused_discharge")return true;if(id=="overdrive")return c->hasSkill("combat_commando_master");return id=="acid_spray" && c->getPlayerObject() && (c->getPlayerObject()->hasAbility("fireAcidCone1") || c->getPlayerObject()->hasAbility("fireAcidCone2"));}
++ static bool active(CreatureObject* c){return compatible(c) && !c->isDead() && !c->isIncapacitated() && c->hasBuff(STRING_HASHCODE("swgxr_overdrive"));}
++ static void refresh(CreatureObject* c){if(!compatible(c) || c->isDead() || c->isIncapacitated())c->removeBuff(STRING_HASHCODE("swgxr_overdrive"));}
++ static double cooldown(CreatureObject* c,const std::string& id){auto t=c->getCooldownTime(String(("swgxr_commando_"+id).c_str()));double remaining=t?std::max(0.,-t->miliDifference()/1000.):0.;auto ghost=c->getPlayerObject();if(ghost){auto saved=ghost->getScreenPlayData("swgxr_commando",String((id+"_until").c_str()));if(!saved.isEmpty())try{remaining=std::max(remaining,corecu::clamp((std::stoll(saved.toCharArray())-wallMillis())/1000.,0,120));}catch(...){}}return remaining;}
++ static double interval(CreatureObject* c,Family f){return corecu::commando::cadence(f,training(c))/SwgxrArmour::scale(c,1);}
++ static bool conditions(CreatureObject* c,const std::string& id){auto w=c->getWeapon();return compatible(c) && !c->isDead() && !c->isIncapacitated() && !c->isRidingMount() && (id!="acid_spray" || family(w)==corecu::commando::AcidRifle) && (id!="overdrive" || !active(c)) && (id=="overdrive" || !corecu::commando::weapon(family(w)).charged || w->getUseCount()>0);}
++ static Json profile(CreatureObject* c){auto w=c->getWeapon();auto f=family(w);if(f==corecu::commando::None)return Json::object();auto s=corecu::commando::weapon(f);double q=corecu::commando::quality(f,w->getMinDamage(),w->getMaxDamage());return {{"native_family","commando"},{"commando_family",s.name},{"class_key",std::string("commando_")+s.name},{"delivery",s.delivery},{"fire_interval_seconds",interval(c,f)},{"special_interval_seconds",interval(c,f)},{"max_range_m",std::min(s.range,double(w->getMaxRange()))},{"projectile_speed",corecu::commando::ProjectileSpeed},{"cone_angle_degrees",s.cone},{"beam_radius_m",s.radius},{"area_radius_m",s.blast},{"target_cap",corecu::commando::TargetCap},{"area_budget_multiplier",corecu::commando::AggregateBudget},{"charges",s.charged?int(w->getUseCount()):-1},{"charge_limited",s.charged},{"action_cost",corecu::commando::action(f,training(c),active(c))},{"mind_cost",corecu::commando::mind(f)},{"normalized_damage",corecu::commando::damage(f,q,false,false,training(c))},{"craft_quality_multiplier",q},{"reference_conversion_scale",corecu::commando::referenceProfile(f).damageScale},{"proficiency_damage_scale",corecu::commando::proficiency(training(c),q)},{"handling_damage_scale",corecu::commando::handling(f)},{"requires_two_hands",f!=corecu::commando::PistolLauncher},{"conditions_met",conditions(c,"")},{"cooldown_remaining_seconds",cooldown(c,"fire")}};}
++ static Json snapshot(CreatureObject* c){refresh(c);Json out=Json::object();auto f=family(c->getWeapon());for(auto id:{"focused_discharge","acid_spray","overdrive"}){bool over=std::string(id)=="overdrive",focus=std::string(id)=="focused_discharge";out[id]={{"learned",learned(c,id)},{"conditions_met",conditions(c,id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"cooldown_seconds",over?120:focus?12:6},{"action_cost",over?80:corecu::commando::action(f,training(c),active(c),focus,!focus)},{"mind_cost",over?40:corecu::commando::mind(f,focus,!focus)},{"interval_seconds",over?.25:interval(c,f)}};}
++ auto buff=c->getBuff(STRING_HASHCODE("swgxr_overdrive"));out["overdrive"]["active"]=active(c);out["overdrive"]["active_remaining_seconds"]=active(c)&&buff?std::max(0.f,buff->getTimeLeft()):0.;out["overdrive"]["duration_seconds"]=6;return out;}
++ static Json abilities(CreatureObject* c){Json out=Json::array();if(!compatible(c))return out;auto state=snapshot(c);auto f=family(c->getWeapon());for(auto id:{"focused_discharge","acid_spray","overdrive"}){if(!learned(c,id) || (std::string(id)=="acid_spray" && f!=corecu::commando::AcidRifle))continue;bool over=std::string(id)=="overdrive",focus=std::string(id)=="focused_discharge";auto row=state[id];row["id"]=id;row["label"]=over?"Overdrive":focus?"Focused Discharge":"Acid Spray";row["native_family"]="commando";row["activation"]=over?"commando_ultimate":"native_ranged";row["ultimate"]=over;row["native_authority"]=true;row["source_command"]="attack";row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",row["action_cost"]},{"mind",row["mind_cost"]}};row["damage_multiplier"]=focus?1.15:over?1.25:.70;row["max_range_m"]=std::string(id)=="acid_spray"?14:profile(c)["max_range_m"].get<double>();row["min_range_m"]=0;row["ammo_cost"]=over?0:1;row["target_cap"]=focus?1:6;
++ row["weapon_requirement"]="Certified equipped Commando special weapon; support with both hands except the pistol launcher.";row["description"]=over?"For 6 seconds, direct special-weapon damage increases 25% and its Action cost increases 50%. Charges, cadence, area caps and burn strength remain unchanged. Cooldown 120 seconds.":focus?"Concentrate one supported discharge on the designated enemy for 15% more direct damage, sacrificing all area coverage. Normal charges and weapon recovery; 12-second cooldown.":"Aim a 30-degree acid spray up to 14 metres at the designated enemy. Up to six enemies share bounded 70% direct damage with falloff; no armour debuff. Six-second cooldown.";
++ if(over){row["self_only"]=true;row["required_profession_skill"]="combat_commando_master";row["profession_requirement"]="Master Commando";row["trigger_description"]="Support the special weapon, release both triggers, then press both together.";}out.push_back(row);}return out;}
++ static bool pending(CreatureObject* c,const Json& request){auto& all=receipts();auto found=all.find(c->getObjectID());if(found==all.end())return false;auto shot=found->second.find(request.at("shot_id").get<std::string>());return shot!=found->second.end() && shot->second.session==request.at("session_id").get<std::string>();}
++ static Json run(CreatureObject* c,const Json& request){
++  refresh(c);auto verb=request.at("action").get<std::string>(),ability=request.value("ability_id",std::string()),shotID=request.at("shot_id").get<std::string>();double stamp=now();auto& shots=receipts()[c->getObjectID()];for(auto it=shots.begin();it!=shots.end();)if(stamp-it->second.time>30)it=shots.erase(it);else ++it;
++  if(verb=="impact"){
++   auto found=shots.find(shotID);if(found==shots.end() || found->second.session!=request.at("session_id").get<std::string>() || found->second.spent)throw std::runtime_error("unknown_or_spent_commando_shot");auto& shot=found->second;shot.spent=true;
++   Vec hit{};const auto& h=request.at("hit_position");if(!h.is_array() || h.size()!=3)throw std::runtime_error("invalid_commando_impact");for(int i=0;i<3;++i){if(!h[i].is_number())throw std::runtime_error("invalid_commando_impact");hit[i]=h[i].get<double>();}
++   if(stamp-shot.time>8 || !corecu::commando::validImpact(shot.origin,shot.direction,hit,shot.range,request.value("projectile_age_seconds",-1.),stamp-shot.time) || c->getZone()->getObjectID()!=shot.zone || cell(c)!=shot.cell)throw std::runtime_error("invalid_commando_impact");
++   if(shot.weapon->getMinDamage()!=shot.minDamage || shot.weapon->getMaxDamage()!=shot.maxDamage || shot.weapon->getDamageType()!=shot.damageType || shot.weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
++   auto target=request.at("target_id").get<std::string>();if(!shot.target.empty() && target!=shot.target)throw std::runtime_error("ability_target_mismatch");
++   auto chosen=targets(c,hit,shot.direction,shot.range,0,0,shot.blast,shot.target);if(!shot.target.empty()){
++    auto object=c->getZoneServer()->getObject(std::stoull(target));if(!object || !object->isTangibleObject())throw std::runtime_error("invalid_commando_target");auto a=object->asTangibleObject();Locker lock(a,c);if(!eligible(c,a) || corecu::commando::magnitude(corecu::commando::delta(centre(a),hit))>radius(a)+2.)throw std::runtime_error("invalid_commando_target");chosen={{a,1,0}};
++   }
++   auto out=resolve(c,shot.weapon,command(c),chosen,shot.damage,shot.range+shot.blast,false,&hit);out["operation"]="impact";out["shot_id"]=shotID;out["ability_id"]=shot.ability;out["success"]=true;out["contact_authority"]="client";return out;
++  }
++  if(shots.count(shotID))throw std::runtime_error("duplicate_shot");if(shots.size()>=128)throw std::runtime_error("shot_budget");auto w=c->getWeapon();auto f=family(w);auto spec=corecu::commando::weapon(f);
++  if(!conditions(c,ability) || !learned(c,ability) || std::to_string(w->getObjectID())!=request.at("item_id").get<std::string>() || !w->isASubChildOf(c))throw std::runtime_error("native_commando_unavailable");
++  if(cooldown(c,"fire")>0 || (!ability.empty() && cooldown(c,ability)>0))throw std::runtime_error("native_commando_cooldown");
++  bool over=ability=="overdrive",focus=ability=="focused_discharge",spray=ability=="acid_spray";
++  if(verb=="fire"?(spec.delivery!=std::string("rocket") || over || spray):(spec.delivery==std::string("rocket") && !over))throw std::runtime_error("native_commando_delivery_mismatch");
++  if((f!=corecu::commando::PistolLauncher || over) && !request.value("two_hands",false))throw std::runtime_error("native_commando_requires_support");
++  if(request.contains("volley_id") || request.contains("volley_index"))throw std::runtime_error("unexpected_volley_fields");
++  Vec o{},d{};for(auto key:{"origin","direction"}){const auto& v=request.at(key);if(!v.is_array() || v.size()!=3)throw std::runtime_error("invalid_commando_pose");for(int i=0;i<3;++i)if(!v[i].is_number())throw std::runtime_error("invalid_commando_pose");}
++  for(int i=0;i<3;++i){o[i]=request["origin"][i].get<double>();d[i]=request["direction"][i].get<double>();}if(!corecu::pistoleer::validPose(o,d,position(c)))throw std::runtime_error("invalid_commando_pose");double length=corecu::commando::magnitude(d);for(auto& x:d)x/=length;
++  auto bound=request.value("target_id",std::string());if((focus || spray)?bound.empty():!bound.empty())throw std::runtime_error("invalid_commando_target");auto source=command(c);
++  double range=std::min(spray?14.:spec.range,double(w->getMaxRange())),cone=spray?30:focus?0:spec.cone,beam=focus?.15:spec.radius;
++  auto chosen=targets(c,o,d,range,cone,beam,0,focus?bound:std::string());if(focus || spray){auto target=c->getZoneServer()->getObject(std::stoull(bound));if(!target || !target->isTangibleObject())throw std::runtime_error("native_commando_target_unavailable");auto a=target->asTangibleObject();Locker lock(a,c);if(!eligible(c,a) || !CollisionManager::checkLineOfSight(c,a) || corecu::commando::magnitude(corecu::commando::delta(centre(a),o))>range+radius(a))throw std::runtime_error("native_commando_target_unavailable");if(verb!="fire" && std::none_of(chosen.begin(),chosen.end(),[&](const Candidate& v){return v.target==a;}))throw std::runtime_error("native_commando_target_unavailable");if(focus && !chosen.empty())chosen[0].weight=1.;}
++  bool boosted=active(c);double q=corecu::commando::quality(f,w->getMinDamage(),w->getMaxDamage()),damage=corecu::commando::damage(f,q,focus,spray,training(c))*(boosted?corecu::commando::OverdriveDamage:1.);pay(c,w,f,ability);
++  Receipt receipt;receipt.weapon=w;receipt.session=request.at("session_id").get<std::string>();receipt.ability=ability;receipt.target=focus?bound:std::string();receipt.origin=o;receipt.direction=d;receipt.time=stamp;receipt.range=range;receipt.damage=damage;receipt.minDamage=w->getMinDamage();receipt.maxDamage=w->getMaxDamage();receipt.damageType=w->getDamageType();receipt.armorPiercing=w->getArmorPiercing();receipt.blast=focus?0:spec.blast;receipt.zone=c->getZone()->getObjectID();receipt.cell=cell(c);receipt.spent=verb!="fire";shots.emplace(shotID,receipt);
++  Json out={{"success",true},{"operation",verb},{"shot_id",shotID},{"ability_id",ability},{"interval_seconds",over?.25:interval(c,f)},{"ham_cost_committed",true},{"charge_committed",spec.charged && !over},{"hit",false},{"damage",0},{"delivery",spec.delivery}};
++  if(over){ManagedReference<Buff*> buff=new Buff(c,STRING_HASHCODE("swgxr_overdrive"),6,BuffType::STATE);Locker lock(buff,c);c->addBuff(buff);return out;}if(verb=="fire")return out;
++  // Overdrive increases direct damage only; fire receives the unboosted initiating budget.
++  auto resolved=resolve(c,w,source,chosen,damage,range,false);if(f==corecu::commando::Flame)for(auto& row:resolved["targets"]){auto object=c->getZoneServer()->getObject(std::stoull(row["target_id"].get<std::string>()));if(object && object->isTangibleObject()){Locker lock(object,c);burn(c,object->asTangibleObject(),int(row["damage"].get<int>()/(boosted?corecu::commando::OverdriveDamage:1.)));}}
++  for(auto it=resolved.begin();it!=resolved.end();++it)out[it.key()]=it.value();out["contact_authority"]="native_shape";return out;
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CommandoPolicy.h
+@@ -0,0 +1,82 @@
++#pragma once
++#include "CoreCuPolicy.h"
++#if __has_include("server/zone/objects/tangible/wearables/ArmourModel.h")
++#include "server/zone/objects/tangible/wearables/ArmourModel.h"
++#else
++#include "ArmourModel.h"
++#endif
++#include <array>
++#include <vector>
++#include <numeric>
++namespace corecu { namespace commando {
++using Vec=std::array<double,3>;
++enum Family {None,Flame,AcidRifle,Particle,AcidBeam,Lightning,Rocket,PistolLauncher};
++struct Weapon {Family family;const char* name;const char* delivery;double interval,range,cone,radius,blast,qualityLow,qualityHigh;bool charged;};
++inline Weapon weapon(Family f){
++ switch(f){
++ case Flame:return {f,"flame","cone",.75,12,40,0,0,465,651,false};
++ case AcidRifle:return {f,"acid_rifle","beam",1.5,24,0,.45,0,335,550,false};
++ case Particle:return {f,"particle","beam",2.5,32,0,.65,0,1980,2850,true};
++ case AcidBeam:return {f,"acid_beam","beam",3,24,0,1.,0,1166.5,2378.5,true};
++ case Lightning:return {f,"lightning","beam",2,24,0,1.2,0,1243,2370,true};
++ case Rocket:return {f,"rocket","rocket",4,48,0,0,5,1225,2925,true};
++ case PistolLauncher:return {f,"pistol_launcher","rocket",3,36,0,0,4,54,101,false};
++ default:return {None,"","",0,0,0,0,0,0,1,false};
++ }
++}
++inline Family classify(const std::string& path){
++ if(path=="object/weapon/ranged/rifle/rifle_flame_thrower.iff")return Flame;
++ if(path=="object/weapon/ranged/rifle/rifle_acid_beam.iff")return AcidRifle;
++ if(path=="object/weapon/ranged/heavy/heavy_particle_beam.iff")return Particle;
++ if(path=="object/weapon/ranged/heavy/heavy_acid_beam.iff")return AcidBeam;
++ if(path=="object/weapon/ranged/heavy/heavy_lightning_beam.iff")return Lightning;
++ if(path=="object/weapon/ranged/heavy/heavy_rocket_launcher.iff")return Rocket;
++ if(path=="object/weapon/ranged/pistol/pistol_launcher.iff")return PistolLauncher;
++ return None;
++}
++constexpr int TargetCap=6,OverdriveSeconds=6,OverdriveCooldown=120,FocusCooldown=12,SprayCooldown=6;
++constexpr double AggregateBudget=2.5,ProjectileSpeed=45,ReferenceRifleMean=245,DirectRate=.9*ReferenceRifleMean;
++constexpr double MinimumQuality=140./245.;
++inline swgxr::armour::WeaponProfile referenceProfile(Family f){using namespace swgxr::armour;return weapon(f==Flame?Heat:f==AcidRifle || f==AcidBeam?Acid:f==Lightning?Electricity:f==Rocket || f==PistolLauncher?Blast:Energy,f==Particle || f==Rocket?3:f==AcidBeam?2:f==Lightning?1:0);}
++constexpr double OverdriveDamage=1.25,OverdriveAction=1.5,FocusedDamage=1.15,SprayDamage=.70;
++inline double quality(Family f,double low,double high){auto s=weapon(f);return MinimumQuality+(1.-MinimumQuality)*corecu::clamp(((low+high)*.5-s.qualityLow)/(s.qualityHigh-s.qualityLow),0,1);}
++inline double cadence(Family f,double training){return weapon(f).interval*(1.25-.25*corecu::clamp(training,0,1));}
++// Equivalent T21 development benchmark: Master Marksman plus Novice Rifleman
++// has 35 rifle speed; Master Rifleman reaches95. Damage quality retains the
++// source T21 140..245 mean band; its source speed band is10.5..6.5 seconds.
++inline double referenceCadence(double training,double quality){double progress=corecu::clamp((training-.1)/.9,0,1),q=corecu::clamp((quality-MinimumQuality)/(1.-MinimumQuality),0,1);return std::max(1.,(1.-(35.+60.*progress)/100.)*(10.5-4.*q));}
++// A bounded training allowance accounts for the targeted-attack unlock window
++// in the Rifleman benchmark. Clamp to mastered output so the intermediate bonus
++// can never make later training lower damage or exceed the mastery envelope.
++inline double proficiency(double training,double quality){double p=corecu::clamp((training-.1)/.9,0,1);return std::min(1.,(1.+.33*4*p*(1-p))/referenceCadence(training,quality));}
++inline double handling(Family f){return f==Flame?1.06:f==AcidRifle?1.01:.977;}
++inline double damage(Family f,double quality,bool focused=false,bool spray=false,double training=1){
++ // Author the packet against the ORIGINAL family's conversion tax. Native
++ // conversion remains unchanged, including current damage channel/AP/shields.
++ return DirectRate*weapon(f).interval*corecu::clamp(quality,MinimumQuality,1)*(focused?FocusedDamage:spray?SprayDamage:1)*proficiency(training,quality)*handling(f)/referenceProfile(f).damageScale;
++}
++inline int action(Family f,double training,bool overdrive=false,bool focused=false,bool spray=false){return int(std::ceil((weapon(f).interval*(14.-5.*corecu::clamp(training,0,1))+(focused?20:spray?10:0))*(overdrive?OverdriveAction:1)));}
++inline int mind(Family f,bool focused=false,bool spray=false){return int(std::ceil(weapon(f).interval*4))+(focused?10:spray?5:0);}
++inline bool contains(const std::string& id){return id=="focused_discharge" || id=="acid_spray" || id=="overdrive";}
++inline double magnitude(const Vec& p){return std::sqrt(p[0]*p[0]+p[1]*p[1]+p[2]*p[2]);}
++inline Vec delta(const Vec& a,const Vec& b){return {{a[0]-b[0],a[1]-b[1],a[2]-b[2]}};}
++// Target centre geometry is independent of accuracy ratings. A physical contact
++// uses native secondary defenses, armour and damage states without another miss roll.
++inline double weight(const Vec& origin,const Vec& direction,const Vec& target,double range,double cone,double radius,double targetRadius=0){
++ auto v=delta(target,origin);double distance=magnitude(v);if(!std::isfinite(distance) || distance>range+targetRadius || distance<.001)return 0;
++ double along=std::inner_product(v.begin(),v.end(),direction.begin(),0.);if(along<0)return 0;
++ double lateral=std::sqrt(std::max(0.,distance*distance-along*along));
++ if(cone>0){double boundary=std::tan(cone*3.141592653589793/360.)*along+targetRadius;if(lateral>boundary)return 0;return corecu::clamp(1.-.3*distance/range-.2*lateral/std::max(.01,boundary),.5,1);}
++ if(lateral>radius+targetRadius)return 0;return corecu::clamp(1.-.25*along/range-.25*lateral/std::max(.01,radius+targetRadius),.5,1);
++}
++inline double blastWeight(double distance,double radius){return distance<0 || distance>radius?0:1.-.5*distance/std::max(.01,radius);}
++inline std::vector<double> weights(const std::vector<double>& requested){
++ std::vector<double> out;for(double w:requested){if(out.size()>=TargetCap)break;out.push_back(corecu::clamp(w,0,1));}
++ double total=std::accumulate(out.begin(),out.end(),0.);if(total>AggregateBudget)for(auto& w:out)w*=AggregateBudget/total;return out;
++}
++inline int burnBudget(int landed){return std::max(0,int(std::floor(landed*.10)));}
++inline bool validImpact(const Vec& origin,const Vec& direction,const Vec& hit,double range,double age,double elapsed){
++ if(!std::isfinite(age) || age<0 || age>8 || age>elapsed+.4)return false;auto v=delta(hit,origin);double distance=magnitude(v),along=std::inner_product(v.begin(),v.end(),direction.begin(),0.);
++ return std::isfinite(distance) && distance<=range+2 && distance<=ProjectileSpeed*age+3 && along>=-.5 && distance*distance-along*along<=9;
++}
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrBlastSight.h
+@@ -0,0 +1,20 @@
++#pragma once
++#include <array>
++#include "server/zone/managers/collision/CollisionManager.h"
++// Shared native blast-centre occlusion for certified explosives.
++class SwgxrBlastSight {
++public:
++ static bool clear(CreatureObject* c,TangibleObject* a,const std::array<double,3>& p){
++  Vector3 origin(float(p[0]),float(p[2]),float(p[1])+.2f),end=a->getWorldPosition();end.set(end.getX(),end.getY(),end.getZ()+(a->isCreatureObject()?CollisionManager::getRayOriginPoint(a->asCreatureObject()):.8f));double length=origin.distanceTo(end);
++  auto parent=a->getParent().get();
++  if(parent && parent->isCellObject()){
++   auto building=parent->getRootParent();auto layout=building?building->getObjectTemplate()->getPortalLayout():nullptr;int cell=static_cast<CellObject*>(parent.get())->getCellNumber();
++   if(!layout || cell<0 || cell>=layout->getAppearanceTemplatesSize())return false;
++   auto app=layout->getAppearanceTemplate(cell);if(!app)return false;auto ray=CollisionManager::convertToModelSpace(origin,end,building);float at;Triangle* triangle=nullptr;
++   return !app->intersects(ray,length,at,triangle,true);
++  }
++  SortedVector<TreeEntry*> nearby(64,64);c->getZone()->getInRangeObjects(float(p[0]),float(p[1]),float(p[2]),128,&nearby,true);
++  try{for(int i=0;i<nearby.size();++i){auto o=static_cast<SceneObject*>(nearby.get(i));if(o==a || o==c)continue;auto app=CollisionManager::getCollisionAppearance(o,255);if(!app)continue;auto ray=CollisionManager::convertToModelSpace(origin,end,o);float at;Triangle* triangle=nullptr;if(app->intersects(ray,length,at,triangle,true))return false;}}catch(...){return false;}
++  return true;
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatLoadout.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatLoadout.h
+@@ -7,6 +7,7 @@
+  static std::string family(CreatureObject* c){
+   auto w=c->getWeapon();if(!w)return "unarmed";
+   if(w->isUnarmedWeapon())return "unarmed";
++  if(SwgxrCommando::supported(w))return "heavy";
+   if(w->isPistolWeapon())return "pistols";
+   if(w->isCarbineWeapon())return "carbines";
+   if(w->isHeavyWeapon() || w->isFlameThrower() || w->isLightningRifle() || w->isHeavyAcidRifle())return "heavy";
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrRifleman.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrRifleman.h
+@@ -5,7 +5,7 @@
+ class SwgxrRifleman {
+  using Json=JSONSerializationType;
+ public:
+- static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isRifleWeapon() && !w->isHeavyWeapon() && !w->isLightningRifle() && !w->isHeavyAcidRifle() && w->isCertifiedFor(c) && !w->isBroken();}
++ static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isRifleWeapon() && !w->isHeavyWeapon() && !w->isLightningRifle() && !w->isHeavyAcidRifle() && !w->isFlameThrower() && w->isCertifiedFor(c) && !w->isBroken();}
+  static bool learned(CreatureObject* c,const std::string& id){
+   if(!corecu::rifleman::contains(id) || !c->hasSkill("combat_rifleman_novice") || !c->getPlayerObject())return false;
+   if(id=="rifleman_focus")return c->hasSkill("combat_rifleman_speed_02");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPistoleer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPistoleer.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include "PistoleerPolicy.h"
++#include "CommandoPolicy.h"
+ #include "SwgxrTka.h"
+ #include "ProjectileContactPolicy.h"
+ class SwgxrPistoleer {
+@@ -12,7 +13,7 @@
+   return distance<=range && (distance<.001 || (dx*direction[0]+dy*direction[1]+dz*direction[2])/distance>=.866025403784) && CollisionManager::checkLineOfSight(c,a);
+  }
+ public:
+- static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isPistolWeapon() && w->isCertifiedFor(c) && !w->isBroken();}
++ static bool compatible(CreatureObject* c){auto w=c->getWeapon();return w && w->isPistolWeapon() && corecu::commando::classify(w->getObjectTemplate()->getFullTemplateString().toCharArray())==corecu::commando::None && w->isCertifiedFor(c) && !w->isBroken();}
+  static bool learned(CreatureObject* c,const std::string& id){
+   if(!corecu::pistoleer::contains(id) || !c->hasSkill("combat_pistol_novice") || !c->getPlayerObject())return false;
+   if(id=="run_and_gun")return c->hasSkill("combat_pistol_support_02");if(id=="showdown")return c->hasSkill("combat_pistol_master");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuLoadoutPolicy.h
+@@ -6,7 +6,7 @@
+ // An ultimate must belong to a specific advanced profession. Native command
+ // grants and weapon restrictions remain additional requirements.
+ inline std::string ultimateProfession(const std::string& id) {
+- return id=="sniper_shot" ? "combat_rifleman_master" : id=="charge_blast" ? "combat_carbine_master" : id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
++ return id=="overdrive" ? "combat_commando_master" : id=="sniper_shot" ? "combat_rifleman_master" : id=="charge_blast" ? "combat_carbine_master" : id=="showdown" ? "combat_pistol_master" : id=="last_ditch" ? "combat_smuggler_novice" : id=="indomitable_focus" ? "combat_unarmed_master" : id=="armour_break" ? "combat_2hsword_master" : id=="flawless_assault" ? "combat_1hsword_master" : id=="whirlwind" ? "combat_polearm_master" : "";
+ }
+ template<class HasSkill>
+ bool ultimateAllowed(const std::string& id,HasSkill hasSkill) {
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
+@@ -81,6 +81,10 @@
+ 	// opt in. This is never a Lua command property or client request argument.
+ 	virtual bool usesPhysicalContactAccuracy() const { return false; }
+ 	virtual bool usesClientProjectileContact() const { return false; }
++	// Bounded authored equipment packets retain native armour and secondary defenses.
++	virtual bool usesNormalizedWeaponDamage() const { return false; }
++	virtual bool allowsWeaponDots() const { return true; }
++	virtual double getPhysicalDamageCap() const { return 0.; }
+ 	// Receipt-local body penetration; ordinary commands and shields are unchanged.
+ 	virtual double getBodyResistanceMultiplier(int channel) const { return 1.; }
+ 
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -448,6 +448,7 @@
+ 
+ 	if (damageMultiplier != 0) {
+ 		damage = calculateDamage(attacker, weapon, defender, data) * damageMultiplier;
++        if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
+ 		targetHitList->setInitialDamage(damage);
+ 	}
+ 
+@@ -513,7 +514,7 @@
+ 				applyDots(attacker, defender, data, damage, unmitDamage, poolsToDamage);
+ 
+ 				// Prevents weapon dots from applying with offensive Force powers
+-				if (!data.isForceAttack()) {
++				if (!data.isForceAttack() && data.getCommand()->allowsWeaponDots()) {
+ 					applyWeaponDots(attacker, defender, weapon, damage);
+ 				}
+ 			}
+@@ -627,6 +628,7 @@
+ 
+ 	if (damageMultiplier != 0) {
+ 		damage = calculateDamage(attacker, weapon, defenderObject, data) * damageMultiplier;
++        if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
+ 	}
+ 
+ 	damageMultiplier = 1.0f;
+@@ -1339,7 +1341,7 @@
+ 	if (!data.isForceAttack()) {
+ 		const auto weaponDamageMods = weapon->getDamageModifiers();
+ 
+-		for (int i = 0; i < weaponDamageMods->size(); ++i) {
++		for (int i = 0; !data.getCommand()->usesNormalizedWeaponDamage() && i < weaponDamageMods->size(); ++i) {
+ 			damage += attacker->getSkillMod(weaponDamageMods->get(i));
+ 		}
+ 
+@@ -1671,6 +1673,8 @@
+ 
+ 	if (damageMultiplier != 0)
+ 		damage *= damageMultiplier;
++
++    if(data.getCommand()->getPhysicalDamageCap()>0)damage=std::min(double(damage),data.getCommand()->getPhysicalDamageCap());
+ 
+ 	defenderHitList->setInitialDamage(damage);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.h
+@@ -63,6 +63,7 @@
+         medicalMode=disease?2:1;attribute=disease?3:0;intervalSeconds=corecu::combatmedic::interval(disease);
+         if(!disease){remainingBudget=std::max(0,strength);strength=corecu::combatmedic::pulse(remainingBudget,authoredDuration,intervalSeconds);}
+     }
++	void configureCommandoBurn(int budget) { intervalSeconds=3;remainingBudget=std::max(0,budget);strength=(remainingBudget+1)/2; }
+ 	void configureFencerBleed(int budget) { intervalSeconds=3;remainingBudget=std::max(0,budget);strength=(remainingBudget+3)/4; }
+ 	void refreshFencerBleed(const DamageOverTime& old) {
+ 		if(old.remainingBudget>remainingBudget)attackerID=old.attackerID;
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
+@@ -179,6 +179,8 @@
+     if(cmPoison || cmDisease)newDot.configureCombatMedic(cmDisease,authoredDuration);
+ 	const bool fencerBleed=dotType==CreatureState::BLEEDING && objectID==STRING_HASHCODE("swgxr_fencer_bleed");
+ 	if(fencerBleed)newDot.configureFencerBleed(strength);
++    const bool commandoBurn=dotType==CreatureState::ONFIRE && objectID==STRING_HASHCODE("swgxr_commando_burn");
++    if(commandoBurn)newDot.configureCommandoBurn(strength);
+ 	int dotPower = newDot.initDot(victim, attacker);
+ 
+ 	uint64 key = generateKey(dotType, pool, objectID);
+@@ -197,7 +199,7 @@
+ 			// to not reset it
+ 			if (dot.isPast()) {
+ 				newVec.add(newDot);
+-			} else if(fencerBleed) {
++			} else if(fencerBleed || commandoBurn) {
+ 				newDot.refreshFencerBleed(dot);newVec.add(newDot);
+ 			} else if (objectID == STRING_HASHCODE("swgxr_rending_cut") || newDot.getStrength() >= dot.getStrength()) {
+ 				// Rending Cut refreshes one shared bleed using this hit's bounded strength.
+--- a/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_particle_beam.lua
++++ b/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_particle_beam.lua
+@@ -42,6 +42,8 @@
+ 
+ 
+ object_weapon_ranged_heavy_heavy_particle_beam = object_weapon_ranged_heavy_shared_heavy_particle_beam:new {
++	-- CoreCU: held equipment delivery reuses the original two-hand rifle slots.
++	arrangementDescriptorFilename = "abstract/slot/arrangement/wearables/hold_both.iff",
+ 
+ 	objectMenuComponent = "FireHeavyWeaponMenuComponent",
+ 	playerRaces = {
+--- a/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_acid_beam.lua
++++ b/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_acid_beam.lua
+@@ -42,6 +42,8 @@
+ 
+ 
+ object_weapon_ranged_heavy_heavy_acid_beam = object_weapon_ranged_heavy_shared_heavy_acid_beam:new {
++	-- CoreCU: held equipment delivery reuses the original two-hand rifle slots.
++	arrangementDescriptorFilename = "abstract/slot/arrangement/wearables/hold_both.iff",
+ 
+ 	objectMenuComponent = "FireHeavyWeaponMenuComponent",
+ 	playerRaces = {
+--- a/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_lightning_beam.lua
++++ b/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_lightning_beam.lua
+@@ -42,6 +42,8 @@
+ 
+ 
+ object_weapon_ranged_heavy_heavy_lightning_beam = object_weapon_ranged_heavy_shared_heavy_lightning_beam:new {
++	-- CoreCU: held equipment delivery reuses the original two-hand rifle slots.
++	arrangementDescriptorFilename = "abstract/slot/arrangement/wearables/hold_both.iff",
+ 
+ 	objectMenuComponent = "FireHeavyWeaponMenuComponent",
+ 	playerRaces = {
+--- a/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_rocket_launcher.lua
++++ b/MMOCoreORB/bin/scripts/object/weapon/ranged/heavy/heavy_rocket_launcher.lua
+@@ -42,6 +42,8 @@
+ 
+ 
+ object_weapon_ranged_heavy_heavy_rocket_launcher = object_weapon_ranged_heavy_shared_heavy_rocket_launcher:new {
++	-- CoreCU: held equipment delivery reuses the original two-hand rifle slots.
++	arrangementDescriptorFilename = "abstract/slot/arrangement/wearables/hold_both.iff",
+ 
+ 	objectMenuComponent = "FireHeavyWeaponMenuComponent",
+ 	playerRaces = {

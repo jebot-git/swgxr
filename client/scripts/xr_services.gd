@@ -136,10 +136,10 @@ func apply_response(response: Dictionary, resolve_pending: bool=true) -> void:
 	var updated: Dictionary=response.get("terminal",{}).duplicate(true)
 	if updated.get("kind","")=="recruiter":updated.gcw=response.get("gcw",{}).duplicate(true)
 	# A late response must not reopen a closed/different terminal.
-	if not terminal.is_empty() and str(updated.get("id",""))==str(terminal.get("id","")) and not updated.is_empty() and (terminal.get("kind","")!="delivery" or str(updated.get("mission_id",""))==str(terminal.get("mission_id",""))):
+	if terminal.get("kind","")!="ship_crew" and not terminal.is_empty() and str(updated.get("id",""))==str(terminal.get("id","")) and not updated.is_empty() and (terminal.get("kind","")!="delivery" or str(updated.get("mission_id",""))==str(terminal.get("mission_id",""))):
 		var anchor: Variant=terminal.get("position",terminal_origin)
 		var changed:=false
-		for key in ["front_money","reputation","reward_faction","reward_credits","duration_seconds","tier_minimum","tier_maximum","blocked_reason","tier","eligible","kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
+		for key in ["front_money","reputation","reward_faction","reward_credits","duration_seconds","tier_minimum","tier_maximum","blocked_reason","tier","eligible","kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","ships","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
 			if updated.has(key) and updated[key]!=terminal.get(key): changed=true
 		terminal.merge(updated,true);terminal.position=anchor
 		if changed:
@@ -181,7 +181,7 @@ func open_terminal(record: Dictionary) -> void:
 	trigger_armed=false
 	sync_pointers();opened.emit()
 	set_pending(true)
-	if record.get("kind","")=="contraband":set_pending(false);return
+	if record.get("kind","") in ["contraband","bounty_informant","bounty_droid"]:set_pending(false);return
 	if record.get("kind","")=="delivery":action_requested.emit("delivery_open",{"npc_id":str(record.id),"mission_id":str(record.get("mission_id",""))})
 	else:action_requested.emit("open",{"terminal_id":str(record.id)})
 
@@ -237,6 +237,7 @@ func update_handshake(hand: Transform3D, grip: float, peers: Array, delta: float
 		handshake_id="";handshake_seconds=0;handshake_travel=0;handshake_latched=false;return
 	var candidate: Dictionary={}
 	for peer: Dictionary in peers:
+		if not str(peer.get("crew_launch_id","")).is_empty():continue
 		if not bool(peer.get("fresh",false)) or not bool(peer.get("authenticated",false)) or float(peer.get("grip",0))<0.65: continue
 		if not peer.get("hand_position") is Vector3 or str(peer.get("id","")).is_empty(): continue
 		if hand.origin.distance_to(peer.hand_position)>0.13: continue

@@ -22,7 +22,7 @@ def qrot(q,v):
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--tre-dir',type=Path,default=(ROOT/'runtime/assets/active_tre' if (ROOT/'runtime/assets/active_tre').exists() else ROOT/'runtime/assets/tre'))
+    ap.add_argument('--tre-dir',type=Path,default=(ROOT/'runtime/asset_sources/active_tre' if (ROOT/'runtime/asset_sources/active_tre').exists() else ROOT/'runtime/asset_sources/extracted/base/tre'))
     ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/mos_eisley')
     ap.add_argument('--radius',type=float,default=180)
     args=ap.parse_args();args.out.mkdir(parents=True,exist_ok=True)

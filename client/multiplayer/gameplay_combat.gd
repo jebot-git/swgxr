@@ -15,6 +15,7 @@ func refresh_authority()->void:
 	if not is_instance_valid(session) or not session.live or session.character_id!=owner_character or not is_instance_valid(sync):
 		live=false;native_ready=false;return
 	if session_id!=session.session_id:
+		cancel_showdown()
 		generation+=1;queue.clear();shots.clear();next_launch_usec=0;blocked_revision=-1;abilities_revision=-1
 	session_id=session.session_id;sequence=session.sequence;player_state=session.player_state;pending_transport=session.pending_transport;life_action_pending=session.life_action_pending
 	weapon=session.weapon_state.duplicate(true);elapsed_since_snapshot=maxf(0,(Time.get_ticks_msec()-session.last_confirmed_ms)/1000.0)
@@ -33,6 +34,8 @@ func refresh_authority()->void:
 			entry.state.profile["profession"]={"rpm_scale":1.0}
 			entry.state.profile.projectile_speed=float(weapon.get("projectile_speed",100))
 			entry.state.core.maxRange=float(weapon.max_range_m)
+			sync_commando_profile(entry.state)
+			sync_bountyhunter_profile(entry.state)
 	if rig.get("unarmed") is Dictionary:
 		for state in rig.unarmed.values():state.ability_state=null;state.wear_per_shot=0.0
 	sync_native_abilities()
@@ -64,17 +67,9 @@ func pump()->void:
 		return
 	if not session.accept_native_response(response):fail(session.last_error);return
 	refresh_authority()
-	var mutation:Dictionary=response.get("mutation",{})
-	if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
-		if request.kind=="fire":rejected_fire(id)
-		rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","Core3 rejected the shot.")));return
-	if request.kind=="fire" and shots.has(id):shots[id].accepted=true
-	elif request.kind=="impact":
-		confirmed_contacts+=1;shots.erase(id)
-		if int(mutation.get("damage",0))>0 and rig.has_method("action_haptic"):rig.action_haptic("hit")
-	elif request.kind=="melee":melee_receipt(id,mutation)
-	elif request.kind=="taunt":taunt_receipt(id,mutation)
+	combat_receipt(request,response)
 func fail(reason:String)->void:
+	cancel_showdown()
 	# An uncertain fire receipt disarms until a later authoritative heartbeat;
 	# dropping the whole persistent RPG session would also lose unrelated work.
 	last_error=reason;blocked_revision=session.sequence if is_instance_valid(session) else sequence
@@ -83,6 +78,7 @@ func discard_movement_commands()->void:
 	super.discard_movement_commands()
 	blocked_revision=session.sequence if is_instance_valid(session) else sequence
 func reset(reason:="Gameplay combat stopped.")->void:
+	cancel_showdown()
 	generation+=1;live=false;native_ready=false;busy=false;session_id="";sequence=-1;queue.clear();shots.clear();actors={};last_error=reason
 func _process(_delta:float)->void:
 	refresh_authority()

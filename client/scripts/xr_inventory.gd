@@ -14,6 +14,7 @@ signal tool_context_requested(tool: Dictionary)
 signal crafting_requested(tool: Dictionary)
 signal vehicle_deed_requested(item: Dictionary)
 signal scout_requested(tool: Dictionary)
+signal bounty_droid_requested(item: Dictionary)
 var crafting_timers: Dictionary = {}
 signal survey_requested(tool: Dictionary, resource_id: String)
 signal deploy_requested(tool: Dictionary, pose: Transform3D)
@@ -645,7 +646,9 @@ func update_held_trigger(trigger: float, head: Transform3D) -> void:
 	if trigger<0.35: held_trigger_armed=true; return
 	if trigger<0.55 or not held_trigger_armed or action_pending: return
 	held_trigger_armed=false
-	if is_vehicle_deed(held_item) or is_pet_deed(held_item):
+	if preload("res://bounty/presentation.gd").droid_item(held_item):
+		bounty_droid_requested.emit(held_item.duplicate(true))
+	elif is_vehicle_deed(held_item) or is_pet_deed(held_item):
 		begin_mutation("Registering deed in datapad…"); vehicle_deed_requested.emit(held_item.duplicate(true))
 	elif bool(held_item.get("medical_item",false)) or bool(held_item.get("wound_medpack",false)):
 		begin_mutation("Applying medical supply…");consume_requested.emit(held_item.duplicate(true))
@@ -654,7 +657,7 @@ func update_held_trigger(trigger: float, head: Transform3D) -> void:
 	elif not str(held_item.get("tool_kind","")).is_empty():
 		if hologram.active: close_equipment_hologram()
 		elif str(held_item.get("tool_kind",""))=="crafting": crafting_requested.emit(held_item.duplicate(true))
-		elif str(held_item.get("tool_kind","")) in ["camp","trap"]: scout_requested.emit(held_item.duplicate(true))
+		elif str(held_item.get("tool_kind","")) in ["camp","trap","grenade"]: scout_requested.emit(held_item.duplicate(true))
 		elif is_survey_held():
 			if survey_ui.selected_resource_id.is_empty(): set_busy(false,"Select an available resource first."); return
 			begin_mutation("Surveying…"); survey_requested.emit(held_item.duplicate(true),survey_ui.selected_resource_id)

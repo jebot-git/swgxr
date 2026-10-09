@@ -20,8 +20,8 @@ from swg_formats import cstring, parse_iff
 def main():
     directory = ROOT / 'runtime/assets/combat'
     assets = json.loads((directory/'assets.json').read_text())
-    catalog = json.loads((ROOT/'runtime/combat/catalog.json').read_text())
-    tre = TreSet(ROOT/'runtime/assets/active_tre')
+    catalog = json.loads((ROOT/'runtime/assets/combat/catalog.json').read_text())
+    tre = TreSet(ROOT/'runtime/asset_sources/active_tre')
     checks = 0
     errors = []
     def check(value, message):
@@ -62,7 +62,20 @@ def main():
                 if name in ('swing','hit'): events[name]=source
             check(record['effects']==events, 'Melee events differ from original CDF: '+key)
         else:
-            check(assets['weapons'][key]['muzzle'][2]<0, 'Muzzle must be forward: '+key)
+            record=assets['weapons'].get(key, {})
+            check(bool(record), 'Missing weapon presentation: '+key)
+            if not record: continue
+            check(record['muzzle'][2]<0, 'Muzzle must be forward: '+key)
+            source=record.get('muzzle_source')
+            if source:
+                hardpoints=[hp for hp in parse_iff(tre.read(source)).walk('HPNT')
+                            if cstring(hp.data,48)[0]==record['muzzle_hardpoint']]
+                check(bool(hardpoints), 'Missing source muzzle hardpoint: '+key)
+                if hardpoints:
+                    matrix=list(struct.unpack_from('<12f',hardpoints[0].data))
+                    check(matrix==record['muzzle_source_matrix'] and
+                          record['muzzle']==[matrix[3],matrix[7],-matrix[11]],
+                          'Muzzle transform differs from supplied source: '+key)
     class SourceReader:
         def read(self,path): return tre.read(path)
     for race,definition in assets['stow_mounts'].items():

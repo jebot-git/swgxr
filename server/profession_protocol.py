@@ -23,6 +23,9 @@ COMMANDS = {'pistol':'overChargeShot2', 'carbine':'overChargeShot2', 'rifle':'ov
 
 def weapon_class(profile):
     if profile.get('unarmed'): return 'unarmed'
+    # Commando's reusable rifles and pistol launcher retain their original
+    # template folders; those folders must not grant Rifleman/Pistoleer bonuses.
+    if profile.get('native_family') == 'commando': return 'heavy'
     parts = profile.get('template', '').split('/')
     for segment, kind in {'pistol':'pistol', 'carbine':'carbine', 'rifle':'rifle',
                           'knife':'onehandmelee', 'sword':'onehandmelee', 'baton':'onehandmelee',
@@ -54,19 +57,22 @@ def translate(profile, mods, learned):
     accuracy = max(0, min(200, mods.get(kind + '_accuracy', 0))) if kind else 0
     speed = max(0, min(100, mods.get(kind + '_speed', 0))) if kind else 0
     melee = profile.get('kind') == 'melee'
+    native_heavy = profile.get('native_family') == 'commando'
+    # Accuracy remains source metadata; only enemy attacks use accuracy rolls.
+    # Keep zeroed compatibility fields so older consumers cannot amplify contacts.
     tuning = {'weapon_class':kind, 'accuracy':accuracy, 'speed':speed,
               'class_progress':class_progress(kind, learned),
-              'hit_radius':min(config['melee_accuracy_radius_cap'], accuracy * config['melee_accuracy_radius_per_point']) if melee else 0,
+              'hit_radius':0,
               # Unarmed already includes speed in its Core3 player-stat resolver.
               'stance_recovery_scale':1.0 if profile.get('unarmed') else 1 + speed * config['melee_speed_recovery_per_point'] if melee else 1.0,
-              'range_modifier_bonus':accuracy * config['ranged_accuracy_modifier_per_point'] if not melee else 0,
-              'rpm_scale':1 + speed * config['ranged_speed_rpm_per_point'] if not melee else 1,
-              'capacity_recovery_scale':1 + speed * config['ranged_speed_recovery_per_point'] if not melee else 1,
+              'range_modifier_bonus':0,
+              'rpm_scale':1 + speed * config['ranged_speed_rpm_per_point'] if not melee and not native_heavy else 1,
+              'capacity_recovery_scale':1 + speed * config['ranged_speed_recovery_per_point'] if not melee and not native_heavy else 1,
               'balance_sha256':hashlib.sha256(CONFIG.read_bytes()).hexdigest()}
     profile['profession'] = tuning
     profile['abilities'] = []
     master = 'combat_brawler_master' if melee else 'combat_marksman_master'
-    if not kind or master not in learned: return profile
+    if kind not in COMMANDS or master not in learned: return profile
     command = COMMANDS[kind]
     path = SCRIPTS / ('commands/' + command + '.lua')
     source = path.read_text()

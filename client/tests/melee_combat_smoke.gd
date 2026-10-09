@@ -26,7 +26,7 @@ func gesture(s, speed := 2.0, distance := 0.6, direction := Vector3.RIGHT, hz :=
 	return hit
 func run() -> void:
 	create_timer(40).timeout.connect(func(): quit(2))
-	catalog=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	catalog=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var melee_count:=0
 	for p in catalog.weapons.values():
 		if p.get("kind","")!="melee": continue
@@ -37,6 +37,9 @@ func run() -> void:
 		for direction in [Vector3.RIGHT,Vector3.LEFT,Vector3.UP,Vector3.FORWARD,Vector3(1,2,3).normalized()]:
 			var s=weapon()
 			check(not gesture(s,2,0.4,direction,hz).is_empty() and s.fired==1,"One qualified hit independent of direction at %d Hz"%hz)
+	var legacy=weapon();legacy.profile.profession={"accuracy":9999,"hit_radius":9999}
+	var legacy_hit:=gesture(legacy,2,0.4)
+	check(not legacy_hit.is_empty() and legacy_hit.hit_radius==0,"Cached accuracy cannot widen player melee contacts")
 	var s=weapon()
 	check(gesture(s,0.5,1).is_empty(),"Slow movement cannot qualify")
 	check(gesture(s,4,0.12).is_empty(),"Short fast flick cannot qualify")

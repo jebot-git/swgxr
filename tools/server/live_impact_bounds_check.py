@@ -6,7 +6,7 @@ ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT/'tools/asset
 from swg_formats import TreSet,parse_iff
 
 def run():
- source='appearance/lod/poi_all_lair_dead_log_small.lod';raw=TreSet(ROOT/'runtime/assets/active_tre').read(source)
+ source='appearance/lod/poi_all_lair_dead_log_small.lod';raw=TreSet(ROOT/'runtime/asset_sources/active_tre').read(source)
  sphere=next(n for n in parse_iff(raw).walk('SPHR') if len(n.data)==16);*center,radius=struct.unpack('<4f',sphere.data)
  model=json.loads((ROOT/'runtime/assets/inventory/models/9854e5d9496418a860d6719e.json').read_text())
  points=[]

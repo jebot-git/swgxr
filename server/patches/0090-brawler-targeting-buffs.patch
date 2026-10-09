@@ -1,0 +1,159 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -68,7 +68,7 @@
+  }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+-  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+@@ -153,7 +153,7 @@
+   if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+-  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);
++  out["player"]["warcry"]=SwgxrWarcry::snapshot(c);out["player"]["brawler_buffs"]=SwgxrBrawler::buffs(c);
+   out["player"]["resource_policy"]="corecu_cu_v1";out["player"]["full_ham"]=Json::array();for(int i=0;i<9;++i)out["player"]["full_ham"].push_back(c->getHAM(i));
+   out["player"]["locomotion"]=SwgxrMovement::snapshot(c);out["player"]["spice"]=SwgxrSpice::snapshot(c);out["player"]["armour"]=SwgxrArmour::snapshot(c);out["player"]["corecu"]=CoreCuCombat::snapshot(c);out["player"]["physical_guard"]=SwgxrPhysicalGuard::snapshot(c);out["player"]["feigning_death"]=SwgxrSmuggler::feigning(c);out["player"]["feign_death_available"]=SwgxrSmuggler::feignAvailable(c);out["player"]["incapacitated"]=c->isIncapacitated() && !c->isFeigningDeath();
+   out["world"]=world(c,session);
+@@ -228,7 +228,15 @@
+   if(!s.transport.empty())throw std::runtime_error("native_transport_pending");
+   if(!s.ready)throw std::runtime_error("session_not_ready");
+   const auto shotID=request.at("shot_id").get<std::string>();if(!key(shotID))throw std::runtime_error("invalid_shot_id");result["shot_id"]=shotID;
+-  auto command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  SwgxrBrawler::refreshBuffs(c);const CombatQueueCommand* command=attack(c);if(!command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || c->isDead() || c->isIncapacitated() || SwgxrSmuggler::feigning(c))throw std::runtime_error("native_player_unavailable");
++  if(verb=="brawler_buff"){
++   if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
++   for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
++   if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
++   if(SwgxrVehicles::seated(c))throw std::runtime_error("native_warcry_unavailable");
++   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
++   auto out=SwgxrBrawler::buff(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++  }
+   if(verb=="warcry"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+    for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;
+@@ -254,6 +262,12 @@
+    if(!weapon->isCertifiedFor(c))throw std::runtime_error("uncertified_weapon");
+    if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(c->isRidingMount() || SwgxrVehicles::seated(c) || c->getPosture()!=0)throw std::runtime_error("melee_posture");
++   auto ability=request.value("ability_id",std::string());auto boundTarget=request.value("target_id",std::string());
++   if(!ability.empty()){
++    if(boundTarget.empty() || !SwgxrBrawler::learned(c,ability) || !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_melee_ability_not_equipped");
++    command=SwgxrBrawler::command(c,ability);if(!command || !command->checkStateMask(c) || !command->checkInvalidLocomotions(c) || !(command->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_melee_ability_unavailable");
++    if(SwgxrBrawler::cooldown(c,ability)>0)throw std::runtime_error("native_melee_ability_cooldown");
++   }else if(!boundTarget.empty())throw std::runtime_error("target_requires_melee_ability");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);
+    if(distance(origin,position(c))>2.5)throw std::runtime_error("invalid_melee_origin");
+    double norm=distance(direction,Json::array({0,0,0}));if(norm<.95 || norm>1.05)throw std::runtime_error("invalid_melee_direction");
+@@ -262,28 +276,35 @@
+    SortedVector<TreeEntry*> nearby(32,32);auto center=c->getWorldPosition();c->getZone()->getInRangeObjects(center.getX(),center.getZ(),center.getY(),range+3,&nearby,true);
+    ManagedReference<TangibleObject*> chosen=nullptr;double best=1e9;
+    for(int i=0;i<nearby.size();++i){auto object=static_cast<SceneObject*>(nearby.get(i));if(object==c || (!object->isAiAgent() && !object->isLairObject()))continue;
++    if(!ability.empty() && (!object->isAiAgent() || id(object)!=boundTarget))continue;
+     Locker targetLock(object,c);auto target=object->asTangibleObject();
++    if(!ability.empty() && (object->asAiAgent()->isIncapacitated() || object->asAiAgent()->isPet() || !object->asAiAgent()->checkCooldownRecovery("corecu_control_recovery")))continue;
+     if(!target || target->getZone()!=c->getZone() || !target->isAttackableBy(c) || target->isDestroyed() || (object->isAiAgent() && object->asAiAgent()->isDead()))continue;
+     auto p=position(object);auto bounds=impactBounds(object);double r=std::min(.6,bounds["radius"].get<double>()*bounds["scale"].get<double>());
+     double candidate=corecu::melee::score(o,d,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}},r,2*r,range);
++    if(!ability.empty())candidate=SwgxrBrawler::facing(o,d,{{p[0].get<double>(),p[1].get<double>(),p[2].get<double>()}})?0:-1;
+     if(candidate<0 || candidate>=best || !c->isInRange(target,range) || !CollisionManager::checkLineOfSight(c,target))continue;
+     best=candidate;chosen=target;
+    }
+    if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c))throw std::runtime_error("weapon_changed_during_melee");
++   if(!ability.empty() && chosen==nullptr)throw std::runtime_error("native_melee_ability_target_unavailable");
+    // A committed swing pays once, including a whiff, and shares cadence with both fists/weapons.
+    CreatureAttackData costs("",command,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");
+-   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,command->getSpeedMultiplier());
++   if(!ability.empty())c->addCooldown(String(("corecu_brawler_"+ability).c_str()),int(SwgxrBrawler::recovery(ability)*1000));
+    Shot receipt;receipt.time=stamp;receipt.spent=true;receipt.item=id(weapon);s.shots.emplace(shotID,receipt);
+    result["ham_cost_committed"]=true;result["hit"]=false;result["damage"]=0;result["target_id"]="";
+    if(chosen==nullptr)return result;
+    Locker targetLock(chosen,c);
+    if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || !c->isInRange(chosen,range) || !CollisionManager::checkLineOfSight(c,chosen))return result;
+    auto finalPosition=position(chosen);auto finalBounds=impactBounds(chosen);double finalRadius=std::min(.6,finalBounds["radius"].get<double>()*finalBounds["scale"].get<double>());
+-   if(corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
+-   SwgxrPreparedRangedCommand prepaid(*command);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
++   if(!ability.empty() && !SwgxrBrawler::facing(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}}))return result;
++   if(ability.empty() && corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
++   SwgxrPreparedRangedCommand prepaid(*command);if(!ability.empty())SwgxrBrawler::boundEffects(prepaid);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
+    Json before=actor(c,chosen,s);c->setTargetID(0,true);int code=prepaid.doCombatAction(c,chosen->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,chosen,s);
+    result["native_result"]=code;result["success"]=code==QueueCommand::SUCCESS;result["target_id"]=id(chosen);result["before"]=before;result["after"]=after;
+    int dealt=before["health"].get<int>()-after["health"].get<int>();if(before.contains("ham"))for(int pool=0;pool<3;++pool)dealt=std::max(dealt,before["ham"][pool].get<int>()-after["ham"][pool].get<int>());
++   if(!ability.empty() && code==QueueCommand::SUCCESS && dealt>0 && chosen->isCreatureObject())chosen->asCreatureObject()->addCooldown("corecu_control_recovery",8000);
+    result["damage"]=std::max(0,dealt);result["hit"]=dealt>0;if(code!=QueueCommand::SUCCESS)result["error_code"]="native_melee_rejected";return result;
+   }
+   if(verb=="fire"){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -1,5 +1,6 @@
+ #include "CoreCuCombat.h"
+ #include "SwgxrWarcry.h"
++#include "SwgxrBrawler.h"
+ #include "SwgxrTaunt.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+@@ -65,7 +66,7 @@
+   }
+  }
+  static Json abilities(CreatureObject* c){
+-  Json out=Json::array();auto w=c->getWeapon();if(SwgxrWarcry::learned(c) && w && !w->isUnarmedWeapon() && (w->isMeleeWeapon() || w->isRangedWeapon()))out.push_back(SwgxrWarcry::ability(c));auto taunt=SwgxrTaunt::snapshot(c);if(w && taunt.at("learned").get<bool>()){
++  Json out=SwgxrBrawler::abilities(c);for(const auto& row:SwgxrBrawler::buffAbilities(c))out.push_back(row);auto w=c->getWeapon();if(SwgxrWarcry::learned(c) && w && !w->isUnarmedWeapon() && (w->isMeleeWeapon() || w->isRangedWeapon()))out.push_back(SwgxrWarcry::ability(c));auto taunt=SwgxrTaunt::snapshot(c);if(w && taunt.at("learned").get<bool>()){
+    taunt["id"]="taunt";taunt["label"]="Taunt";taunt["category"]="gesture";taunt["activation"]="chest_beats";taunt["ultimate"]=false;
+    taunt["description"]="Challenge the eligible enemy under your head reticle to draw its attention.";
+    taunt["trigger_description"]="Beat your chest twice with a free clenched hand (grip held, trigger released) while looking at the enemy.";
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrBrawler.h
+@@ -0,0 +1,49 @@
++#pragma once
++#include "CombatQueueCommand.h"
++#include "CoreCuCombat.h"
++#include "SwgxrSlicingStats.h"
++#include "MeleePolicy.h"
++// Original Brawler grants and effects, bounded for physical combat.
++class SwgxrBrawler {
++ using Json=JSONSerializationType;
++public:
++ static std::string family(CreatureObject* c){auto w=c->getWeapon();if(!w || w->isJediOneHandedWeapon() || w->isJediTwoHandedWeapon() || w->isJediPolearmWeapon())return "";if(w->isUnarmedWeapon())return "unarmed";if(w->isOneHandMeleeWeapon())return "onehandmelee";if(w->isTwoHandMeleeWeapon())return "twohandmelee";if(w->isPolearmWeaponObject())return "polearm";return "";}
++ static std::string source(CreatureObject* c,const std::string& id){auto f=family(c);if(f.empty())return "";
++  if(id=="knockdown_strike")return f=="unarmed"?"unarmedlunge2":f=="onehandmelee"?"melee1hlunge2":f=="twohandmelee"?"melee2hlunge2":"polearmlunge2";
++  if(id=="unarmed_stun" && f=="unarmed")return "unarmedstun1";
++  if(id=="unarmed_blind" && f=="unarmed")return "unarmedblind1";
++  if(id=="polearm_stun" && f=="polearm")return "polearmstun1";
++  return "";
++ }
++ static bool learned(CreatureObject* c,const std::string& id){auto name=source(c,id);return !name.empty() && c->getPlayerObject() && c->getPlayerObject()->hasAbility(String(name.c_str()));}
++ static const CombatQueueCommand* command(CreatureObject* c,const std::string& id){auto name=source(c,id);return name.empty()?nullptr:dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand(String(name.c_str())));}
++ static double cooldown(CreatureObject* c,const std::string& id){auto t=c->getCooldownTime(String(("corecu_brawler_"+id).c_str()));return t?std::max(0.,-t->miliDifference()/1000.):0.;}
++ static bool facing(const corecu::melee::Vec& origin,const corecu::melee::Vec& direction,const corecu::melee::Vec& feet){double dot=0,length=0;for(int i=0;i<3;++i){double v=feet[i]+(i==1?1.:0.)-origin[i];dot+=v*direction[i];length+=v*v;}return length<.01 || dot/std::sqrt(length)>=.5;}
++ static double recovery(const std::string& id){return id=="knockdown_strike"?20.:15.;}
++ static Json abilities(CreatureObject* c){Json out=Json::array();auto w=c->getWeapon();if(!w || family(c).empty())return out;
++  for(auto id:{"knockdown_strike","unarmed_stun","unarmed_blind","polearm_stun"}){auto cmd=command(c,id);if(!cmd || !learned(c,id))continue;
++   float h=w->getHealthAttackCost()*cmd->getHealthCostMultiplier()*SwgxrSlicingStats::costScale(c,0),a=w->getActionAttackCost()*cmd->getActionCostMultiplier()*SwgxrSlicingStats::costScale(c,3),m=w->getMindAttackCost()*cmd->getMindCostMultiplier()*SwgxrSlicingStats::costScale(c,6);
++   std::string label=std::string(id)=="knockdown_strike"?"Knockdown Strike":std::string(id)=="unarmed_blind"?"Blinding Attack":std::string(id)=="unarmed_stun"?"Stunning Attack":"Polearm Stun";
++   out.push_back({{"id",id},{"label",label},{"activation","native_melee"},{"ultimate",false},{"source_command",source(c,id)},{"description","Hold trigger and punch toward the body marker, or strike it with a qualified swing. Weapon range, native resistance and control recovery apply."},{"damage_multiplier",cmd->getDamageMultiplier()},{"max_range_m",corecu::melee::reach(w->getMaxRange(),w->isUnarmedWeapon())},{"interval_seconds",CombatManager::instance()->calculateWeaponAttackSpeed(c,w,cmd->getSpeedMultiplier())},{"cooldown_seconds",recovery(id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"conditions_met",w->isCertifiedFor(c) && cmd->checkStateMask(c) && cmd->checkInvalidLocomotions(c)},{"base_sac",{{"health",0},{"action",a+h},{"mind",m*.5f}}},{"sac_policy","corecu_cu_v2"},{"sac_action_strength_share",a+h>0?h/(a+h):0}});
++  }return out;
++ }
++ static void boundEffects(CombatQueueCommand& cmd){auto effects=*cmd.getStateEffects();for(int i=0;i<effects.size();++i){auto& effect=effects.elementAt(i).getValue();if(effect.getStateLength()>0)effect.setStateLength(4);auto timers=effect.getDefenderExclusionTimers();timers.add("corecu_control_recovery");effect.setDefenderExclusionTimers(timers);}cmd.setStateEffects(effects);}
++ static bool buffLearned(CreatureObject* c,const std::string& id){auto p=c->getPlayerObject();return p && c->hasSkill("combat_brawler_novice") && (id=="center_of_being"?p->hasAbility("centerofbeing"):id=="berserk" && p->hasAbility("berserk1"));}
++ static void refreshBuffs(CreatureObject* c){for(auto id:{"center_of_being","berserk"}){auto saved=c->getPlayerObject()->getScreenPlayData("swgxr_brawler_buff",id);if(!saved.isEmpty() && (family(c).empty() || saved!=String(family(c).c_str()))){if(std::string(id)=="center_of_being")c->removeBuff(STRING_HASHCODE("centerofbeing"));else c->removeBuff(Long::hashCode(CreatureState::BERSERK));c->getPlayerObject()->setScreenPlayData("swgxr_brawler_buff",id,"");}}}
++ static bool active(CreatureObject* c,const std::string& id){return id=="center_of_being"?c->hasBuff(STRING_HASHCODE("centerofbeing")):c->isBerserked();}
++ static bool buffConditions(CreatureObject* c,const std::string& id){auto f=family(c);if(f.empty() || !c->getWeapon()->isCertifiedFor(c) || c->isDead() || c->isIncapacitated() || c->isRidingMount() || c->getPosture()!=0 || active(c,id))return false;
++  if(id=="center_of_being" && (c->getSkillMod(String(("center_of_being_duration_"+f).c_str()))<=0 || c->getSkillMod(String((f+"_center_of_being_efficacy").c_str()))<=0))return false;
++  return true;
++ }
++ static Json buffs(CreatureObject* c){refreshBuffs(c);Json out=Json::object();for(auto id:{"center_of_being","berserk"})out[id]={{"learned",buffLearned(c,id)},{"conditions_met",buffConditions(c,id)},{"active",active(c,id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"action_cost",std::string(id)=="berserk"?80:40},{"mind_cost",40}};return out;}
++ static Json buffAbilities(CreatureObject* c){Json out=Json::array();if(family(c).empty())return out;auto state=buffs(c);for(auto id:{"center_of_being","berserk"}){if(!buffLearned(c,id))continue;auto row=state[id];bool center=std::string(id)=="center_of_being";row["id"]=id;row["label"]=center?"Center of Being":"Berserk";row["category"]="gesture";row["ultimate"]=false;row["activation"]="brawler_pose";row["description"]=center?"Temporary defensive focus, using the trained weapon family's native Center of Being efficacy and duration.":"Native melee damage and accuracy buff with a defence penalty. Lasts 20 seconds, or 40 at Master Brawler.";row["trigger_description"]=center?"Hold your free offhand upright and open in front of your torso for 0.8 seconds, like a meditation sign. Keep the weapon hand lowered and triggers released.":"Spread both arms outward at shoulder height, clench both fists and hold for 0.8 seconds. Keep triggers released; no microphone or actual yell is needed.";row["weapon_requirement"]="Unarmed, one-handed melee, two-handed melee or polearm. Skill, resources and 60-second cooldown apply.";row["cooldown_seconds"]=60;out.push_back(row);}return out;}
++ static Json buff(CreatureObject* c,const Json& request){auto id=request.at("ability_id").get<std::string>();if(id!="center_of_being" && id!="berserk")throw std::runtime_error("unknown_brawler_buff");refreshBuffs(c);
++  if(!buffLearned(c,id) || !buffConditions(c,id) || std::to_string(c->getWeapon()->getObjectID())!=request.at("item_id").get<std::string>())throw std::runtime_error("native_brawler_buff_unavailable");
++  if(cooldown(c,id)>0)throw std::runtime_error("native_brawler_buff_cooldown");int action=id=="berserk"?80:40;
++  if(c->getHAM(3)<=action || c->getHAM(6)<=40)throw std::runtime_error("native_brawler_buff_insufficient_sac");
++  if(id=="center_of_being"){auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("centerofbeing");if(!cmd || cmd->doQueueCommand(c,0,UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("native_center_of_being_rejected");}
++  else c->setBerserkedState(c->hasSkill("combat_brawler_master")?40:20);
++  c->inflictDamage(c,3,action,false,true,false);c->inflictDamage(c,6,40,false,true,false);c->addCooldown(String(("corecu_brawler_"+id).c_str()),60000);c->getPlayerObject()->setScreenPlayData("swgxr_brawler_buff",String(id.c_str()),String(family(c).c_str()));
++  return {{"success",true},{"shot_id",request.at("shot_id")},{"ability_id",id},{"interval_seconds",1.}};
++ }
++};

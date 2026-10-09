@@ -11,13 +11,32 @@ from server.live_combat import LiveCombatHub
 from server.request_gate import BackendBusy
 from server.capacity import configured_limit
 from tools.deploy import runtime
-from tools.deploy.capacity import PROFILE, ALL_PLANETS_PROFILE, host_readiness, configuration_status
+from tools.deploy.capacity import PROFILE, ALL_PLANETS_PROFILE, JTL_TEST_PROFILE, host_readiness, configuration_status
 from tools.deploy.prepare_capacity_profile import prepare
 from tools.server import native_build_receipt as build
 from tools.server import population_smoke
 
 
 class CapacityTests(unittest.TestCase):
+    def test_jtl_test_profile_is_bounded_and_registration_explicit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            source=Path(folder)/'old';source.mkdir();dest=Path(folder)/'jtl'
+            (source/'config-local.lua').write_text(runtime.render_config((runtime.BIN/'conf/config-local.lua').read_text(),'b'*64))
+            (source/'resource_manager.lua').write_text(runtime.render_resources((runtime.BIN/'scripts/managers/resource_manager.lua').read_text()))
+            report=prepare(dest,source,JTL_TEST_PROFILE)
+            self.assertTrue(configuration_status(dest)['passed'])
+            self.assertEqual(report['space_zones'],['space_tatooine'])
+            settings=json.loads((dest/'gateway-registration.json').read_text())
+            self.assertEqual(settings,dict(registration_enabled=True,registration_invites_required=False,registration_grants_client_access=True))
+            self.assertFalse(report['live_configuration_changed'])
+            config=(dest/'config-local.lua').read_text()
+            self.assertIn('Core3.SpaceZonesEnabled = {"space_tatooine"}',config)
+            self.assertIn('Core3.SWGXR.RetailGroundOnly = false',config)
+            (dest/'config-local.lua').write_text(config.replace('Core3.SWGXR.RetailGroundOnly = false','Core3.SWGXR.RetailGroundOnly = true'))
+            self.assertFalse(configuration_status(dest)['passed'])
+            (dest/'config-local.lua').write_text(config.replace('SwgxrDisableCombatSpawns = true','SwgxrDisableCombatSpawns = false'))
+            self.assertFalse(configuration_status(dest)['passed'])
+
     def test_all_planets_profile_preserves_credentials_and_checks_selected_scope(self):
         with tempfile.TemporaryDirectory() as folder:
             source=Path(folder)/'remote';source.mkdir();dest=Path(folder)/'all'

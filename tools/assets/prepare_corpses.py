@@ -94,7 +94,7 @@ def main():
     parser.add_argument('--template',action='append',default=[])
     parser.add_argument('--snapshot',type=Path)
     parser.add_argument('--planet',choices=PLANETS,help='Explicit harvestable animals in local Core3 planet mobile definitions')
-    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/corpses')
     args=parser.parse_args(); templates=set(args.template)
     snapshot_bytes=args.snapshot.read_bytes() if args.snapshot else b''

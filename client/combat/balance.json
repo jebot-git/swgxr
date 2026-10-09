@@ -195,6 +195,109 @@
         -0.3,
         0
       ]
+    },
+    "commando_flame": {
+      "hands": 2,
+      "rpm": 65.3061224489796,
+      "capacity": 24,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 100,
+      "native_family": "commando",
+      "commando_family": "flame",
+      "delivery": "cone",
+      "charge_limited": false
+    },
+    "commando_acid_rifle": {
+      "hands": 2,
+      "rpm": 32.6530612244898,
+      "capacity": 24,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 100,
+      "native_family": "commando",
+      "commando_family": "acid_rifle",
+      "delivery": "beam",
+      "charge_limited": false
+    },
+    "commando_particle": {
+      "hands": 2,
+      "rpm": 19.591836734693878,
+      "capacity": 40,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 100,
+      "native_family": "commando",
+      "commando_family": "particle",
+      "delivery": "beam",
+      "charge_limited": true
+    },
+    "commando_acid_beam": {
+      "hands": 2,
+      "rpm": 16.3265306122449,
+      "capacity": 40,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 100,
+      "native_family": "commando",
+      "commando_family": "acid_beam",
+      "delivery": "beam",
+      "charge_limited": true
+    },
+    "commando_lightning": {
+      "hands": 2,
+      "rpm": 24.489795918367346,
+      "capacity": 40,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "auto",
+        "semi"
+      ],
+      "projectile_speed": 100,
+      "native_family": "commando",
+      "commando_family": "lightning",
+      "delivery": "beam",
+      "charge_limited": true
+    },
+    "commando_rocket": {
+      "hands": 2,
+      "rpm": 12.244897959183673,
+      "capacity": 40,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 45,
+      "native_family": "commando",
+      "commando_family": "rocket",
+      "delivery": "rocket",
+      "charge_limited": true
+    },
+    "commando_pistol_launcher": {
+      "hands": 1,
+      "rpm": 16.3265306122449,
+      "capacity": 12,
+      "reload_seconds": 3.0,
+      "fire_modes": [
+        "semi"
+      ],
+      "projectile_speed": 45,
+      "native_family": "commando",
+      "commando_family": "pistol_launcher",
+      "delivery": "rocket",
+      "charge_limited": false
     }
   },
   "weapons": {
@@ -331,6 +434,60 @@
       "class": "melee_polearm",
       "label": "Vibrolance",
       "template": "object/weapon/melee/polearm/lance_vibrolance.iff"
+    },
+    "rifle_flame_thrower": {
+      "class": "commando_flame",
+      "label": "Flamethrower",
+      "template": "object/weapon/ranged/rifle/rifle_flame_thrower.iff"
+    },
+    "rifle_acid_beam": {
+      "class": "commando_acid_rifle",
+      "label": "Acid rifle",
+      "template": "object/weapon/ranged/rifle/rifle_acid_beam.iff"
+    },
+    "heavy_particle_beam": {
+      "class": "commando_particle",
+      "label": "Heavy particle beam",
+      "template": "object/weapon/ranged/heavy/heavy_particle_beam.iff"
+    },
+    "heavy_acid_beam": {
+      "class": "commando_acid_beam",
+      "label": "Heavy acid beam",
+      "template": "object/weapon/ranged/heavy/heavy_acid_beam.iff"
+    },
+    "heavy_lightning_beam": {
+      "class": "commando_lightning",
+      "label": "Heavy lightning beam",
+      "template": "object/weapon/ranged/heavy/heavy_lightning_beam.iff"
+    },
+    "heavy_rocket_launcher": {
+      "class": "commando_rocket",
+      "label": "Rocket launcher",
+      "template": "object/weapon/ranged/heavy/heavy_rocket_launcher.iff"
+    },
+    "pistol_launcher": {
+      "class": "commando_pistol_launcher",
+      "label": "Pistol launcher",
+      "template": "object/weapon/ranged/pistol/pistol_launcher.iff"
+    },
+    "pistol_scatter": {
+      "class": "pistol",
+      "label": "Scatter pistol",
+      "delivery": "scatter",
+      "pellet_count": 8,
+      "pellet_half_angle_degrees": 4.0
+    },
+    "rifle_lightning": {
+      "class": "rifle",
+      "label": "BH lightning rifle",
+      "delivery": "guided_bolt",
+      "projectile_speed": 160,
+      "fire_modes": [
+        "semi"
+      ],
+      "guidance_acquisition_degrees": 5.0,
+      "guidance_turn_degrees_per_second": 20.0,
+      "guidance_max_turn_degrees": 8.0
     }
   }
 }

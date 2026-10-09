@@ -84,12 +84,14 @@ class RateLimits:
 
 
 class AccountAuth:
-    def __init__(self, database, *, reserved=(), registration_enabled=False, invites_required=False, clock=time.time):
+    def __init__(self, database, *, reserved=(), registration_enabled=False, invites_required=False, registration_grants_client_access=False, clock=time.time):
         if not isinstance(registration_enabled, bool): raise ValueError('registration_enabled must be boolean')
         self.database = str(Path(database).absolute())
         self.reserved = frozenset(reserved) | {'health'}
         self.registration_enabled, self.clock = registration_enabled, clock
         if not isinstance(invites_required, bool): raise ValueError("invites_required must be boolean")
+        if not isinstance(registration_grants_client_access, bool): raise ValueError("registration_grants_client_access must be boolean")
+        self.registration_grants_client_access = registration_grants_client_access
         self.invites_required = invites_required
         self.limits = RateLimits()
         Path(self.database).parent.mkdir(parents=True, exist_ok=True)
@@ -187,7 +189,7 @@ class AccountAuth:
                                          (invitation, int(self.clock()))).rowcount
                     if changed != 1: raise AuthError(403, 'Invitation is invalid, expired or exhausted')
                 db.execute('INSERT INTO credentials VALUES (?,?,?,?,0)', (account, salt, digest, int(self.clock())))
-                if invitation: db.execute('INSERT INTO client_access VALUES (?)', (account,))
+                if invitation or self.registration_grants_client_access: db.execute('INSERT INTO client_access VALUES (?)', (account,))
                 return self._session(db, account)
         except sqlite3.IntegrityError:
             raise AuthError(409, 'Account is unavailable') from None

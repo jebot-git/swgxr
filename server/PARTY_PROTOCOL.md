@@ -40,7 +40,7 @@ ignore lists, and player state. It calls original GroupManager invitation and
 join operations. It does not create a client group or directly fabricate group
 membership. Joining through any member uses that group's native leader as the
 original invitation source. Two different existing parties cannot merge. The
-original group capacity, invitation conflicts, chat, PvP, modifiers and leave
+original group capacity, invitation conflicts, chat, PvP and leave
 behavior remain native.
 
 For the initial pair, a Squad Leader takes priority; otherwise the higher
@@ -64,5 +64,34 @@ normal public gesture/action endpoints, and original skill awards solely for
 fixture combat-level/profession setup. It leaves groups and saves/logs out every
 fixture. It does not access the VPS or launch VR.
 
-The bulk skill-surrender callback is source/build verified; the native fixture
-exercises individual surrender and resulting positive group modifiers.
+The historical native fixture exercised individual surrender and the original
+positive group modifiers. Its expectations now read the bounded CU passive
+snapshot and require retired raw modifiers to be absent; this updated live
+fixture has not been rerun during Squad Leader implementation. Isolated native
+method tests cover the new support lifecycle without launching services.
+
+## Squad Leader CU support
+
+Membership and automatic leader selection remain native. Combat support reads
+current party membership directly: eligible online, living players on the same
+planet receive the strongest Squad Leader contribution in each category. The
+caster need not be the elected group leader. There is no passive distance or
+building limit, and a party requires another eligible player; pets cannot make
+a solo Squad Leader eligible. Offline members, other planets and departed
+members do not supply bonuses. Multiple leaders cannot add their passives.
+
+Master passive caps are +10% direct damage, +10% existing Action/Mind
+regeneration and +15 melee/ranged defense against native accuracy rolls.
+Original raw terrain, Burst Run and accuracy modifiers are retired. Native
+legacy group buffs no longer renew or install those effects. Original
+progression values remain recorded as source metadata in the profession
+catalog, while the visible modifiers show the CU contributions.
+
+Support shouts require a visible group-member target and affect eligible nearby
+members within 48 metres. Caster and recipient cooldowns persist, so another
+leader cannot bypass an order's recipient recovery. Source membership epochs
+invalidate active orders after departure/rejoin. Volley Fire captures eligible
+members at cast time and grants one separate hit per member; departure/rejoin
+cannot restore a spent grant. See
+[the combat contract](LIVE_COMBAT_PROTOCOL.md#squad-leader-support-and-volley-fire)
+and [the balance policy](../docs/CORECU_COMBAT.md#squad-leader-group-support-2026-10-09).

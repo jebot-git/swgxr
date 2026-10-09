@@ -45,13 +45,8 @@ def prepare(output, engine, engine_notices, root=ROOT):
                 if rel.parts[:3]==('client','native','src') or 'godot-cpp' in rel.parts:continue
                 if rel.parts[:2] in (('client','tests'),('client','benchmarks'),('client','tools')):continue
                 copy(path,output/rel)
-    for directory in ('client','runtime/assets','runtime/combat/abilities','runtime/combat/player_postures'):
+    for directory in ('client','runtime/assets'):
         tree(root/directory)
-    copy(root/'runtime/combat/catalog.json',output/'runtime/combat/catalog.json')
-    # Entertainment catalogs reference these assets; logs and test captures stay local.
-    for directory in ('animations','audio','items','textures'):tree(root/'runtime/entertainment'/directory)
-    copy(root/'runtime/entertainment/catalog.json',output/'runtime/entertainment/catalog.json')
-    for source in (root/'runtime/entertainment').glob('*.png'):copy(source,output/source.relative_to(root))
     copy(engine,output/'engine/godot');(output/'engine/godot').chmod(0o755)
     notices=Path(engine_notices).resolve(strict=True)
     if not notices.is_dir() or not any(notices.iterdir()): raise ValueError('Supply the engine license/third-party notices directory')

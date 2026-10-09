@@ -1,0 +1,42 @@
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -2097,14 +2097,12 @@
+ */
+ 
+ int CombatManager::getHitChance(TangibleObject* attacker, CreatureObject* creoDefender, WeaponObject* weapon, const CreatureAttackData& data, int damage, int bonusAccuracy) const {
+-	// Physical contacts already passed native ownership, target, range and LOS
+-	// validation. Never turn a player's accepted hit into an innate miss, dodge,
+-	// counter or ricochet. Armour and tracked physical guards resolve downstream;
+-	// status application keeps its separate resistance checks. Ordinary commands,
+-	// NPCs, companions and force/state-only actions retain their own resolver.
+-	if (attacker->isPlayerCreature() && data.getCommand()->usesPhysicalContactAccuracy()
+-		&& !data.isForceAttack() && !data.isStateOnlyAttack())
+-		return HitStatus::HIT;
++	// Physical contact replaces only the player's innate hit/miss roll.
++	// Secondary dodge/block/counter/deflection still resolve normally. Accuracy
++	// stats cannot alter player damage or the secondary defense contest.
++	const bool physicalContact = attacker->isPlayerCreature()
++		&& data.getCommand()->usesPhysicalContactAccuracy()
++		&& !data.isForceAttack() && !data.isStateOnlyAttack();
+ 
+ 	// AttackData
+ 	float accuracyWeapon = 0.f;
+@@ -2171,10 +2169,15 @@
+ 	accuracyTotal = accuracySkill + accuracyWeapon + accuracyPosture + accuracyBonus;
+ 	defenseTotal = defenseSkill + defensePosture;
+ 
+-	toHitChance = hitChanceEquation(accuracyTotal, defenseTotal);
+-
+-	if (System::random(100) <= toHitChance) {
++	if (physicalContact) {
++		// Neutral accuracy contribution; keep native secondary-defense ratings,
++		// posture, Center of Being and opposed random rolls below.
++		accuracyTotal = 0.f;
+ 		hitResult = HitStatus::HIT;
++	} else {
++		toHitChance = hitChanceEquation(accuracyTotal, defenseTotal);
++		if (System::random(100) <= toHitChance)
++			hitResult = HitStatus::HIT;
+ 	}
+ 
+ 	// set DefendData and DefendResult

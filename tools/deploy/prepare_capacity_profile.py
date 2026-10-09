@@ -36,11 +36,23 @@ def prepare(destination, source=None, profile=PROFILE):
     private_write(destination/'capacity.json',json.dumps(profile,indent=2)+'\n')
     private_write(destination/'capacity.env','SWGXR_MAX_NATIVE_SESSIONS=0\nSWGXR_MAX_VOICE_CLIENTS=0\nSWGXR_HTTP_CONNECTIONS='+str(profile['gateway_connections'])+'\n')
     settings = {'ZoneProcessingThreads':profile['zone_threads'],'MaxNavMeshJobs':profile['navmesh_jobs'],'LoginAllowedConnections':profile['native_connections'],'ZoneAllowedConnections':profile['native_connections']}
+    if profile['space_enabled']:
+        settings.update({'SpaceZonesEnabled':'{"space_tatooine"}','SWGXR.RetailGroundOnly':'false','JTL':'{JTLEnabled=true,SwgxrTesterYachts=true,SwgxrDisableCombatSpawns=true}'})
+        settings['JTL.SwgxrShipTemplates']='{'+','.join(json.dumps(p) for p in profile['ship_templates'])+'}'
     private_write(destination/'review-settings.lua','-- Review only; apply through the private staged config.\n'+''.join(f'Core3.{key} = {value}\n' for key,value in settings.items()))
+    if 'registration_enabled' in profile:
+        registration={key:profile[key] for key in
+            ('registration_enabled','registration_invites_required','registration_grants_client_access')}
+        private_write(destination/'gateway-registration.json',json.dumps(registration,indent=2)+'\n')
+        if source is not None and (source/'gateway.json').is_file():
+            gateway=json.loads((source/'gateway.json').read_text())
+            if not gateway.get('auth_database'):raise ValueError('Existing private gateway auth_database required for registration.')
+            gateway.update(registration)
+            private_write(destination/'gateway.json',json.dumps(gateway,indent=2)+'\n')
     if config is not None:
         private_write(destination/'config-local.lua',config)
         private_write(destination/'resource_manager.lua',resources)
-    report = {'profile':profile['name'],'target_players':profile['target_players'],'session_limit':None,'planets':profile['planets'],
+    report = {'profile':profile['name'],'target_players':profile['target_players'],'session_limit':None,'planets':profile['planets'],'space_zones':profile.get('space_zones',[]),
               'private_overlays_ready':config is not None,'credentials_preserved':config is not None,
               'live_configuration_changed':False,'database_changed':False,'deployed':False,
               'requires':['fresh native build receipt',f"{profile['minimum_vcpus']} vCPUs / at least {profile['minimum_ram_gib']} GiB actual RAM",'graceful stop and SQL/BDB/auth/config backup',

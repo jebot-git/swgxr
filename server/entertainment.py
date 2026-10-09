@@ -1,23 +1,26 @@
 """Transient shared performance presence, authenticated by Core3 entry snapshots.
 
 Native performer sessions and accepted flourish receipts are projected here.
-This presence bus never grants HAM, stats or XP. Its automatic spectator circles
-remain presentation-only until native watch/listen sessions are connected.
+This presence bus never grants HAM, stats or XP. Spectator circles are visual;
+automatic audience benefits come from separately observed native radius sessions.
 """
 try:
  from .planets import SUPPORTED_PLANETS
 except ImportError:
  from planets import SUPPORTED_PLANETS
 import math
+from copy import deepcopy
 import secrets
 import threading
 import time
 try:
     from .entertainment_catalog import catalog, context, eligible
+    from .entertainer_protocol import audience_snapshot
     from .character_protocol import template_names
     from .weapon_protocol import owned
 except ImportError:
     from entertainment_catalog import catalog, context, eligible
+    from entertainer_protocol import audience_snapshot
     from character_protocol import template_names
     from weapon_protocol import owned
 
@@ -27,6 +30,9 @@ class PerformanceHub:
     # the account-bound credential issued before the client starts rendering.
     PRESENCE_IDLE_SECONDS = 15
     SESSION_IDLE_SECONDS = 3600
+    # The client polls native entertainer status every five seconds. Missing
+    # two polls makes the observation stale, not proof that a buff has expired.
+    AUDIENCE_FRESH_SECONDS = 12
     def __init__(self, clock=time.monotonic):
         self.clock = clock
         self.lock = threading.RLock()
@@ -54,7 +60,8 @@ class PerformanceHub:
                 'items':dict(items), 'item':'', 'band':'', 'position':self.point(position),
                 'area':zone, 'seen':self.clock(), 'seq':-1, 'watching':{}, 'enabled':True}
             return {'token':token, 'context':ctx, 'radius':catalog()['circle_radius'],
-                    'buff_authority':'core3_unconnected', 'scope':'shared_adapter_presence'}
+                    'buff_authority':'native_core3', 'audience':self.audience_status(self.sessions[token], self.clock()),
+                    'scope':'shared_adapter_presence'}
 
     def refresh_inventory(self, account, oid, items):
         with self.lock:
@@ -72,6 +79,7 @@ class PerformanceHub:
             sequence=envelope.get('sequence',0)
             if sequence and sequence<=actor.get('native_sequence',-1):return
             state=envelope.get('state',{});mutation=envelope.get('mutation',{})
+            audience = audience_snapshot(state['audience']) if 'audience' in state else None
             actor['native_placed_items']={str(row['id']):str(row['template']).replace('/shared_', '/')
                 for row in state.get('placed_instruments',[]) if row.get('playable') is True
                 and str(row.get('id','')).isdigit() and '/instrument/' in str(row.get('template',''))}
@@ -80,6 +88,9 @@ class PerformanceHub:
                 flourishes=list(state.get('flourishes',[])),complete=True,entertainer='social_entertainer_novice' in learned)
             actor['native_sequence']=sequence;actor['native_bound']=True
             actor['area']=state.get('zone',actor['area'])
+            actor['native_audience'] = audience
+            actor['native_audience_seen'] = self.clock()
+            actor['native_audience_zone'] = actor['area']
             performance=next((p for p in catalog()['performances'].values()if state.get('performing') and p['performance_index']==state.get('performance_index') and p['kind']==state.get('kind')), {})
             previous=actor.get('native_performance',{})
             actor['native_performance']=performance
@@ -130,6 +141,18 @@ class PerformanceHub:
         template = actor['items'].get(actor['item'],'')
         return next((p for p in eligible(actor['context']['skills'],template)
                      if p['name']==band['performance']['name'] and p['kind']==band['performance']['kind']), {})
+
+    def audience_status(self, actor, now):
+        audience = actor.get('native_audience')
+        if audience is None:
+            return {'status':'unobserved', 'observation_age_seconds':None,
+                    'sequence':None, 'state':None}
+        age = max(0.0, now - actor['native_audience_seen'])
+        fresh = (age <= self.AUDIENCE_FRESH_SECONDS and actor['enabled']
+                 and actor['area'] == actor['native_audience_zone'])
+        return {'status':'fresh' if fresh else 'stale', 'observation_age_seconds':age,
+                'sequence':actor.get('native_sequence', 0),
+                'state':deepcopy(audience) if fresh else None}
 
     def update(self, account, data):
         with self.lock:
@@ -228,13 +251,14 @@ class PerformanceHub:
             if band['performance'] and actor['id'] not in band['members'] and actor['enabled'] and self.near(actor,leader,catalog()['circle_radius']):
                 since=actor['watching'].get(band['id'],{}).get('since',now)
                 watching[band['id']]={'since':since,'seconds':now-since,'kind':band['performance']['kind'],
-                    'buff_status':'awaiting_core3_session','buff_applied':False}
+                    'presentation_only':True}
         actor['watching']=watching
         own=self.bands.get(actor['band'])
         playing=self.performance(actor,own) if own else {}
         return {'context':actor['context'],'native_authority':actor.get('native_bound',False),'server_time':now,'bands':visible,'band_id':actor['band'],'leader':own['leader'] if own else '',
                 'performance_id':playing.get('id',''),'watching':watching,
-                'buff_authority':'core3_unconnected','source':'shared_adapter_presence'}
+                'buff_authority':'native_core3','audience':self.audience_status(actor,now),
+                'source':'shared_adapter_presence'}
 
 
 HUB = PerformanceHub()

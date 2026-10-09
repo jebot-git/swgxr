@@ -93,7 +93,7 @@ def prepare(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tre-dir', type=Path, default=ROOT / 'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT / 'runtime/asset_sources/active_tre')
     parser.add_argument('--inventory', type=Path, default=ROOT / 'runtime/assets/inventory')
     parser.add_argument('--housing', type=Path, default=ROOT / 'runtime/assets/housing')
     parser.add_argument('--out', type=Path, default=ROOT / 'runtime/assets/factories')

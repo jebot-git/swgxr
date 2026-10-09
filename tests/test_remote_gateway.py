@@ -80,6 +80,138 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(body)['body'],dict(data,account='alice'))
         self.assertEqual(self.request('POST','/combat/session/melee',json.dumps(dict(data,account='bob')))[0],403)
 
+    def test_owned_pve_bounty_service_routes(self):
+        for action, field in (('informant','target_id'), ('probe','item_id'),
+                              ('seek','item_id'), ('track','item_id')):
+            path = '/services/bounty_' + action
+            payload = dict(character_id='123', session_id='owned',
+                           request_id='bounty-request-001', **{field:'456'})
+            if action == 'probe':
+                payload['search_planet'] = 'naboo'
+            with self.subTest(action=action):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path, json.dumps(payload), token=None,
+                                              headers={'Content-Type':'application/json'})[0], 401)
+                self.assertEqual(self.request('POST', path, json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_pistoleer_routes(self):
+        data = dict(character_id='123', session_id='owned', shot_id='volley-001',
+                    item_id='456', origin=[0, 1, 0], direction=[0, 0, 1])
+        requests = [('/combat/session/pistoleer', dict(data, ability_id=ability))
+                    for ability in ('fan_shot', 'run_and_gun')]
+        requests.append(('/combat/session/fire', dict(data, ability_id='showdown',
+                        target_id='789', volley_id='volley-001', volley_index=0)))
+        for path, payload in requests:
+            with self.subTest(path=path, ability=payload['ability_id']):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path,
+                                 json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_carbineer_routes(self):
+        data = dict(character_id='123', session_id='owned', shot_id='carbine-001',
+                    item_id='456', origin=[0, 1, 0], direction=[0, 0, 1], two_hands=True)
+        requests = [('/combat/session/carbineer', dict(data, ability_id=ability))
+                    for ability in ('full_auto_sweep', 'tactical_brace', 'charge_blast')]
+        requests.extend(('/combat/session/fire', dict(data, ability_id=ability, target_id='789'))
+                        for ability in ('crippling_shot', 'wild_shot', 'charge_shot'))
+        for path, payload in requests:
+            with self.subTest(path=path, ability=payload['ability_id']):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path,
+                                 json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_rifleman_routes(self):
+        data = dict(character_id='123', session_id='owned', shot_id='rifleman-001',
+                    item_id='456', origin=[0, 1, 0], direction=[0, 0, -1], two_hands=True)
+        requests = [('/combat/session/rifleman', dict(data, ability_id='rifleman_focus'))]
+        requests.extend(('/combat/session/fire', dict(data, ability_id=ability, target_id='789'))
+                        for ability in ('lethal_shot', 'piercing_shot', 'surprise_shot', 'sniper_shot'))
+        requests.extend(('/combat/session/fire', dict(data, shot_id='rifleman-00'+str(index+1),
+                        ability_id='flurry_shot', target_id='789',
+                        volley_id='rifleman-001', volley_index=index)) for index in range(3))
+        for path, payload in requests:
+            with self.subTest(path=path, ability=payload['ability_id']):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path,
+                                 json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_commando_routes(self):
+        data = dict(character_id='123', session_id='owned', shot_id='commando-001',
+                    item_id='456', origin=[0, 1, 0], direction=[0, 0, -1], two_hands=True)
+        requests = [('/combat/session/commando', dict(data, ability_id=ability))
+                    for ability in ('', 'overdrive')]
+        requests += [('/combat/session/commando', dict(data, ability_id=ability, target_id='789'))
+                     for ability in ('focused_discharge', 'acid_spray')]
+        requests += [('/scout/grenade', dict(character_id='123', item_id='456', target_id='789',
+                                           position=[0, 0, 0], request_id='grenade-001'))]
+        for path, payload in requests:
+            with self.subTest(path=path, payload=payload):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path, json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_squad_leader_routes(self):
+        base = dict(character_id='123', session_id='owned', shot_id='squad-001',
+                    item_id='456', target_id='789', origin=[0,1,0], direction=[0,0,-1])
+        requests = [('/combat/session/squadleader', dict(base, ability_id=ability))
+                    for ability in ('steady_aim','rally','form_up','boost_morale','retreat','volley_fire')]
+        mark = dict(volley_mark_id='volley_123_12345678', volley_target_id='789')
+        requests += [('/combat/session/fire', dict(base, ability_id='lethal_shot', **mark)),
+                     ('/scout/grenade', dict(character_id='123', item_id='456', target_id='789',
+                                            position=[0,0,0], request_id='grenade-001', **mark))]
+        for path, payload in requests:
+            with self.subTest(path=path, payload=payload):
+                code, body = self.request('POST', path, json.dumps(payload))
+                self.assertEqual(code, 200)
+                self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+                admitted = len(self.upstream.seen)
+                self.assertEqual(self.request('POST', path, json.dumps(dict(payload, account='bob')))[0], 403)
+                self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_doctor_route(self):
+        for ability in ('reviveplayer', 'extinguishfire', 'healstate'):
+            data = dict(character_id='123', session_id='owned', request_id='doctor-tls-001',
+                        ability=ability, item_id='456', target_id='789', focus_id='457',
+                        pose=dict(tracked=True, crossed=False, grips=False, left=[0,1,0], right=[.3,1,0]))
+            code, body = self.request('POST', '/medic/doctor', json.dumps(data))
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(body)['body'], dict(data, account='alice'))
+            admitted = len(self.upstream.seen)
+            self.assertEqual(self.request('POST', '/medic/doctor', json.dumps(dict(data, account='bob')))[0], 403)
+            self.assertEqual(len(self.upstream.seen), admitted)
+
+    def test_owned_bounty_combat_route(self):
+        base = dict(character_id='123', session_id='owned', shot_id='bounty-tls-001',
+                    item_id='456', origin=[0,1,0], direction=[0,0,-1], two_hands=True)
+        for payload in (dict(base, ability_id='underhand_shot'),
+                        dict(base, ability_id='duelist_stance', target_id='789', two_hands=False)):
+            code, body = self.request('POST', '/combat/session/bountyhunter', json.dumps(payload))
+            self.assertEqual(code, 200)
+            self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+            admitted = len(self.upstream.seen)
+            self.assertEqual(self.request('POST', '/combat/session/bountyhunter',
+                                         json.dumps(dict(payload, account='bob')))[0], 403)
+            self.assertEqual(len(self.upstream.seen), admitted)
+
     def test_owned_inventory_unequip_route(self):
         data = dict(character_id='123', item_id='456')
         code, body = self.request('POST', '/inventory/unequip', json.dumps(data))

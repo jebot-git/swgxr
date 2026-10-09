@@ -183,6 +183,60 @@
       "healthAttackCost": 18.0,
       "actionAttackCost": 40.0,
       "mindAttackCost": 24.0
+    },
+    "rifle_flame_thrower": {
+      "attackSpeed": 5.0,
+      "healthAttackCost": 80.0,
+      "actionAttackCost": 25.0,
+      "mindAttackCost": 25.0
+    },
+    "rifle_acid_beam": {
+      "attackSpeed": 5.2,
+      "healthAttackCost": 35.0,
+      "actionAttackCost": 35.0,
+      "mindAttackCost": 15.0
+    },
+    "pistol_launcher": {
+      "attackSpeed": 4.0,
+      "healthAttackCost": 23.0,
+      "actionAttackCost": 54.0,
+      "mindAttackCost": 23.0
+    },
+    "heavy_rocket_launcher": {
+      "attackSpeed": 10.0,
+      "healthAttackCost": 95.0,
+      "actionAttackCost": 42.0,
+      "mindAttackCost": 23.0
+    },
+    "heavy_particle_beam": {
+      "attackSpeed": 7.8,
+      "healthAttackCost": 25.0,
+      "actionAttackCost": 85.0,
+      "mindAttackCost": 25.0
+    },
+    "heavy_acid_beam": {
+      "attackSpeed": 10.5,
+      "healthAttackCost": 60.0,
+      "actionAttackCost": 60.0,
+      "mindAttackCost": 15.0
+    },
+    "heavy_lightning_beam": {
+      "attackSpeed": 6.0,
+      "healthAttackCost": 35.0,
+      "actionAttackCost": 75.0,
+      "mindAttackCost": 20.0
+    },
+    "pistol_scatter": {
+      "attackSpeed": 3.0,
+      "healthAttackCost": 24.0,
+      "actionAttackCost": 54.0,
+      "mindAttackCost": 24.0
+    },
+    "rifle_lightning": {
+      "attackSpeed": 4.7,
+      "healthAttackCost": 55.0,
+      "actionAttackCost": 70.0,
+      "mindAttackCost": 55.0
     }
   }
 }

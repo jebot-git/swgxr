@@ -6,7 +6,7 @@ from PIL import Image
 from swg_formats import TreSet
 ROOT=Path(__file__).resolve().parents[2]
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--catalog',type=Path,default=ROOT/'runtime/assets/datapad/catalog.json');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--report',type=Path,default=ROOT/'runtime/evidence/datapad-assets-validation.json');a=ap.parse_args();c=json.loads(a.catalog.read_text());base=a.catalog.parent;t=TreSet(a.tre_dir);errors=[];glyphs=0
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--catalog',type=Path,default=ROOT/'runtime/assets/datapad/catalog.json');ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');ap.add_argument('--report',type=Path,default=ROOT/'runtime/evidence/datapad-assets-validation.json');a=ap.parse_args();c=json.loads(a.catalog.read_text());base=a.catalog.parent;t=TreSet(a.tre_dir);errors=[];glyphs=0
  for path,record in c['provenance']['dependencies'].items():
   if hashlib.sha256(t.read(path)).hexdigest()!=record['sha256']:errors.append('Source hash mismatch: '+path)
  for key,planet in c['maps'].items():

@@ -43,8 +43,10 @@ func _ready() -> void:
 	# Advance after cameras/weapon orchestration, once per rendered frame.
 	process_priority = 100
 	# Compile bounded known programs before the first shot; no texture I/O per hit.
+	var projectiles:Array=[]
+	for weapon:Dictionary in assets.catalog.get("weapons",{}).values():projectiles.append(str(weapon.get("projectile","")))
 	for path in assets.catalog.get("particles",{}):
-		var kind := "tracer" if "bolt" in path or "trail.prt" in path else ("muzzle" if "muz" in path else "impact")
+		var kind := "tracer" if path in projectiles or "bolt" in path or "trail.prt" in path else ("muzzle" if "muz" in path else "impact")
 		compile_source(path,kind)
 
 static func value(curve: Dictionary, t: float, channel := 1) -> float:

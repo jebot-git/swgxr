@@ -3,11 +3,13 @@ try:
  from .housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from .fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
  from .slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
+ from .bounty_protocol import ACTIONS as BOUNTY_ACTIONS, fields as bounty_fields, normalize_snapshot as bounty_snapshot
  from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 except ImportError:
  from housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
  from slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
+ from bounty_protocol import ACTIONS as BOUNTY_ACTIONS, fields as bounty_fields, normalize_snapshot as bounty_snapshot
  from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 from copy import deepcopy
 import math,re,json
@@ -21,8 +23,8 @@ except ImportError:
  from datapad_protocol import display,template_label
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
-ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
-ACTIONS+=('underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
+ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
+ACTIONS+=('underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
 MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
@@ -79,10 +81,11 @@ def command(action,data):
   if not isinstance(values,dict) or len(values)>128 or any(not isinstance(k,str) or not re.fullmatch(r'[A-Za-z0-9_/]{1,128}',k) or type(v) is not int or not 0<=v<=255 for k,v in values.items()):raise ValueError('Valid original vendor customization required.')
   out['customization']=values
  if action in ('vendor_recover','vendor_customize'):out.pop('terminal_id',None)
- if action=='trainer_train':
+ if action in ('trainer_train','skill_forget'):
   skill=data.get('skill_id')
   if not isinstance(skill,str) or not re.fullmatch(r'[a-z][a-z0-9_]{1,95}',skill):raise ValueError('Native trainer skill_id required.')
   out['skill_id']=skill
+  if action=='skill_forget':out.pop('terminal_id',None)
  if action=='bank_transfer':
   if data.get('direction') not in ('deposit','withdraw'):raise ValueError('Choose deposit or withdraw.')
   out['direction']=data['direction']
@@ -127,6 +130,8 @@ def command(action,data):
  if action in HOUSING_ACTIONS:out.update(housing_fields(action,data))
  if action in FISHING_ACTIONS:out.update(fishing_fields(action,data))
  if action in SLICING_ACTIONS:out.update(slicing_fields(action,data))
+ if action in BOUNTY_ACTIONS:
+  out.update(bounty_fields(action,data));out.pop('terminal_id',None)
  return out
 
 def label(value):
@@ -152,6 +157,7 @@ def snapshot(raw,oid,attributes=None):
  if len(state.get('terminals',[]))>128 or len(state.get('tickets',[]))>256:raise ValueError('Native services snapshot exceeds bounds.')
  if len(state.get('delivery_contacts',[]))>32 or len(state.get('parcels',[]))>16:raise ValueError('Native delivery snapshot exceeds bounds.')
  if len(state.get('vendors',[]))>64 or len(state.get('placed_vendors',[]))>64:raise ValueError('Native vendor snapshot exceeds bounds.')
+ if 'bounty' in state:state['bounty']=bounty_snapshot(state['bounty'],label)
  for vendor in state.get('vendors',[])+state.get('placed_vendors',[]):
   if not isinstance(vendor.get('id'),str) or not vendor['id'].isdigit():raise ValueError('Native vendor identity required.')
   vendor['shared_template']=template_names().get(vendor.get('client_crc'),'')

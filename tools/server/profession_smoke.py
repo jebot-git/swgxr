@@ -19,7 +19,7 @@ from swg_formats import TreSet
 def main():
     catalog = export(ROOT/'vendor/Core3', json.loads((ROOT/'client/combat/balance.json').read_text()))
     assert not catalog['failures']
-    rows = datatable(TreSet(ROOT/'runtime/assets/active_tre').read('datatables/skill/skills.iff'))
+    rows = datatable(TreSet(ROOT/'runtime/asset_sources/active_tre').read('datatables/skill/skills.iff'))
     trees = ['combat_marksman_', 'combat_brawler_'] + ['combat_' + value + '_' for value in ADVANCED.values()]
     learned = [row['NAME'] for row in rows if any(row['NAME'].startswith(prefix) for prefix in trees)]
     mods = {}

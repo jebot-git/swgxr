@@ -1,6 +1,7 @@
 extends RefCounted
 ## Authoritative projection and bounded proposals; never grants abilities locally.
 static func equipped(ability:Dictionary,loadout:Dictionary)->bool:
+	if ability.get("category","")=="gesture":return false
 	var id:=str(ability.get("id",""))
 	if id.is_empty():return false
 	if ability.get("ultimate",false) or id=="last_ditch":return id==str(loadout.get("ultimate",""))

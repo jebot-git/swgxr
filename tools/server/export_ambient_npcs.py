@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--planet', default='tatooine', choices=('corellia','dantooine','dathomir','endor','lok','naboo','rori','talus','tatooine','yavin4'))
     parser.add_argument('--city', default='mos_eisley', help='Tatooine city suffix, or all')
     parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/ambient_npcs')
-    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/asset_sources/active_tre')
     args = parser.parse_args()
     scripts = ROOT/'vendor/Core3/MMOCoreORB/bin/scripts'
     sources = {}; skipped = []; dependencies = {}

@@ -19,7 +19,7 @@ NAMES=('speederbike','speederbike_swoop','speederbike_flash','landspeeder_x34','
 from yoke_geometry import steering_component
 EXPORT_VERSION=4
 def source_signature():
- paths=[Path(__file__),Path(__file__).with_name("yoke_geometry.py"),ROOT/'tools/assets/static_assets.py',ROOT/'tools/assets/shader_alpha.py',ROOT/'runtime/assets/characters/catalog.json']+sorted((ROOT/'runtime/assets/active_tre').glob('*.tre'))
+ paths=[Path(__file__),Path(__file__).with_name("yoke_geometry.py"),ROOT/'tools/assets/static_assets.py',ROOT/'tools/assets/shader_alpha.py',ROOT/'runtime/assets/characters/catalog.json']+sorted((ROOT/'runtime/asset_sources/active_tre').glob('*.tre'))
  return hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)),p.stat().st_size,p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
 def prepared(out,signature,required):
  try:
@@ -39,8 +39,8 @@ def main():
  unsupported=[p for p in args.template if p not in required[:len(NAMES)]]
  if unsupported:raise SystemExit('Native vehicle templates outside prepared source saddle/VR seat support: '+', '.join(unsupported))
  if args.ensure and prepared(out,signature,required):print('All six original vehicle models, textures and native saddle descriptors are ready.');return
- imp=CharacterImporter(ROOT/'runtime/assets/active_tre',out)
- static=StaticAssets(ROOT/'runtime/assets/active_tre',out);static.t=imp.t;static.dependencies=imp.dependencies
+ imp=CharacterImporter(ROOT/'runtime/asset_sources/active_tre',out)
+ static=StaticAssets(ROOT/'runtime/asset_sources/active_tre',out);static.t=imp.t;static.dependencies=imp.dependencies
  logical={r['sat_or_skt_name']:r['logical_saddle_name'] for r in datatable(imp.read('datatables/mount/logical_saddle_name_map.iff'))}
  saddles={r['logical_saddle_name']:r for r in datatable(imp.read('datatables/mount/saddle_appearance_map.iff'))}
  poses={r['saddle_appearance_name']:r['rider_pose'] for r in datatable(imp.read('datatables/mount/rider_pose_map.iff'))}

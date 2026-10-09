@@ -32,6 +32,7 @@ var feedback = preload("res://combat/player_feedback.gd").new()
 var wrist_ham: Node3D
 var medic: Node3D
 var vehicles: Node3D
+var space: Node3D
 var medical_stick_side := ""
 var fishing_stick_side := ""
 var pet_stick_side := ""
@@ -50,6 +51,9 @@ func receive_combat_knockdown() -> bool:
 	return feedback.receive_knockdown()
 
 func request_jump(_skip_jump_velocity := false):
+	if is_instance_valid(space) and space.seated():
+		if space.ship.get("kind","pob")=="pob":space.request("leave")
+		return
 	if is_instance_valid(vehicles) and vehicles.seated():
 		vehicles.request("dismount");return
 	feedback.request_jump()
@@ -85,13 +89,14 @@ func _update_locomotion() -> void:
 		var provider := get_node_or_null(path)
 		if provider != null:
 			var moving: bool = path.contains("MovementDirect")
-			provider.enabled = active and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right") and pet_stick_side != ("left" if moving else "right") and fishing_stick_side != ("left" if moving else "right")
+			provider.enabled = active and not (is_instance_valid(space) and space.seated()) and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right") and pet_stick_side != ("left" if moving else "right") and fishing_stick_side != ("left" if moving else "right")
 
 func _on_controller_button(button: String, side := "left") -> void:
 	if button == "menu_button":
 		menu_requested.emit()
 		return
 	if interface_button_handler.is_valid() and interface_button_handler.call(button,side):return
+	if is_instance_valid(space) and space.button(button,side):return
 	if is_instance_valid(vehicles) and vehicles.button(button,side):return
 	if is_instance_valid(medic) and medic.button(button,side):return
 	if is_instance_valid(pet_controls) and pet_controls.button(button,side):return
@@ -111,7 +116,7 @@ func _physics_process(delta: float) -> void:
 	# collision or gravity while the player interacts with a world-space menu.
 	feedback.remove_offset()
 	_update_locomotion()
-	if is_instance_valid(vehicles) and vehicles.seated():
+	if (is_instance_valid(vehicles) and vehicles.seated()) or (is_instance_valid(space) and space.seated()):
 		velocity=Vector3.ZERO;ground_control_velocity=Vector2.ZERO
 		feedback.vital.advance(delta);return
 	super(delta)

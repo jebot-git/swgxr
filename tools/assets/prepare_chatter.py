@@ -11,7 +11,7 @@ from swg_formats import TreSet
 
 ROOT = Path(__file__).resolve().parents[2]
 def build(root=ROOT):
-    sources = TreSet(root / 'runtime/assets/active_tre')
+    sources = TreSet(root / 'runtime/asset_sources/active_tre')
     provenance = {}
 
     def read(path):

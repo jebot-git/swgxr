@@ -1,6 +1,7 @@
 #ifndef SWGXR_TRAINERS_H
 #define SWGXR_TRAINERS_H
 #include "SwgxrTrainerCatalog.h"
+#include "SwgxrSkillForgetting.h"
 #include "server/zone/objects/creature/ai/AiAgent.h"
 #include "server/zone/objects/creature/ai/CreatureTemplate.h"
 #include "server/zone/managers/skill/SkillManager.h"

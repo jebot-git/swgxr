@@ -83,7 +83,7 @@ def package(output, origin, ca, channel=None, target='linux-x86_64'):
         )
         (folder/'START-HERE.txt').write_text(
             'CoreCU / SWGXR tester launcher - ' + target + '\n\n' + instructions + '\n'
-            'Create an account with your invitation, or sign in. Install / Update, then Play VR.\n'
+            'Create an account (invitation only if required by this server), or sign in. Install / Update, then Play VR.\n'
             'The launcher stays on the desktop. A Vulkan-capable GPU is required for the client.\n'
             'The client build is delivered separately through channel: ' + channel + '\n'
             'Until a build is published, Install / Update reports that no client build is available.\n'

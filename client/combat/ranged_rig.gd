@@ -3,6 +3,7 @@ extends Node3D
 const WeaponState = preload("res://combat/weapon_state.gd")
 const Projectiles = preload("res://combat/projectiles.gd")
 const HandInput = preload("res://scripts/tracked_hand_input.gd")
+var movement_spread=preload("res://combat/movement_spread.gd").new()
 var spice_gunhand=preload("res://spice/gunhand.gd").new()
 var assets = preload("res://combat/original_assets.gd").new()
 var reticle: MeshInstance3D
@@ -16,6 +17,72 @@ var interaction_blocker: Callable
 # Optional live authority. Unset only in explicit local/offline inspection modes.
 var authority_gate: Callable
 var shot_authority: Callable
+var commando_authority: Callable
+var bountyhunter_context:Dictionary={}
+var bountyhunter_authority:Callable
+var bountyhunter_key:=""
+var bountyhunter_input_captured:=false
+var bountyhunter_armed_until:=0
+var bountyhunter_arm_item:=""
+var bountyhunter_arm_pending:=""
+var bountyhunter_arm_pending_shot:=""
+var bountyhunter_arm_pending_until:=0
+var bountyhunter_gestures=preload("res://combat/bountyhunter_gestures.gd").new()
+var rifleman_context:Dictionary={}
+var rifleman_authority:Callable
+var rifleman_key:=""
+var rifleman_input_captured:=false
+var rifleman_gestures=preload("res://combat/rifleman_gestures.gd").new()
+var carbineer_context:Dictionary={}
+var carbineer_authority:Callable
+var carbineer_key:=""
+var carbineer_input_captured:=false
+var carbineer_gestures=preload("res://combat/carbineer_gestures.gd").new()
+var pistoleer_context:Dictionary={}
+var pistoleer_authority:Callable
+var pistoleer_key:=""
+var pistoleer_input_captured:=false
+var pistoleer_gestures=preload("res://combat/pistoleer_gestures.gd").new()
+var showdown:Dictionary={}
+var showdown_gate:Callable
+var showdown_target:Node3D
+var brawler_authority:Callable
+var brawler_context:Dictionary={}
+var pikeman_context:Dictionary={}
+var pikeman_authority:Callable
+var pikeman_key:=""
+var pikeman_ultimate:=""
+var pikeman_input_captured:=false
+var pikeman_basis:=Basis.IDENTITY
+var pikeman_gestures=preload("res://combat/pikeman_gestures.gd").new()
+var fencer_context:Dictionary={}
+var fencer_authority:Callable
+var fencer_key:=""
+var fencer_ultimate:=""
+var fencer_input_captured:=false
+var fencer_basis:=Basis.IDENTITY
+var fencer_gestures=preload("res://combat/fencer_gestures.gd").new()
+var swordsman_context:Dictionary={}
+var swordsman_authority:Callable
+var swordsman_key:=""
+var swordsman_ultimate:=""
+var swordsman_input_captured:=false
+var swordsman_gestures=preload("res://combat/swordsman_gestures.gd").new()
+var tka_context:Dictionary={}
+var tka_authority:Callable
+var tka_key:=""
+var tka_ultimate:=""
+var tka_input_captured:=false
+var tka_basis:=Basis.IDENTITY
+var tka_gestures=preload("res://combat/tka_gestures.gd").new()
+var brawler_weapon_id:=""
+var brawler_gestures=preload("res://combat/brawler_gestures.gd").new()
+var brawler_input_captured:=false
+var melee_marker_previous:Dictionary={}
+var warcry_authority: Callable
+var warcry_context: Dictionary={}
+var overhead_warcry=preload("res://combat/overhead_warcry.gd").new()
+var warcry_input_captured:=false
 var taunt_authority: Callable
 var taunt_context: Dictionary={}
 var chest_taunt=preload("res://combat/chest_taunt.gd").new()
@@ -50,6 +117,9 @@ var unarmed: Dictionary = {}
 var unarmed_gloves: Dictionary = {}
 var abilities = preload("res://combat/ability_state.gd").new()
 var ability_ui: Node3D
+var squad_leader:Node3D
+var squad_input_captured:=false
+var squad_release_pending:=false
 var target_abilities: Node3D
 var ability_click_down := false
 var ability_prime_down := false
@@ -66,6 +136,10 @@ func configure_player_combat(context: Dictionary) -> void:
 	else: abilities.refresh_context(context)
 
 func combat_actions_allowed() -> bool:
+	# Friendly VATS owns treatment controls while the Doctor focus is held.
+	# Blocking at the shared attack gate also covers melee and volley paths.
+	var medic:Variant=body.get("medic") if is_instance_valid(body) else null
+	if is_instance_valid(medic) and medic.has_method("captures_combat") and medic.captures_combat():return false
 	if authority_gate.is_valid() and not bool(authority_gate.call()): return false
 	return not is_instance_valid(body) or not body.has_method("combat_actions_allowed") or body.combat_actions_allowed()
 
@@ -100,7 +174,7 @@ func party_menu_controller()->Node:
 	return performer.native if is_instance_valid(performer) and is_instance_valid(performer.get("native")) and performer.native.has_method("party_menu_entries") else null
 
 func circle_entries(profile:Dictionary)->Array:
-	var entries:Array=profile.get("abilities",[]).filter(func(entry):return entry.get("activation","")!="native_ranged").duplicate(true)
+	var entries:Array=profile.get("abilities",[]).filter(func(entry):return entry.get("activation","") not in ["native_ranged","native_melee","tka_gesture","swordsman_gesture","fencer_gesture","pikeman_gesture","pistoleer_gesture","carbineer_gesture","carbineer_ultimate","commando_ultimate","squadleader_support","squad_leader_ultimate","rifleman_gesture","bountyhunter_gesture","life_recovery"]).duplicate(true)
 	var party:=party_menu_controller()
 	if party!=null:entries.append_array(party.party_menu_entries())
 	return entries
@@ -119,13 +193,18 @@ func sample_ability_input(click: bool, stick: Vector2, prime: bool, tracked: boo
 	var permitted: bool = allowed and tracked and combat_actions_allowed() and inventory_allows_combat() and not (is_instance_valid(datapad) and datapad.is_open)
 	var profile := active_profile()
 	abilities.reconcile(profile)
-	if selected>=0 and not weapons[selected].state.is_melee() and is_instance_valid(target_abilities):
-		# Ranged combat never needs a circle selection or primed ability.
-		if abilities.selection.get("activation","")=="native_ranged":
+	if (selected>=0 or unarmed.has(dominant)) and is_instance_valid(target_abilities):
+		# Targeted combat uses the body overlay instead of circle selection.
+		if abilities.selection.get("activation","") in ["native_ranged","native_melee","tka_gesture","swordsman_gesture","fencer_gesture","pikeman_gesture","pistoleer_gesture","carbineer_gesture","carbineer_ultimate","commando_ultimate","squadleader_support","squad_leader_ultimate","rifleman_gesture","bountyhunter_gesture","life_recovery"]:
 			abilities.primed=false;abilities.replace_selection({})
 		close_ability_menu();ability_stick_latched=false
-		if not permitted:target_abilities.reset()
-		elif click and not ability_click_down:target_abilities.toggle(muzzle_pose(selected))
+		if not permitted:
+			target_abilities.reset()
+			if is_instance_valid(squad_leader):squad_leader.close()
+		elif click and not ability_click_down:
+			var pose:=head.global_transform if selected<0 or weapons[selected].state.is_melee() else muzzle_pose(selected)
+			if not is_instance_valid(squad_leader) or not squad_leader.toggle(pose):target_abilities.toggle(pose)
+			squad_input_captured=is_instance_valid(squad_leader) and squad_leader.active()
 		ability_click_down=click;ability_prime_down=prime
 		if is_instance_valid(body) and body.has_method("set_combat_capture"):body.set_combat_capture("",false)
 		return
@@ -170,6 +249,7 @@ func configure(camera: Camera3D, player: CharacterBody3D, profiles: Array, side 
 	ability_ui = preload("res://combat/ability_hologram.gd").new()
 	add_child(ability_ui)
 	target_abilities=preload("res://combat/target_abilities.gd").new();add_child(target_abilities);target_abilities.setup(self)
+	squad_leader=preload("res://combat/squad_leader.gd").new();add_child(squad_leader);squad_leader.setup(self)
 	if not assets.load_catalog():
 		last_error = "Original weapon assets missing. Run python3 tools/combat/prepare_assets.py."
 		return false
@@ -189,7 +269,8 @@ func configure(camera: Camera3D, player: CharacterBody3D, profiles: Array, side 
 	rounds_sim.configure_effects(assets,head)
 	for data in profiles:
 		var state := WeaponState.new()
-		state.ability_state = abilities
+		state.ability_state = null if shot_authority.is_valid() else abilities
+		if shot_authority.is_valid():state.wear_per_shot=0.0
 		# Live snapshots use Core3's certification decision. Synthetic grants
 		# remain confined to the explicitly labeled template lab.
 		var owned_certificates: Array = data.core3.certificationsRequired if data.get("source_kind","")!="core3_weapon_instance" or data.get("certified",false) else []
@@ -217,7 +298,8 @@ func configure_unarmed(profile: Dictionary) -> bool:
 	unarmed.clear()
 	for side in ["left","right"]:
 		var state := WeaponState.new()
-		state.ability_state = abilities
+		state.ability_state = null if shot_authority.is_valid() else abilities
+		if shot_authority.is_valid():state.wear_per_shot=0.0
 		if not state.configure(profile,[]): return false
 		unarmed[side]=state
 	return true
@@ -233,8 +315,13 @@ func vehicle_hand_busy(side: String)->bool:
 
 func sample_unarmed(delta: float, side: String, pose: Transform3D, tracked: bool, posture: String, trigger := 0.0) -> void:
 	if not unarmed.has(side): return
-	var permitted: bool = allowed and not dna_input_captured and not taunt_input_captured and not pet_trigger_reserved(side) and selected<0 and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
+	var permitted: bool = allowed and not squad_input_captured and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and not pet_trigger_reserved(side) and selected<0 and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
 	var shot: Dictionary=unarmed[side].sample_swing(delta,permitted,false,posture,swing_position(pose.origin),is_finite(trigger) and trigger>=0.5)
+	var prior:Vector3=melee_marker_previous.get(side,pose.origin)
+	melee_marker_previous[side]=pose.origin
+	if is_instance_valid(target_abilities):
+		target_abilities.sample_punch(side,pose.origin,delta,permitted and trigger>=.5)
+		shot=target_abilities.melee_swing(shot,prior,pose.origin,side,delta,permitted and trigger>=.5)
 	if not shot.is_empty():
 		shot["hand"]=side
 		if not dispatch_shot(shot,pose,pose.origin,unarmed[side].profile,true):return
@@ -256,6 +343,15 @@ func update_unarmed_gloves() -> void:
 
 func make_visual(data: Dictionary) -> Node3D:
 	return assets.model(str(data.id))
+
+func melee_tip_local(index:int)->Vector3:
+	var bounds:AABB=weapons[index].bounds
+	var axis:=bounds.size.max_axis_index()
+	var point:=bounds.get_center()
+	point[axis]=bounds.end[axis] if absf(bounds.end[axis])>=absf(bounds.position[axis]) else bounds.position[axis]
+	return point
+func melee_tip(index:int)->Vector3:
+	return weapons[index].visual.global_transform*melee_tip_local(index)
 
 func muzzle_pose(index: int) -> Transform3D:
 	var pose: Transform3D = weapons[index].visual.global_transform
@@ -437,7 +533,7 @@ func finalize_held_weapon() -> void:
 func set_allowed(value: bool) -> void:
 	allowed = value
 	if not value:
-		chest_taunt.clear();taunt_input_captured=false
+		chest_taunt.clear();taunt_input_captured=false;overhead_warcry.clear();warcry_input_captured=false;brawler_gestures.clear();brawler_input_captured=false;tka_gestures.clear();tka_input_captured=false;swordsman_gestures.clear();swordsman_input_captured=false;fencer_gestures.clear();fencer_input_captured=false;pikeman_gestures.clear();pikeman_input_captured=false;melee_marker_previous.clear()
 		ability_stick_latched = false
 		if is_instance_valid(body) and body.has_method("set_combat_capture"): body.set_combat_capture("", false)
 		for weapon in weapons: weapon.state.block()
@@ -445,7 +541,11 @@ func set_allowed(value: bool) -> void:
 		stow()
 
 func stow() -> void:
+	clear_bountyhunter()
+	cancel_showdown();pistoleer_gestures.clear();pistoleer_input_captured=false;carbineer_gestures.clear();carbineer_input_captured=false;rifleman_gestures.clear();rifleman_input_captured=false
 	if is_instance_valid(target_abilities):target_abilities.reset()
+	if is_instance_valid(squad_leader):squad_leader.close()
+	squad_input_captured=squad_release_pending
 	physical_guard.clear()
 	spice_gunhand.suspend()
 	close_ability_menu()
@@ -499,6 +599,7 @@ func current_firing_posture() -> String:
 	return posture_tracker.update_desktop(posture,body.get_grounded() if body.has_method("get_grounded") else body.is_on_floor())
 
 func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, grip: float, support_grip: float, trigger: float, tracked: bool, support_tracked: bool, action := false, support_trigger := 0.0) -> void:
+	movement_spread.sample(body.velocity,head.position,delta,tracked and allowed)
 	var previous_grip := main_grip_down
 	var previous_support := support_grip_down
 	if grip < 0.25: main_grip_down = false
@@ -510,7 +611,7 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 		stow()
 	else:
 		if selected >= 0 and not main_grip_down: stow()
-		if selected < 0 and main_grip_down and not previous_grip and not taunt_input_captured:
+		if selected < 0 and main_grip_down and not previous_grip and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured:
 			var nearest := 0.22
 			var candidate := -1
 			for i in range(weapons.size()):
@@ -524,7 +625,7 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 			if not support_grip_down or not support_tracked: support_latched = false
 			var long_gun := int(weapon.state.profile.hands)==2
 			var attach_point := support_point(selected) if long_gun else main_pose.origin
-			if support_tracked and support_grip_down and not previous_support and support_pose.origin.distance_to(attach_point) < 0.18:
+			if support_tracked and support_grip_down and not previous_support and support_pose.origin.distance_to(attach_point) < 0.18 and (not rifleman_input_captured and not bountyhunter_input_captured or rifleman_gestures.phase=="regrip"):
 				support_latched = true
 			# A pistol's rendered support hand stays attached until release; its
 			# physical controller continues reporting input but cannot steer it.
@@ -535,19 +636,45 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 	action_down = action
 	var posture := current_firing_posture()
 	var special:Dictionary={};var special_reserved:=false
-	if is_instance_valid(target_abilities) and selected>=0 and not weapons[selected].state.is_melee():
+	var continuing_showdown:=not showdown.is_empty()
+	if continuing_showdown:
+		step_showdown(delta,permitted and support_tracked and combat_actions_allowed() and not ability_ui.menu_open and not squad_input_captured and not dna_input_captured,posture)
+		trigger=0.0
+	if not continuing_showdown and not squad_input_captured and is_instance_valid(target_abilities) and selected>=0 and not weapons[selected].state.is_melee():
 		target_abilities.refresh()
 		var contact:bool=selected>=0 and two_hands and support_tracked and support_grip_down and not offhand_occupied and support_pose.origin.distance_to(support_point(selected) if int(weapons[selected].state.profile.hands)==2 else main_pose.origin)<.23
-		var input:Dictionary=target_abilities.ultimate_input.sample(delta,trigger,support_trigger,contact,permitted and combat_actions_allowed() and not dna_input_captured and not taunt_input_captured and not ability_ui.menu_open)
+		var input:Dictionary={"trigger":trigger,"reserved":false,"ultimate":false} if str(active_profile().get("ability_loadout",{}).get("ultimate",""))=="volley_fire" else target_abilities.ultimate_input.sample(delta,trigger,support_trigger,contact,permitted and combat_actions_allowed() and not squad_input_captured and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and not ability_ui.menu_open)
 		trigger=float(input.trigger);special_reserved=bool(input.reserved)
 		if input.ultimate and selected>=0:
-			special=target_abilities.attack(muzzle_pose(selected),true)
-			if not special.is_empty():trigger=1.0;special_reserved=false
+			if str(active_profile().get("ability_loadout",{}).get("ultimate",""))=="overdrive":
+				trigger=0.;special_reserved=true
+				if commando_authority.is_valid() and bool(commando_authority.call("overdrive",muzzle_pose(selected),dominant)):action_haptic("fire")
+			elif str(active_profile().get("ability_loadout",{}).get("ultimate",""))=="charge_blast":
+				# Cone ultimates use the physical muzzle and need no acquired actor.
+				trigger=0.;special_reserved=true
+				if not pet_trigger_reserved(dominant) and not pet_trigger_reserved("left" if dominant=="right" else "right") and carbineer_authority.is_valid() and bool(carbineer_authority.call("charge_blast",muzzle_pose(selected),dominant)):action_haptic("fire")
+			else:special=target_abilities.attack(muzzle_pose(selected),true)
+			if not special.is_empty():
+				trigger=1.0;special_reserved=false
+				if special.get("ability_id","")=="showdown":showdown_target=target_abilities.ultimate_target
 		elif selected>=0 and trigger>=.75 and not special_reserved:special=target_abilities.attack(muzzle_pose(selected))
+		if special.get("ability_id","")=="flurry_shot":showdown_target=target_abilities.target
+	if bountyhunter_armed_until>0 and selected>=0 and trigger>=.75 and not special_reserved:
+		if Time.get_ticks_usec()<=bountyhunter_armed_until and str(weapons[selected].state.profile.get("item_id",""))==bountyhunter_arm_item:special={"ability_id":"underhand_shot"}
 	for i in range(weapons.size()):
 		var state = weapons[i].state
-		var shot: Dictionary = state.sample_swing(delta,permitted and not dna_input_captured and not taunt_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture,swing_position(main_pose.origin),is_finite(trigger) and trigger>=0.5) if state.is_melee() else state.tick(delta,trigger,permitted and not dna_input_captured and not taunt_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture)
+		var shot: Dictionary = state.sample_swing(delta,permitted and not squad_input_captured and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and selected==i and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture,swing_position(main_pose.origin),is_finite(trigger) and trigger>=0.5) if state.is_melee() else state.tick(delta,0.0 if squad_input_captured or special.get("ability_id","") in ["showdown","flurry_shot"] else trigger,permitted and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and selected==i and not continuing_showdown and combat_actions_allowed() and not ability_ui.menu_open,two_hands,posture)
+		if selected==i and not state.is_melee() and special.get("ability_id","") in ["showdown","flurry_shot"]:
+			shot=state.showdown_round(two_hands,posture,true)
+		var melee_point:Vector3=melee_tip(i) if state.is_melee() else muzzle_pose(i).origin
+		var previous_point:Vector3=melee_marker_previous.get("weapon",melee_point)
+		if selected==i:melee_marker_previous["weapon"]=melee_point
+		if state.is_melee() and selected==i and is_instance_valid(target_abilities):
+			var melee_permitted:bool=permitted and trigger>=.5 and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and not warcry_input_captured and not taunt_input_captured and not squad_input_captured and not dna_input_captured
+			target_abilities.sample_punch("weapon",main_pose.origin,delta,melee_permitted)
+			shot=target_abilities.melee_swing(shot,previous_point,melee_point,"weapon",delta,melee_permitted)
 		if not shot.is_empty():
+			if special.get("ability_id","")=="underhand_shot":bountyhunter_armed_until=0;bountyhunter_arm_item=""
 			if not special.is_empty() and not state.is_melee():shot.merge(special,true)
 			var pose := muzzle_pose(i)
 			if not dispatch_shot(shot,pose,weapons[i].visual.global_position,state.profile,state.is_melee()):continue
@@ -559,18 +686,251 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 func dispatch_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, profile: Dictionary, melee: bool) -> bool:
 	var immutable: Dictionary=shot.duplicate(true)
 	immutable["item_id"]=str(profile.get("item_id",""))
-	if not melee and immutable.get("aim_point") is Vector3:
+	if not melee:
+		immutable["local_ammo_spent"]=1
+		immutable["delivery"]=str(profile.get("delivery","bolt"))
+	if not melee and immutable.get("ability_id","") not in ["showdown","flurry_shot"] and immutable.get("aim_point") is Vector3:
 		var direction:Vector3=immutable.aim_point-pose.origin
 		if direction.length_squared()<.001:return false
 		pose.basis=Basis.looking_at(direction.normalized())
+	if is_instance_valid(squad_leader):immutable.merge(squad_leader.volley_intent(head.global_transform if melee else pose,float(shot.get("range",profile.get("core3",{}).get("maxRange",0))),str(immutable.get("target_id",""))))
+	if not melee:
+		pose=movement_spread.apply(pose,profile)
+		immutable["movement_spread_degrees"]=movement_spread.degrees(profile)
 	if shot_authority.is_valid():
 		var authorized: Variant=shot_authority.call(immutable,head.global_transform if melee else pose,grip)
-		if not authorized is Dictionary or authorized.is_empty(): return false
+		if not authorized is Dictionary or authorized.is_empty():
+			if not melee and (profile.get("native_family","")=="commando" or profile.get("delivery","") in ["scatter","guided_bolt"] or immutable.get("ability_id","") in ["double_tap","disarming_shot","showdown","crippling_shot","wild_shot","charge_shot","suppression_fire","lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot","eye_shot","confusion_shot","fast_blast","underhand_shot","bleeding_shot"]) and selected>=0:weapons[selected].state.refund_rounds(1)
+			return false
 		immutable=authorized.duplicate(true)
+	if not melee and immutable.get("ability_id","") in ["showdown","flurry_shot"] and int(immutable.get("volley_index",0))==0:
+		showdown={"ability_id":str(immutable.ability_id),"item_id":str(immutable.item_id),"target_id":str(immutable.target_id),"volley_id":str(immutable.get("volley_id","")),"index":1,"wait":.25}
+	if not melee and not str(immutable.get("ability_id","")).is_empty() and selected>=0:
+		var state=weapons[selected].state
+		state.next_shot=state.clock+float(immutable.get("ability",{}).get("interval_seconds",60.0/state.effective_rpm()))
+	if immutable.get("native_direct",false):return true # Accepted receipt presents the cone/beam; no bolt or local damage.
+	if not melee and profile.get("native_family","")=="commando" and not shot_authority.is_valid():immutable["cosmetic_only"]=true
+	if not melee and profile.get("native_family","")=="commando" and str(profile.get("delivery","")) in ["cone","beam"]:
+		rounds_sim.present_heavy(immutable,pose,grip,profile);return true
 	if melee and shot_authority.is_valid():rounds_sim.play_melee_swing(immutable,pose)
 	elif melee: rounds_sim.strike_melee(immutable,head.global_transform,pose)
 	else: rounds_sim.spawn(immutable,pose,grip)
 	return true
+
+func commando_feedback(receipt:Dictionary)->void:
+	if not is_instance_valid(rounds_sim) or not receipt.get("heavy_pose") is Transform3D or not receipt.get("heavy_grip") is Vector3:return
+	rounds_sim.present_heavy(receipt,receipt.heavy_pose,receipt.heavy_grip,receipt.get("heavy_profile",{}))
+
+func cancel_showdown()->void:
+	showdown.clear();showdown_target=null
+
+func fan_shot_feedback(receipt:Dictionary)->void:
+	if not receipt.get("fan_pose") is Transform3D or not receipt.get("fan_grip") is Vector3 or not is_instance_valid(rounds_sim):return
+	var shot:Dictionary=receipt.get("fan_profile",{}).duplicate(true)
+	if shot.is_empty():return
+	shot["cosmetic_only"]=true;shot.range=minf(12,float(shot.range))
+	for angle:float in [-20.,0.,20.]:
+		var pose:Transform3D=receipt.fan_pose
+		pose.basis=pose.basis*Basis(Vector3.UP,deg_to_rad(angle))
+		rounds_sim.spawn(shot,pose,receipt.fan_grip)
+
+func step_showdown(delta:float,permitted:bool,posture:String)->void:
+	if showdown.is_empty():return
+	if not permitted or not is_finite(delta) or delta<=0 or delta>.1 or selected<0 or not target_abilities.actor_eligible(showdown_target) or str(weapons[selected].state.profile.get("item_id",""))!=str(showdown.item_id) or not volley_equipped(str(showdown.get("ability_id","showdown"))):cancel_showdown();return
+	showdown.wait=float(showdown.wait)-delta
+	if float(showdown.wait)>0:return
+	if showdown_gate.is_valid():
+		var status:=str(showdown_gate.call(str(showdown.volley_id)))
+		if status=="invalid":cancel_showdown();return
+		if status=="pending":return
+	var state=weapons[selected].state
+	var shot:Dictionary=state.showdown_round(two_hands,posture,false)
+	if shot.is_empty():cancel_showdown();return
+	shot.merge({"ability_id":str(showdown.get("ability_id","showdown")),"target_id":str(showdown.target_id),"volley_id":str(showdown.volley_id),"volley_index":int(showdown.index)})
+	if not dispatch_shot(shot,muzzle_pose(selected),weapons[selected].visual.global_position,state.profile,false):
+		cancel_showdown();return
+	showdown.index=int(showdown.index)+1;showdown.wait=.25
+	action_haptic("fire")
+	if int(showdown.index)>=3:cancel_showdown()
+
+func volley_equipped(id:String)->bool:
+	for ability:Dictionary in active_profile().get("abilities",[]):
+		if str(ability.get("id",""))==id:return preload("res://combat/loadout.gd").equipped(ability,active_profile().get("ability_loadout",{}))
+	return false
+
+func clear_bountyhunter()->void:
+	bountyhunter_gestures.clear();bountyhunter_input_captured=false;bountyhunter_armed_until=0;bountyhunter_arm_item="";bountyhunter_arm_pending="";bountyhunter_arm_pending_shot="";bountyhunter_arm_pending_until=0
+
+func configure_bountyhunter(context:Dictionary,callback:Callable,item_id:String,epoch:String)->void:
+	var grants:Array=[]
+	for id:String in context:
+		if context[id] is Dictionary and context[id].get("learned",false):grants.append(id)
+	grants.sort()
+	var key:=JSON.stringify([epoch,item_id,grants,dominant])
+	if key!=bountyhunter_key:clear_bountyhunter();bountyhunter_key=key
+	bountyhunter_context=context.duplicate(true);bountyhunter_authority=callback
+
+func bountyhunter_feedback(receipt:Dictionary)->void:
+	if receipt.get("ability_id","")=="underhand_shot" and receipt.get("armed",false) and selected>=0 and not bountyhunter_arm_pending.is_empty() and str(receipt.get("shot_id",""))==bountyhunter_arm_pending_shot and Time.get_ticks_usec()<=bountyhunter_arm_pending_until and bountyhunter_arm_pending==str(weapons[selected].state.profile.get("item_id","")):
+		bountyhunter_armed_until=Time.get_ticks_usec()+int(clampf(float(receipt.get("armed_remaining_seconds",1.5)),0,1.5)*1000000)
+		bountyhunter_arm_item=str(weapons[selected].state.profile.get("item_id",""))
+	bountyhunter_arm_pending="";bountyhunter_arm_pending_shot="";bountyhunter_arm_pending_until=0
+
+func sample_bountyhunter_gestures(delta:float,head_tracked:bool)->void:
+	bountyhunter_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and bountyhunter_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and showdown.is_empty() and not squad_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not offhand_occupied
+	if not permitted or not is_instance_valid(origin):clear_bountyhunter();return
+	var state=weapons[selected].state
+	var family:=str(state.profile.get("class",""))
+	var compatible:bool=family in ["holdout","pistol","heavy_pistol","carbine","burst_carbine"] or str(state.profile.get("id",""))=="rifle_lightning"
+	if not compatible or state.is_melee() or not state.certified() or state.reload_until>=0 or state.condition_max<2 or state.condition_damage>=state.condition_max:clear_bountyhunter();return
+	var main:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
+	var offhand:="left" if dominant=="right" else "right"
+	var support:XRController3D=origin.get_node(offhand.capitalize()+"Hand")
+	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(support) or main.get_float("grip")<.65 or vehicle_hand_busy(dominant) or vehicle_hand_busy(offhand) or pet_trigger_reserved(dominant) or pet_trigger_reserved(offhand):clear_bountyhunter();return
+	if not bountyhunter_arm_pending.is_empty():
+		if Time.get_ticks_usec()>bountyhunter_arm_pending_until or support.get_float("grip")<.65 or not support_latched or main.get_float("trigger")>=.2 or support.get_float("trigger")>=.2:clear_bountyhunter()
+		bountyhunter_input_captured=true;return
+	if bountyhunter_armed_until>0:
+		if Time.get_ticks_usec()>bountyhunter_armed_until or support.get_float("trigger")>=.2 or support.get_float("grip")<.65 or not support_latched or str(state.profile.get("item_id",""))!=bountyhunter_arm_item:clear_bountyhunter()
+		return
+	var available:Array=[]
+	for id:String in ["duelist_stance","underhand_shot"]:
+		var row:Dictionary=bountyhunter_context.get(id,{})
+		if row.get("learned",false) and row.get("conditions_met",false) and not row.get("active",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0 and (id!="underhand_shot" or family in ["carbine","burst_carbine"]):available.append(id)
+	var forward:Vector3=-head.global_basis.z;forward.y=0
+	if forward.length_squared()<.1:clear_bountyhunter();return
+	var frame:=Transform3D(Basis(Vector3.UP,atan2(-forward.x,-forward.z)),head.global_position)
+	var gun:=controller_weapon_pose(main)
+	var id:String=bountyhunter_gestures.sample(delta,frame.affine_inverse()*gun,frame.affine_inverse()*support.global_transform,origin.global_transform.affine_inverse()*head.global_position,main.get_float("trigger"),support.get_float("trigger"),main.get_float("grip"),support.get_float("grip"),support_latched,true,available)
+	bountyhunter_input_captured=bountyhunter_gestures.capturing
+	if bountyhunter_input_captured:physical_guard.clear()
+	if not id.is_empty():
+		pose_weapon(gun,support.global_transform)
+		if bool(bountyhunter_authority.call(id,muzzle_pose(selected),dominant)):action_haptic("fire")
+
+func configure_rifleman(context:Dictionary,callback:Callable,item_id:String)->void:
+	var key:=JSON.stringify([item_id,context.get("rifleman_focus",{}).get("learned",false)])
+	if key!=rifleman_key:rifleman_gestures.clear();rifleman_key=key;cancel_showdown()
+	rifleman_context=context.duplicate(true);rifleman_authority=callback
+
+func sample_squad_controls(delta:float,main:float,support:float,tracked:bool,support_tracked:bool)->void:
+	squad_input_captured=false
+	if not is_instance_valid(squad_leader):return
+	if not tracked or not allowed or not combat_actions_allowed() or not inventory_allows_combat():
+		squad_leader.close();squad_leader.ultimate_input.reset();return
+	if squad_leader.sample(main):squad_input_captured=true;squad_release_pending=true;return
+	if squad_release_pending:
+		squad_input_captured=true
+		if main<.25:squad_release_pending=false
+		return
+	if str(active_profile().get("ability_loadout",{}).get("ultimate",""))!="volley_fire":squad_leader.ultimate_input.reset();return
+	# This command uses the same deliberate two-trigger chord for every weapon.
+	# It consumes no ammunition and does not require a melee swing or support grip.
+	var result:Dictionary=squad_leader.ultimate_input.sample(delta,main,support,support_tracked,squad_leader.permitted() and not dna_input_captured and not offhand_occupied)
+	squad_input_captured=bool(result.reserved)
+	if result.ultimate and squad_leader.ultimate(squad_leader.aim()):action_haptic("fire")
+
+func sample_rifleman_gestures(delta:float,head_tracked:bool)->void:
+	rifleman_input_captured=false
+	var row:Dictionary=rifleman_context.get("rifleman_focus",{})
+	var permitted:bool=allowed and head_tracked and selected>=0 and rifleman_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and showdown.is_empty() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not offhand_occupied and row.get("learned",false) and row.get("conditions_met",false) and not row.get("active",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get("rifleman_focus",0))<=0
+	if not permitted or not is_instance_valid(origin):rifleman_gestures.clear();return
+	var state=weapons[selected].state
+	if state.is_melee() or not state.certified() or str(state.profile.get("class","")) not in ["rifle","marksman","repeater","bowcaster","slugthrower"] or state.reload_until>=0 or state.condition_max<2 or state.condition_damage>=state.condition_max:rifleman_gestures.clear();return
+	var main:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
+	var offhand:="left" if dominant=="right" else "right"
+	var support:XRController3D=origin.get_node(offhand.capitalize()+"Hand")
+	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(support) or vehicle_hand_busy(dominant) or vehicle_hand_busy(offhand) or pet_trigger_reserved(dominant) or pet_trigger_reserved(offhand):rifleman_gestures.clear();return
+	var frame:=origin.global_transform.affine_inverse()
+	var id:String=rifleman_gestures.sample(delta,frame*controller_weapon_pose(main),frame*support.global_transform,frame*head.global_transform,dominant,main.get_float("trigger"),support.get_float("trigger"),main.get_float("grip"),support.get_float("grip"),support_latched,permitted)
+	rifleman_input_captured=rifleman_gestures.capturing
+	if rifleman_input_captured:physical_guard.clear()
+	if not id.is_empty():
+		if is_instance_valid(target_abilities):target_abilities.close()
+		if bool(rifleman_authority.call(id,muzzle_pose(selected),dominant)):action_haptic("fire")
+
+func configure_carbineer(context:Dictionary,callback:Callable,item_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned])
+	if key!=carbineer_key:carbineer_gestures.clear();carbineer_key=key
+	carbineer_context=context.duplicate(true);carbineer_authority=callback
+
+func sample_carbineer_gestures(delta:float,head_tracked:bool)->void:
+	carbineer_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and carbineer_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not offhand_occupied and support_latched
+	if not permitted or not is_instance_valid(origin):carbineer_gestures.clear();return
+	var state=weapons[selected].state
+	if state.is_melee() or not state.certified() or str(state.profile.get("class","")) not in ["carbine","burst_carbine"]:carbineer_gestures.clear();return
+	var main:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
+	var offhand:="left" if dominant=="right" else "right"
+	var support:XRController3D=origin.get_node(offhand.capitalize()+"Hand")
+	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(support) or main.get_float("grip")<.65 or support.get_float("grip")<.65 or vehicle_hand_busy(dominant) or vehicle_hand_busy(offhand) or pet_trigger_reserved(dominant) or pet_trigger_reserved(offhand):carbineer_gestures.clear();return
+	var forward:Vector3=-head.global_basis.z;forward.y=0
+	if forward.length_squared()<.1:carbineer_gestures.clear();return
+	var frame:=Transform3D(Basis(Vector3.UP,atan2(-forward.x,-forward.z)),head.global_position)
+	var gun:=controller_weapon_pose(main)
+	var evidence:=Transform3D(origin.global_basis.inverse()*gun.basis,origin.global_basis.inverse()*(gun.origin-head.global_position))
+	var support_evidence:Vector3=origin.global_basis.inverse()*(support.global_position-head.global_position)
+	var available:Array=[]
+	for id:String in ["full_auto_sweep","tactical_brace"]:
+		var row:Dictionary=carbineer_context.get(id,{})
+		if row.get("learned",false) and row.get("conditions_met",false) and not row.get("active",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0:available.append(id)
+	var id:String=carbineer_gestures.sample(delta,frame.affine_inverse()*gun,frame.affine_inverse()*support.global_transform,evidence,support_evidence,main.get_float("trigger"),support.get_float("trigger"),permitted,available)
+	carbineer_input_captured=carbineer_gestures.capturing
+	if carbineer_input_captured:physical_guard.clear()
+	if not id.is_empty():
+		pose_weapon(gun,support.global_transform)
+		if bool(carbineer_authority.call(id,muzzle_pose(selected),dominant)):action_haptic("fire")
+
+func carbineer_feedback(receipt:Dictionary)->void:
+	if receipt.get("ability_id","")=="tactical_brace":return
+	if not receipt.get("area_pose") is Transform3D or not receipt.get("area_grip") is Vector3 or not is_instance_valid(rounds_sim):return
+	var shot:Dictionary=receipt.get("area_profile",{}).duplicate(true)
+	if shot.is_empty():return
+	shot["cosmetic_only"]=true;shot.range=minf(20 if receipt.get("ability_id","")=="charge_blast" else 18,float(shot.range))
+	for angle:float in [-25.,0.,25.]:
+		var pose:Transform3D=receipt.area_pose
+		pose.basis=pose.basis*Basis(Vector3.UP,deg_to_rad(angle))
+		rounds_sim.spawn(shot,pose,receipt.area_grip)
+
+func configure_pistoleer(context:Dictionary,callback:Callable,item_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned])
+	if key!=pistoleer_key:pistoleer_gestures.clear();pistoleer_key=key;cancel_showdown()
+	pistoleer_context=context.duplicate(true);pistoleer_authority=callback
+
+func sample_pistoleer_gestures(delta:float,head_tracked:bool)->void:
+	pistoleer_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and pistoleer_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and showdown.is_empty() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not offhand_occupied and not support_latched
+	if not permitted or not is_instance_valid(origin):pistoleer_gestures.clear();return
+	var state=weapons[selected].state
+	if state.is_melee() or not state.certified() or str(state.profile.get("class","")) not in ["holdout","pistol","heavy_pistol"]:pistoleer_gestures.clear();return
+	var main:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
+	var offhand:="left" if dominant=="right" else "right"
+	var support:XRController3D=origin.get_node(offhand.capitalize()+"Hand")
+	if not HandInput.controller_tracked(main) or not HandInput.controller_tracked(support) or main.get_float("grip")<.65 or vehicle_hand_busy(dominant) or vehicle_hand_busy(offhand) or pet_trigger_reserved(offhand):pistoleer_gestures.clear();return
+	var forward:Vector3=-head.global_basis.z;forward.y=0
+	if forward.length_squared()<.1:pistoleer_gestures.clear();return
+	var body_frame:=Transform3D(Basis(Vector3.UP,atan2(-forward.x,-forward.z)),head.global_position)
+	var pistol_pose:=controller_weapon_pose(main)
+	var available:Array=[]
+	for id:String in pistoleer_context:
+		var row:Dictionary=pistoleer_context[id]
+		if row.get("learned",false) and row.get("conditions_met",false) and not row.get("active",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0:available.append(id)
+	var id:String=pistoleer_gestures.sample(delta,body_frame.affine_inverse()*pistol_pose,body_frame.affine_inverse()*support.global_transform,dominant,main.get_float("trigger"),support.get_float("trigger"),support.get_float("grip"),permitted,available)
+	pistoleer_input_captured=pistoleer_gestures.capturing
+	if pistoleer_input_captured:physical_guard.clear()
+	if not id.is_empty():
+		# Current tracking pose supplies the muzzle, never yesterday's render pose.
+		pose_weapon(pistol_pose,support.global_transform)
+		if bool(pistoleer_authority.call(id,muzzle_pose(selected),dominant)):action_haptic("fire")
 
 func swing_position(hand_position: Vector3) -> Vector3:
 	# Cancel virtual locomotion/snap turning and whole-body translation. Only
@@ -609,7 +969,16 @@ func update_visuals() -> void:
 		if state.is_melee():
 			weapon.label.text = "Power %.0f · Recovery %.0f%s" % [state.melee_thresholds(two_hands).power,state.effective_recovery()," · combat ready" if state.swing_feedback.get("engaged",false) else " · at peace"]
 		else:
-			weapon.label.text = "%d/%d · %s · %.0f RPM%s" % [state.rounds,int(state.profile.capacity),state.mode,state.effective_rpm()," · cooling" if state.reload_until>=0 else ""]
+			if state.profile.get("charge_limited",false):weapon.label.text="%d charges · %s · %.0f RPM"%[state.rounds,state.mode,state.effective_rpm()]
+			else:weapon.label.text = "%d/%d · %s · %.0f RPM%s" % [state.rounds,int(state.profile.capacity),state.mode,state.effective_rpm()," · cooling" if state.reload_until>=0 else ""]
+			if state.profile.get("native_family","")=="commando" and not shot_authority.is_valid():weapon.label.text+=" · Effects preview · Connect for combat"
+			if str(state.profile.get("class","")) in ["holdout","pistol","heavy_pistol"]:
+				weapon.label.text+=" · no movement penalty"
+				if pistoleer_context.get("run_and_gun",{}).get("active",false):weapon.label.text+=" · Run and Gun"
+			if str(state.profile.get("class","")) in ["rifle","marksman","repeater","bowcaster","slugthrower"] and rifleman_context.get("rifleman_focus",{}).get("active",false):weapon.label.text+=" · Rifleman’s Focus"
+			if str(state.profile.get("class","")) in ["carbine","burst_carbine"] and carbineer_context.get("tactical_brace",{}).get("active",false):weapon.label.text+=" · Tactical Brace"
+			if bountyhunter_context.get("duelist_stance",{}).get("active",false):weapon.label.text+=" · Duelist’s Stance"
+			if bountyhunter_armed_until>Time.get_ticks_usec():weapon.label.text+=" · Underhand ready"
 
 func inventory_allows_combat() -> bool:
 	if interaction_blocker.is_valid() and bool(interaction_blocker.call()): return false
@@ -632,7 +1001,8 @@ func begin_inventory_item(profile: Dictionary) -> bool:
 	if index<0:
 		if not assets.catalog.get("weapons",{}).has(str(profile.get("id",""))): return false
 		var state := WeaponState.new()
-		state.ability_state = abilities
+		state.ability_state = null if shot_authority.is_valid() else abilities
+		if shot_authority.is_valid():state.wear_per_shot=0.0
 		var certificates: Array = profile.core3.certificationsRequired if profile.get("certified",false) else []
 		if not state.configure(profile,certificates,profile.get("condition",{})): return false
 		var visual := make_visual(profile)
@@ -690,14 +1060,192 @@ func refresh_render_pose() -> void:
 	pose_weapon(controller_weapon_pose(main),support.global_transform)
 	update_visuals()
 	if is_instance_valid(target_abilities):target_abilities.refresh()
+	if is_instance_valid(squad_leader):squad_leader.refresh()
 
+
+func configure_pikeman(context:Dictionary,callback:Callable,item_id:String,ultimate_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned,ultimate_id])
+	if key!=pikeman_key:pikeman_gestures.clear();pikeman_key=key
+	pikeman_context=context.duplicate(true);pikeman_authority=callback;pikeman_ultimate=ultimate_id
+
+func sample_pikeman_gestures(delta:float,head_tracked:bool)->void:
+	pikeman_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and pikeman_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	if not permitted or not is_instance_valid(origin):pikeman_gestures.clear();return
+	var entry:Dictionary=weapons[selected]
+	if not entry.state.is_melee() or str(entry.state.profile.get("class",""))!="melee_polearm" or not pikeman_context.values().any(func(row):return row.get("learned",false)):pikeman_gestures.clear();return
+	var main:XRController3D=origin.get_node("LeftHand" if dominant=="left" else "RightHand")
+	var support:XRController3D=origin.get_node("RightHand" if dominant=="left" else "LeftHand")
+	var tracked:bool=HandInput.controller_tracked(main) and main.get_float("grip")>.65 and not vehicle_hand_busy(dominant) and not pet_trigger_reserved(dominant)
+	var contact:bool=two_hands and HandInput.controller_tracked(support) and support.get_float("grip")>.65 and support.global_position.distance_to(support_point(selected))<.23 and not offhand_occupied and not vehicle_hand_busy("left" if dominant=="right" else "right")
+	var available:Array=[]
+	for id:String in pikeman_context:
+		var row:Dictionary=pikeman_context[id]
+		if row.get("learned",false) and row.get("conditions_met",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0:available.append(id)
+	var forward:Vector3=origin.global_basis.inverse()*-head.global_basis.z
+	forward.y=0
+	if forward.length_squared()<.1:pikeman_gestures.clear();return
+	if not pikeman_gestures.previous.is_finite():pikeman_basis=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
+	var basis:Basis=origin.global_basis*pikeman_basis
+	var p:Vector3=basis.inverse()*((main.global_position+support.global_position)*.5-head.global_position)
+	var id:String=pikeman_gestures.sample(delta,p,origin.to_local(head.global_position),main.get_float("trigger"),support.get_float("trigger") if HandInput.controller_tracked(support) else 0.0,tracked and contact,pikeman_ultimate=="whirlwind",available)
+	pikeman_input_captured=pikeman_gestures.capturing
+	if pikeman_input_captured:physical_guard.clear();overhead_warcry.clear();warcry_input_captured=false
+	if not id.is_empty():pikeman_authority.call(id,head.global_transform,dominant)
+
+func configure_fencer(context:Dictionary,callback:Callable,item_id:String,ultimate_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned,ultimate_id])
+	if key!=fencer_key:fencer_gestures.clear();fencer_key=key
+	fencer_context=context.duplicate(true);fencer_authority=callback;fencer_ultimate=ultimate_id
+
+func sample_fencer_gestures(delta:float,head_tracked:bool)->void:
+	fencer_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and fencer_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	if not permitted or not is_instance_valid(origin):fencer_gestures.clear();return
+	var entry:Dictionary=weapons[selected]
+	if not entry.state.is_melee() or int(entry.state.profile.get("hands",0))!=1 or not fencer_context.values().any(func(row):return row.get("learned",false)):fencer_gestures.clear();return
+	var main:XRController3D=origin.get_node("LeftHand" if dominant=="left" else "RightHand")
+	var support:XRController3D=origin.get_node("RightHand" if dominant=="left" else "LeftHand")
+	var tracked:bool=HandInput.controller_tracked(main) and main.get_float("grip")>.65 and not vehicle_hand_busy(dominant) and not pet_trigger_reserved(dominant)
+	var contact:bool=two_hands and HandInput.controller_tracked(support) and support.get_float("grip")>.65 and support.global_position.distance_to(main.global_position)<.23 and not offhand_occupied and not vehicle_hand_busy("left" if dominant=="right" else "right")
+	var available:Array=[]
+	for id:String in fencer_context:
+		var row:Dictionary=fencer_context[id]
+		if row.get("learned",false) and row.get("conditions_met",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0:available.append(id)
+	var forward:Vector3=origin.global_basis.inverse()*-head.global_basis.z
+	forward.y=0
+	if forward.length_squared()<.1:fencer_gestures.clear();return
+	if not fencer_gestures.previous.is_finite():fencer_basis=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
+	var basis:Basis=origin.global_basis*fencer_basis
+	var p:Vector3=basis.inverse()*(main.global_position-head.global_position)
+	var axis:Vector3=(basis.inverse()*entry.visual.global_basis[entry.bounds.size.max_axis_index()]).normalized()
+	var id:String=fencer_gestures.sample(delta,p,origin.to_local(head.global_position),axis,main.get_float("trigger"),support.get_float("trigger") if HandInput.controller_tracked(support) else 0.0,tracked,contact,fencer_ultimate=="flawless_assault",available)
+	fencer_input_captured=fencer_gestures.capturing
+	if fencer_input_captured:physical_guard.clear();overhead_warcry.clear();warcry_input_captured=false
+	if not id.is_empty():fencer_authority.call(id,head.global_transform,dominant)
+
+func configure_swordsman(context:Dictionary,callback:Callable,item_id:String,ultimate_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned,ultimate_id])
+	if key!=swordsman_key:swordsman_gestures.clear();swordsman_key=key
+	swordsman_context=context.duplicate(true);swordsman_authority=callback;swordsman_ultimate=ultimate_id
+
+func sample_swordsman_gestures(delta:float,head_tracked:bool)->void:
+	swordsman_input_captured=false
+	var permitted:bool=allowed and head_tracked and selected>=0 and swordsman_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not dna_input_captured and not offhand_occupied and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	if not permitted or not is_instance_valid(origin):swordsman_gestures.clear();return
+	var state=weapons[selected].state
+	if not state.is_melee() or int(state.profile.get("hands",0))!=2 or str(state.profile.get("class",""))=="melee_polearm" or not swordsman_context.values().any(func(row):return row.get("learned",false)):swordsman_gestures.clear();return
+	var main:XRController3D=origin.get_node("LeftHand" if dominant=="left" else "RightHand")
+	var support:XRController3D=origin.get_node("RightHand" if dominant=="left" else "LeftHand")
+	var contact:bool=two_hands and HandInput.controller_tracked(main) and HandInput.controller_tracked(support) and main.get_float("grip")>.65 and support.get_float("grip")>.65 and support.global_position.distance_to(support_point(selected))<.23 and not vehicle_hand_busy(dominant) and not vehicle_hand_busy("left" if dominant=="right" else "right")
+	var available:Array=[]
+	for id:String in swordsman_context:
+		var row:Dictionary=swordsman_context[id]
+		if row.get("learned",false) and row.get("conditions_met",false) and float(row.get("cooldown_remaining_seconds",0))<=0 and float(abilities.cooldowns.get(id,0))<=0:available.append(id)
+	# Origin-local displacement cancels virtual translation/rotation; no live HMD yaw rotation.
+	var p:Vector3=origin.global_basis.inverse()*(main.global_position-head.global_position)
+	var head_local:Vector3=origin.to_local(head.global_position)
+	var id:String=swordsman_gestures.sample(delta,p,head_local,main.get_float("trigger"),support.get_float("trigger"),contact,available,swordsman_ultimate=="armour_break")
+	if not id.is_empty():
+		var target_id:=""
+		if id=="armour_break":
+			var special:Dictionary=target_abilities.attack(head.global_transform,true)
+			if special.get("ability_id","")!=id:id=""
+			else:target_id=str(special.target_id)
+		if not id.is_empty():swordsman_authority.call(id,head.global_transform,dominant,target_id)
+	swordsman_input_captured=swordsman_gestures.capturing
+	if swordsman_input_captured:physical_guard.clear();overhead_warcry.clear();warcry_input_captured=false
+
+func configure_tka(context:Dictionary,callback:Callable,item_id:String,ultimate_id:String)->void:
+	var learned:Array=[]
+	for id:String in context:
+		if context[id].get("learned",false):learned.append(id)
+	learned.sort()
+	var key:=JSON.stringify([item_id,learned,ultimate_id])
+	if key!=tka_key:tka_gestures.clear();tka_key=key
+	tka_context=context.duplicate(true);tka_authority=callback;tka_ultimate=ultimate_id
+
+func sample_tka_gestures(delta:float,head_tracked:bool)->void:
+	tka_input_captured=false
+	var permitted:bool=tka_context.values().any(func(row):return row.get("learned",false)) and allowed and head_tracked and selected<0 and unarmed.has(dominant) and tka_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	if not permitted or not is_instance_valid(origin):tka_gestures.clear();return
+	var forward:Vector3=origin.global_basis.inverse()*(-head.global_basis.z);forward.y=0
+	if forward.length_squared()<.1:tka_gestures.clear();return
+	if tka_gestures.previous.is_empty():tka_basis=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
+	var basis:Basis=origin.global_basis*tka_basis
+	var hands:Dictionary={};var available:Array=[]
+	for id:String in tka_context:
+		var row:Dictionary=tka_context[id]
+		if row.get("learned",false) and row.get("conditions_met",false) and float(row.get("cooldown_remaining_seconds",0))<=0:available.append(id)
+	for side:String in ["left","right"]:
+		var hand:XRController3D=origin.get_node(side.capitalize()+"Hand")
+		hands[side]={"position":basis.inverse()*(hand.global_position-head.global_position),"grip":hand.get_float("grip"),"trigger":hand.get_float("trigger"),"tracked":HandInput.controller_tracked(hand),"free":not offhand_occupied and not vehicle_hand_busy(side) and not pet_trigger_reserved(side)}
+	var id:String=tka_gestures.sample(delta,hands,permitted,available,tka_ultimate=="indomitable_focus")
+	tka_input_captured=tka_gestures.capturing
+	if tka_input_captured:physical_guard.clear()
+	if not id.is_empty():tka_authority.call(id,Transform3D(basis,head.global_position),dominant)
+
+func configure_brawler(context:Dictionary,callback:Callable,item_id:="")->void:
+	if item_id!=brawler_weapon_id:brawler_gestures.clear();brawler_weapon_id=item_id
+	brawler_context=context.duplicate(true);brawler_authority=callback
+
+func sample_brawler_gestures(delta:float,head_tracked:bool)->void:
+	brawler_input_captured=false
+	var learned:bool=brawler_context.values().any(func(row):return row.get("learned",false))
+	var permitted:bool=learned and allowed and head_tracked and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and brawler_authority.is_valid() and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not vehicle_hand_busy(dominant)
+	if not permitted or not is_instance_valid(origin):brawler_gestures.clear();return
+	var forward:Vector3=-head.global_basis.z;forward.y=0
+	if forward.length_squared()<.1:brawler_gestures.clear();return
+	var basis:=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
+	var hands:Dictionary={}
+	var offhand:="left" if dominant=="right" else "right"
+	for side:String in ["left","right"]:
+		var hand:XRController3D=origin.get_node(side.capitalize()+"Hand")
+		hands[side]={"position":basis.inverse()*(hand.global_position-head.global_position),"upright":hand.global_basis.y.dot(Vector3.UP),"grip":hand.get_float("grip"),"trigger":hand.get_float("trigger"),"tracked":HandInput.controller_tracked(hand),"free":not offhand_occupied and not support_latched and not vehicle_hand_busy(side) and not pet_trigger_reserved(side)}
+	var ability:String=brawler_gestures.sample(delta,hands,offhand,permitted)
+	brawler_input_captured=brawler_gestures.capturing
+	if brawler_input_captured:physical_guard.clear()
+	if not ability.is_empty():
+		var context:Dictionary=brawler_context.get(ability,{})
+		if context.get("learned",false) and context.get("conditions_met",false) and float(context.get("cooldown_remaining_seconds",0))<=0:brawler_authority.call(ability,offhand)
+
+func configure_warcry(context:Dictionary,callback:Callable)->void:
+	warcry_context=context.duplicate(true);warcry_authority=callback
+
+func sample_overhead_warcry(delta:float,head_tracked:bool)->void:
+	warcry_input_captured=false
+	if swordsman_input_captured or fencer_input_captured or pikeman_input_captured or pistoleer_input_captured or carbineer_input_captured or rifleman_input_captured or bountyhunter_input_captured:overhead_warcry.clear();return
+	var permitted:bool=allowed and head_tracked and selected>=0 and selected<weapons.size() and warcry_authority.is_valid() and bool(warcry_context.get("learned",false)) and bool(warcry_context.get("conditions_met",false)) and float(warcry_context.get("cooldown_remaining_seconds",0))<=0 and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not vehicle_hand_busy(dominant)
+	if not permitted or not is_instance_valid(origin):overhead_warcry.clear();return
+	var controller:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
+	var support:XRController3D=origin.get_node("LeftHand" if dominant=="right" else "RightHand")
+	var forward:Vector3=-head.global_basis.z;forward.y=0
+	if forward.length_squared()<.1:overhead_warcry.clear();return
+	var basis:=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
+	var hand:Dictionary={"position":controller.global_position,"relative":basis.inverse()*(controller.global_position-head.global_position),"head_y":head.global_position.y,"item_id":str(weapons[selected].state.profile.get("item_id","")),"tracked":HandInput.controller_tracked(controller),"grip":controller.get_float("grip"),"trigger":controller.get_float("trigger"),"support_trigger":support.get_float("trigger")}
+	var fired:bool=overhead_warcry.sample(delta,hand,permitted)
+	warcry_input_captured=overhead_warcry.capturing
+	if warcry_input_captured:physical_guard.clear()
+	if fired:swordsman_gestures.clear();fencer_gestures.clear();pikeman_gestures.clear();warcry_authority.call(head.global_transform,dominant)
 
 func configure_taunt(context:Dictionary,callback:Callable)->void:
 	taunt_context=context.duplicate(true);taunt_authority=callback
 
 func sample_chest_taunt(delta:float,head_tracked:bool)->void:
 	taunt_input_captured=false
-	var permitted:bool=allowed and head_tracked and taunt_authority.is_valid() and bool(taunt_context.get("learned",false)) and float(taunt_context.get("cooldown_remaining_seconds",0))<=0 and combat_actions_allowed() and inventory_allows_combat() and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
+	var permitted:bool=allowed and head_tracked and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and taunt_authority.is_valid() and bool(taunt_context.get("learned",false)) and float(taunt_context.get("cooldown_remaining_seconds",0))<=0 and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open)
 	if not permitted or not is_instance_valid(origin):chest_taunt.clear();return
 	var forward:Vector3=-head.global_basis.z;forward.y=0
 	if forward.length_squared()<.1:chest_taunt.clear();return
@@ -713,7 +1261,7 @@ func sample_chest_taunt(delta:float,head_tracked:bool)->void:
 	if not side.is_empty():taunt_authority.call(head.global_transform,side)
 
 func sample_physical_guard(delta:float)->void:
-	if not is_instance_valid(origin) or not allowed or not inventory_allows_combat() or dna_input_captured or taunt_input_captured or offhand_occupied or ability_ui.menu_open or (is_instance_valid(datapad) and datapad.is_open):physical_guard.clear();return
+	if not is_instance_valid(origin) or not allowed or not inventory_allows_combat() or dna_input_captured or taunt_input_captured or warcry_input_captured or brawler_input_captured or tka_input_captured or swordsman_input_captured or fencer_input_captured or pikeman_input_captured or pistoleer_input_captured or carbineer_input_captured or rifleman_input_captured or bountyhunter_input_captured or offhand_occupied or ability_ui.menu_open or (is_instance_valid(datapad) and datapad.is_open):physical_guard.clear();return
 	if is_instance_valid(body) and body.has_method("combat_actions_allowed") and not body.combat_actions_allowed():physical_guard.clear();return
 	var left:XRController3D=origin.get_node("LeftHand")
 	var right:XRController3D=origin.get_node("RightHand")
@@ -772,8 +1320,8 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(head): return
 	abilities.tick(delta)
 	if not is_instance_valid(origin):
-		chest_taunt.clear();taunt_input_captured=false
-		physical_guard.clear()
+		chest_taunt.clear();taunt_input_captured=false;overhead_warcry.clear();warcry_input_captured=false;brawler_gestures.clear();brawler_input_captured=false;tka_gestures.clear();tka_input_captured=false;swordsman_gestures.clear();swordsman_input_captured=false;fencer_gestures.clear();fencer_input_captured=false;pikeman_gestures.clear();pikeman_input_captured=false;melee_marker_previous.clear()
+		physical_guard.clear();pistoleer_gestures.clear();pistoleer_input_captured=false;carbineer_gestures.clear();carbineer_input_captured=false;rifleman_gestures.clear();rifleman_input_captured=false;clear_bountyhunter();cancel_showdown()
 		step_desktop(delta)
 		return
 	var main: XRController3D = origin.get_node("LeftHand" if dominant=="left" else "RightHand")
@@ -784,6 +1332,17 @@ func _physics_process(delta: float) -> void:
 	var right: XRController3D = origin.get_node("RightHand")
 	sample_ability_input(main.is_button_pressed("primary_click"), main.get_vector2("primary"), right.is_button_pressed("ax_button") and HandInput.controller_tracked(right), tracked)
 	sample_dna_inputs(main.global_transform,support.global_transform,main.get_float("trigger"),support.get_float("trigger"),tracked,head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(support))
+	sample_squad_controls(delta,main.get_float("trigger"),support.get_float("trigger"),tracked,HandInput.controller_tracked(support))
+	sample_bountyhunter_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_rifleman_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_carbineer_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_pistoleer_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_pikeman_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_fencer_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_swordsman_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_tka_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_brawler_gestures(delta,head_pose!=null and head_pose.has_tracking_data)
+	sample_overhead_warcry(delta,head_pose!=null and head_pose.has_tracking_data)
 	sample_chest_taunt(delta,head_pose!=null and head_pose.has_tracking_data)
 	sample(delta,controller_weapon_pose(main),support.global_transform,0.0 if vehicle_hand_busy(dominant) else main.get_float("grip"),0.0 if offhand_occupied or vehicle_hand_busy("left" if dominant=="right" else "right") else support.get_float("grip"),0.0 if vehicle_hand_busy(dominant) else main.get_float("trigger"),tracked and not vehicle_hand_busy(dominant),HandInput.controller_tracked(support),main.is_button_pressed("by_button"),support.get_float("trigger"))
 	var posture := current_firing_posture()
@@ -794,9 +1353,11 @@ func _physics_process(delta: float) -> void:
 	update_visuals()
 
 func step_desktop(delta: float) -> void:
+	movement_spread.sample(body.velocity,head.position,delta,allowed)
 	var posture := current_firing_posture()
 	# Explicit debug harness; ranged VR aiming uses the weapon; melee uses the head.
 	var permitted: bool = allowed and combat_actions_allowed() and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED and not ability_ui.menu_open
+	sample_squad_controls(delta,1.0 if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) else 0.0,1.0 if Input.is_key_pressed(KEY_SHIFT) else 0.0,permitted,true)
 	var debug_swing := desktop_swing_remaining>0
 	desktop_swing_remaining=maxf(0,desktop_swing_remaining-delta)
 	if selected >= 0:
@@ -805,8 +1366,8 @@ func step_desktop(delta: float) -> void:
 		weapons[selected].visual.global_transform = head.global_transform * Transform3D(Basis.IDENTITY,offset)
 	for i in range(weapons.size()):
 		var state = weapons[i].state
-		var trigger := 1.0 if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or debug_swing else 0.0
-		var shot: Dictionary = state.sample_swing(delta,permitted and selected==i and debug_swing,desktop_support,posture,swing_position(weapons[i].visual.global_position),Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)) if state.is_melee() else state.tick(delta,trigger,permitted and selected==i,desktop_support,posture)
+		var trigger := 1.0 if not squad_input_captured and (Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or debug_swing) else 0.0
+		var shot: Dictionary = state.sample_swing(delta,permitted and not squad_input_captured and selected==i and debug_swing,desktop_support,posture,swing_position(weapons[i].visual.global_position),Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)) if state.is_melee() else state.tick(delta,trigger,permitted and selected==i,desktop_support,posture)
 		if not shot.is_empty():
 			var pose := muzzle_pose(i)
 			var grip: Vector3 = weapons[i].visual.global_position

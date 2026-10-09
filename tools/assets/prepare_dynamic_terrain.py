@@ -95,7 +95,7 @@ def prepare(tre, output):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/terrain_modifications')
     args = parser.parse_args()
     report = prepare(args.tre_dir, args.out)

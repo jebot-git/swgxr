@@ -7,7 +7,7 @@ func check(value: bool, message: String) -> void:
 	checks += 1
 	if not value: errors.append(message); push_error(message)
 func run() -> void:
-	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var data: Dictionary = catalog.weapons.pistol_cdef.duplicate(true)
 	data.merge({"source_kind":"core3_weapon_instance","item_id":"1001","certified":true,"profile_version":1},true)
 	var state := State.new()

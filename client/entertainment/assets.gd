@@ -1,6 +1,6 @@
 extends RefCounted
 var catalog: Dictionary = {}
-var directory := ProjectSettings.globalize_path("res://../runtime/entertainment")
+var directory := ProjectSettings.globalize_path("res://../runtime/assets/entertainment")
 var cache: Dictionary = {}
 func load_catalog() -> bool:
 	var path := directory.path_join("catalog.json")

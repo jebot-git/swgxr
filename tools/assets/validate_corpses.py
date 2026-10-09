@@ -10,7 +10,7 @@ from prepare_corpses import ROOT, freeze
 
 def main():
     ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--catalog',type=Path,default=ROOT/'runtime/assets/corpses/catalog.json');args=ap.parse_args()
-    catalog=json.loads(args.catalog.read_text());base=args.catalog.parent;tre=TreSet(ROOT/'runtime/assets/active_tre');errors=[];model_count=0
+    catalog=json.loads(args.catalog.read_text());base=args.catalog.parent;tre=TreSet(ROOT/'runtime/asset_sources/active_tre');errors=[];model_count=0
     for path,source in catalog['provenance']['dependencies'].items():
         try:
             if hashlib.sha256(tre.read(path)).hexdigest()!=source['sha256']:errors.append('Changed source '+path)

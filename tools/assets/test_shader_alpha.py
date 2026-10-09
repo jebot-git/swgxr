@@ -53,7 +53,7 @@ class SourceAlphaTests(unittest.TestCase):
 class OriginalMaterialCoverageTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        directory=Path(__file__).resolve().parents[2]/'runtime/assets/active_tre'
+        directory=Path(__file__).resolve().parents[2]/'runtime/asset_sources/active_tre'
         if not directory.exists():raise unittest.SkipTest('Local original source archives unavailable')
         cls.source=TreSet(directory)
     def test_original_metal_masks_are_not_surface_holes(self):

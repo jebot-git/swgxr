@@ -7,6 +7,7 @@ from character_formats import child
 from character_animations import export_character_animations,load_lat,resolve,decode_clip,version
 from swg_formats import parse_iff,cstring
 from npc_outfits import apply_outfit_variants,refresh_outfits
+from npc_reference_repairs import resolve_cdf_mesh
 from static_assets import StaticAssets
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -50,7 +51,7 @@ def available_moods(node,selectors):
  return set().union(*(available_moods(n,selectors) for n in data.children if n.children))
 
 def main():
- ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/ambient_npcs');ap.add_argument('--placements',type=Path,default=ROOT/'runtime/assets/ambient_npcs/placements.json');ap.add_argument('--limit',type=int,default=0);ap.add_argument('--merge',action='store_true',help='Retain existing exact descriptors and provenance while importing this request batch');ap.add_argument('--refresh-outfits',action='store_true',help='Refresh only Core3 outfit variants using existing NPC bodies and CDF descriptors');args=ap.parse_args()
+ ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/ambient_npcs');ap.add_argument('--placements',type=Path,default=ROOT/'runtime/assets/ambient_npcs/placements.json');ap.add_argument('--limit',type=int,default=0);ap.add_argument('--merge',action='store_true',help='Retain existing exact descriptors and provenance while importing this request batch');ap.add_argument('--refresh-outfits',action='store_true',help='Refresh only Core3 outfit variants using existing NPC bodies and CDF descriptors');args=ap.parse_args()
  imp=CharacterImporter(args.tre_dir,args.out);placement_bytes=args.placements.read_bytes();placements=json.loads(placement_bytes);templates={}
  if args.refresh_outfits:
   print(json.dumps(refresh_outfits(imp,placements,args.placements,placement_bytes),indent=2));return
@@ -102,11 +103,14 @@ def main():
      # A WEAR record may group several body-piece MESH chunks under one
      # authored customization scope (notably complete stormtrooper armor).
      for mesh in wear.walk('MESH'):
-      source=cstring(mesh.data)[0];cache_key=(appearance,source,imp.skin_material['shader'])
+      source=cstring(mesh.data)[0]
       try:
+       resolved,repair=resolve_cdf_mesh(imp,source,appearance,cdf);cache_key=(appearance,resolved,imp.skin_material['shader'])
        if cache_key not in clothing_cache:
-        wearable=imp.model(source,bones,names);path='clothing/'+hashlib.sha256(repr(cache_key).encode()).hexdigest()[:24]+'.json';imp.write(path,wearable);clothing_cache[cache_key]=path
-       outfit.append({'template':source,'appearance':source,'model':clothing_cache[cache_key],'customization':customization(wear,'WCSI'),'source_cdf':cdf,'source_wear_index':index})
+        wearable=imp.model(resolved,bones,names);path='clothing/'+hashlib.sha256(repr(cache_key).encode()).hexdigest()[:24]+'.json';imp.write(path,wearable);clothing_cache[cache_key]=path
+       row={'template':source,'appearance':resolved,'model':clothing_cache[cache_key],'customization':customization(wear,'WCSI'),'source_cdf':cdf,'source_wear_index':index}
+       if repair:row['source_reference_repair']=repair
+       outfit.append(row)
       except Exception as exc:imp.failures.append({'resource':source,'template':template,'phase':'wearable','error':str(exc)})
    body_customization=customization(source_cdf,'CSSI') if source_cdf else {}
    palettes={p['variable']:p for part in model['parts'] for sf in part['mesh']['surfaces'] for p in sf.get('palettes',[])}

@@ -2,6 +2,32 @@
 
 This pipeline reads the user's original installation images. It downloads no game assets and stores all original/converted data under ignored `runtime/` paths. The generated stage is a real mesh reconstruction of Mos Eisley's starport and static objects within 180 metres, using the original world snapshot. The separate terrain/world pipeline now extends this to full Tatooine; original material effects remain approximate.
 
+## Local layout and private archive
+
+| Directory | Contents |
+| --- | --- |
+| `runtime/assets/` | Converted runtime assets, grouped by gameplay system and ground planet; combat and entertainment catalogs live here too |
+| `runtime/asset_sources/media/{base,jtl,tte}/` | Original user-supplied installation images |
+| `runtime/asset_sources/extracted/{base,jtl,tte}/` | Media extractions, original TRE copies and media hash inventories |
+| `runtime/asset_sources/active_tre/` | The 51 allowlisted source archives, with relative links to the retained originals |
+| `runtime/asset_reports/` | Audits, extraction logs, migration journal and original metadata retained for rollback |
+| `runtime/asset_work/` | Old export experiments, diagnostic captures and build/test scratch files |
+| `runtime/asset_archives/` | Private verified ZIP64 bundles, SHA256 files, manifests and verification receipts |
+
+`python3 tools/assets/bundle_assets.py --output runtime/asset_archives/SWGXR-assets.zip`
+bundles every converted runtime file and the complete required TRE set, with
+conversion limitations and source provenance retained. It excludes installation
+images, duplicate extractions, scratch work, credentials and databases. TRE links
+are materialized as regular files for Windows extraction. Every archive asset is
+read back and checked against its SHA256 before the final ZIP is published.
+
+Extract into an empty workspace/staging folder and run the included
+`python restore_asset_paths.py --root <workspace>` (Python 3.11+) to verify the extracted files
+and rebase recorded absolute JSON paths. The archive contains assets, not the
+Godot executable or game code; use the matching client with this asset layout.
+Keep the archive private and ignored by Git. The local cleanup preserves original
+media and old work; it does not delete source extractions or conversion failures.
+
 ## Reproduce
 
 Requires Python 3 with Pillow, 7-Zip, and unshield. The optional bootstrap downloads/builds a pinned open-source extraction utility; it does not download game data.
@@ -9,30 +35,30 @@ Requires Python 3 with Pillow, 7-Zip, and unshield. The optional bootstrap downl
 ```sh
 python3 tools/assets/extract_media.py --bootstrap-unshield
 # Optional expansion media: always extract into its own cabinet directory.
-python3 tools/assets/extract_media.py --output-root runtime/assets/jtl "Star Wars Galaxies - Jump to Lightspeed (USA).cue"
+python3 tools/assets/extract_media.py --output-root runtime/asset_sources/extracted/jtl "runtime/asset_sources/media/jtl/Star Wars Galaxies - Jump to Lightspeed (USA).cue"
 # Optional Total Experience set: separate cabinets again.
-python3 tools/assets/extract_media.py --output-root runtime/assets/tte SWG_TTE_CD{1,2,3,4,5}.ISO
+python3 tools/assets/extract_media.py --output-root runtime/asset_sources/extracted/tte runtime/asset_sources/media/tte/SWG_TTE_CD{1,2,3,4,5}.ISO
 python3 tools/assets/activate_archives.py --audit-only
 python3 tools/assets/activate_archives.py
-python3 tools/assets/prepare_stage.py --tre-dir runtime/assets/active_tre
+python3 tools/assets/prepare_stage.py --tre-dir runtime/asset_sources/active_tre
 python3 tools/assets/validate_stage.py
 ```
 
 BIN/CUE support is limited to a single MODE1/2352 track at INDEX01 00:00:00; sector headers are verified and the user image is never modified. CUE extraction requires an explicit `--output-root` so its InstallShield `data1.cab` cannot overwrite base-media cabinets.
 
-`activate_archives.py` creates relative symlinks into `runtime/assets/active_tre`, fails on duplicate archive names with different hashes, and writes source provenance. Run activation while Core3 is stopped. It auto-detects the isolated JTL and TTE directories, supports base media alone, and filters every source with the checked-in 51-name Core3 pre-CU allowlist in `archive_policy.py`. All 38 repeated archive names on TTE were hash-identical to the earlier media. Thirteen missing pre-CU archives were added; seven unrelated/later CU archives were excluded. `--supplement DIR` accepts another explicit source; conflicting duplicate names fail rather than replacing an earlier archive. `--audit-only` checks without changing active links. The stage converter prefers this active set by default; its validator follows the manifest's recorded TRE directory.
+`activate_archives.py` creates relative symlinks into `runtime/asset_sources/active_tre`, fails on duplicate archive names with different hashes, and writes source provenance. Run activation while Core3 is stopped. It auto-detects the isolated JTL and TTE directories, supports base media alone, and filters every source with the checked-in 51-name Core3 pre-CU allowlist in `archive_policy.py`. All 38 repeated archive names on TTE were hash-identical to the earlier media. Thirteen missing pre-CU archives were added; seven unrelated/later CU archives were excluded. `--supplement DIR` accepts another explicit source; conflicting duplicate names fail rather than replacing an earlier archive. `--audit-only` checks without changing active links. The stage converter prefers this active set by default; its validator follows the manifest's recorded TRE directory.
 
 Explicit ISO paths can follow `extract_media.py`; `prepare_stage.py --tre-dir PATH` accepts a local installed game's TRE directory instead. Archive precedence exactly follows the pinned Core3 51-file list in `archive_policy.py`, including the interleaving of SKU1 data/patch archives. It does not infer arbitrary custom `live.cfg` configurations.
 
 Outputs:
 
-- `runtime/assets/tre/SWG_Files/`: 30 original TRE files from the three supplied CDs.
-- `runtime/assets/jtl/tre/JTL_Files/`: eight expansion TREs from the supplied JTL BIN/CUE.
-- `runtime/assets/active_tre/`: 51 relative archive links and `provenance.json` (30 with base media, 38 with base+JTL, 51 with TTE supplement).
-- `runtime/assets/tte/tre/Star_Wars_files/`: 58 original TTE archives retained locally; only 51 pre-CU names are eligible for activation.
-- `runtime/assets/tte/media_inventory.json`: five TTE ISO and 58 archive hashes.
-- `runtime/assets/jtl/media_inventory.json`: expansion BIN/CUE and archive hashes.
-- `runtime/assets/media_inventory.json`: media and extracted archive SHA-256 hashes.
+- `runtime/asset_sources/extracted/base/tre/SWG_Files/`: 30 original TRE files from the three supplied CDs.
+- `runtime/asset_sources/extracted/jtl/tre/JTL_Files/`: eight expansion TREs from the supplied JTL BIN/CUE.
+- `runtime/asset_sources/active_tre/`: 51 relative archive links and `provenance.json` (30 with base media, 38 with base+JTL, 51 with TTE supplement).
+- `runtime/asset_sources/extracted/tte/tre/Star_Wars_files/`: 58 original TTE archives retained locally; only 51 pre-CU names are eligible for activation.
+- `runtime/asset_sources/extracted/tte/media_inventory.json`: five TTE ISO and 58 archive hashes.
+- `runtime/asset_sources/extracted/jtl/media_inventory.json`: expansion BIN/CUE and archive hashes.
+- `runtime/asset_sources/extracted/base/media_inventory.json`: media and extracted archive SHA-256 hashes.
 - `runtime/assets/mos_eisley/scene.json`: Godot-ready static meshes, instances, spawn, provenance.
 - `runtime/assets/mos_eisley/textures/`: locally converted PNG textures.
 - `runtime/assets/mos_eisley/source/`: original Tatooine terrain rules, starport terrain layer, POB and 17 floor files preserved with source provenance; the separate terrain evaluator now reconstructs planet heights and materials.
@@ -40,7 +66,7 @@ Outputs:
 
 The March 2004 base installation contains patch_00 through patch_07. The October 2004 JTL image adds data_sku1_00 through 05 and patch_11_00/01. The subsequently supplied April 2005 Total Experience media fills all 13 missing expected archives, yielding the complete 51-file pre-CU set. Its patch 15/CU archives and data_skuja_00 remain excluded. JTL updates slot definitions from version 0005 / 62 records to 0006 / 84 records; the final pre-CU patch set has 85 records, adds skill/creation data, and updates the Tatooine snapshot. The final 51-archive stage has 120 meshes, 428 instances, 165,061 rendered triangles and 173 textures. All 17 starport cells and 774 source dependencies validate. Actual starport geometry and materials are unchanged from the base media. Modern Core3 compatibility is assessed independently.
 
-`python3 tools/assets/audit_formats.py` performs a read-only slot/schema audit and inventories critical resource forms in `runtime/assets/retail-format-audit.json`.
+`python3 tools/assets/audit_formats.py` performs a read-only slot/schema audit and inventories critical resource forms in `runtime/asset_reports/retail-format-audit.json`.
 
 ## Scene contract
 
@@ -608,15 +634,16 @@ below-ground lair roots. Existing exact ambient/beginner catalog entries can be
 excluded from the appearance request list to avoid duplicate conversion.
 
 Supplied-media gaps remain explicit: the dressed rebel 21B medic references
-missing `clientdata/npc/client_shared_dro_dressed_rebel_medic2_21b_01.cdf`, and
-the desert demon leader references missing
-`appearance/mesh/armor_chitin_s01_gloves.lmg`. The leader records
-`appearance_complete=false` and its exact failure. Missing CDF data no longer
-discards an available body: the exact shared template's own SAT remains visible,
-with unavailable CDF clothing/customization explicitly reported.
-A similarly named male/female glove asset is not silently substituted. The
-existing ambient desert demon shares the missing glove reference, and the
-Valarian swooper leader references missing `appearance/mesh/hat_s04_hum_f.lmg`.
+missing `clientdata/npc/client_shared_dro_dressed_rebel_medic2_21b_01.cdf`.
+Missing CDF data does not discard an available body: the exact shared template's
+own SAT remains visible, with unavailable CDF clothing/customization reported.
+Two authored filename defects now have explicit, bounded source-metadata repairs:
+the desert demon/leader's unsuffixed chitin gloves and the Valarian swooper
+leader's `hat_s04_hum_f.lmg`. Their original appearance-table entries, SAT mesh
+references, owner skeleton bindings and matching male chitin CDF pieces establish
+the replacement paths. Each repaired wearable retains the original broken
+reference and its complete repair evidence. No generic similarly named or
+opposite-gender mesh fallback is used.
 The original group-only index missed named/static city NPCs; use the broader
 preparation below for live world sessions.
 
@@ -793,3 +820,76 @@ and share the bounded HMD spatial mixer and asynchronous Ogg cache.
 Three referenced source files are absent from the active TREs:
 `sound/dro_remote_fire.snd`, `sound/dro_remote_get_hit.snd`, and
 `voice/sound/dro_protocol_m_hello.snd`. The catalog records these as missing assets.
+
+## PvE bounty dependencies
+
+Run `python3 tools/assets/prepare_bounty_assets.py` after the original planet
+catalogs are prepared. It reads the native mission manager's three bounty target
+pools and their exact mobile/dressgroup definitions, then incrementally merges
+missing original appearances into `runtime/assets/ambient_npcs/catalog.json`.
+The existing inventory pipeline provides both bounty droid items. Original
+incapacitation poses are retained for native dead targets; the tool never creates
+world placements, missions, inventory grants or rewards.
+
+`runtime/assets/bounty/coverage.json` records all 34 target mobile families,
+75 unique target/informant/droid appearances, 34 original terminal placements
+across the ten ground planets, and source hashes. `assets.json` uses the combat
+effect schema (`effects`, `particles`, `sounds`, `provenance`), with
+`bounty_effects.probot_delivery` naming the original
+`clienteffect/probot_delivery.cef`. Its two particles and impact sound use the
+shared bounded renderer; nested attachment motion is flattened and XR camera
+shake is omitted. Deployed droids use native actors and their exact original
+animated models, not locally invented spawn effects or tracking authority.
+
+The current supplied media lack `appearance/mesh/gloves_tusken_raider_f.lmg`,
+referenced by `object/mobile/dressed_corsair_cutthroat_hum_f.iff`. Its original
+body and remaining outfit are usable, with the missing gloves explicitly marked
+as a partial appearance. Coverage therefore reports `passed: false` for full
+fidelity and `functional_ready: true`. Exit status is zero only when all required
+bodies, movement/death poses, droid items, effects and terminal catalogs are ready;
+only recorded wardrobe references proven absent from the supplied archives may
+remain partial. Missing bodies or unsupported conversions fail setup. No
+replacement proprietary art is downloaded or substituted.
+
+`python3 -m unittest discover -s tests -p test_bounty_assets.py` verifies the
+complete original target union, droids, death poses, source placement equality,
+source hashes, exact effect texture pixels, audio files and explicit media gaps.
+
+`python3 tools/assets/audit_bounty_appearance.py --repair` rechecks all bounty
+CDF wearable and rigid-child records against converted models and textures. It
+also repairs the three known ambient/population CDF path defects above, including
+cached equipment variants, using `npc_reference_repairs.py`. The audit records
+354 distinct bounty model files, all 75 descriptors, source hashes and remaining
+media gaps in `runtime/evidence/bounty-appearance-audit.json`. Repeated records in
+the original CDFs are counted with their original multiplicity. Current remaining
+gaps in the two audited NPC catalogs are the unsupported female Tusken glove,
+the absent Twi'lek female hairstyle 10, and the rebel 21B medic CDF; no substitute
+geometry is invented. This is a source/model audit, not GPU or headset evidence.
+
+`python3 tools/assets/trace_bounty_sources.py` audits each archive from every
+supplied extraction inventory independently, retaining superseded versions and
+including inactive archives. It verifies archive hashes and writes
+`runtime/evidence/bounty-source-history.json`; it does not activate later assets.
+The current 96 archive instances (58 unique archive hashes) contain none of the
+three exact missing paths. The broken references already exist in base-game
+archives, and all 17 supplied appearance-table versions mark the female Tusken
+glove unsupported. An optional `--web-evidence path.json` attaches reviewed public
+release metadata without network access. A later retail edition is only a
+candidate for inspection until its exact resource index proves otherwise.
+
+The existing combat pipeline also prepares the two exact BH weapons:
+
+```sh
+python3 tools/combat/export_catalog.py
+python3 tools/combat/prepare_assets.py
+python3 -m unittest discover -s tests -p 'test_bounty_weapon_assets.py'
+python3 -m unittest discover -s tests -p 'test_bounty_source_history.py'
+```
+
+`pistol_scatter` and `rifle_lightning` retain their original models, textures,
+`muzzle` transforms, weapon-datatable effect mappings, sounds and projectile
+descriptors. The lightning rifle is distinct from `heavy_lightning_beam`.
+`catalog.json` separates hashed Core3 template defaults and certifications from
+the prototype's normalized delivery settings in `client/combat/balance.json`.
+The original projectile datatable does not supply the prototype projectile speed,
+scatter cone or guidance limits. Those settings remain explicit balance policy.

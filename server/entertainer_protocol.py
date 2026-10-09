@@ -12,6 +12,39 @@ except ImportError:
 ACTIONS = ('status', 'perform', 'stop', 'flourish', 'register_location', 'group_invite', 'group_join', 'group_leave', 'group_bump')
 
 
+def audience_snapshot(value):
+    """Bound native audience observations; presence never supplies these values."""
+    if not isinstance(value, dict) or value.get('policy') != 'automatic_radius':
+        raise ValueError('Invalid native audience policy.')
+    radius = value.get('radius_m')
+    if type(radius) not in (int, float) or not math.isfinite(radius) or radius != 8:
+        raise ValueError('Invalid native audience radius.')
+    for key, expected in (('minimum_seconds', 60), ('refresh_seconds', 10)):
+        if type(value.get(key)) is not int or value[key] != expected:
+            raise ValueError('Invalid native audience timing.')
+    sources = value.get('sources')
+    if not isinstance(sources, list) or len(sources) > 2:
+        raise ValueError('Native audience sources exceed bounds.')
+    rows, kinds, identities = [], set(), set()
+    for source in sources:
+        if not isinstance(source, dict):
+            raise ValueError('Invalid native audience source.')
+        oid, kind = source.get('id'), source.get('kind')
+        if (not isinstance(oid, str) or not re.fullmatch(r'[0-9]{1,20}', oid)
+                or not 0 < int(oid) < 2**64 or kind not in ('dance', 'music')
+                or kind in kinds or oid in identities):
+            raise ValueError('Invalid or duplicate native audience source.')
+        row = {'id': oid, 'kind': kind}
+        for key in ('seconds', 'strength', 'duration_minutes'):
+            number = source.get(key)
+            if type(number) is not int or not 0 <= number <= 2**31 - 1:
+                raise ValueError('Invalid native audience progress.')
+            row[key] = number
+        rows.append(row); kinds.add(kind); identities.add(oid)
+    return {'policy': 'automatic_radius', 'radius_m': float(radius),
+            'minimum_seconds': 60, 'refresh_seconds': 10, 'sources': rows}
+
+
 def command(action, data):
     if action not in ACTIONS and not action.startswith('image_'):
         raise ValueError('Unsupported entertainer action.')
@@ -73,5 +106,7 @@ def snapshot(value, character_id):
         raise ValueError('Invalid native entertainer state.')
     if len(state.get('registrations',[]))>256 or any(len(state.get(key,[]))>32 for key in ('nearby_players','group_candidates')):
         raise ValueError('Native entertainer public state exceeds bounds.')
+    if 'audience' in state:
+        state['audience'] = audience_snapshot(state['audience'])
     out['ok'] = out.get('mutation', {}).get('success') is True
     return out

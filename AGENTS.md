@@ -14,6 +14,12 @@ Agree on scene manifest and backend API before implementing consumers. Send inte
 
 ## Live test deployment scope
 
+- User direction (2026-10-10): delete existing player accounts and characters on the current remote server, deploy the test server, build/package Linux and Windows clients, and prepare separate private asset archives for testers. This authorizes the prepared bounded JtL test deployment on `87.106.27.237`; keep the client-launch approval requirement and the 05:00 UTC restart.
+
+- User direction (2026-10-09, crews): extend terminal launch with handshake crew formation, native capacity checks, removable crew and walk-away cancellation; add disconnect ejection and pilot-approved small-ship boarding/return. POBs and gunships cannot board another POB; a multiseat fighter can board only with its gunner seat empty. Keep the existing deployment and client-launch restrictions.
+
+- User direction (2026-10-09): implement a bounded noncombat JtL tester flow with one original Luxury Yacht for each account's first character, starship-terminal launch, original POB housing rules, motion-controller/optional HOTAS controls, and test-client registration. Prepare Linux/Windows client and server packages; keep original game data in a separate private drop-in archive. This extends implementation and package scope to JtL; it does not itself deploy the package or lift the client-launch approval requirement.
+
 - User direction (2026-10-07, test launch): prompt before the next live test/VR client launch. Finish implementation and inventory provisioning first; keep the VR client closed until the user approves the launch.
 
 - User direction (2026-10-07, migration): offline the old test environment and deploy the prepared all-original-ground-planets package to `87.106.27.237` as `blux`, then connect the VR client with server and spectator diagnostics. This authorizes the ten original ground planets on the new live VPS and supersedes the package-only restriction for that deployment. Preserve the daily restart at 05:00 UTC. The old `45.147.228.101` environment remains offline.

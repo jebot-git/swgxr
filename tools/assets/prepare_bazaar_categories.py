@@ -50,7 +50,7 @@ def parse_types(text):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--types-header',type=Path,default=ROOT/'runtime/research/services/SharedObjectTemplate.h')
-    p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
+    p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     p.add_argument('--out',type=Path,default=ROOT/'runtime/assets/services/bazaar_categories.json')
     args=p.parse_args()
     raw=reference_bytes(args.types_header); types=parse_types(raw.decode())

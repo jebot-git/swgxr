@@ -56,6 +56,8 @@ var inventory: Node3D
 var inventory_drops: Node3D
 var medic: Node3D
 var vehicles: Node3D
+var space: Node3D
+var flight_preferences=preload("res://space/preferences.gd").new()
 var pets: Node
 var scout: Node3D
 var housing: Node3D
@@ -164,6 +166,7 @@ func _ready() -> void:
 		get_tree().quit(2)
 		return
 	vr_settings.load_preferences()
+	flight_preferences.load_preferences()
 	if args.has("turn-mode"):
 		vr_settings.set_turn_mode(str(args["turn-mode"]))
 	if args.has("turn-speed"):
@@ -381,7 +384,8 @@ func make_ui() -> void:
 	columns.add_child(settings_panel)
 	var settings := VBoxContainer.new()
 	settings.add_theme_constant_override("separation", 14)
-	settings_panel.add_child(settings)
+	var settings_scroll:=ScrollContainer.new();settings_scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;settings_panel.add_child(settings_scroll);settings_scroll.add_child(settings)
+	settings.size_flags_horizontal=Control.SIZE_EXPAND_FILL
 	add_label(settings, "VIEW & AUDIO", 16, Color("67dcea"))
 	for channel in ["Music", "Ambience"]:
 		var audio_row := HBoxContainer.new()
@@ -401,6 +405,7 @@ func make_ui() -> void:
 	if xr_requested:
 		settings.add_child(HSeparator.new())
 		make_vr_settings(settings)
+	var flight_panel:=preload("res://space/settings_panel.gd").new();settings.add_child(flight_panel);flight_panel.setup(flight_preferences)
 	var help := add_label(settings, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var spacer := Control.new()
@@ -572,11 +577,11 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 		return {"ok":false,"error":"Your session expired. Sign in again."}
 	# Legacy RPCs reconnect this character and would evict its persistent zone session.
 	# The owner weapon-profile read borrows the existing native session in the adapter.
-	if live_combat_reserved and not (method==HTTPClient.METHOD_GET and path.begins_with("/weapons?")) and not (method==HTTPClient.METHOD_POST and (path.begins_with("/entertainer/") or path in ["/performance","/inventory/equip","/inventory/unequip"])) and path!="/session/logout" and path!="/session/sync" and path!="/inventory/status" and not path.begins_with("/voice/") and not path.begins_with("/auth/") and not path.begins_with("/combat/session") and not path.begins_with("/vehicles/") and not path.begins_with("/medic/") and not path.begins_with("/scout/") and not path.begins_with("/services/") and not path.begins_with("/crafting/") and not path.begins_with("/gathering/"):
+	if live_combat_reserved and not (method==HTTPClient.METHOD_GET and path.begins_with("/weapons?")) and not (method==HTTPClient.METHOD_POST and (path.begins_with("/entertainer/") or path in ["/performance","/inventory/equip","/inventory/unequip"])) and path!="/session/logout" and path!="/session/sync" and path!="/inventory/status" and not path.begins_with("/voice/") and not path.begins_with("/auth/") and not path.begins_with("/combat/session") and not path.begins_with("/jtl/") and not path.begins_with("/vehicles/") and not path.begins_with("/medic/") and not path.begins_with("/scout/") and not path.begins_with("/services/") and not path.begins_with("/crafting/") and not path.begins_with("/gathering/"):
 		return {"ok":false,"error":"Inventory and character RPCs are suspended during the live ranged test."}
 	var request := HTTPRequest.new()
 	request.timeout = (30.0 if path.ends_with("/start") else 4.0) if path.begins_with("/combat/session") else 75.0
-	for prefix in ["/gathering","/inventory","/services","/crafting","/vehicles"]:
+	for prefix in ["/gathering","/inventory","/services","/crafting","/vehicles","/jtl"]:
 		if path.begins_with(prefix):request.timeout=15.0;break
 	if path == "/services/presence": request.timeout = 2.0
 	if path == "/session/logout":request.timeout=30.0
@@ -1001,6 +1006,8 @@ func enter_stage(offline: bool, entry := {}) -> void:
 			fail_loading("Core3 gameplay connection failed: "+gameplay_session.last_error);return
 		if not gameplay_session.pending_transport.is_empty():
 			if not await perform_live_transport(gameplay_session.pending_transport,true):return
+		elif gameplay_session.player_state.get("space_active",false):
+			if not is_instance_valid(space) or not space.aboard():fail_loading("The character is aboard a ship, but its original interior assets could not be loaded.");return
 		elif gameplay_session.player_state.get("position") is Array:
 			var native_destination: Dictionary=gameplay_session.player_state.duplicate(true)
 			var native_placement: Dictionary=await medical_placement.place(self,native_destination)
@@ -1013,7 +1020,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		services.reset()
 	if not offline and not is_instance_valid(multiplayer_sync):
 		multiplayer_sync=preload("res://multiplayer/client_sync.gd").new();add_child(multiplayer_sync);multiplayer_sync.setup(self)
-	if not offline and is_instance_valid(multiplayer_sync):
+	if not offline and is_instance_valid(multiplayer_sync) and not (is_instance_valid(space) and space.aboard()):
 		loading_screen.set_status("Synchronizing nearby players and entities…")
 		var synchronized:bool=await multiplayer_sync.prime()
 		session_mode="CORE3 MULTIPLAYER · "+str(entry.get("name","Character"))
@@ -1194,9 +1201,10 @@ func _process(_delta: float) -> void:
 	var diagnostic_active := xr_diagnostic_active()
 	if diagnostic_active and is_instance_valid(player): player.active = false
 	var parcel_blocks:bool=entertainer_interaction_blocks() or (is_instance_valid(mission_parcels) and mission_parcels.blocks_interactions()) or (is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions()) or (is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions())
+	var aboard_ship:bool=is_instance_valid(space) and space.aboard()
 	var service_blocks: bool = (is_instance_valid(services) and services.blocks_combat()) or parcel_blocks
 	if is_instance_valid(services):
-		services.set_allowed(not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services() and not services.inventory_accessible()) and not (is_instance_valid(datapad) and datapad.is_open))
+		services.set_allowed(not aboard_ship and not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services() and not services.inventory_accessible()) and not (is_instance_valid(datapad) and datapad.is_open))
 	if (entertainer_interaction_blocks() or (is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions()) or (is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions())) and is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_allowed(false)
 	if is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_inventory_focus(is_instance_valid(inventory) and inventory.blocks_services())
 	var inventory_available:bool=not parcel_blocks and not (is_instance_valid(services) and services.blocks_inventory()) and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible
@@ -1205,7 +1213,7 @@ func _process(_delta: float) -> void:
 	if is_instance_valid(housing):
 		# Choosing a source blueprint suspends the factory controls but retains its panel.
 		var factory_datapad_overlay:bool=is_instance_valid(housing.factory_panel) and housing.factory_panel.is_open and is_instance_valid(datapad) and datapad.is_open
-		housing.set_allowed(is_instance_valid(inventory) and inventory_available and (inventory.allowed or factory_datapad_overlay) and not player.feedback.life_locked)
+		housing.set_allowed(not aboard_ship and is_instance_valid(inventory) and inventory_available and (inventory.allowed or factory_datapad_overlay) and not player.feedback.life_locked)
 	if is_instance_valid(fishing):fishing.set_allowed(is_instance_valid(inventory) and inventory.allowed and not player.feedback.life_locked)
 	if is_instance_valid(slicing):slicing.set_allowed(is_instance_valid(inventory) and inventory.allowed and not session_leaving)
 	if is_instance_valid(pets):
@@ -1215,7 +1223,7 @@ func _process(_delta: float) -> void:
 	var inventory_blocks: bool = is_instance_valid(inventory) and inventory.blocks_combat()
 	if is_instance_valid(housing) and ((is_instance_valid(housing.harvester_panel) and housing.harvester_panel.is_open) or (is_instance_valid(housing.factory_panel) and housing.factory_panel.is_open)):inventory_blocks=true
 	if is_instance_valid(combat_rig):
-		combat_rig.set_allowed(not service_blocks and not player.feedback.life_locked and (not live_combat_reserved or (is_instance_valid(live_combat) and live_combat.is_ready())) and not diagnostic_active and not inventory_blocks and not inventory_request_pending and world_ready and not loading_stage and not menu.visible and not creator.visible and (not xr_requested or xr_focused) and not (is_instance_valid(datapad) and datapad.is_open))
+		combat_rig.set_allowed(not aboard_ship and not service_blocks and not player.feedback.life_locked and (not live_combat_reserved or (is_instance_valid(live_combat) and live_combat.is_ready())) and not diagnostic_active and not inventory_blocks and not inventory_request_pending and world_ready and not loading_stage and not menu.visible and not creator.visible and (not xr_requested or xr_focused) and not (is_instance_valid(datapad) and datapad.is_open))
 	if is_instance_valid(datapad):
 		datapad.set_gesture_reserved(gameplay_gesture_reserved())
 		datapad.set_allowed(not datapad.gesture_reserved and not service_blocks and not live_combat_reserved and not diagnostic_active and not (is_instance_valid(inventory) and inventory.interaction_active) and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible)
@@ -1225,6 +1233,9 @@ func _process(_delta: float) -> void:
 		# Loading owns the physics gate. Streaming readiness must not override it
 		# while scenery/cell collision or spawn grounding are still pending.
 		player.set_physics_process(false)
+		return
+	if aboard_ship:
+		player.set_physics_process(true)
 		return
 	if environment_presentation != null:
 		environment_presentation.update_observer(player.global_position)
@@ -1278,39 +1289,63 @@ func stage_smoke() -> void:
 	var wall_direction := Vector3.ZERO
 	var wall_hit_position := Vector3.ZERO
 	var wall_normal := Vector3.ZERO
-	for i in range(16):
-		var direction := Vector3(sin(i * TAU / 16), 0, cos(i * TAU / 16))
+	for i in range(64):
+		var direction := Vector3(sin(i * TAU / 64), 0, cos(i * TAU / 64))
 		var query := PhysicsRayQueryParameters3D.create(wall_origin, wall_origin + direction * 25)
 		query.exclude = [player.get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_ray(query)
 		if not hit.is_empty():
+			var collider:Variant=hit.get("collider")
+			var mesh:MeshInstance3D=collider.get_parent() if collider is StaticBody3D and collider.get_parent() is MeshInstance3D else null
+			# A narrow terminal can legitimately slide the capsule past its edge.
+			# Select an original building face approached almost normally, then
+			# measure the actual capsule contacts while pressing straight into it.
+			if mesh==null or "/building/" not in str(mesh.get_meta("source_template","")):continue
 			var distance: float = wall_origin.distance_to(hit.position)
-			if distance < nearest_distance and absf(hit.normal.y) < 0.25:
-				nearest_distance = distance
-				wall_direction = direction
-				wall_hit_position = hit.position
-				wall_normal = hit.normal
+			if distance>=nearest_distance or absf(hit.normal.y)>=.25 or direction.dot(hit.normal)>-.995:continue
+			nearest_distance = distance
+			wall_direction = -Vector3(hit.normal).slide(Vector3.UP).normalized()
+			wall_hit_position = hit.position
+			wall_normal = hit.normal
 	var wall_start: Vector3 = player.global_position
 	var local_direction: Vector3 = player.global_basis.inverse() * wall_direction
 	player.test_input = Vector2(local_direction.x, local_direction.z)
 	var wall_source := ""
+	var wall_contact_frames:=0
+	var wall_blocked_frames:=0
+	var wall_blocked_streak:=0
+	var longest_wall_blocked_streak:=0
 	for i in range(int((nearest_distance + 2) / player.speed * 60)):
+		var previous_position:Vector3=player.global_position
 		await get_tree().physics_frame
+		var contacted:=false
 		for collision_index in range(player.get_slide_collision_count()):
 			var collision: KinematicCollision3D = player.get_slide_collision(collision_index)
 			if absf(collision.get_normal().y) < 0.25:
 				var collider = collision.get_collider()
 				if collider is StaticBody3D and collider.get_parent() is MeshInstance3D:
-					wall_source = str(collider.get_parent().get_meta("source_template", "imported_mesh"))
+					var source:=str(collider.get_parent().get_meta("source_template", "imported_mesh"))
+					if "/building/" in source and collision.get_normal().dot(wall_direction)<-.7:wall_source=source;contacted=true
+		if contacted:
+			wall_contact_frames+=1
+			var progress:float=(player.global_position-previous_position).dot(wall_direction)
+			if progress<player.speed*player.get_physics_process_delta_time()*.5:
+				wall_blocked_frames+=1;wall_blocked_streak+=1
+				longest_wall_blocked_streak=maxi(longest_wall_blocked_streak,wall_blocked_streak)
+			else:wall_blocked_streak=0
+		else:wall_blocked_streak=0
 	player.test_input = Vector2.ZERO
 	var wall_travel: float = (player.global_position - wall_start).dot(wall_direction)
 	var wall_clearance: float = (player.global_position - wall_hit_position).dot(wall_normal)
-	var wall_stopped: bool = wall_direction != Vector3.ZERO and wall_clearance >= -0.03 and wall_travel > 0.05 and not wall_source.is_empty()
-	var result := {"test": "stage_spawn_locomotion_and_imported_wall", "controller": player.get_class(), "mesh_builder": loader.native_builder.get_class(), "native": player is SwgFirstPersonController and loader.native_builder is SwgMeshBuilder, "mesh_count": loader.report.meshes, "grounded": grounded, "spawn": str(player.spawn_point), "settled_position": str(start), "movement_distance": moved, "wall_ray_distance": nearest_distance, "wall_actual_travel": wall_travel, "wall_clearance": wall_clearance, "wall_stopped": wall_stopped, "wall_source": wall_source, "instances": loader.report.instances, "collision_bodies": loader.report.collision_bodies}
+	# The ray and the capsule may contact different faces of the compound source
+	# collision mesh. Sustained blocked native sweeps prove collision; extending
+	# the ray triangle into an infinite plane does not.
+	var wall_stopped: bool = wall_direction != Vector3.ZERO and longest_wall_blocked_streak>=3 and wall_travel > 0.05 and not wall_source.is_empty()
+	var result := {"test": "stage_spawn_locomotion_and_imported_collision", "controller": player.get_class(), "mesh_builder": loader.native_builder.get_class(), "native": player is SwgFirstPersonController and loader.native_builder is SwgMeshBuilder, "mesh_count": loader.report.meshes, "grounded": grounded, "spawn": str(player.spawn_point), "settled_position": str(start), "movement_distance": moved, "wall_ray_distance": nearest_distance, "collision_blocked":wall_stopped,"wall_contact_frames":wall_contact_frames,"longest_wall_blocked_streak":longest_wall_blocked_streak,"wall_blocked_frames":wall_blocked_frames,"wall_actual_travel": wall_travel, "wall_clearance": wall_clearance, "wall_stopped": wall_stopped, "wall_source": wall_source, "instances": loader.report.instances, "collision_bodies": loader.report.collision_bodies}
 	write_evidence(result)
 	print(JSON.stringify(result))
 	var passed: bool = grounded and moved > 0.1 and wall_stopped and loader.report.collision_bodies > 0
-	print("STAGE_SMOKE_PASS" if passed else "STAGE_SMOKE_FAIL: grounding, movement, or actual imported wall failed")
+	print("STAGE_SMOKE_PASS" if passed else "STAGE_SMOKE_FAIL: grounding, movement, or actual imported collision failed")
 	get_tree().quit(0 if passed else 1)
 
 func take_screenshot(quit_when_done := true) -> void:
@@ -1506,6 +1541,7 @@ func initialize_xr() -> bool:
 	datapad.opened.connect(refresh_datapad)
 	datapad.new_waypoint_requested.connect(create_datapad_waypoint)
 	datapad.delete_entry_requested.connect(delete_datapad_entry)
+	datapad.ui.forget_skill_requested.connect(forget_profession_skill)
 	inventory = load("res://scripts/xr_inventory.gd").new()
 	add_child(inventory)
 	inventory.configure(xr_origin,player,vr_settings.offhand)
@@ -1540,6 +1576,7 @@ func initialize_xr() -> bool:
 	spice_world=preload("res://spice/world_effects.gd").new();add_child(spice_world);spice_world.setup(self)
 	scout=load("res://scout/controller.gd").new();add_child(scout);scout.setup(self,inventory)
 	medic=load("res://medic/controller.gd").new();add_child(medic);medic.setup(self,inventory)
+	space=preload("res://space/controller.gd").new();add_child(space);space.setup(self,flight_preferences)
 	vehicles=load("res://vehicles/controller.gd").new();add_child(vehicles);vehicles.setup(self,inventory)
 	datapad.ui.call_vehicle_requested.connect(vehicles.call_vehicle)
 	datapad.ui.recall_vehicle_requested.connect(vehicles.recall_vehicle)
@@ -1807,6 +1844,7 @@ func inventory_held_changed(_item: Dictionary) -> void:
 	update_inventory_presentation()
 
 func drop_inventory_item(item: Dictionary, pose: Transform3D) -> void:
+	if is_instance_valid(space) and space.try_drop(item,pose):return
 	if is_instance_valid(vendor_commerce) and vendor_commerce.try_drop(item,pose):return
 	if is_instance_valid(fishing) and fishing.try_drop(item):return
 	if is_instance_valid(scout) and scout.try_throw(item): return
@@ -2002,6 +2040,8 @@ func datapad_source_position() -> Vector3:
 	return source_position_at(player.global_position)
 
 func source_position_at(world_position: Vector3) -> Vector3:
+	if is_instance_valid(space) and space.aboard():
+		var point:Array=space.scene.source(world_position);return Vector3(point[0],point[1],point[2])
 	var origin := loader.vec(loader.report.get("origin",[0,0,0]))
 	var point: Vector3=stage.to_local(world_position) if is_instance_valid(stage) and stage is Node3D else world_position
 	return Vector3(origin.x+point.x,origin.y+point.y,origin.z-point.z)
@@ -2019,7 +2059,19 @@ func update_datapad_summary(value:Variant)->void:
 	if summary.is_empty():datapad.summary_ui.set_character(null,"")
 	elif is_instance_valid(inventory):datapad.summary_ui.set_character(inventory.equipment_avatar,inventory.equipment_context_key())
 
+func forget_profession_skill(skill_id: String) -> void:
+	if not is_instance_valid(datapad) or not is_instance_valid(services) or datapad.ui.busy: return
+	if not datapad.ui.professions.forget_status(skill_id).get("eligible", false): return
+	var version := datapad_epoch
+	datapad.ui.set_busy(true, "Forgetting skill…")
+	var response: Dictionary = await services.request("skill_forget", {"skill_id":skill_id})
+	if version != datapad_epoch: return
+	var confirmed: bool = response.get("ok", false) and response.get("mutation", {}).get("success", false)
+	datapad.ui.set_busy(false, "Skill forgotten; %d points returned." % int(response.get("mutation", {}).get("refunded_points", 0)) if confirmed else str(response.get("error", services.last_error if not services.last_error.is_empty() else "Skill could not be forgotten.")))
+
 func refresh_datapad() -> void:
+	if is_instance_valid(space) and space.aboard():
+		space.request("status");return
 	if not is_instance_valid(datapad) or datapad_request_pending: return
 	if live_combat_reserved:
 		# Reuse the native session; a legacy datapad login would disconnect it.
@@ -2082,7 +2134,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 			tracked_avatar.queue_free(); tracked_avatar = null; avatar = null
 		elif vr_settings.standing_eye_height >= 0.8:
 			tracked_avatar.set_standing_eye_height(vr_settings.standing_eye_height)
-	var path := ProjectSettings.globalize_path("res://../runtime/combat/catalog.json")
+	var path := ProjectSettings.globalize_path("res://../runtime/assets/combat/catalog.json")
 	var catalog: Dictionary = Avatar.read_json(path)
 	if args.has("combat-profession-lab") and not args.has("combat-items"):
 		var fixture := Avatar.read_json(ProjectSettings.globalize_path("res://../runtime/evidence/professions/fixture.json"))
@@ -2245,6 +2297,9 @@ func start_live_combat() -> bool:
 		var transport: Dictionary=live_combat.pending_transport
 		if not transport.is_empty():
 			started=await perform_live_transport(transport,true)
+		elif native.get("space_active",false):
+			started=is_instance_valid(space) and space.aboard()
+			if not started:live_combat.last_error="Original ship interior could not be loaded."
 		elif native.get("position") is Array:
 			var destination:=native.duplicate(true)
 			if str(native.get("zone",active_planet))!=active_planet or live_combat.world(native.position).distance_to(player.global_position)>0.05 or int(native.get("cell_index",0))>0:
@@ -2274,7 +2329,10 @@ func apply_live_player(snapshot: Dictionary) -> void:
 	context["character_id"] = datapad_character_id
 	player.feedback.observe(context)
 	if snapshot.get("player_summary") is Dictionary:update_datapad_summary(snapshot.player_summary)
-	preload("res://combat/movement_reconciliation.gd").apply(self,snapshot)
+	if is_instance_valid(space) and snapshot.get("jtl") is Dictionary:
+		var native_sequence:int=live_combat.sequence if live_combat_reserved and is_instance_valid(live_combat) else gameplay_session.sequence if is_instance_valid(gameplay_session) else -1
+		space.observe(snapshot.jtl,native_sequence)
+	if not snapshot.get("space_active",false):preload("res://combat/movement_reconciliation.gd").apply(self,snapshot)
 	if is_instance_valid(datapad) and snapshot.get("experience") is Dictionary and bool(snapshot.get("experience_complete",false)):
 		datapad.ui.set_experience(snapshot.experience,true)
 	if is_instance_valid(medic):medic.observe_drag(snapshot.get("medical_drag",{}))
@@ -2419,7 +2477,7 @@ func leave_character(quit_after: bool=false) -> void:
 	update_buttons()
 	status.text="Saving your location and logging off…"
 	var paused: Dictionary={}
-	for node in [services,gathering,crafting,fishing,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering,live_combat,gameplay_session,multiplayer_sync,gameplay_combat,mission_parcels,vendor_placement,vendor_commerce]:
+	for node in [space,services,gathering,crafting,fishing,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering,live_combat,gameplay_session,multiplayer_sync,gameplay_combat,mission_parcels,vendor_placement,vendor_commerce]:
 		if is_instance_valid(node):paused[node]=node.process_mode;node.process_mode=Node.PROCESS_MODE_DISABLED
 	if is_instance_valid(voice_chat):voice_chat.set_allowed(false)
 	# Freeze new work, then let already-sent transactions settle before the save.
@@ -2485,7 +2543,7 @@ func clear_character_world() -> void:
 	if is_instance_valid(environment_presentation):environment_presentation.set_active(false)
 	if is_instance_valid(inventory):inventory.set_allowed(false);inventory.clear_held();inventory.set_snapshot({})
 	if is_instance_valid(inventory_drops):inventory_drops.clear()
-	for controller in [services,gathering,crafting,fishing,slicing,spice_world,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
+	for controller in [space,services,gathering,crafting,fishing,slicing,spice_world,housing,medic,vehicles,pets,scout,entertainer,corpse_gathering]:
 		if is_instance_valid(controller) and controller.has_method("reset"):controller.reset()
 	if is_instance_valid(datapad):datapad.set_allowed(false);datapad.ui.set_entries([]);datapad.ui.set_skills([],false);datapad.ui.set_experience({},false);update_datapad_summary({})
 	player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false);player.ground_provider=null
@@ -2522,6 +2580,7 @@ func account_ready() -> bool:
 	return not remote_connection.configured or (remote_connection.authenticated and not remote_connection.legacy_profile)
 
 func clear_account_data() -> void:
+	if is_instance_valid(space):space.reset()
 	vehicle_activation_requests.clear()
 	if is_instance_valid(voice_chat):voice_chat.shutdown()
 	if is_instance_valid(voice_controls):voice_controls.set_allowed(false)
@@ -2650,6 +2709,8 @@ func update_voice_chat() -> void:
 	if not is_instance_valid(voice_chat) or not is_instance_valid(player):return
 	var session_id: String=preload("res://scripts/native_session_identity.gd").id(self)
 	voice_chat.set_context(datapad_account,datapad_character_id,auth_revision,session_id)
+	if voice_chat.has_method("set_world_context"):
+		voice_chat.set_world_context(str(space.ship.get("zone","space_tatooine")) if is_instance_valid(space) and space.aboard() else active_planet,str(space.ship.get("id","0")) if is_instance_valid(space) and space.aboard() else "0")
 	var tracked:=true
 	if xr_requested:
 		var head=XRServer.get_tracker("head")
@@ -2671,6 +2732,7 @@ func update_voice_chat() -> void:
 		var hands_free: bool=not (is_instance_valid(inventory) and (inventory.interaction_active or not inventory.held_item.is_empty()))
 		hands_free=hands_free and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(crafting) and crafting.is_open)
 		hands_free=hands_free and not (is_instance_valid(services) and services.blocks_combat())
+		if is_instance_valid(space) and space.aboard():hands_free=hands_free and not space.wheel.opened and not space.inputs.stick_held and not space.inputs.throttle_held
 		voice_controls.set_allowed(gate.allowed,hands_free,gate.reason if not gate.allowed else ("Free your main hand to change voice controls" if not hands_free else ""))
 	if is_instance_valid(desktop_voice_panel):
 		desktop_voice_panel.visible=desktop_voice_open and world_ready and not menu.visible

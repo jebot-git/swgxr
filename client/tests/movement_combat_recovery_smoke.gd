@@ -23,7 +23,7 @@ func host()->Host:
 	app.menu=PanelContainer.new();app.add_child(app.menu);app.menu.hide()
 	app.stage=Node3D.new();app.add_child(app.stage);app.player=CharacterBody3D.new();app.add_child(app.player)
 	var camera:=Camera3D.new();app.add_child(camera)
-	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
+	var profile:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json")).weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
 	app.combat_rig=load("res://combat/ranged_rig.gd").new();app.add_child(app.combat_rig);app.combat_rig.configure(camera,app.player,[profile]);app.combat_rig.set_process(false);app.combat_rig.set_physics_process(false)
 	return app
 func run()->void:

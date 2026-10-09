@@ -1,0 +1,116 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuPolicy.h
+@@ -0,0 +1,58 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <string>
++
++// CoreCU v1 tuning, not a claim of recovered SOE server formulas.
++namespace corecu {
++constexpr int VERSION=1;
++enum Status { Stun, Blind, Dizzy, Intimidate, Knockdown, Snare, Bleed, Poison, Disease, Fire, StatusCount };
++inline double clamp(double x,double a,double b){return std::isfinite(x)?std::max(a,std::min(b,x)):a;}
++inline bool elemental(int type){return type==32 || type==64 || type==128 || type==256;}
++inline double resistance(int level,int armor,double legacy){
++    // Level supplies the common curve; species retain bounded weaknesses.
++    const double bias=legacy<0?-1000:clamp((legacy-30)*20,-1000,1000);
++    const double score=clamp(75*clamp(level,1,80)+400*clamp(armor,0,3)+bias,0,8000);
++    return score/(8000+score);
++}
++inline double npcDamageScale(int level){return level<=30?.45:level<=80?.55:level<=150?.70:.85;}
++inline double npcHamScale(int level){return level<=30?.65:level<=80?.80:1.;}
++inline double npcMean(double low,double high,int level){return std::max(1.,(low+high)*.5*npcDamageScale(level));}
++inline int specialCooldown(int level){return level>150?6000:level>80?8000:10000;}
++inline double specialMultiplier(double value,int level){return clamp(value,0,level>150?2.5:level>80?2.:1.5);}
++// Profession/native defense has a 100-point baseline budget; Doctor prophylaxis
++// adds at most 25 once after the stronger source wins. Temporary TKA Focus
++// remains part of the baseline, not a second preparation bonus.
++inline double statusBaseline(double value){return clamp(value,0,100);}
++inline double preparedRating(double baseline,double preparation){return statusBaseline(baseline)+clamp(preparation,0,25);}
++inline double statusReduction(double rating){rating=clamp(rating,0,150);return rating/(150+rating);}
++// Cap the underlying disease resource pressure before absorption, so protection
++// also reduces a saturated tick. Fractional damage rounds down as in native DoTs.
++inline int diseaseTick(int base,double requested,double absorption){return int(std::floor(clamp(requested,0,std::max(1,base/20))*(1.-clamp(absorption,0,50)/100.)));}
++inline double statusChance(double chance,double rating){return clamp(chance,5,95)*(1-statusReduction(rating));}
++// Authored specialist bonuses share the defender's reduction. Ordinary attacks
++// retain statusChance; learned potency is bounded to 125 before resistance.
++inline double learnedStatusChance(double base,double bonus,double rating){return clamp((clamp(base,5,95)+clamp(bonus,0,30))*(1-statusReduction(rating)),0,95);}
++inline int statusDuration(int seconds,double rating){return seconds<=0?0:std::max(1,int(std::ceil(seconds*(1-statusReduction(rating)))));}
++inline double trapSuccessBonus(bool scoutNovice,int scoutBoxes,int rangerBoxes,bool rangerMaster){return (scoutNovice?1.:0.)+clamp(scoutBoxes,0,4)+clamp(rangerBoxes,0,4)+(rangerMaster?1.:0.);}
++inline double trapStatusChance(double rating,double bonus){return learnedStatusChance(95,clamp(bonus,0,10),rating);}
++inline double weakenedRating(double existing,double derived,double debuff){return std::max(existing,std::max(0.,derived+std::min(0.,debuff)));}
++inline double combinedRating(double strongest,double others){return clamp(strongest+.25*others,0,100);}
++inline double progressWeight(const std::string& profession,const std::string& skill){
++    const auto prefix=profession+"_";
++    if(skill.compare(0,prefix.size(),prefix)!=0)return 0;
++    const auto suffix=skill.substr(prefix.size());
++    if(suffix=="novice" || suffix=="master")return .1;
++    return suffix.size()>3 && suffix[suffix.size()-3]=='_' && suffix[suffix.size()-2]=='0' && suffix.back()>='1' && suffix.back()<='4'?.05:0.;
++}
++// One elemental budget: shields replace weaker body protection, never multiply it.
++inline double equipmentResistance(int channel,double body,double shield){return clamp(elemental(channel)?std::max(body,shield):body,0,.5);}
++inline double shieldResistance(int channel,double quality){return elemental(channel)?clamp(quality,0,80)/160.:0.;}
++// Shortened effects still get a first tick before expiry.
++inline int firstTickMillis(int duration,int interval){return int(std::max(1.,std::min(interval*1000.,duration*500.)));}
++// Hit-derived DoTs have a bounded total budget, shared across each effect group.
++inline double dotTickBudget(double mitigated,int effects,int duration,int interval,double requested){
++    const int ticks=std::max(1,int(std::ceil(double(duration)/interval)));
++    return std::max(0.,std::min(requested,mitigated*.5/std::max(1,effects)/ticks));
++}
++}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/FencerPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/FencerPolicy.h
+@@ -15,7 +15,7 @@
+ }
+ inline double progression(double trained){return clamp((trained-.1)/.9,0,1);}
+ inline double bleedScale(double progress,bool flawless){return flawless?1.:.5+.3*clamp(progress,0,1);}
+-inline double chance(double rating,double progress,bool precision,bool flawless){return clamp(statusChance(95,rating)+5+10*clamp(progress,0,1)+(flawless?15:precision?10:0),0,95);}
++inline double chance(double rating,double progress,bool precision,bool flawless){return learnedStatusChance(95,5+5*clamp(progress,0,1)+(flawless?10:precision?5:0),rating);}
+ inline int softDuration(int base,double progress){return int(std::ceil(base*(1+.25*clamp(progress,0,1))));}
+ inline double exposed(double rating,int status,bool active){return active && (status==Bleed || status==Blind || status==Intimidate || status==Snare)?std::max(0.,rating-20):rating;}
+ inline int refreshBudget(int remaining,int incoming){return std::max(std::max(0,remaining),std::max(0,incoming));}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CarbineerPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CarbineerPolicy.h
+@@ -16,7 +16,7 @@
+ inline bool contains(const std::string& id){return *ability(id).label;}
+ inline bool area(const Ability& a){return a.targets>1;}
+ inline bool hard(const Ability& a){return a.effect==Stun || a.effect==Knockdown;}
+-inline double chance(double rating,bool brace,bool wildRank2=false){return clamp(statusChance(wildRank2?90:85,rating)+(brace?10:0),0,95);}
++inline double chance(double rating,bool brace,bool wildRank2=false){return learnedStatusChance(wildRank2?90:85,brace?10:0,rating);}
+ inline double range(const Ability& a,double supported){return std::max(0.,a.range>0?std::min(a.range,supported):supported);}
+ inline int strongestSlow(int existing,int crippling,int sweep){return std::min(100,std::max({0,existing,crippling,sweep}));}
+ constexpr int BuffSeconds=8, BraceBonus=10;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/PikemanPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/PikemanPolicy.h
+@@ -18,7 +18,7 @@
+ inline bool hard(const Ability& a){return a.effect!=Slow;}
+ inline bool targeted(const Ability& a){return !a.gesture && !a.ultimate;}
+ inline bool ready(const Ability& a,bool recovery){return !targeted(a) || !hard(a) || recovery;}
+-inline double chance(double rating,double trained){return clamp(statusChance(90,rating)+5+5*clamp((trained-.1)/.9,0,1),0,95);}
++inline double chance(double rating,double trained){return learnedStatusChance(90,5+5*clamp((trained-.1)/.9,0,1),rating);}
+ inline int strongestSlow(int a,int b,int c,int d){return std::min(100,std::max(0,std::max(std::max(a,b),std::max(c,d))));}
+ inline std::string cooldownKey(const std::string& id){return ((id=="knockdown_strike" || id=="polearm_stun")?"corecu_brawler_":"corecu_pikeman_")+id;}
+ }}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFencer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrFencer.h
+@@ -51,7 +51,7 @@
+  static Json abilities(CreatureObject* c){Json out=Json::array();if(!compatible(c))return out;auto state=snapshot(c);
+   for(auto id:{"arterial_cut","nerve_strike","disorienting_thrust","exposing_thrust","probing_jabs","raking_slash","guard_bash","flawless_assault"}){if(!learned(c,id))continue;auto a=corecu::fencer::ability(id);auto row=state[id];std::string key=id;
+    row["id"]=id;row["label"]=a.label;row["activation"]=(a.gesture || a.ultimate)?"fencer_gesture":"native_melee";row["ultimate"]=a.ultimate;row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",a.action},{"mind",a.mind}};row["damage_multiplier"]=a.damage;row["max_range_m"]=corecu::melee::reach(c->getWeapon()->getMaxRange(),false);row["requires_control_available"]=a.control;
+-   row["description"]=key=="arterial_cut"?"Moderate hit and the strongest Fencer bleed. One shared remaining damage budget; ticks every 3 seconds for at most 12 seconds.":key=="nerve_strike"?"Light hit and 15% damage suppression. Stronger existing suppression takes precedence.":key=="disorienting_thrust"?"Light hit and native Blind, up to 4 seconds before resistance. Shared control recovery applies.":key=="exposing_thrust"?"Light hit and -20 resistance against bleed, blind, intimidate and snares. Allies benefit; immunities remain.":key=="probing_jabs"?"Two light hits. A landed hit grants Precision: +10 percentage points for the next Fencer effect attempt within 6 seconds.":key=="raking_slash"?"Moderate hit and a smaller bleed sharing Arterial Cut's single budget.":key=="guard_bash"?"Light hit and resisted attack delay of up to 2 seconds. Shared control recovery applies.":"For 12 seconds, Fencer bleed budgets reach 100% of landed damage and effect application gains +15 percentage points instead of Precision. No retroactive bleed increase.";
++   row["description"]=key=="arterial_cut"?"Moderate hit and the strongest Fencer bleed. One shared remaining damage budget; ticks every 3 seconds for at most 12 seconds.":key=="nerve_strike"?"Light hit and 15% damage suppression. Stronger existing suppression takes precedence.":key=="disorienting_thrust"?"Light hit and native Blind, up to 4 seconds before resistance. Shared control recovery applies.":key=="exposing_thrust"?"Light hit and -20 resistance against bleed, blind, intimidate and snares. Allies benefit; immunities remain.":key=="probing_jabs"?"Two light hits. A landed hit grants Precision: +5 chance points before resistance for the next Fencer effect attempt within 6 seconds.":key=="raking_slash"?"Moderate hit and a smaller bleed sharing Arterial Cut's single budget.":key=="guard_bash"?"Light hit and resisted attack delay of up to 2 seconds. Shared control recovery applies.":"For 12 seconds, Fencer bleed budgets reach 100% of landed damage and effect application gains +10 chance points before resistance instead of Precision. No retroactive bleed increase.";
+    row["weapon_requirement"]="Certified one-handed melee weapon; Fencer training required.";
+    row["fencer_progress"]=progression(c);row["bleed_budget_fraction"]=corecu::fencer::bleedScale(progression(c),flawless(c));
+    if(a.gesture){row["category"]="gesture";row["trigger_description"]=key=="probing_jabs"?"Hold grip with trigger released. Make two quick forward weapon-hand jabs, retracting between them.":key=="raking_slash"?"Hold grip with trigger released. From an upper corner, make a committed diagonal slash across your body.":"Hold grip with trigger released. Establish a weapon guard briefly, then drive the hilt forward in a short thrust.";}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCarbineer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCarbineer.h
+@@ -45,7 +45,7 @@
+   for(auto id:{"crippling_shot","wild_shot","charge_shot","full_auto_sweep","tactical_brace","charge_blast"}){if(!learned(c,id))continue;auto a=corecu::carbineer::ability(id);auto row=state[id];std::string key=id;
+    row["id"]=id;row["label"]=a.label;row["activation"]=a.gesture?"carbineer_gesture":a.ultimate?"carbineer_ultimate":"native_ranged";row["ultimate"]=a.ultimate;row["native_authority"]=true;row["source_command"]="attack";row["sac_policy"]="fixed";row["base_sac"]={{"health",0},{"action",a.action},{"mind",a.mind}};row["damage_multiplier"]=a.damage;row["hit_count"]=1;row["max_range_m"]=corecu::carbineer::range(a,w->getMaxRange());row["min_range_m"]=0;row["target_cap"]=a.targets;row["ammo_cost"]=corecu::carbineer::area(a)?3:key=="tactical_brace"?0:1;row["control_chance_bonus"]=active(c)?10:0;
+    row["weapon_requirement"]="Certified carbine and corresponding Carbineer training. Movement spread remains unchanged.";
+-   row["description"]=key=="crippling_shot"?"Light hit and a resisted 40% movement slow for up to 6 seconds. Strongest active slow wins.":key=="wild_shot"?"Moderate hit and resisted native Stun for up to 3 seconds; reduces combat effectiveness, without freezing movement. Wild Shot II improves application chance.":key=="charge_shot"?"Moderate hit and resisted knockdown for up to 2 seconds; shared control recovery applies.":key=="full_auto_sweep"?"A 75-degree muzzle cone, up to 18 metres and five nearest enemies with line of sight. One 0.5x hit each and a resisted 35% movement slow for up to 4 seconds; strongest slow wins.":key=="tactical_brace"?"For 8 seconds, carbine crowd-control application gains 10 percentage points after resistance, capped at 95%. Durations, immunities and recovery are unchanged.":"A 90-degree muzzle cone, up to 20 metres and six nearest enemies with line of sight. One 0.75x hit each and resisted knockdown for up to 3 seconds; shared control recovery applies.";
++   row["description"]=key=="crippling_shot"?"Light hit and a resisted 40% movement slow for up to 6 seconds. Strongest active slow wins.":key=="wild_shot"?"Moderate hit and resisted native Stun for up to 3 seconds; reduces combat effectiveness, without freezing movement. Wild Shot II improves application chance.":key=="charge_shot"?"Moderate hit and resisted knockdown for up to 2 seconds; shared control recovery applies.":key=="full_auto_sweep"?"A 75-degree muzzle cone, up to 18 metres and five nearest enemies with line of sight. One 0.5x hit each and a resisted 35% movement slow for up to 4 seconds; strongest slow wins.":key=="tactical_brace"?"For 8 seconds, carbine crowd-control application gains 10 chance points before target resistance, capped at 95%. Durations, immunities and recovery are unchanged.":"A 90-degree muzzle cone, up to 20 metres and six nearest enemies with line of sight. One 0.75x hit each and resisted knockdown for up to 3 seconds; shared control recovery applies.";
+    if(a.gesture){row["category"]="gesture";row["trigger_description"]=key=="full_auto_sweep"?"Support the carbine with both grips and release both triggers. Sweep horizontally, reverse, return forward, then briefly settle.":"Support with both grips and release both triggers. From level, cant into a chest-height ready pose, hold for 0.8 seconds, then return level.";}
+    if(key=="tactical_brace"){row["self_only"]=true;row["required_profession_skill"]="combat_carbine_ability_02";}
+    if(a.ultimate){row["required_profession_skill"]="combat_carbine_master";row["profession_requirement"]="Master Carbineer";row["trigger_description"]="Support the carbine, release both triggers, then press both together. The blast follows the actual muzzle direction.";}

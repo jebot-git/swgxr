@@ -1,5 +1,6 @@
 import unittest
-from server.entertainer_protocol import command, snapshot
+from copy import deepcopy
+from server.entertainer_protocol import audience_snapshot, command, snapshot
 from server.entertainment_catalog import catalog, commands
 from server.profession_scope import ENTERTAINER_TRAINERS, TRAINERS
 
@@ -64,3 +65,114 @@ class NativePlacedInstrumentProjectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):hub.update('player',{'token':session['token'],'seq':2,'position':[0,0,0],'item_id':'999'})
         native['sequence']=2;native['state']['placed_instruments']=[];hub.observe_native('player','1',native)
         with self.assertRaises(ValueError):hub.update('player',{'token':session['token'],'seq':3,'position':[0,0,0],'item_id':'20'})
+
+
+class AutomaticAudienceTests(unittest.TestCase):
+    def setUp(self):
+        from server.entertainment import PerformanceHub
+        self.now = 100.
+        self.hub = PerformanceHub(lambda:self.now)
+        self.session = self.hub.register_observation('patron',
+            {'character_id':'7','skills':[],'entertainer':False}, {}, [0,0,0])
+        self.audience = {'policy':'automatic_radius','radius_m':8.,
+            'minimum_seconds':60,'refresh_seconds':10,'sources':[
+                {'id':'8','kind':'dance','seconds':65,'strength':20,'duration_minutes':15},
+                {'id':'9','kind':'music','seconds':45,'strength':10,'duration_minutes':5}]}
+        self.seq = 0
+
+    def observe(self, sequence=10, audience=True):
+        state = {'character_id':'7','zone':'tatooine','skills':[]}
+        if audience: state['audience'] = deepcopy(self.audience)
+        envelope = {'source_kind':'core3_entertainer','character_id':'7',
+            'sequence':sequence,'state':state,'mutation':{'success':True}}
+        out = snapshot(envelope,'7')
+        self.hub.observe_native('patron','7',out)
+        return out
+
+    def update(self, **values):
+        self.seq += 1
+        payload = {'token':self.session['token'],'seq':self.seq,'position':[0,0,0]}
+        payload.update(values)
+        return self.hub.update('patron',payload)
+
+    def test_native_state_is_bounded_and_strips_unreported_buff_claims(self):
+        self.audience['buff_applied'] = True
+        self.audience['sources'][0]['buff_applied'] = True
+        out = self.observe()
+        self.assertNotIn('buff_applied',out['state']['audience'])
+        self.assertNotIn('buff_applied',out['state']['audience']['sources'][0])
+        self.assertEqual(len(out['state']['audience']['sources']),2)
+        self.assertTrue(out['ok'])
+
+    def test_invalid_geometry_timing_and_source_shapes_rejected(self):
+        bad = []
+        for key, value in [('policy','manual_watch'),('radius_m',float('nan')),
+                           ('radius_m',True),('radius_m',9),('minimum_seconds',True),
+                           ('minimum_seconds',0),('refresh_seconds',.1),('sources',{})]:
+            item = deepcopy(self.audience); item[key] = value; bad.append(item)
+        item = deepcopy(self.audience); item['sources'] *= 2; bad.append(item)
+        for key, value in [('id','0'),('id',str(2**64)),('id','8x'),('kind','unknown'),
+                           ('seconds',-1),('seconds',2**31),('strength',True),
+                           ('strength',float('inf')),('duration_minutes',1.5)]:
+            item = deepcopy(self.audience); item['sources'][0][key] = value; bad.append(item)
+        for key, value in [('id','8'),('kind','dance')]:
+            item = deepcopy(self.audience); item['sources'][1][key] = value; bad.append(item)
+        for item in bad:
+            with self.subTest(audience=item), self.assertRaises(ValueError):
+                audience_snapshot(item)
+
+    def test_client_positions_and_claims_never_create_or_replace_benefits(self):
+        self.assertEqual(self.session['buff_authority'],'native_core3')
+        unknown = self.update(audience=self.audience,buff_applied=True)
+        self.assertEqual(unknown['audience']['status'],'unobserved')
+        self.observe()
+        reply = self.update(position=[9000,0,0],audience={'sources':[]},buff_applied=False)
+        self.assertEqual(reply['bands'],[])
+        self.assertEqual(reply['audience']['state'],self.audience)
+        self.assertEqual(reply['audience']['status'],'fresh')
+        self.assertEqual(reply['audience']['sequence'],10)
+        self.assertNotIn('buff_applied',reply['audience'])
+
+    def test_expired_observation_is_unknown_without_expiring_native_buff(self):
+        self.observe()
+        self.now += 12
+        self.assertEqual(self.update()['audience']['status'],'fresh')
+        self.now += .01
+        stale = self.update()['audience']
+        self.assertEqual(stale['status'],'stale')
+        self.assertIsNone(stale['state'])
+        self.assertAlmostEqual(stale['observation_age_seconds'],12.01)
+        self.assertNotIn('buff_applied',stale)
+        self.observe(sequence=9)
+        self.assertEqual(self.update()['audience']['status'],'stale')
+        self.audience['sources'] = []
+        self.observe(sequence=11)
+        self.assertEqual(self.update()['audience']['state']['sources'],[])
+        self.assertEqual(self.update()['audience']['status'],'fresh')
+
+    def test_presence_disabled_or_wrong_planet_never_shows_fresh_native_audience(self):
+        self.observe()
+        self.assertEqual(self.update(enabled=False)['audience']['status'],'stale')
+        self.assertEqual(self.update(enabled=True,area='naboo')['audience']['status'],'stale')
+        self.assertIsNone(self.update(area='naboo')['audience']['state'])
+
+    def test_native_missing_field_clears_observation_and_projection_is_a_copy(self):
+        self.observe()
+        reply = self.update()
+        reply['audience']['state']['sources'].clear()
+        self.assertEqual(len(self.update()['audience']['state']['sources']),2)
+        self.observe(sequence=11,audience=False)
+        self.assertEqual(self.update()['audience']['status'],'unobserved')
+        self.assertIsNone(self.update()['audience']['state'])
+
+    def test_native_wrong_owner_cannot_supply_audience(self):
+        out = self.observe()
+        out['character_id'] = '8'
+        with self.assertRaises(ValueError):
+            self.hub.observe_native('patron','7',out)
+        self.assertEqual(self.update()['audience']['state'],self.audience)
+
+    def test_command_does_not_forward_client_audience_eligibility_or_buff_amount(self):
+        request = command('status',{'audience':self.audience,'buff_applied':True,
+                                   'strength':125,'recipient_ids':['7','8']})
+        self.assertEqual(request,{'action':'status'})

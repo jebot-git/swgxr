@@ -44,7 +44,7 @@ func run()->void:
 	var rates:Array=[]
 	for hz in [90,120]:rates.append(velocity_trial(tracked,body,hz))
 	body.position=Vector3.ZERO
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var combat:=Combat.new();root.add_child(combat)
 	check(combat.configure(camera,body,[catalog.weapons.pistol_fwg5,catalog.weapons.rifle_e11],"right",origin),"Original FWG5 and E11 configure")
 	combat.set_process(false);combat.set_physics_process(false);combat.set_allowed(true);combat.tracked_avatar=tracked;tracked.combat_rig=combat

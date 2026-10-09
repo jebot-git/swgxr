@@ -53,7 +53,7 @@ def descriptor(planet):
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--planets',nargs='+',choices=PLANETS,default=list(PLANETS))
-    ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
+    ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     ap.add_argument('--catalog-only',action='store_true')
     ap.add_argument('--force',action='store_true')
     ap.add_argument('--skip-entities',action='store_true',help='Diagnostic terrain/static pass; does not declare full feature readiness')

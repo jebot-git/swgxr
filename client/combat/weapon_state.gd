@@ -6,6 +6,7 @@ var profile: Dictionary = {}
 var core: Dictionary = {}
 var certificates: Array = []
 var rounds := 0
+var charge_observation:Dictionary={}
 var mode := "semi"
 var condition_max := 1000.0
 var condition_damage := 0.0
@@ -55,7 +56,7 @@ func configure(data: Dictionary, owned_certificates: Array, item_condition := {}
 	condition_max = maxf(1.0, float(item_condition.get("maxCondition", 1000.0)))
 	condition_damage = clampf(float(item_condition.get("conditionDamage", 0.0)), 0, condition_max)
 	clock = 0; next_shot = 0; reload_until = -1; burst_left = 0
-	trigger_down = false; armed = false; fired = 0
+	trigger_down = false; armed = false; fired = 0; charge_observation.clear()
 	swing.reset(); swing_feedback = {}
 	return true
 
@@ -80,9 +81,12 @@ func refresh_instance(data: Dictionary) -> bool:
 	if is_melee() != (data.get("kind","")=="melee"): return false
 	var old_rpm := effective_rpm()
 	var remaining_interval := maxf(0,next_shot-clock)
+	var native_charges:int=int(profile.get("charges",-1))
 	profile = data.duplicate(true)
 	core = profile.core3
-	if not is_melee(): rounds = mini(rounds,int(profile.capacity))
+	if profile.get("charge_limited",false):
+		if native_charges>=0:profile["charges"]=native_charges
+	elif not is_melee(): rounds = mini(rounds,int(profile.capacity))
 	# Preserve the remaining fraction of the shot interval when RPM changes.
 	if is_melee(): swing.reset(); swing_feedback = {}
 	else: next_shot = clock + remaining_interval * old_rpm / effective_rpm()
@@ -101,6 +105,8 @@ static func crafting_preview(data: Dictionary, previous := {}) -> String:
 		if valid_profile(previous) and previous.get("kind","")=="melee":
 			text += "\nChange: %+.1f recovery · %+.1f power" % [float(data.stance_recovery)-float(previous.stance_recovery),float(data.power)-float(previous.power)]
 		return text
+	if data.get("charge_limited",false):
+		return "Rate of fire: %.1f RPM\n"%float(data.rpm)+("Remaining charges: %d"%int(data.charges) if data.has("charges") else "Consumable ammunition")
 	var text := "Rate of fire: %.1f RPM\nCapacity: %d shots" % [float(data.rpm),int(data.capacity)]
 	if valid_profile(previous) and previous.get("kind","")!="melee":
 		text += "\nChange: %+.1f RPM · %+d shots" % [float(data.rpm)-float(previous.rpm),int(data.capacity)-int(previous.capacity)]
@@ -123,7 +129,7 @@ func cycle_mode() -> void:
 	block()
 
 func reload() -> bool:
-	if is_melee(): return false
+	if is_melee() or profile.get("charge_limited",false): return false
 	if reload_until >= 0 or rounds == int(profile.capacity): return false
 	reload_until = clock + float(profile.reload_seconds) / (profession("capacity_recovery_scale", 1) * float(armour_scales.get("recovery_scale", profile.get("armour_scales", {}).get("recovery_scale", 1))))
 	block()
@@ -132,6 +138,38 @@ func reload() -> bool:
 func range_scale(two_hands: bool) -> float:
 	if is_melee(): return 1.0 # Melee grip modifiers affect Power only.
 	return (1.0 if two_hands else 0.30) if int(profile.hands) == 2 else (1.10 if two_hands else 1.0)
+
+func reserve_rounds(count:int)->bool:
+	if count<1 or is_melee() or not certified() or reload_until>=0 or rounds<count or condition_max<2 or condition_damage>=condition_max:return false
+	rounds-=count
+	return true
+
+func refund_rounds(count:int)->void:
+	if not is_melee():
+		var limit:int=int(profile.get("charges",profile.capacity)) if profile.get("charge_limited",false) else int(profile.capacity)
+		rounds=mini(maxi(0,limit),rounds+maxi(0,count))
+
+func observe_native_charges(charges:int, session:String, revision:int, reserved:bool)->bool:
+	if not profile.get("charge_limited",false) or charges<0 or session.is_empty() or revision<0:return false
+	if charge_observation.get("session","")==session and revision<=int(charge_observation.get("revision",-1)):return false
+	# Charges belong to the real consumable item, independent of crafted magazine
+	# capacity. Fresh native state restores an uncertain uncommitted reservation;
+	# outstanding launches remain reserved until their authoritative receipt.
+	profile["charges"]=charges
+	rounds=mini(rounds,charges) if reserved else charges
+	reload_until=-1
+	charge_observation={"session":session,"revision":revision,"charges":charges}
+	return true
+
+func ranged_snapshot(two_hands:bool,posture:String)->Dictionary:
+	return {"core3":core.duplicate(true),"range_scale":range_scale(two_hands),"range":float(core.maxRange)*range_scale(two_hands),"condition_fraction":1.0-condition_damage/condition_max,"weapon_id":profile.id,"sequence":fired,"speed":float(profile.projectile_speed),"two_hands":two_hands,"firing_posture":posture if posture in ["crouched","prone"] else "standing","range_modifier_bonus":0.0}
+
+func showdown_round(two_hands:bool,posture:String,first:bool)->Dictionary:
+	if (first and (rounds<3 or clock+.000001<next_shot)) or not reserve_rounds(1):return {}
+	fired+=1;next_shot=clock+.25
+	var shot:=ranged_snapshot(two_hands,posture)
+	condition_damage=minf(condition_max,condition_damage+wear_per_shot)
+	return shot
 
 func tick(delta: float, trigger: float, allowed: bool, two_hands: bool, posture := "standing") -> Dictionary:
 	if is_melee(): return {} # Melee requires tracked motion via sample_swing.
@@ -143,6 +181,7 @@ func tick(delta: float, trigger: float, allowed: bool, two_hands: bool, posture 
 	var was_down := trigger_down
 	if trigger < 0.2: trigger_down = false
 	elif trigger >= 0.75: trigger_down = true
+	if profile.get("native_family","")=="commando" and profile.get("commando_family","")!="pistol_launcher" and not two_hands:allowed=false
 	if not allowed or not certified() or condition_max < 2 or condition_damage >= condition_max:
 		block()
 		return {}
@@ -173,8 +212,8 @@ func tick(delta: float, trigger: float, allowed: bool, two_hands: bool, posture 
 	var snapshot := {"core3":core.duplicate(true), "range_scale":range_scale(two_hands),
 		"range":float(core.maxRange)*range_scale(two_hands), "condition_fraction":1.0-condition_damage/condition_max,
 		"weapon_id":profile.id, "sequence":fired, "speed":float(profile.projectile_speed),
-		"firing_posture":posture if posture in ["crouched","prone"] else "standing"}
-	snapshot["range_modifier_bonus"] = profession("range_modifier_bonus", 0)
+		"two_hands":two_hands, "firing_posture":posture if posture in ["crouched","prone"] else "standing"}
+	snapshot["range_modifier_bonus"] = 0.0 # Legacy accuracy bonuses have no player effect.
 	if ability_state != null: ability_state.apply_to_attack(snapshot, profile)
 	condition_damage = minf(condition_max, condition_damage + wear_per_shot)
 	if mode == "burst":
@@ -209,7 +248,7 @@ func sample_swing(delta: float, allowed: bool, two_hands: bool, posture: String,
 		"condition_fraction":1.0-condition_damage/condition_max,"weapon_id":profile.id,"sequence":fired,
 		"firing_posture":posture,"power":thresholds.power,"stance_recovery":effective_recovery(),
 		"swing_speed":swing_feedback.speed,"swing_travel":swing_feedback.travel}
-	hit["hit_radius"] = profession("hit_radius", 0)
+	hit["hit_radius"] = 0.0 # Contacts are not widened by accuracy skills.
 	if ability_state != null: ability_state.apply_to_attack(hit, profile)
 	if not profile.get("unarmed",false): condition_damage=minf(condition_max,condition_damage+wear_per_shot)
 	return hit
@@ -227,13 +266,12 @@ static func damage_at(shot: Dictionary, distance: float, resistance: Dictionary,
 	else:
 		modifier = lerpf(float(stats.idealAccuracy), float(stats.maxRangeAccuracy), clampf((distance-middle)/maxf(0.0001,far_distance-middle),0,1))
 	var raw_modifier := modifier
-	# Posture mitigates only the negative damage modifier. Grip-scaled travel
-	# distance and positive range bonuses are preserved independently.
+	# Preserve the original Marksman stance mitigation of negative distance damage.
+	# Player skill accuracy remains unrelated to damage or hit chance.
 	if modifier < 0 and shot.get("kind","")!="melee":
 		match str(shot.get("firing_posture","standing")):
 			"crouched": modifier *= 0.5
 			"prone": modifier = 0.0
-	modifier += float(shot.get("range_modifier_bonus", 0))
 	var base := lerpf(float(stats.minDamage), float(stats.maxDamage), clampf(damage_roll,0,1))
 	# Core3 TangibleObject condition reduction starts at 75% condition damage.
 	var condition := clampf(float(shot.condition_fraction),0,1)

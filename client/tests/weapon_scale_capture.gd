@@ -13,7 +13,7 @@ func run() -> void:
 	var avatar:=Avatar.new(); tracked.add_child(avatar)
 	assert(avatar.configure("human_male",{"height":1.0,"profession":"combat_brawler"}).error=="")
 	assert(tracked.configure(avatar,origin)); tracked.set_process(false)
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var combat:=Combat.new(); root.add_child(combat)
 	assert(combat.configure(head,body,[catalog.weapons.knife_stone,catalog.weapons.lance_staff_wood_s1],"right",origin))
 	combat.set_process(false); combat.set_physics_process(false); combat.set_allowed(true)

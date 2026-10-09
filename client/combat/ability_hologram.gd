@@ -48,8 +48,8 @@ func label(text: String, offset: Vector3) -> Label3D:
 
 func texture(command: String) -> Texture2D:
 	if not icons.has(command):
-		var path := ProjectSettings.globalize_path("res://../runtime/combat/abilities/" + command + ".png")
-		if not FileAccess.file_exists(path): path = ProjectSettings.globalize_path("res://../runtime/entertainment/" + command + ".png")
+		var path := ProjectSettings.globalize_path("res://../runtime/assets/combat/abilities/" + command + ".png")
+		if not FileAccess.file_exists(path): path = ProjectSettings.globalize_path("res://../runtime/assets/entertainment/" + command + ".png")
 		var image := Image.load_from_file(path) if FileAccess.file_exists(path) else null
 		icons[command] = ImageTexture.create_from_image(image) if image != null else null
 	return icons[command]

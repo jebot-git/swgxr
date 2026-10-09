@@ -37,7 +37,7 @@ func run()->void:
 	var world:=Node3D.new();root.add_child(world)
 	var body:=CharacterBody3D.new();world.add_child(body)
 	var head:=Camera3D.new();world.add_child(head);head.position=Vector3(0,1.5,0)
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var profile:Dictionary=catalog.weapons.pistol_fwg5.duplicate(true);profile.item_id="99";profile.source_kind="core3_weapon_instance";profile.certified=true;profile.abilities=[]
 	for id:String in ["concussion_shot_improved","lethal_shot","low_blow","restraining_shot","last_ditch"]:
 		profile.abilities.append({"id":id,"activation":"native_ranged","base_sac":{"health":0,"action":10,"mind":10},"cooldown_seconds":30,"max_range_m":40,"conditions_met":true})

@@ -64,11 +64,17 @@ func run()->void:
 	for i in range(3):await process_frame
 	check(app.calls.back().path=="/session/life" and app.calls.back().payload.action=="recover" and app.calls.back().payload.session_id=="normal","Normal life request uses exact owned lightweight native route")
 	check(app.player.feedback.life_locked and not app.player.feedback.life_action_pending and app.player.feedback.life_status.contains("Unknown native failure"),"Unknown native failure releases pending input without granting recovery")
-	app.response=reply(13,2);app.response.snapshot.player.recovery_requested=true;app.response.snapshot.player.recovery_remaining_seconds=4
+	app.response=reply(13,2);app.response.snapshot.player.recovery_requested=true;app.response.snapshot.player.recovery_remaining_seconds=4;app.response.snapshot.player.force_of_will={"learned":true,"conditions_met":true,"cooldown_remaining_seconds":0}
 	app.player.feedback.request_life_action("recover");session._process(.1)
 	for i in range(3):await process_frame
 	check(app.player.feedback.life_locked and app.player.feedback.recovery_requested_authoritatively and app.player.feedback.recovery_remaining_seconds==4,"Accepted recovery intent waits for authoritative posture rather than standing locally")
 	check(not app.player.feedback.request_life_action("recover"),"Already requested native recovery cannot be spammed")
+	app.response=reply(0,3);app.response.snapshot.player.ham[0]=150
+	check(app.player.feedback.request_life_action("force_of_will") and app.player.feedback.life_locked,"Force of Will uses shared main routing without predicted revival")
+	session._process(.1)
+	for i in range(3):await process_frame
+	check(app.calls.back().path=="/session/life" and app.calls.back().payload.action=="force_of_will" and app.calls.back().payload.session_id=="normal","Force of Will sends only the owned life intent")
+	check(not app.player.feedback.life_locked and app.combat_rig.abilities.readout()[0].current==150,"Authoritative Force of Will reply restores movement and projects recovered Health")
 	check(session.accept(reply(0,3)) and not app.player.feedback.life_locked,"Only newer native awake snapshot releases forced viewpoint lock")
 	check(session.accept(reply(13,2)) and not app.player.feedback.life_locked and session.sequence==3,"Older owned response cannot roll life/HAM back")
 	var invalid:=reply(13,4);invalid.snapshot.player.dead=true

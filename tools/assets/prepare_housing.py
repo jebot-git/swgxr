@@ -22,4 +22,4 @@ def prepare(tre,out):
  catalog['conversion_failures']=assets.failures;catalog['provenance']=assets.dependencies
  (out/'catalog.json').write_text(json.dumps(catalog,indent=2));print(json.dumps({'ready':len(catalog['structures']),'failures':catalog['failures']}))
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');p.add_argument('--out',type=Path,default=ROOT/'runtime/assets/housing');a=p.parse_args();prepare(a.tre_dir,a.out)
+ p=argparse.ArgumentParser();p.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');p.add_argument('--out',type=Path,default=ROOT/'runtime/assets/housing');a=p.parse_args();prepare(a.tre_dir,a.out)

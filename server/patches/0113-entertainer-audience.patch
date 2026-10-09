@@ -1,0 +1,300 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainerAudience.h
+@@ -0,0 +1,77 @@
++#ifndef SWGXR_ENTERTAINER_AUDIENCE_H
++#define SWGXR_ENTERTAINER_AUDIENCE_H
++#include "server/zone/Zone.h"
++#include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "server/zone/objects/player/sessions/EntertainingSession.h"
++
++// Radius membership uses the existing native session and its single patron
++// channel per performance kind. No client presence, target selector or new timer
++// can accrue or deliver benefits. The original session owns costs and effects.
++class SwgxrEntertainerAudience {
++public:
++ static constexpr float RADIUS = 8.f;
++ static constexpr int MINIMUM_SECONDS = 60;
++ static constexpr int REFRESH_SECONDS = 10;
++ static bool available(CreatureObject* creature) {
++  return creature && creature->isPlayerCreature() && creature->getZone() &&
++   creature->isOnline() && !creature->isDead() && !creature->isIncapacitated() &&
++   !creature->isInCombat() && !creature->isInvisible();
++ }
++ static uint64 sourceID(CreatureObject* patron,bool dancing) {
++  return dancing?patron->getWatchToID():patron->getListenID();
++ }
++ static bool eligible(CreatureObject* performer,CreatureObject* patron,EntertainingSession* session) {
++  if(!available(performer) || !available(patron) || performer==patron || !session ||
++   (!session->isDancing() && !session->isPlayingMusic()) || !session->canGiveEntertainBuff() ||
++   patron->isDancing() || patron->isPlayingMusic() ||
++   performer->getZone()!=patron->getZone() || performer->getParentID()!=patron->getParentID() ||
++   !performer->isInRange(patron,RADIUS) || session->isInDenyServiceList(patron) ||
++   patron->isAttackableBy(performer) || !patron->isHealableBy(performer)) return false;
++  return CollisionManager::checkLineOfSight(performer,patron);
++ }
++ static void detach(CreatureObject* performer,CreatureObject* patron,EntertainingSession* session,bool dancing) {
++  // Never redirect native stopWatch/stopListen to an unrelated newer source.
++  if(sourceID(patron,dancing)==performer->getObjectID()) {
++   auto manager=performer->getZoneServer()->getPlayerManager();
++   if(dancing)manager->stopWatch(patron,performer->getObjectID(),true,false,false,true);
++   else manager->stopListen(patron,performer->getObjectID(),true,false,false,true);
++  }
++  session->removePatron(patron);
++ }
++ static void synchronize(CreatureObject* performer,EntertainingSession* session) {
++  if(!performer || !session || !performer->getZone())return;
++  const bool dancing=session->isDancing();
++  // Snapshot iteration remains valid when native stop removes several patrons.
++  auto patrons=session->getPatrons();
++  for(int i=0;i<patrons.size();++i) {
++   auto patron=patrons.get(i);
++   if(!patron)continue;
++   Locker locker(patron,performer);
++   if(!eligible(performer,patron,session) || sourceID(patron,dancing)!=performer->getObjectID())
++    detach(performer,patron,session,dancing);
++  }
++  if(!available(performer) || (!session->isDancing() && !session->isPlayingMusic()) || !session->canGiveEntertainBuff())return;
++  SortedVector<TreeEntry*> nearby(64,64);
++  auto position=performer->getWorldPosition();
++  performer->getZone()->getInRangeObjects(position.getX(),position.getZ(),position.getY(),RADIUS,&nearby,true);
++  auto manager=performer->getZoneServer()->getPlayerManager();
++  for(int i=0;i<nearby.size();++i) {
++   auto object=static_cast<SceneObject*>(nearby.get(i));
++   if(!object || !object->isPlayerCreature())continue;
++   auto patron=object->asCreatureObject();
++   Locker locker(patron,performer);
++   // The current source owns cleanup on its tick/stop path. Do not read or
++   // lock a third performer while holding this performer and the patron.
++   if(!eligible(performer,patron,session) || sourceID(patron,dancing)!=0)continue;
++   if(dancing)manager->startWatch(patron,performer->getObjectID());
++   else manager->startListen(patron,performer->getObjectID());
++  }
++ }
++ static void deliver(CreatureObject* performer,CreatureObject* patron,EntertainingSession* session,int performanceType) {
++  if(!eligible(performer,patron,session) || sourceID(patron,session->isDancing())!=performer->getObjectID())return;
++  if(time(0)-session->getEntertainerBuffStartTime(patron,performanceType)>=MINIMUM_SECONDS)
++   session->activateEntertainerBuff(patron,performanceType);
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrEntertainer.h
+@@ -5,6 +5,7 @@
+ #include "SwgxrServices.h"
+ #include "SwgxrImageDesign.h"
+ #include "SwgxrParty.h"
++#include "SwgxrEntertainerAudience.h"
+ #include "RegisterWithLocationCommand.h"
+ #include "server/zone/objects/player/sessions/EntertainingSession.h"
+ #include "server/zone/managers/skill/PerformanceManager.h"
+@@ -51,6 +52,19 @@
+   if(!item || item->getZone()!=c->getZone() || item->getParentID()!=c->getParentID() || !c->isInRange(item,3) || item->getParentRecursively(SceneObjectType::PLAYERCREATURE)!=nullptr)return false;
+   auto owner=item->getSpawnerPlayer().get();return !owner || owner==c;
+  }
++ static Json audience(CreatureObject* c){
++  Json sources=Json::array();
++  for(bool dancing:{true,false}){
++   auto oid=SwgxrEntertainerAudience::sourceID(c,dancing);if(!oid)continue;
++   auto object=c->getZoneServer()->getObject(oid);if(!object || !object->isPlayerCreature())continue;
++   auto performer=object->asCreatureObject();Locker locker(performer,c);auto s=session(performer);
++   if(!s || (dancing?!s->isDancing():!s->isPlayingMusic()) || !SwgxrEntertainerAudience::eligible(performer,c,s))continue;
++   auto patrons=s->getPatrons();if(!patrons.contains(c))continue;
++   const int kind=dancing?PerformanceType::DANCE:PerformanceType::MUSIC;
++   sources.push_back({{"id",id(performer)},{"kind",dancing?"dance":"music"},{"seconds",std::max(0,int(time(0)-s->getEntertainerBuffStartTime(c,kind)))},{"strength",s->getEntertainerBuffStrength(c,kind)},{"duration_minutes",s->getEntertainerBuffDuration(c,kind)}});
++  }
++  return {{"policy","automatic_radius"},{"radius_m",SwgxrEntertainerAudience::RADIUS},{"minimum_seconds",SwgxrEntertainerAudience::MINIMUM_SECONDS},{"refresh_seconds",SwgxrEntertainerAudience::REFRESH_SECONDS},{"sources",sources}};
++ }
+  static Json placedInstruments(CreatureObject* c){
+   Json out=Json::array();SortedVector<TreeEntry*> objects(32,32);auto p=c->getWorldPosition();c->getZone()->getInRangeObjects(p.getX(),p.getZ(),p.getY(),8,&objects,true);
+   for(int i=0;i<objects.size() && out.size()<32;++i){auto item=dynamic_cast<Instrument*>(static_cast<SceneObject*>(objects.get(i)));if(!item || item->getParentRecursively(SceneObjectType::PLAYERCREATURE)!=nullptr || item->getZone()!=c->getZone() || item->getParentID()!=c->getParentID())continue;auto position=item->getWorldPosition();auto parent=item->getParent().get();auto root=item->getRootParent();int cell=parent && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json row={{"id",id(item)},{"name",str(item->getDisplayedName())},{"template",str(item->getObjectTemplate()->getFullTemplateString())},{"position",Json::array({position.getX(),position.getZ(),position.getY()})},{"building_id",cell && root?id(root):"0"},{"cell_index",cell}};row["playable"]=placedPlayable(c,item);out.push_back(row);}return out;
+@@ -70,7 +84,7 @@
+   auto flourishes=Json::array();for(int i=1;i<=8;++i)if(c->getPlayerObject()->hasAbility(String(("flourish+"+std::to_string(i)).c_str())))flourishes.push_back(i);
+   auto instrument=c->getPlayableInstrument();bool dancing=s && s->isDancing(),music=s && s->isPlayingMusic();
+   auto inviter=c->getZoneServer()->getObject(c->getGroupInviterID()).castTo<CreatureObject*>();
+-  return {{"group",SwgxrParty::snapshot(c)},{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"instrument_id",id(instrument)},{"instrument_mode",instrument?(instrument->getParent().get()==c?"equipped":"placed"):"none"},{"placed_instruments",placedInstruments(c)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
++  return {{"audience",audience(c)},{"group",SwgxrParty::snapshot(c)},{"group_inviter_id",std::to_string(c->getGroupInviterID())},{"group_inviter_name",inviter?str(inviter->getFirstName()):""},{"appearance",SwgxrImageDesign::ownAppearance(c)},{"group_id",std::to_string(c->getGroupID())},{"group_candidates",nearbyPlayers(c,false)},{"nearby_players",nearbyPlayers(c)},{"image_design",SwgxrImageDesign::snapshot(c)},{"registrations",activeLocations(c)},{"character_id",id(c)},{"zone",SwgxrPlanets::name(c)},{"skills",SwgxrTrainers::skills(c)},{"commands",commands},{"flourishes",flourishes},{"flourish_choices",choices(c)},{"performing",dancing||music},{"stopping",s && s->isPerformingOutro()},{"kind",dancing?"dance":music?"music":""},{"performance_index",s?s->getPerformanceIndex():0},{"performance_name",s?str(s->getPerformanceName()):""},{"item_id",id(instrument)},{"instrument_id",id(instrument)},{"instrument_mode",instrument?(instrument->getParent().get()==c?"equipped":"placed"):"none"},{"placed_instruments",placedInstruments(c)},{"registration",registration(c)},{"experience",SwgxrTrainers::experience(c)},{"authority","native_core3_entertaining_session"}};
+  }
+  static Json run(CreatureObject* c,const Json& q){
+   SwgxrPlanets::require(c,q);auto action=q.value("action",std::string("status"));auto ghost=c->getPlayerObject();auto mutation=Json{{"success",true},{"operation",action}};
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/EntertainingSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/EntertainingSessionImplementation.cpp
+@@ -29,6 +29,7 @@
+ #include "server/zone/objects/building/BuildingObject.h"
+ #include "server/chat/ChatManager.h"
+ #include "server/zone/Zone.h"
++#include "server/zone/objects/creature/commands/SwgxrEntertainerAudience.h"
+ #include "server/zone/packets/scene/PlayClientEffectLocMessage.h"
+ 
+ void EntertainingSessionImplementation::doEntertainerPatronEffects() {
+@@ -83,6 +84,7 @@
+ 	int woundHeal = ceil(performance->getHealMindWound() * (woundHealingSkill / 100.0f));
+ 	int shockHeal = ceil(performance->getHealShockWound() * ((playerShockHealingSkill + buildingShockHealingSkill) / 100.0f));
+ 
++	SwgxrEntertainerAudience::synchronize(creo, _this.getReferenceUnsafeStaticCast());
+ 	healWounds(creo, woundHeal * (flourishCount + 1), shockHeal * (flourishCount + 1));
+ 
+ 	if (patronDataMap.size() <= 0)
+@@ -93,37 +95,20 @@
+ 	if (playerManager == nullptr)
+ 		return;
+ 
+-	for (int i = 0; i < patronDataMap.size(); ++i) {
+-		ManagedReference<CreatureObject*> patron = patronDataMap.elementAt(i).getKey();
+-
+-		if (patron == nullptr)
+-			continue;
+-
+-		try {
+-			if (creo->isInRange(patron, PerformanceManager::HEAL_RANGE)) {
+-				healWounds(patron, woundHeal * (flourishCount + 1), shockHeal * (flourishCount + 1));
+-				increaseEntertainerBuff(patron);
+-
+-			} else {
+-				Locker locker(patron, creo);
+-
+-				if (isDancing()) {
+-					playerManager->stopWatch(patron, creo->getObjectID(), true, false, false, true);
+-
+-					if (!patron->isListening())
+-						sendEntertainmentUpdate(patron, 0, "");
+-				} else if (isPlayingMusic()) {
+-						playerManager->stopListen(patron, creo->getObjectID(), true, false, false, true);
+-
+-					if (!patron->isWatching())
+-						sendEntertainmentUpdate(patron, 0, "");
+-				}
+-			}
+-
+-		} catch (Exception& e) {
+-			error("Unreported exception caught in EntertainingSessionImplementation::doEntertainerPatronEffects()");
+-		}
+-	}
++	// Reconciliation already removed invalid members. Snapshot iteration and a
++	// fresh eligibility check also cover movement between discovery and delivery.
++	auto patrons = getPatrons();
++	for (int i = 0; i < patrons.size(); ++i) {
++		ManagedReference<CreatureObject*> patron = patrons.get(i);
++		if (!patron) continue;
++		Locker patronLocker(patron, creo);
++		if (!SwgxrEntertainerAudience::eligible(creo, patron, _this.getReferenceUnsafeStaticCast()) ||
++		    SwgxrEntertainerAudience::sourceID(patron, isDancing()) != creo->getObjectID()) continue;
++		healWounds(patron, woundHeal * (flourishCount + 1), shockHeal * (flourishCount + 1));
++		increaseEntertainerBuff(patron);
++		SwgxrEntertainerAudience::deliver(creo, patron, _this.getReferenceUnsafeStaticCast(), performance->getType());
++	}
++
+ }
+ 
+ bool EntertainingSessionImplementation::isInEntertainingBuilding(CreatureObject* creature) {
+@@ -209,6 +194,7 @@
+ 		return;
+ 
+ 	Locker locker(entertainer);
++	if (!SwgxrEntertainerAudience::available(entertainer)) { cancelSession(); return; }
+ 	if (SwgxrSpiceEntertainer::blockAttempt(entertainer)) return;
+ 
+ 	if (!isDancing() && !isPlayingMusic()) {
+@@ -548,6 +534,7 @@
+ 	}
+ 
+ 	entertainer->registerObserver(ObserverEventType::POSTURECHANGED, observer);
++	SwgxrEntertainerAudience::synchronize(entertainer, _this.getReferenceUnsafeStaticCast());
+ }
+ 
+ void EntertainingSessionImplementation::stopDancing() {
+@@ -859,10 +846,12 @@
+ 		if (isInDenyServiceList(creature))
+ 			return;
+ 
+-		ManagedReference<PlayerObject*> entPlayer = entertainer->getPlayerObject();
+-		//Check if the patron is a valid buff target
+-		//Whether it be passive(in the same group) or active (/setPerform target)
+-		if ((!entertainer->isGrouped() || entertainer->getGroupID() != creature->getGroupID()) && entPlayer->getPerformanceBuffTarget() != creature->getObjectID())
++		// Every native radius patron earns inspiration; no group membership or
++		// single /setPerformanceBuffTarget is required. Removed patrons cannot
++		// manufacture accrual through an explicit activation call.
++		if (!patronDataMap.contains(creature) ||
++		    !SwgxrEntertainerAudience::eligible(entertainer, creature, _this.getReferenceUnsafeStaticCast()) ||
++		    SwgxrEntertainerAudience::sourceID(creature, isDancing()) != entertainer->getObjectID())
+ 			return;
+ 
+ 		if (creature->isIncapacitated() || creature->isDead()) {
+@@ -882,7 +871,7 @@
+ 		//1 minute minimum listen/watch time
+ 		int timeElapsed = time(0) - getEntertainerBuffStartTime(creature, performanceType);
+ 		if (timeElapsed < 60) {
+-			creature->sendSystemMessage("You must listen or watch a performer for at least 1 minute in order to gain the entertainer buffs.");
++			creature->sendSystemMessage("Stay within the entertainer radius for at least 1 minute to earn inspiration.");
+ 			return;
+ 		}
+ 
+@@ -895,6 +884,15 @@
+ 		if (buffStrength == 0)
+ 			return;
+ 
++		// Replacing a modifier may transiently clamp current HAM to the old
++		// unbuffed maximum. Preserve current resources across the entire native
++		// replacement, including exceptions; inspiration never refills HAM.
++		struct PreserveResources {
++			CreatureObject* creature;
++			int ham[9];
++			PreserveResources(CreatureObject* c) : creature(c) { for (int i=0;i<9;++i) ham[i]=c->getHAM(i); }
++			~PreserveResources() { for (int i=0;i<9;++i) creature->setHAM(i, Math::min(ham[i], Math::max(1, creature->getMaxHAM(i)-creature->getWounds(i)))); }
++		} resources(creature);
+ 		ManagedReference<PerformanceBuff*> oldBuff = nullptr;
+ 		switch (performanceType) {
+ 		case PerformanceType::MUSIC:
+@@ -904,6 +902,13 @@
+ 			oldBuff = cast<PerformanceBuff*>(creature->getBuff(focusBuffCRC));
+ 			if (oldBuff != nullptr && oldBuff->getBuffStrength() > buffStrength)
+ 				return;
++			auto oldWill = cast<PerformanceBuff*>(creature->getBuff(willBuffCRC));
++			if (oldWill != nullptr && oldWill->getBuffStrength() > buffStrength) return;
++			if (oldBuff != nullptr && oldWill != nullptr && oldBuff->getBuffStrength() == buffStrength && oldWill->getBuffStrength() == buffStrength) {
++				creature->renewBuff(focusBuffCRC, buffDuration * 60, true);
++				creature->renewBuff(willBuffCRC, buffDuration * 60, true);
++				break;
++			}
+ 			ManagedReference<PerformanceBuff*> focusBuff = new PerformanceBuff(creature, focusBuffCRC, buffStrength, buffDuration * 60, PerformanceBuffType::MUSIC_FOCUS);
+ 			ManagedReference<PerformanceBuff*> willBuff = new PerformanceBuff(creature, willBuffCRC, buffStrength, buffDuration * 60, PerformanceBuffType::MUSIC_WILLPOWER);
+ 
+@@ -921,6 +926,10 @@
+ 			oldBuff = cast<PerformanceBuff*>(creature->getBuff(mindBuffCRC));
+ 			if (oldBuff != nullptr && oldBuff->getBuffStrength() > buffStrength)
+ 				return;
++			if (oldBuff != nullptr && oldBuff->getBuffStrength() == buffStrength) {
++				creature->renewBuff(mindBuffCRC, buffDuration * 60, true);
++				break;
++			}
+ 			ManagedReference<PerformanceBuff*> mindBuff = new PerformanceBuff(creature, mindBuffCRC, buffStrength, buffDuration * 60, PerformanceBuffType::DANCE_MIND);
+ 
+ 			Locker locker(mindBuff);
+@@ -989,13 +998,9 @@
+ 	if (!canGiveEntertainBuff())
+ 		return;
+ 
+-	ManagedReference<PlayerObject*> entPlayer = entertainer->getPlayerObject();
+-	//Check if the patron is a valid buff target
+-	//Whether it be passive(in the same group) or active (/setPerform target)
+-	if ((!entertainer->isGrouped() || entertainer->getGroupID() != patron->getGroupID()) && entPlayer->getPerformanceBuffTarget() != patron->getObjectID())
+-		return;
+-
+-	if (isInDenyServiceList(patron))
++	Locker patronLocker(patron, entertainer);
++	if (!SwgxrEntertainerAudience::eligible(entertainer, patron, _this.getReferenceUnsafeStaticCast()) ||
++	    SwgxrEntertainerAudience::sourceID(patron, isDancing()) != entertainer->getObjectID())
+ 		return;
+ 
+ 	float buffAcceleration = 1 + ((float)entertainer->getSkillMod("accelerate_entertainer_buff") / 100.f);
+--- a/MMOCoreORB/src/server/zone/objects/creature/buffs/BuffImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/buffs/BuffImplementation.cpp
+@@ -309,7 +309,7 @@
+ 			if (creo->getHAM(attribute) > newMaxHAM - creo->getWounds(attribute))
+ 				creo->setHAM(attribute, newMaxHAM - creo->getWounds(attribute));
+ 
+-			if (!creo->isDead() && !creo->isIncapacitated() && !((creo->isPlayerCreature() || creo->isPet()) && (buffType==BuffType::FOOD || buffType==BuffType::MEDICAL))) {
++			if (!creo->isDead() && !creo->isIncapacitated() && !((creo->isPlayerCreature() || creo->isPet()) && (buffType==BuffType::FOOD || buffType==BuffType::MEDICAL || buffType==BuffType::PERFORMANCE))) {
+ 				if (fillAttributesOnBuff) {
+ 					int attributeval = Math::max(newMaxHAM, creo->getHAM(attribute) + value);
+ 					creo->healDamage(creo, attribute, attributeval, true);

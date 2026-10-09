@@ -102,7 +102,7 @@ Owner snapshots add `pet_kind`, death/incapacitation flags and `commands` to
 `pets`/`pet_datapad`. Shared actor snapshots expose `attackable` and `droid` for
 reticle filtering; Core3 rechecks the final target. Original generic SWG action
 icons are reused for the labeled commands; their source hashes remain in
-`runtime/combat/abilities/catalog.json`. No replacement pet art or local AI is
+`runtime/assets/combat/abilities/catalog.json`. No replacement pet art or local AI is
 introduced.
 
 Validation results: `runtime/evidence/pet-commands.json`. Protocol tests, mocked

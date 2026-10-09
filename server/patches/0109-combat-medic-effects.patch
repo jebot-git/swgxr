@@ -1,0 +1,597 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatMedicPolicy.h
+@@ -0,0 +1,28 @@
++#pragma once
++#include "CoreCuPolicy.h"
++
++// Authored CoreCU supply effects. Legacy item values are quality inputs, not
++// unbounded damage, duration or application chances.
++namespace corecu { namespace combatmedic {
++inline double skill(double value){return clamp(value/100.,0,1);}
++inline double progress(double value){return clamp((value-5.)/95.,0,1);}
++inline double applicationQuality(double potency){return clamp((potency-25.)/125.,0,1);}
++inline double strengthQuality(double power,bool disease){return .8+.2*clamp(power/(disease?60.:300.),0,1);}
++inline double rawPotency(double effectiveness,double quality){return 95+20*skill(effectiveness)+10*clamp(quality,0,1);}
++inline double chance(double raw,double rating){return learnedStatusChance(95,clamp(raw-95,0,30),rating);}
++inline double durationQuality(bool disease,double rawDuration){return .75+.25*clamp(rawDuration/(disease?1000.:240.),0,1);}
++inline int duration(bool disease,double effectiveness,double rawDuration){return int(std::ceil((disease?18:16)*durationQuality(disease,rawDuration)*(1+.30*progress(effectiveness))));}
++inline int interval(bool disease){return disease?3:4;}
++inline int pulseCount(int seconds,int period){return std::max(1,int(std::ceil((std::max(1,seconds)-1.5)/std::max(1,period))));}
++inline int pulse(int budget,int seconds,int period){return std::max(1,int(std::ceil(double(std::max(1,budget))/pulseCount(seconds,period))));}
++inline int poisonBudget(int targetHealth,int healerHealth,double effectiveness,double power,bool area,double rawDuration=240){
++ const double basis=std::max(1.,std::min(double(targetHealth),4.*std::max(1,healerHealth)));
++ return std::max(1,int(std::floor(basis*(.08+.04*progress(effectiveness))*strengthQuality(power,false)*durationQuality(false,rawDuration)*(area?.75:1.))));
++}
++inline int diseasePulse(int targetAction,double effectiveness,double power,bool area){return std::max(1,int(std::floor(std::max(1,targetAction)*(.03+.02*progress(effectiveness))*strengthQuality(power,true)*(area?.75:1.))));}
++inline double range(double raw,double rangeSkill){return clamp(raw,0,40)+14*skill(rangeSkill);}
++inline double radius(double raw){return clamp(raw,0,8);}
++inline int recovery(double speed,double food=0,double spice=1){return int(std::ceil((8000-2000*progress(speed))*(1-clamp(food,0,20)/100.)*clamp(spice,.5,2)));}
++inline int cost(int base,double fraction){return std::max(1,int(std::ceil(std::max(1,base)*fraction)));}
++constexpr int TargetCap=6;
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCombatMedicEffects.h
+@@ -0,0 +1,40 @@
++#pragma once
++#include "CombatMedicPolicy.h"
++#include "CoreCuCombat.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++#include "SwgxrMedicalItem.h"
++#include "SwgxrSpice.h"
++#include "server/zone/objects/tangible/pharmaceutical/DotPack.h"
++
++class SwgxrCombatMedicEffects {
++public:
++ static String command(DotPack* p){return !p?"":p->isPoisonDeliveryUnit()?"applypoison":p->isDiseaseDeliveryUnit()?"applydisease":"";}
++ static bool eligible(CreatureObject* c,CreatureObject* target,DotPack* p){
++  if(!c || !target || !p || target==c || target->getZone()!=c->getZone() || target->isDead() || !target->isAttackableBy(c) || target->hasDotImmunity(p->getDotType()))return false;
++  auto ai=target->isAiAgent()?target->asAiAgent():nullptr;
++  return !(ai && (ai->getCreatureBitmask() & ObjectFlag::NODOT)) && CollisionManager::checkLineOfSight(c,target);
++ }
++ static bool learned(CreatureObject* c,bool disease){return c && c->isPlayerCreature() && c->hasSkill("science_combatmedic_novice") && (!disease || c->hasSkill("science_combatmedic_healing_range_02"));}
++ static bool compatible(CreatureObject* c,DotPack* p,bool disease){
++  return learned(c,disease) && p && SwgxrMedicalItem::owned(c,p) && p->getUseCount()>0
++   && !corecu::medicine::retiredMedicalTemplate(p->getObjectTemplate()->getFullTemplateString().toCharArray())
++   && c->getSkillMod("combat_healing_ability")>=p->getMedicineUseRequired()
++   && (disease?p->isDiseaseDeliveryUnit():p->isPoisonDeliveryUnit())
++   && p->getPool()==(disease?CreatureAttribute::ACTION:CreatureAttribute::HEALTH);
++ }
++ static double progression(CreatureObject* c){return corecu::combatmedic::progress(c->getSkillMod("combat_medic_effectiveness"));}
++ static double applicationQuality(DotPack* p){return corecu::combatmedic::applicationQuality(p->getPotency());}
++ static double rawPotency(CreatureObject* c,DotPack* p){return corecu::combatmedic::rawPotency(c->getSkillMod("combat_medic_effectiveness"),applicationQuality(p));}
++ static int duration(CreatureObject* c,DotPack* p){return corecu::combatmedic::duration(p->isDiseaseDeliveryUnit(),c->getSkillMod("combat_medic_effectiveness"),p->getDuration());}
++ static double range(CreatureObject* c,DotPack* p){return corecu::combatmedic::range(p->getRange(),c->getSkillMod("healing_range"));}
++ static double radius(DotPack* p){return p->isArea()?corecu::combatmedic::radius(p->getArea()):0.;}
++ static int recovery(CreatureObject* c){auto b=c->getBuff(BuffCRC::FOOD_HEAL_RECOVERY);return corecu::combatmedic::recovery(c->getSkillMod("healing_range_speed"),b?b->getSkillModifierValue("heal_recovery"):0,SwgxrSpice::cooldownScale(c));}
++ static const char* key(){return "corecu_combat_medicine";}
++ static double remaining(CreatureObject* c){auto t=c->getCooldownTime(key());return t?std::max(0.,-t->miliDifference()/1000.):0.;}
++ static int actionCost(CreatureObject* c){return corecu::combatmedic::cost(c->getBaseHAM(CreatureAttribute::ACTION),.06);}
++ static int mindCost(CreatureObject* c){return corecu::combatmedic::cost(c->getBaseHAM(CreatureAttribute::MIND),.08);}
++ static bool resources(CreatureObject* c){return c->getHAM(CreatureAttribute::ACTION)>actionCost(c) && c->getHAM(CreatureAttribute::MIND)>mindCost(c);}
++ static int strength(CreatureObject* c,CreatureObject* target,DotPack* p){return p->isDiseaseDeliveryUnit()
++  ?corecu::combatmedic::diseasePulse(target->getBaseHAM(CreatureAttribute::ACTION),c->getSkillMod("combat_medic_effectiveness"),p->getEffectiveness(),p->isArea())
++  :corecu::combatmedic::poisonBudget(target->getMaxHAM(CreatureAttribute::HEALTH)-target->getWounds(CreatureAttribute::HEALTH),c->getBaseHAM(CreatureAttribute::HEALTH),c->getSkillMod("combat_medic_effectiveness"),p->getEffectiveness(),p->isArea(),p->getDuration());}
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DotPackCommand.h
+@@ -1,4 +1,5 @@
+ #include "CoreCuCombat.h"
++#include "SwgxrCombatMedicEffects.h"
+ #include "CoreCuMedicalPolicy.h"
+ #include "SwgxrSpice.h"
+ /*
+@@ -68,8 +69,6 @@
+ 			return nullptr;
+ 		}
+ 
+-		int combatMedUse = creature->getSkillMod("combat_healing_ability");
+-
+ 		for (int i = 0; i < inventory->getContainerObjectsSize(); ++i) {
+ 			SceneObject* item = inventory->getContainerObject(i);
+ 
+@@ -82,7 +81,7 @@
+ 			if (pack == nullptr)
+ 				continue;
+ 
+-			if (corecu::medicine::retiredMedicalTemplate(pack->getObjectTemplate()->getFullTemplateString().toCharArray()) || combatMedUse < pack->getMedicineUseRequired())
++			if (!SwgxrCombatMedicEffects::compatible(creature,pack,skillName=="applydisease"))
+ 				continue;
+ 
+ 			if ((skillName == "applypoison") && pack->isPoisonDeliveryUnit()) {
+@@ -124,29 +123,9 @@
+ 		}
+ 	}
+ 
+-	bool checkTarget(CreatureObject* creature, CreatureObject* targetCreature, uint32 dotType) const {
+-		if (!targetCreature->isAttackableBy(creature))
+-			return false;
+-
+-		if (targetCreature->hasDotImmunity(dotType))
+-			return false;
+-
+-		if (targetCreature->isAiAgent()) {
+-			AiAgent* targetAgent = targetCreature->asAiAgent();
+-
+-			if (targetAgent != nullptr && (targetAgent->getCreatureBitmask() & ObjectFlag::NODOT))
+-				return false;
+-		}
+-
+-		if (!CollisionManager::checkLineOfSight(creature, targetCreature))
+-			return false;
+-
+-		if (!playerEntryCheck(creature, targetCreature)) {
+-			return false;
+-		}
+-
+-		return true;
+-	}
++	bool checkTarget(CreatureObject* creature, CreatureObject* targetCreature, DotPack* pack) const {
++        return SwgxrCombatMedicEffects::eligible(creature,targetCreature,pack) && playerEntryCheck(creature,targetCreature);
++    }
+ 
+ 	void awardXp(CreatureObject* creature, const String& type, int power) const {
+ 		if (!creature->isPlayerCreature())
+@@ -185,7 +164,8 @@
+ 			}
+ 
+ 
+-			for (int i = 0; i < closeObjects.size(); i++) {
++			int remaining = corecu::combatmedic::TargetCap - 1; // Primary target already consumes one attempt.
++			for (int i = 0; i < closeObjects.size() && remaining > 0; i++) {
+ 				SceneObject* object = static_cast<SceneObject*>(closeObjects.get(i));
+ 
+ 				if (object == nullptr || !object->isCreatureObject())
+@@ -202,8 +182,10 @@
+ 				try {
+ 					Locker crossLocker(areaCreo, attackerCreo);
+ 
+-					if (checkTarget(attackerCreo, areaCreo, pharma->getDotType()))
++					if (checkTarget(attackerCreo, areaCreo, pharma)) {
++                        --remaining;
+ 						doAreaMedicActionTarget(attackerCreo, areaCreo, pharma);
++                    }
+ 
+ 				} catch (Exception& e) {
+ 				}
+@@ -213,7 +195,7 @@
+ 	}
+ 
+ 	void doAreaMedicActionTarget(CreatureObject* creature, CreatureObject* targetCreature, DotPack* dotPack) const {
+-		int dotPower = dotPack->calculatePower(creature);
++		int dotPower = SwgxrCombatMedicEffects::strength(creature,targetCreature,dotPack);
+ 		int dotDMG = 0;
+ 
+ 		if (dotPack->isPoisonDeliveryUnit()) {
+@@ -227,7 +209,7 @@
+ 
+ 			targetCreature->sendSystemMessage(stringId2);
+ 
+-			dotDMG = targetCreature->addDotState(creature, CreatureState::POISONED, dotPack->getServerObjectCRC(), dotPower, dotPack->getPool(), dotPack->getDuration(), dotPack->getPotency(), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_poison") + targetCreature->getSkillMod("poison_disease_resist")));
++			dotDMG = targetCreature->addDotState(creature, CreatureState::POISONED, STRING_HASHCODE("swgxr_cm_poison"), dotPower, CreatureAttribute::HEALTH, SwgxrCombatMedicEffects::duration(creature,dotPack), SwgxrCombatMedicEffects::rawPotency(creature,dotPack), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_poison") + targetCreature->getSkillMod("poison_disease_resist")));
+ 		} else {
+ 			StringIdChatParameter stringId("healing", "apply_disease_self");
+ 			stringId.setTT(targetCreature->getObjectID());
+@@ -239,7 +221,7 @@
+ 
+ 			targetCreature->sendSystemMessage(stringId2);
+ 
+-			dotDMG = targetCreature->addDotState(creature, CreatureState::DISEASED, dotPack->getServerObjectCRC(), dotPower, dotPack->getPool(), dotPack->getDuration(), dotPack->getPotency(), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_disease") + targetCreature->getSkillMod("poison_disease_resist")));
++			dotDMG = targetCreature->addDotState(creature, CreatureState::DISEASED, STRING_HASHCODE("swgxr_cm_disease"), dotPower, CreatureAttribute::ACTION, SwgxrCombatMedicEffects::duration(creature,dotPack), SwgxrCombatMedicEffects::rawPotency(creature,dotPack), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_disease") + targetCreature->getSkillMod("poison_disease_resist")));
+ 		}
+ 
+ 		if (dotDMG) {
+@@ -270,30 +252,14 @@
+ 	}
+ 
+ 	int hasCost(CreatureObject* creature) const {
+-		if (!creature->isPlayerCreature())
+-			return 0;
+-
+-		CreatureObject* player = cast<CreatureObject*>(creature);
+-
+-		int wpnMind = 150;
+-
+-		int mindAttackCost = wpnMind - (wpnMind * creature->getHAM(CreatureAttribute::FOCUS) / 1500);
+-
+-		if (mindAttackCost < 0)
+-			mindAttackCost = 0;
+-
+-		if (player->getHAM(CreatureAttribute::MIND) < mindAttackCost)
+-			return -1;
+-
+-		return mindAttackCost;
+-	}
+-
+-	void applyCost(CreatureObject* creature, int mindDamage) const {
+-		if (mindDamage == 0)
+-			return;
+-
+-		creature->inflictDamage(creature, CreatureAttribute::MIND, mindDamage, false);
+-	}
++        return SwgxrCombatMedicEffects::resources(creature)?SwgxrCombatMedicEffects::mindCost(creature):-1;
++    }
++
++    void applyCost(CreatureObject* creature, int mindDamage) const {
++        SwgxrSpice::HamAdjustment scope;
++        creature->inflictDamage(creature,CreatureAttribute::MIND,mindDamage,false);
++        creature->inflictDamage(creature,CreatureAttribute::ACTION,SwgxrCombatMedicEffects::actionCost(creature),false);
++    }
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+ 		int result = doCommonMedicalCommandChecks(creature);
+@@ -301,13 +267,14 @@
+ 		if (result != SUCCESS)
+ 			return result;
+ 
++		if (!SwgxrCombatMedicEffects::learned(creature,skillName=="applydisease")) return GENERALERROR;
+ 		int cost = hasCost(creature);
+ 
+ 		if (cost < 0)
+ 			return INSUFFICIENTHAM;
+ 
+ 		// Check cooldown timer
+-		if (!creature->checkCooldownRecovery(skillName)) {
++		if (SwgxrCombatMedicEffects::remaining(creature)>0) {
+ 			creature->sendSystemMessage("@healing_response:healing_must_wait"); //You must wait before you can do that.
+ 			return GENERALERROR;
+ 		}
+@@ -337,7 +304,7 @@
+ 
+ 		ManagedReference<DotPack*> dotPack;
+ 
+-		parseModifier(arguments.toString(), pool, objectId);
++		try { parseModifier(arguments.toString(), pool, objectId); } catch (Exception&) { return GENERALERROR; }
+ 
+ 		if (objectId == 0) {
+ 			if (pool != BuffAttribute::UNKNOWN) {
+@@ -349,15 +316,15 @@
+ 			SceneObject* inventory = creature->getSlottedObject("inventory");
+ 
+ 			if (inventory != nullptr) {
+-				dotPack = inventory->getContainerObject(objectId).castTo<DotPack*>();
+-			}
+-		}
+-
+-		if (dotPack == nullptr || corecu::medicine::retiredMedicalTemplate(dotPack->getObjectTemplate()->getFullTemplateString().toCharArray())) {
++				dotPack = creature->getZoneServer()->getObject(objectId).castTo<DotPack*>();
++			}
++		}
++
++		if (!SwgxrCombatMedicEffects::compatible(creature,dotPack,skillName=="applydisease") || (pool!=BuffAttribute::UNKNOWN && pool!=dotPack->getPool())) {
+ 			return GENERALERROR;
+ 		}
+ 
+-		int	range = int(dotPack->getRange() + creature->getSkillMod("healing_range") / 100 * 14);
++		double range = SwgxrCombatMedicEffects::range(creature,dotPack);
+ 
+ 		// Distance Check
+ 		if (!checkDistance(creature, targetCreature, range))
+@@ -366,94 +333,22 @@
+ 		// Checks Successful
+ 		Locker clocker(targetCreature, creature);
+ 
+-		float modSkill = (float)creature->getSkillMod("healing_range_speed");
+-		int delay = (int)round(12.0f - (6.0f * modSkill / 100 ));
+-
+-		if (creature->hasBuff(BuffCRC::FOOD_HEAL_RECOVERY)) {
+-			DelayedBuff* buff = cast<DelayedBuff*>( creature->getBuff(BuffCRC::FOOD_HEAL_RECOVERY));
+-
+-			if (buff != nullptr) {
+-				float percent = buff->getSkillModifierValue("heal_recovery");
+-
+-				delay = round(delay * (100.0f - percent) / 100.0f);
+-			}
+-		}
+-
+-		// If the delay is less that 4 seconds, use the default time
+-		delay = (delay < 4) ? defaultTime : delay;
+-
+-		creature->addCooldown(skillName, int(delay * 1000 * SwgxrSpice::cooldownScale(creature)));
+-
+-		applyCost(creature, cost);
+-
+-		int dotPower = dotPack->calculatePower(creature);
+-		int dotDMG = 0;
+-		bool isPoisonDot = dotPack->isPoisonDeliveryUnit();
+-
+-		if (isPoisonDot) {
+-			if (!targetCreature->hasDotImmunity(dotPack->getDotType())) {
+-				StringIdChatParameter stringId("healing", "apply_poison_self");
+-				stringId.setTT(targetCreature->getObjectID());
+-
+-				creature->sendSystemMessage(stringId);
+-
+-				StringIdChatParameter stringId2("healing", "apply_poison_other");
+-				stringId2.setTU(creature->getObjectID());
+-
+-				targetCreature->sendSystemMessage(stringId2);
+-
+-				dotDMG = targetCreature->addDotState(creature, CreatureState::POISONED, dotPack->getServerObjectCRC(), dotPower, dotPack->getPool(), dotPack->getDuration(), dotPack->getPotency(), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_poison") + targetCreature->getSkillMod("poison_disease_resist")));
+-			}
+-		} else {
+-			if (!targetCreature->hasDotImmunity(dotPack->getDotType())) {
+-				StringIdChatParameter stringId("healing", "apply_disease_self");
+-				stringId.setTT(targetCreature->getObjectID());
+-
+-				creature->sendSystemMessage(stringId);
+-
+-				StringIdChatParameter stringId2("healing", "apply_disease_other");
+-				stringId2.setTU(creature->getObjectID());
+-
+-				targetCreature->sendSystemMessage(stringId2);
+-
+-				dotDMG = targetCreature->addDotState(creature, CreatureState::DISEASED, dotPack->getServerObjectCRC(), dotPower, dotPack->getPool(), dotPack->getDuration(), dotPack->getPotency(), std::max(0,CoreCuCombat::rawModifier(targetCreature,"resistance_disease") + targetCreature->getSkillMod("poison_disease_resist")));
+-			}
+-		}
+-
+-		if (dotDMG) {
+-			awardXp(creature, "medical", dotDMG);
+-			// PvE kill contribution is recorded only by actual DamageOverTime ticks.
+-			if (!targetCreature->isAiAgent()) targetCreature->getThreatMap()->addDamage(creature, dotDMG, "dotDMG");
+-		} else {
+-			StringIdChatParameter stringId("dot_message", "dot_resisted");
+-			stringId.setTT(targetCreature->getObjectID());
+-
+-			creature->sendSystemMessage(stringId);
+-
+-			StringIdChatParameter stringId2("healing", "dot_resist_other");
+-
+-			targetCreature->sendSystemMessage(stringId2);
+-		}
++        Locker supplyLocker(dotPack,creature);
++        if (!SwgxrCombatMedicEffects::compatible(creature,dotPack,skillName=="applydisease") || !checkTarget(creature,targetCreature,dotPack)) return INVALIDTARGET;
++        if (!SwgxrCombatMedicEffects::resources(creature) || SwgxrCombatMedicEffects::remaining(creature)>0) return INSUFFICIENTHAM;
++        creature->addCooldown(SwgxrCombatMedicEffects::key(),SwgxrCombatMedicEffects::recovery(creature));
++        applyCost(creature,cost);
++        // Spend one exact supply on a valid hostile attempt, including resistance.
++        dotPack->decreaseUseCount();
++        creature->notifyObservers(ObserverEventType::MEDPACKUSED);
++        const bool isPoisonDot=dotPack->isPoisonDeliveryUnit();
++        doAreaMedicActionTarget(creature,targetCreature,dotPack);
+ 
+ 		if (dotPack->isArea()) {
+ 			if (targetCreature != creature)
+ 				clocker.release();
+ 
+-			handleArea(creature, targetCreature, dotPack, dotPack->getArea());
+-		}
+-
+-		// Check for TEFs
+-		if (creature->isPlayerCreature()) {
+-			PlayerObject* ghost = creature->getPlayerObject();
+-
+-			if (ghost != nullptr) {
+-				bool shouldGcwCrackdownTef = false, shouldGcwTef = false, shouldBhTef = false;
+-
+-				CombatManager::instance()->checkForTefs(creature, targetCreature, &shouldGcwCrackdownTef, &shouldGcwTef, &shouldBhTef);
+-				if (shouldGcwCrackdownTef || shouldGcwTef || shouldBhTef) {
+-					ghost->updateLastCombatActionTimestamp(shouldGcwCrackdownTef, shouldGcwTef, shouldBhTef);
+-				}
+-			}
++			handleArea(creature, targetCreature, dotPack, SwgxrCombatMedicEffects::radius(dotPack));
+ 		}
+ 
+ 		doAnimationsRange(creature, targetCreature, dotPack->getObjectID(), creature->getWorldPosition().distanceTo(targetCreature->getWorldPosition()), dotPack->isArea(), isPoisonDot);
+@@ -461,13 +356,7 @@
+ 		if (targetCreature != creature)
+ 			clocker.release();
+ 
+-		Locker dlocker(dotPack, creature);
+-
+-		dotPack->decreaseUseCount();
+-		creature->notifyObservers(ObserverEventType::MEDPACKUSED);
+-
+-		// Ensure the player does not break the throw animation
+-		creature->setNextAllowedMoveTime(3 * 1000);
++        // Tracked movement is independent of the optional throw animation.
+ 
+ 		return SUCCESS;
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.h
+@@ -10,6 +10,7 @@
+ 
+ #include "engine/engine.h"
+ #include "server/zone/objects/creature/commands/FencerPolicy.h"
++#include "server/zone/objects/creature/commands/CombatMedicPolicy.h"
+ 
+ #include "engine/util/json_utils.h"
+ 
+@@ -40,6 +41,7 @@
+ 	// Zero/-1 preserve legacy DoTs loaded without these serialized fields.
+ 	int intervalSeconds = 0;
+ 	int remainingBudget = -1;
++	int medicalMode = 0; // 1: bounded CM poison, 2: temporary CM Action disease
+ 
+ public:
+ 	DamageOverTime();
+@@ -57,6 +59,10 @@
+ 
+ 	friend void to_json(nlohmann::json& j, const DamageOverTime& t);
+ 
++    void configureCombatMedic(bool disease,int authoredDuration) {
++        medicalMode=disease?2:1;attribute=disease?3:0;intervalSeconds=corecu::combatmedic::interval(disease);
++        if(!disease){remainingBudget=std::max(0,strength);strength=corecu::combatmedic::pulse(remainingBudget,authoredDuration,intervalSeconds);}
++    }
+ 	void configureFencerBleed(int budget) { intervalSeconds=3;remainingBudget=std::max(0,budget);strength=(remainingBudget+3)/4; }
+ 	void refreshFencerBleed(const DamageOverTime& old) {
+ 		if(old.remainingBudget>remainingBudget)attackerID=old.attackerID;
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTime.cpp
+@@ -58,7 +58,7 @@
+ 	expires = dot.expires;
+ 	nextTick = dot.nextTick;
+ 	secondaryStrength = dot.secondaryStrength;
+-	intervalSeconds=dot.intervalSeconds;remainingBudget=dot.remainingBudget;
++	intervalSeconds=dot.intervalSeconds;remainingBudget=dot.remainingBudget;medicalMode=dot.medicalMode;
+ 
+ 	setLoggingName("DamageOverTime");
+ }
+@@ -76,7 +76,7 @@
+ 	expires = dot.expires;
+ 	nextTick = dot.nextTick;
+ 	secondaryStrength = dot.secondaryStrength;
+-	intervalSeconds=dot.intervalSeconds;remainingBudget=dot.remainingBudget;
++	intervalSeconds=dot.intervalSeconds;remainingBudget=dot.remainingBudget;medicalMode=dot.medicalMode;
+ 
+ 	return *this;
+ }
+@@ -93,6 +93,7 @@
+ 	addSerializableVariable("secondaryStrength", &secondaryStrength);
+ 	addSerializableVariable("intervalSeconds", &intervalSeconds);
+ 	addSerializableVariable("remainingBudget", &remainingBudget);
++	addSerializableVariable("medicalMode", &medicalMode);
+ }
+ 
+ void to_json(nlohmann::json& j, const DamageOverTime& t) {
+@@ -105,7 +106,7 @@
+ 	j["expires"] = t.expires;
+ 	j["nextTick"] = t.nextTick;
+ 	j["secondaryStrength"] = t.secondaryStrength;
+-	j["intervalSeconds"]=t.intervalSeconds;j["remainingBudget"]=t.remainingBudget;
++	j["intervalSeconds"]=t.intervalSeconds;j["remainingBudget"]=t.remainingBudget;j["medicalMode"]=t.medicalMode;
+ }
+ 
+ void DamageOverTime::activate() {
+@@ -219,11 +220,11 @@
+ 		break;
+ 	case CreatureState::POISONED:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_poison")));
+-		nextTick.addMiliTime(corecu::firstTickMillis(duration, 10));
++		nextTick.addMiliTime((medicalMode?std::min(1500,int(duration*500)):corecu::firstTickMillis(duration, 10)));
+ 		break;
+ 	case CreatureState::DISEASED:
+ 		absorptionMod = Math::max(0, Math::min(50, victim->getSkillMod("absorption_disease")));
+-		nextTick.addMiliTime(corecu::firstTickMillis(duration, 40));
++		nextTick.addMiliTime((medicalMode?std::min(1500,int(duration*500)):corecu::firstTickMillis(duration, 40)));
+ 		break;
+ 	case CommandEffect::FORCECHOKE:
+ 		nextTick.addMiliTime(corecu::firstTickMillis(duration, 5));
+@@ -360,6 +361,7 @@
+ 	info(true) << "doPoisonTick -- Victim: " << victim->getDisplayedName() << " Attribute: " << attr << " Absorption Mod: " << absorptionMod << " Damage: " << damage << " Strength: " << strength;
+ #endif
+ 
++	if (medicalMode==1) damage=Math::min(damage,Math::max(0,int(attr)-1));
+ 	if (attr < damage) {
+ 		//System::out << "setting strength to " << attr -1 << endl;
+ 		damage = attr - 1;
+@@ -403,9 +405,10 @@
+ 	// absorption reduces the strength of a dot by the given %.
+ 	// make sure that the CM dots modify the strength
+  int damage=0;
+- if(victim->isPlayerCreature() || victim->isPet()){
++ if(medicalMode==2 || victim->isPlayerCreature() || victim->isPet()){
++  // CM disease uses the same temporary Action drain on NPCs, with no wounds.
+   // Bound Action pressure first: absorption must remain effective on capped ticks.
+-  damage=corecu::diseaseTick(victim->getBaseHAM(CreatureAttribute::ACTION),double(strength)*(1.+victim->getShockWounds()/100.),absorptionMod);
++  damage=corecu::diseaseTick(victim->getBaseHAM(CreatureAttribute::ACTION),double(strength)*(medicalMode==2?1.:(1.+victim->getShockWounds()/100.)),absorptionMod);
+   damage=Math::min(damage,Math::max(0,victim->getHAM(CreatureAttribute::ACTION)-1));
+   Reference<CreatureObject*> victimRef=victim,attackerRef=attacker;
+   Core::getTaskManager()->executeTask([victimRef,attackerRef,damage](){
+--- a/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/damageovertime/DamageOverTimeList.cpp
+@@ -124,10 +124,13 @@
+ 
+ 	// determine chance to hit, if no hit, just return 0. potency of less than 0 can't be resisted
+ 	// defense is raw native defense without Doctor prophylaxis; centralized rating adds it once.
++    const bool cmPoison=dotType==CreatureState::POISONED && objectID==STRING_HASHCODE("swgxr_cm_poison");
++    const bool cmDisease=dotType==CreatureState::DISEASED && objectID==STRING_HASHCODE("swgxr_cm_disease");
++    const int authoredDuration=duration;
+ 	const double rating=CoreCuCombat::rating(victim,CoreCuCombat::dotIndex(dotType),defense);
+     duration=corecu::statusDuration(duration,rating);
+-    if (potency >= 0 && System::random(100) >= corecu::statusChance(potency,rating))
+-		return 0;
++    const double chance=(cmPoison || cmDisease)?corecu::combatmedic::chance(potency,rating):corecu::statusChance(potency,rating);
++    if (potency >= 0 && System::random(100) >= chance) return 0;
+ 
+ 	if (dotType == CreatureState::ONFIRE && victim->hasState(CreatureState::SWIMMING)) {
+ 		return 0;
+@@ -166,13 +169,14 @@
+ 	}
+ 
+ 	// only 1 disease per bar allowed
+-	if (dotType == CreatureState::DISEASED) {
++	if (dotType == CreatureState::DISEASED && !cmDisease) {
+ 		objectID = Long::hashCode(CreatureState::DISEASED);
+ 	} else if (dotType == CommandEffect::FORCECHOKE) {
+ 		objectID = 0;
+ 	}
+ 
+ 	DamageOverTime newDot(attacker, dotType, pool, strength, duration, secondaryStrength);
++    if(cmPoison || cmDisease)newDot.configureCombatMedic(cmDisease,authoredDuration);
+ 	const bool fencerBleed=dotType==CreatureState::BLEEDING && objectID==STRING_HASHCODE("swgxr_fencer_bleed");
+ 	if(fencerBleed)newDot.configureFencerBleed(strength);
+ 	int dotPower = newDot.initDot(victim, attacker);
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/DotPack.idl
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/DotPack.idl
+@@ -93,36 +93,7 @@
+ 	 */
+ 	@local
+ 	@dirty
+-	public void fillAttributeList(AttributeListMessage msg, CreatureObject object) {
+-		super.fillAttributeList(msg, object);
+-
+-		msg.insertAttribute("examine_dot_attribute", CreatureAttribute.getName(pool, true));
+-
+-		msg.insertAttribute("examine_dot_apply_power", Math.getPrecision(effectiveness, 0));
+-
+-		if (isPoisonDeliveryUnit()) {
+-			msg.insertAttribute("examine_dot_apply", "Poison");
+-		} else {
+-			msg.insertAttribute("examine_dot_apply", "Diseased");
+-		}
+-
+-		msg.insertAttribute("examine_dot_potency", Math.getPrecision(potency, 0));
+-
+-		msg.insertAttribute("examine_heal_range", Math.getPrecision(range, 0));
+-
+-		if (isArea()) {
+-			msg.insertAttribute("examine_heal_area", Math.getPrecision(area, 0));
+-
+-			msg.insertAttribute("duration", Math.getPrecision(duration, 0));
+-
+-			msg.insertAttribute("combat_healing_ability", super.getMedicineUseRequired());
+-		} else {
+-
+-			msg.insertAttribute("duration", Math.getPrecision(duration, 0));
+-
+-			msg.insertAttribute("combat_healing_ability", super.getMedicineUseRequired());
+-		}
+-	}
++	public native void fillAttributeList(AttributeListMessage msg, CreatureObject object);
+ 
+ 	/**
+ 	 * Handles the radial selection sent by the client, must be overriden by inherited objects
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/DotPackImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/DotPackImplementation.cpp
+@@ -3,6 +3,8 @@
+ 		See file COPYING for copying conditions. */
+ 
+ #include "server/zone/objects/tangible/pharmaceutical/DotPack.h"
++#include "server/zone/objects/creature/commands/SwgxrCombatMedicEffects.h"
++#include "server/zone/packets/scene/AttributeListMessage.h"
+ 
+ void DotPackImplementation::notifyLoadFromDatabase() {
+ 	PharmaceuticalObjectImplementation::notifyLoadFromDatabase();
+@@ -11,3 +13,21 @@
+ 		commandToExecute = commandToExecute.replaceFirst("/", "");
+ 	}
+ }
++
++void DotPackImplementation::fillAttributeList(AttributeListMessage* msg, CreatureObject* object) {
++    PharmaceuticalObjectImplementation::fillAttributeList(msg,object);
++    auto pack=_this.getReferenceUnsafeStaticCast();
++    msg->insertAttribute("Effect",isPoisonDeliveryUnit()?"Health poison":"Temporary Action disease");
++    msg->insertAttribute("Stacking","One shared Combat Medic channel per effect; stronger replaces weaker");
++    msg->insertAttribute("combat_healing_ability",getMedicineUseRequired());
++    msg->insertAttribute("Area recipient limit",isArea()?corecu::combatmedic::TargetCap:1);
++    if(isArea())msg->insertAttribute("examine_heal_area",String::valueOf(SwgxrCombatMedicEffects::radius(pack)));
++    if(object && object->isPlayerCreature()){
++        msg->insertAttribute("duration",SwgxrCombatMedicEffects::duration(object,pack));
++        msg->insertAttribute("examine_heal_range",String::valueOf(SwgxrCombatMedicEffects::range(object,pack)));
++        msg->insertAttribute("Application potency",String::valueOf(SwgxrCombatMedicEffects::rawPotency(object,pack))+" before target resistance; final chance capped at 95%");
++        int amount=SwgxrCombatMedicEffects::strength(object,object,pack);
++        msg->insertAttribute("Effect preview",String::valueOf(amount)+(isPoisonDeliveryUnit()?" total Health budget":" Action per 3 seconds"));
++        msg->insertAttribute("Preview scope","Viewer-sized recipient; target resistance shortens duration, absorption reduces pulses");
++    }
++}

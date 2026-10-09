@@ -1,0 +1,168 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -5,6 +5,7 @@
+ #include "SwgxrSwordsman.h"
+ #include "SwgxrFencer.h"
+ #include "SwgxrPikeman.h"
++#include "SwgxrMarksman.h"
+ #include "SwgxrTaunt.h"
+ #include "SwgxrSpice.h"
+ #ifndef SWGXR_SMUGGLER_H
+@@ -42,6 +43,7 @@
+   if(command==nullptr || command->doQueueCommand(c,0,UnicodeString(""))!=QueueCommand::SUCCESS)throw std::runtime_error("native_feign_rejected");
+  }
+  static std::string commandName(const std::string& ability){
++  if(corecu::marksman::contains(ability))return "attack";
+   if(ability=="lethal_shot")return "overchargeshot2";if(ability=="last_ditch")return "lastditch";if(ability=="low_blow")return "lowblow";
+   if(ability=="restraining_shot" || ability=="concussion_shot_improved" || ability.empty())return "attack";
+   throw std::runtime_error("unsupported_native_ability");
+@@ -52,6 +54,7 @@
+  }
+  static bool learned(CreatureObject* c,const std::string& ability){
+   if(ability.empty())return true;
++  if(corecu::marksman::contains(ability))return SwgxrMarksman::learned(c,ability);
+   if(ability=="last_ditch" && !corecu::ultimateAllowed(ability,[c](const std::string& skill){return c->hasSkill(String(skill.c_str()));}))return false;
+   if(ability=="lethal_shot")return c->hasSkill("combat_marksman_master");
+   if(ability=="restraining_shot")return c->hasSkill("combat_smuggler_novice");
+@@ -92,6 +95,7 @@
+   for(const auto& row:SwgxrFencer::abilities(c))out.push_back(row);
+   for(const auto& row:SwgxrPikeman::abilities(c)){for(auto it=out.begin();it!=out.end();)if(it->at("id")==row.at("id"))it=out.erase(it);else ++it;out.push_back(row);}
+   if(!w || !w->isRangedWeapon())return out;
++  for(const auto& row:SwgxrMarksman::abilities(c))out.push_back(row);
+   for(auto ability:{"lethal_shot","last_ditch","low_blow","restraining_shot","concussion_shot_improved"}){
+    if(!learned(c,ability))continue;auto cmd=command(c,ability);if(!(cmd->getWeaponType() & w->getWeaponBitmask()))continue;
+    bool last=std::string(ability)=="last_ditch";std::string label=std::string(ability)=="lethal_shot"?"Lethal Shot":last?"Last Ditch":std::string(ability)=="low_blow"?"Low Blow":std::string(ability)=="restraining_shot"?"Restraining Shot":"Concussion Shot Improved";
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -69,7 +69,7 @@
+  }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+   Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+-  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
++  if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
+@@ -362,22 +362,28 @@
+    if(!(skill->getWeaponType() & weapon->getWeaponBitmask()))throw std::runtime_error("native_ability_wrong_weapon");
+    if(!ability.empty() && SwgxrSmuggler::cooldown(c,ability)>0)throw std::runtime_error("native_ability_cooldown");
+    if(!skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("native_ability_state");
++   const bool marksman=corecu::marksman::contains(ability);
++   if(marksman && !SwgxrMarksman::compatible(c,ability))throw std::runtime_error("native_ability_wrong_weapon");
+    const auto boundTarget=request.value("target_id",std::string());
++   if(marksman && boundTarget.empty())throw std::runtime_error("ability_requires_target");
+    if(!boundTarget.empty()){
+     if(ability.empty())throw std::runtime_error("target_requires_ability");
+     auto chosen=c->getZoneServer()->getObject(std::stoull(boundTarget));
+     if(chosen==nullptr || !chosen->isAiAgent() || chosen->getZone()!=c->getZone())throw std::runtime_error("invalid_ability_target");
+     Locker lock(chosen,c);auto victim=chosen->asAiAgent();
+     if(victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c) )throw std::runtime_error("ability_target_unavailable");
++    if(marksman && !SwgxrMarksman::targetReady(victim,ability))throw std::runtime_error("ability_target_unavailable");
+     if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c) || !skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("ability_conditions_changed");
+    }
+    if(request.contains("two_hands") && !request["two_hands"].is_boolean())throw std::runtime_error("invalid_firing_grip");
+    auto pose=request.value("firing_posture",std::string("standing"));if(pose!="standing" && pose!="crouched" && pose!="prone")throw std::runtime_error("invalid_firing_posture");
+    double gripScale=corecu::projectile::rangeScale(weapon->isPistolWeapon(),request.value("two_hands",!weapon->isPistolWeapon()));
+    double multiplier=ability=="last_ditch"?SwgxrSmuggler::multiplier(c):(ability=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:skill->getDamageMultiplier());
+-   if(ability=="last_ditch"){if(c->getHAM(3)<=1 || c->getHAM(6)<=1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
++   if(marksman)multiplier=corecu::marksman::ability(ability).damage;
++   if(marksman){auto a=corecu::marksman::ability(ability);if(c->getHAM(3)<=a.action || c->getHAM(6)<=a.mind)throw std::runtime_error("insufficient_ham");c->inflictDamage(c,3,a.action,false,true,false);c->inflictDamage(c,6,a.mind,false,true,false);}
++   else if(ability=="last_ditch"){if(c->getHAM(3)<=1 || c->getHAM(6)<=1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
+    else {CreatureAttackData costs("",skill,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+-   if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(30000*SwgxrSpice::cooldownScale(c)));
++   if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(1000*(marksman?SwgxrMarksman::interval(c,ability):30*SwgxrSpice::cooldownScale(c))));
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;
+    s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.target=boundTarget;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange()*gripScale;shot.nearRange=weapon->getPointBlankRange()*gripScale;shot.idealRange=weapon->getIdealRange()*gripScale;shot.nearModifier=weapon->getPointBlankAccuracy();shot.idealModifier=weapon->getIdealAccuracy();shot.farModifier=weapon->getMaxRangeAccuracy();shot.firingPosture=pose=="prone"?2:pose=="crouched"?1:0;shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
+   }
+@@ -387,7 +393,19 @@
+   auto targetID=request.at("target_id").get<std::string>();if(!shot.target.empty() && targetID!=shot.target)throw std::runtime_error("ability_target_mismatch");auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["contact_authority"]="client";
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage || weapon->getDamageType()!=shot.damageType || weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+   SwgxrConfirmedProjectileCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));double distanceScale=corecu::projectile::damageScale(travel,shot.nearRange,shot.idealRange,shot.range,shot.nearModifier,shot.idealModifier,shot.farModifier,shot.firingPosture);prepaid.setDamageMultiplier(shot.multiplier*distanceScale);result["range_damage_multiplier"]=distanceScale;prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+-  Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
++  const bool marksman=corecu::marksman::contains(shot.ability);
++  if(marksman && (!target->isAiAgent() || target->asAiAgent()->isPet() || target->asAiAgent()->isIncapacitated()))throw std::runtime_error("ability_target_unavailable");
++  if(marksman)prepaid.setPoolsToDamage(1);
++  Json before=actor(c,tangible,s);int nativeResult=QueueCommand::SUCCESS,hits=0;
++  const int blows=marksman?corecu::marksman::ability(shot.ability).blows:1;
++  for(int i=0;i<blows;++i){
++   if(i>0 && (target->asCreatureObject()->isDead() || target->asCreatureObject()->isIncapacitated() || !tangible->isAttackableBy(c)))break;
++   nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);
++   if(nativeResult!=QueueCommand::SUCCESS)break;++hits;
++  }
++  result["resolved_hits"]=hits;
++  if(marksman && target->isCreatureObject())SwgxrMarksman::effects(c,target->asCreatureObject(),shot.ability,before["health"].get<int>()-target->asCreatureObject()->getHAM(0));
++if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
+   result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;
+  }
+ public:
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMarksman.h
+@@ -0,0 +1,47 @@
++#pragma once
++#include "MarksmanPolicy.h"
++#include "CoreCuCombat.h"
++#include "CombatQueueCommand.h"
++#include "SwgxrSpice.h"
++class SwgxrMarksman {
++ using Json=JSONSerializationType;
++public:
++ static bool learned(CreatureObject* c,const std::string& id){auto a=corecu::marksman::ability(id);return *a.skill && c->hasSkill("combat_marksman_novice") && c->hasSkill(a.skill);}
++ static bool compatible(CreatureObject* c,const std::string& id){auto w=c->getWeapon();return w && w->isCertifiedFor(c) && !w->isBroken() && corecu::marksman::compatible(id,w->isRangedWeapon(),w->isPistolWeapon(),w->isCarbineWeapon());}
++ static bool targetReady(CreatureObject* a,const std::string& id){
++  if(!a || !a->isAiAgent() || a->asAiAgent()->isPet() || a->isDead() || a->isIncapacitated())return false;
++  if(corecu::marksman::ability(id).control && !a->checkCooldownRecovery("corecu_control_recovery"))return false;
++  if(id=="warning_shot")return !CoreCuCombat::boss(a) && !a->hasEffectImmunity(CommandEffect::NEXTATTACKDELAY) && !a->hasAttackDelay() && a->checkCooldownRecovery("nextAttackDelayRecovery");
++  if(id=="suppression_fire")return !a->hasEffectImmunity(CommandEffect::BLIND) && !a->hasBuff(STRING_HASHCODE("swgxr_suppression_fire"));
++  if(id=="bleeding_shot")return !a->isDroidObject() && !a->hasDotImmunity(CreatureState::BLEEDING);
++  return corecu::marksman::contains(id);
++ }
++ static double interval(CreatureObject* c,const std::string& id){return corecu::marksman::ability(id).cooldown*SwgxrSpice::cooldownScale(c);}
++ static double cooldown(CreatureObject* c,const std::string& id){auto t=c->getCooldownTime(String(("swgxr_smuggler_"+id).c_str()));return t?std::max(0.,-t->miliDifference()/1000.):0.;}
++ static Json abilities(CreatureObject* c){
++  Json out=Json::array();auto w=c->getWeapon();auto source=dynamic_cast<const CombatQueueCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("attack"));if(!source)return out;
++  for(auto id:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"}){
++   if(!learned(c,id) || !compatible(c,id))continue;auto a=corecu::marksman::ability(id);std::string key=id;
++   Json row={{"id",id},{"label",a.label},{"activation","native_ranged"},{"ultimate",false},{"source_command","attack"},{"native_authority",true},{"sac_policy","fixed"},{"base_sac",{{"health",0},{"action",a.action},{"mind",a.mind}}},{"conditions_met",source->checkStateMask(c) && source->checkInvalidLocomotions(c)},{"max_range_m",w->getMaxRange()},{"min_range_m",0},{"damage_multiplier",a.damage},{"hit_count",a.blows},{"cooldown_seconds",interval(c,id)},{"cooldown_remaining_seconds",cooldown(c,id)},{"requires_control_available",a.control},{"excludes_bosses",key=="warning_shot"}};
++   row["weapon_requirement"]=key=="controlled_burst"?"Certified carbine; Marksman Carbine II.":key=="bleeding_shot"?"Certified pistol; Marksman Pistol IV.":"Certified ranged weapon; Marksman support training.";
++   row["description"]=key=="suppression_fire"?"Light hit and -20 enemy accuracy for up to 6 seconds, resisted as Blind. Single target; shared control recovery applies.":key=="warning_shot"?"Merged Threaten/Warning Shot: light hit and a resisted attack hesitation, 2 seconds at Support I or 3 at Support III. Retains enemy threat; bosses immune. Shared control recovery applies.":key=="controlled_burst"?"One aimed contact resolves three 0.65x native damage hits against the selected enemy. Each retains normal dodge/block; Action, Mind and cooldown are paid once. No blind, dizzy or stun.":"Moderate hit and a resisted Health bleed budget of 30% of landed damage over at most 12 seconds. Shares the non-stacking Fencer bleed channel; stronger remaining budget wins. Droids immune.";
++   out.push_back(row);
++  }return out;
++ }
++ static void effects(CreatureObject* c,CreatureObject* a,const std::string& id,int damage){
++  if(damage<=0 || !targetReady(a,id) || id=="controlled_burst")return;
++  const bool bleed=id=="bleeding_shot",suppression=id=="suppression_fire";
++  auto spec=corecu::marksman::ability(id);
++  int existing=a->getSkillMod(bleed?"bleeding_defense":suppression?"blind_defense":"warcry_defense");
++  double rating=CoreCuCombat::rating(a,bleed?corecu::Bleed:suppression?corecu::Blind:corecu::Snare,existing);
++  if(spec.control)a->addCooldown("corecu_control_recovery",8000);
++  if(System::random(99)>=corecu::statusChance(85,rating))return;
++  if(bleed){
++   // Reuse the bounded shared channel, including native cures, absorption and tick-preserving refresh.
++   int budget=corecu::marksman::bleedBudget(damage);
++   if(budget>0)a->addDotState(c,CreatureState::BLEEDING,STRING_HASHCODE("swgxr_fencer_bleed"),budget,0,corecu::marksman::BleedSeconds,-1,existing);
++  }else if(suppression){
++   ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_suppression_fire"),corecu::statusDuration(corecu::marksman::SuppressionSeconds,rating),BuffType::STATE);Locker lock(buff,a);buff->setSkillModifier("private_accuracy_bonus",-corecu::marksman::AccuracyPenalty);a->addBuff(buff);
++  }else a->setNextAttackDelay(c,"swgxr_warning_shot",0,corecu::statusDuration(corecu::marksman::hesitationSeconds(c->hasSkill("combat_marksman_support_03")),rating));
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/MarksmanPolicy.h
+@@ -0,0 +1,18 @@
++#pragma once
++#include <algorithm>
++#include <string>
++namespace corecu { namespace marksman {
++struct Ability {const char* label;const char* skill;const char* weapon;double damage;int action,mind,cooldown,blows;bool control;};
++inline Ability ability(const std::string& id){
++ if(id=="suppression_fire")return {"Suppression Fire","combat_marksman_support_04","ranged",.5,45,15,18,1,true};
++ if(id=="warning_shot")return {"Warning Shot","combat_marksman_support_01","ranged",.25,35,15,20,1,true};
++ if(id=="controlled_burst")return {"Controlled Burst","combat_marksman_carbine_02","carbine",.65,75,20,12,3,false};
++ if(id=="bleeding_shot")return {"Bleeding Shot","combat_marksman_pistol_04","pistol",.8,50,20,16,1,false};
++ return {"","","",0,0,0,0,0,false};
++}
++inline bool contains(const std::string& id){return *ability(id).skill;}
++inline bool compatible(const std::string& id,bool ranged,bool pistol,bool carbine){auto a=ability(id);return contains(id) && ranged && (std::string(a.weapon)=="ranged" || (std::string(a.weapon)=="pistol"?pistol:carbine));}
++inline int bleedBudget(int damage){return int(std::max(0,damage)*.30);}
++inline int hesitationSeconds(bool improved){return improved?3:2;}
++constexpr int SuppressionSeconds=6, AccuracyPenalty=20, BleedSeconds=12;
++}}

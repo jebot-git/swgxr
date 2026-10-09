@@ -21,7 +21,7 @@ func run() -> void:
 	world.add_child(body)
 	var rig := Rig.new()
 	world.add_child(rig)
-	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	check(rig.configure(camera,body,[catalog.weapons.pistol_dl44,catalog.weapons.rifle_e11]),"Original weapon models and source mount data load")
 	rig.set_physics_process(false)
 	rig.set_process(false)

@@ -13,6 +13,10 @@ var scroll: ScrollContainer
 var tree: VBoxContainer
 var profession_index := 0
 var buttons: Dictionary = {}
+var forget_skills: Dictionary = {}
+var available_skill_points := -1
+var forgetting_available := true
+var forgetting_reason := ""
 
 func _ready() -> void:
 	selector = OptionButton.new()
@@ -42,9 +46,44 @@ func configure(data: Dictionary) -> void:
 
 func set_learned(skills: Array, complete: bool) -> void:
 	if learned == skills and known == complete: return
+	forget_skills.clear()
 	learned = skills.duplicate()
 	known = complete
 	if not catalog.is_empty(): show_profession(profession_index)
+
+func set_forget_skills(values: Array, points: int = -1) -> void:
+	forget_skills.clear()
+	available_skill_points = points
+	for value in values:
+		if not value is Dictionary or not value.get("skill_id") is String or not value.get("eligible") is bool: continue
+		var points_value:Variant=value.get("refunded_points")
+		if not (points_value is int or points_value is float) or not is_finite(float(points_value)) or float(points_value)<0 or float(points_value)>250 or float(points_value)!=floorf(float(points_value)):continue
+		forget_skills[value.skill_id] = value.duplicate(true)
+		forget_skills[value.skill_id].refunded_points = int(points_value)
+	refresh_selected()
+
+func refresh_selected() -> void:
+	if profession_index >= catalog.get("professions", []).size(): return
+	for node: Dictionary in catalog.professions[profession_index].nodes:
+		if str(node.id) == selected_skill_id: select_skill(node); return
+
+func set_forgetting_available(value:bool,reason:String="")->void:
+	forgetting_available=value;forgetting_reason=reason;refresh_selected()
+
+func forget_status(id: String) -> Dictionary:
+	var result: Dictionary = {"eligible":false,"reason":"Awaiting current character skills","refunded_points":0}
+	if not known or not id in learned: return result
+	if not forgetting_available:
+		result.reason=forgetting_reason;result.refunded_points=int(forget_skills.get(id,{}).get("refunded_points",0));return result
+	for profession: Dictionary in catalog.get("professions", []):
+		for node: Dictionary in profession.get("nodes", []):
+			if str(node.get("id", "")) in learned and id in node.get("requires", []):
+				result.reason = "Forget dependent skills first: " + str(node.get("label", node.id))
+				return result
+	if not forget_skills.has(id):
+		result.reason = "Checking whether this skill can be forgotten"
+		return result
+	return forget_skills[id].duplicate(true)
 
 func set_experience(values: Dictionary, complete := true) -> void:
 	var clean: Dictionary = {}
@@ -183,7 +222,8 @@ func select_skill(node: Dictionary) -> void:
 	for key: String in node.get("modifiers", {}):
 		if key.begins_with("private_"): continue
 		var label: String={"healing_dance_mind":"Dance healing / inspiration","healing_music_mind":"Music healing / inspiration","healing_wound_treatment":"Wound Medpack effectiveness","healing_wound_speed":"Wound treatment / enhancement recovery"}.get(key,key.replace("_", " ").capitalize())
-		modifiers.append(label + " %+d" % int(node.modifiers[key]))
+		var amount:=float(node.modifiers[key])
+		modifiers.append(label + (" %+d" % int(amount) if is_equal_approx(amount,roundf(amount)) else " %+.1f" % amount))
 	if not modifiers.is_empty(): description += "\n\n" + "\n".join(modifiers)
 	if not node.get("certificates", []).is_empty():
 		var certificates: PackedStringArray = []
@@ -191,7 +231,7 @@ func select_skill(node: Dictionary) -> void:
 		description += "\n\nCertificates: " + ", ".join(certificates)
 	if node.id == "combat_marksman_master": description += "\n\nAbility: Lethal Shot"
 	if node.id == "combat_brawler_master": description += "\n\nAbility: Melee Assault"
-	skill_selected.emit({"name":node.label, "description":description, "state":state(node)})
+	skill_selected.emit({"skill_id":str(node.id), "name":node.label, "description":description, "state":state(node), "forget":forget_status(str(node.id)), "skill_points":available_skill_points})
 
 func navigate(steps:int)->void:
 	if steps==0 or buttons.is_empty():return

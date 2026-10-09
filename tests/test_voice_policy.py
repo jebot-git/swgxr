@@ -34,13 +34,13 @@ class Tests(unittest.TestCase):
    self.assertEqual(len(n.states),80)
    self.assertEqual(n.owned('loadtest79','80')['character_id'],'80')
  def test_queue_and_eight_active_speaker_limits(self):
-  relay=object.__new__(Relay);relay.peers={}
+  relay=object.__new__(Relay);relay.peers={};relay.states={}
   for oid in range(1,11):
-   p={'key':str(oid),'state':self.state(oid),'channel':'proximity','epoch':1,'seq':-1,'queue':deque(),'wake':asyncio.Event(),'speakers':{},'tokens':6.,'token_time':time.monotonic()};relay.peers[str(oid)]=p
+   p={'key':str(oid),'claims':{'a':str(oid),'c':str(oid),'s':''},'state':self.state(oid),'channel':'proximity','epoch':1,'seq':-1,'queue':deque(),'wake':asyncio.Event(),'speakers':{},'tokens':6.,'token_time':time.monotonic()};relay.peers[str(oid)]=p;relay.states[str(oid)]=p['state']
   listener=relay.peers['10']
   for oid in range(1,10):relay.audio(relay.peers[str(oid)],CLIENT_HEADER.pack(1,0)+b'\x98\x00')
   self.assertEqual(len(listener['speakers']),8);self.assertEqual(len(listener['queue']),8)
-  for _ in range(100):relay.enqueue(listener,(None,0,0,b'test'))
+  for _ in range(100):relay.enqueue(listener,('source',1,1,b'test'))
   self.assertEqual(len(listener['queue']),16)
 
 if __name__=='__main__':unittest.main()

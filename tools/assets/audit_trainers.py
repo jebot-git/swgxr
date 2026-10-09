@@ -39,7 +39,8 @@ def audit(tre_dir, core3, ambient, planet="tatooine"):
         definition = read(source).decode()
         templates = re.findall(r'"(object/mobile/[^"]+)"', re.search(r'templates\s*=\s*\{([^}]+)\}', definition).group(1))
         skills = re.findall(r'"([^"]+)"', re.search(r'\b' + mobile + r'\s*=\s*\{([^}]+)\}', skills_text).group(1))
-        if len(templates) != 3 or len(skills) != 18:
+        expected_templates = 4 if name == 'bountyhunter' else 3
+        if len(templates) != expected_templates or len(skills) != 18:
             raise ValueError('Unexpected original trainer structure: ' + mobile)
         name_table, name_key = re.search(r'objectName\s*=\s*"@([^:]+):([^"]+)"',definition).groups()
         names = table(name_table)
@@ -80,7 +81,7 @@ def export(tre_dir, core3, ambient, out, planet="tatooine"):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--core3', type=Path, default=ROOT/'vendor/Core3')
     parser.add_argument('--ambient', type=Path, default=ROOT/'runtime/assets/ambient_npcs')
     parser.add_argument('--out', type=Path, default=ROOT/'runtime/assets/services/trainers.json')

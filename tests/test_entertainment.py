@@ -69,7 +69,9 @@ class EntertainmentTests(unittest.TestCase):
         self.now+=10
         value=next(iter(self.update('3',position=[7,0,0])['watching'].values()))
         self.assertEqual(value['seconds'],10)
-        self.assertFalse(value['buff_applied'])
+        self.assertTrue(value['presentation_only'])
+        self.assertNotIn('buff_applied',value)
+        self.assertEqual(self.update('3')['audience']['status'],'unobserved')
         self.assertEqual(self.update('3',position=[9,0,0])['watching'],{})
         self.assertEqual(self.update('3',position=[97,0,0])['bands'],[])
 

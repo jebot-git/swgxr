@@ -26,7 +26,7 @@ func pose(tracker: XRPositionalTracker, transform: Transform3D) -> void:
 	tracker.set_pose("aim",transform,Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH)
 func run() -> void:
 	create_timer(20).timeout.connect(func(): push_error("XR combat input timeout"); quit(2))
-	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../runtime/combat/catalog.json")))
+	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../runtime/assets/combat/catalog.json")))
 	var origin: XROrigin3D = load("res://xr/player_rig.tscn").instantiate()
 	var head_tracker := XRPositionalTracker.new()
 	head_tracker.name = "head"; head_tracker.type = XRServer.TRACKER_HEAD

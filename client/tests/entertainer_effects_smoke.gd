@@ -70,7 +70,7 @@ func run() -> void:
 	check(manager.statistics().dynamic_lights==0,"No dynamic entertainer lights")
 	var result := {"checks":checks,"failures":failures,"statistics":manager.statistics(),"renderer":"headless dummy; no GPU or headset validation"}
 	print(JSON.stringify(result))
-	var file := FileAccess.open("res://../runtime/entertainment/effect-tests.json",FileAccess.WRITE)
+	var file := FileAccess.open("res://../runtime/evidence/entertainer-effect-tests.json",FileAccess.WRITE)
 	if file != null: file.store_string(JSON.stringify(result,"\t"))
 	world.queue_free()
 	manager.queue_free()

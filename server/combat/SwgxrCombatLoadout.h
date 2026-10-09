@@ -7,6 +7,7 @@ public:
  static std::string family(CreatureObject* c){
   auto w=c->getWeapon();if(!w)return "unarmed";
   if(w->isUnarmedWeapon())return "unarmed";
+  if(SwgxrCommando::supported(w))return "heavy";
   if(w->isPistolWeapon())return "pistols";
   if(w->isCarbineWeapon())return "carbines";
   if(w->isHeavyWeapon() || w->isFlameThrower() || w->isLightningRifle() || w->isHeavyAcidRifle())return "heavy";
@@ -18,6 +19,11 @@ public:
   if(w->isTwoHandMeleeWeapon())return "2h_melee";
   if(w->isPolearmWeaponObject())return "polearms";
   return "other";
+ }
+ static bool gesture(const Json& row){return row.value("category",std::string())=="gesture";}
+ static bool eligible(CreatureObject* c,const Json& row){
+  if(gesture(row))return false;
+  return !row.value("ultimate",false) || corecu::ultimateAllowed(row.at("id").get<std::string>(),[c](const std::string& skill){return c->hasSkill(String(skill.c_str()));});
  }
  static Json empty(){return {{"slots",Json::array({"","","",""})},{"ultimate",""},{"revision",0}};}
  static Json saved(CreatureObject* c){
@@ -34,14 +40,14 @@ public:
   auto out=saved(c);out["family"]=family(c);
   // Lost skills leave empty usable slots; stored preferences never grant skills.
   std::set<std::string> regular,ultimate;
-  for(const auto& row:catalog)(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
+  for(const auto& row:catalog)if(eligible(c,row))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
   for(auto& id:out["slots"])if(!regular.count(id.get<std::string>()))id="";
   if(!ultimate.count(out["ultimate"].get<std::string>()))out["ultimate"]="";
   return out;
  }
  static Json equipped(CreatureObject* c,const Json& catalog){
   auto selected=selection(snapshot(c,catalog));Json out=Json::array();
-  for(const auto& row:catalog)if(selected.contains(row.at("id").get<std::string>()))out.push_back(row);
+  for(const auto& row:catalog)if(eligible(c,row) && selected.contains(row.at("id").get<std::string>()))out.push_back(row);
   return out;
  }
  static bool allows(CreatureObject* c,const std::string& id){
@@ -53,7 +59,7 @@ public:
   if(c->isDead() || c->isIncapacitated())throw std::runtime_error("native_player_unavailable");
   auto old=saved(c);if(q.at("revision")!=old.at("revision"))throw std::runtime_error("loadout_revision_changed");
   auto selected=selection(q);std::set<std::string> regular,ultimate;
-  for(const auto& row:SwgxrSmuggler::abilities(c))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
+  for(const auto& row:SwgxrSmuggler::abilities(c))if(eligible(c,row))(row.value("ultimate",false)?ultimate:regular).insert(row.at("id").get<std::string>());
   if(!selected.valid(regular,ultimate))throw std::runtime_error("loadout_ability_not_eligible");
   Json value={{"slots",q.at("slots")},{"ultimate",selected.ultimate},{"revision",old.at("revision").get<uint64>()+1}};
   c->getPlayerObject()->setScreenPlayData("swgxr_combat_loadout",String(family(c).c_str()),String(value.dump().c_str()));

@@ -119,12 +119,9 @@ func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	if str(cell.get("building_object_id","0")) in ["0","-1"]:return false
 	# Inside a house never fall back to session-local drops when the server rejects.
 	if busy or not allowed:bag.finish_item_action(false);return true
-	var right:XRController3D=app.xr_origin.get_node("RightHand")
-	var suspended:=Hands.controller_tracked(right) and right.is_button_pressed("ax_button")
-	var actual:=pose
-	if is_instance_valid(bag.held_model) and bag.held_model.get_child_count()>0:
-		actual=bag.held_model.get_child(0).global_transform
-		actual.basis=actual.basis.orthonormalized()
+	var placement:=decoration_pose(pose)
+	var suspended:bool=placement.suspended
+	var actual:Transform3D=placement.pose
 	var building:=str(cell.get("building_object_id","0"));var basis:=Basis.IDENTITY
 	if scenery.structures.has(building):basis=scenery.structures[building].global_basis
 	var q:Quaternion=(basis.inverse()*actual.basis).get_rotation_quaternion()
@@ -132,6 +129,16 @@ func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	if not suspended:scenery.fall[str(item.id)]=actual.origin
 	finish_drop(extra)
 	return true
+func decoration_pose(pose:Transform3D)->Dictionary:
+	# Shared by ground houses and POB ships: actual held model orientation,
+	# with the same right A/X hold selecting suspended placement.
+	var right:XRController3D=app.xr_origin.get_node("RightHand")
+	var actual:=pose
+	if is_instance_valid(bag.held_model) and bag.held_model.get_child_count()>0:
+		actual=bag.held_model.get_child(0).global_transform
+	actual.basis=actual.basis.orthonormalized()
+	return {"pose":actual,"suspended":Hands.controller_tracked(right) and right.is_button_pressed("ax_button")}
+
 func finish_drop(extra:Dictionary)->void:
 	var result:=await request("drop",extra)
 	bag.finish_item_action(result.get("ok",false) and result.get("mutation",{}).get("success",false))
@@ -185,6 +192,7 @@ func _process(dt:float)->void:
 		if remaining==0:arm={};status.hide()
 		elif not busy:
 			for peer:Dictionary in app.services.peers:
+				if not str(peer.get("crew_launch_id","")).is_empty() or (is_instance_valid(app.get("space")) and not app.space.launch_stage().is_empty()):continue
 				if peer.get("house_permission_ready",false):
 					var payload:Dictionary={"arm_id":str(arm.arm_id),"target_id":str(peer.id)};arm={};request("permission",payload);break
 	if not deed.is_empty() and is_instance_valid(preview) and not bag.is_open:

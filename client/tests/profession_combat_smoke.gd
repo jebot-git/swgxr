@@ -76,7 +76,7 @@ func run() -> void:
 	check(target.hit_count == 0, "Base head ray misses off-axis target")
 	hit.hit_radius = 0.3
 	projectiles.strike_melee(hit, aim, aim)
-	check(target.hit_count == 1, "Melee accuracy widens hit area")
+	check(target.hit_count == 1, "Explicit geometry-test tolerance widens hit area")
 	hit["ability"] = {"id":"melee_assault", "damage_multiplier":3.0, "knockdown_chance":1.0}
 	projectiles.strike_melee(hit, aim, aim)
 	check(target.hit_count == 2 and target.knockdown_count == 1, "Ability knockdown propagates on a damaging hit")

@@ -20,11 +20,22 @@ inline double npcHamScale(int level){return level<=30?.65:level<=80?.80:1.;}
 inline double npcMean(double low,double high,int level){return std::max(1.,(low+high)*.5*npcDamageScale(level));}
 inline int specialCooldown(int level){return level>150?6000:level>80?8000:10000;}
 inline double specialMultiplier(double value,int level){return clamp(value,0,level>150?2.5:level>80?2.:1.5);}
-inline double statusReduction(double rating){return clamp(rating/(100+std::max(0.,rating)),0,.60);}
+// Profession/native defense has a 100-point baseline budget; Doctor prophylaxis
+// adds at most 25 once after the stronger source wins. Temporary TKA Focus
+// remains part of the baseline, not a second preparation bonus.
+inline double statusBaseline(double value){return clamp(value,0,100);}
+inline double preparedRating(double baseline,double preparation){return statusBaseline(baseline)+clamp(preparation,0,25);}
+inline double statusReduction(double rating){rating=clamp(rating,0,150);return rating/(150+rating);}
+// Cap the underlying disease resource pressure before absorption, so protection
+// also reduces a saturated tick. Fractional damage rounds down as in native DoTs.
+inline int diseaseTick(int base,double requested,double absorption){return int(std::floor(clamp(requested,0,std::max(1,base/20))*(1.-clamp(absorption,0,50)/100.)));}
 inline double statusChance(double chance,double rating){return clamp(chance,5,95)*(1-statusReduction(rating));}
+// Authored specialist bonuses share the defender's reduction. Ordinary attacks
+// retain statusChance; learned potency is bounded to 125 before resistance.
+inline double learnedStatusChance(double base,double bonus,double rating){return clamp((clamp(base,5,95)+clamp(bonus,0,30))*(1-statusReduction(rating)),0,95);}
 inline int statusDuration(int seconds,double rating){return seconds<=0?0:std::max(1,int(std::ceil(seconds*(1-statusReduction(rating)))));}
 inline double trapSuccessBonus(bool scoutNovice,int scoutBoxes,int rangerBoxes,bool rangerMaster){return (scoutNovice?1.:0.)+clamp(scoutBoxes,0,4)+clamp(rangerBoxes,0,4)+(rangerMaster?1.:0.);}
-inline double trapStatusChance(double rating,double bonus){return clamp(statusChance(95,rating)+clamp(bonus,0,10),0,95);}
+inline double trapStatusChance(double rating,double bonus){return learnedStatusChance(95,clamp(bonus,0,10),rating);}
 inline double weakenedRating(double existing,double derived,double debuff){return std::max(existing,std::max(0.,derived+std::min(0.,debuff)));}
 inline double combinedRating(double strongest,double others){return clamp(strongest+.25*others,0,100);}
 inline double progressWeight(const std::string& profession,const std::string& skill){

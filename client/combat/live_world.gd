@@ -47,6 +47,7 @@ var saved_states:Array=[]
 var owner_account:=""
 var owner_character:=""
 var next_launch_usec:=0
+var showdown_volley:Dictionary={}
 var status_path:=""
 var last_status_usec:=0
 var life_action_pending := ""
@@ -150,6 +151,7 @@ func stop()->void:
 	if had_session:await app.api(HTTPClient.METHOD_POST,"/combat/session/stop",payload)
 
 func reset(reason:="Live Core3 session unavailable.")->void:
+	cancel_showdown()
 	life_action_pending="";pending_transport={};notified_transport_id=""
 	generation+=1;live=false;native_ready=false;busy=false;session_id="";sequence=-1;weapon={};player_state={};queue.clear();shots.clear();next_launch_usec=0;backend_retry_usec=0
 	for actor:Node in actors.values():actor.collision_layer=0;actor.visible=false;actor.queue_free()
@@ -203,13 +205,18 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 	var incoming:=str(response.get("session_id",""));var revision:=int(response.get("sequence",-1))
 	if revision<0 or incoming.is_empty() or (not initial and incoming!=session_id) or revision<sequence:last_error="Stale or mismatched live Core3 snapshot.";return false
 	var snapshot:Dictionary=response.get("snapshot",{})
+	var ship_player:Dictionary=snapshot.get("player",{}) if snapshot.get("player") is Dictionary else {}
+	var ship_state:Variant=ship_player.get("jtl",snapshot.get("jtl",{}))
+	var space_active:bool=ship_player.get("space_active",false) and ship_state is Dictionary and ship_state.get("scope","") in ["noncombat_yacht","noncombat_navigation"] and ship_state.get("enabled",false) and ship_state.get("ship") is Dictionary and str(ship_state.ship.get("station","")) in ["pilot","passenger","gunner","interior"]
+	if space_active and snapshot.get("weapon")==null:
+		snapshot=snapshot.duplicate(false);snapshot.weapon={}
 	if not snapshot.get("ready") is bool or not snapshot.get("full",false) or snapshot.get("truncated",false) or not snapshot.get("actors") is Array or snapshot.actors.size()>MAX_ACTORS or not snapshot.get("player") is Dictionary or not snapshot.get("weapon") is Dictionary:last_error="Incomplete live Core3 snapshot.";return false
 	if not snapshot.get("transport",{}) is Dictionary:
 		last_error="Invalid authoritative medical transport.";return false
 	var transport: Dictionary = snapshot.get("transport",{})
 	if not transport.is_empty() and (str(transport.get("id","")).is_empty() or not transport.get("destination") is Dictionary or not preload("res://combat/live_transport.gd").new().destination_valid(transport.destination)):
 		last_error="Invalid authoritative medical transport.";return false
-	var life_locked: bool = bool(snapshot.player.get("dead",false)) or bool(snapshot.player.get("incapacitated",false)) or not transport.is_empty()
+	var life_locked: bool = space_active or bool(snapshot.player.get("dead",false)) or bool(snapshot.player.get("incapacitated",false)) or not transport.is_empty()
 	var incoming_weapon:Dictionary=snapshot.weapon
 	if not life_locked and (str(incoming_weapon.get("item_id","")).is_empty() or not incoming_weapon.get("certified",false) or float(incoming_weapon.get("fire_interval_seconds",0))<=0 or float(incoming_weapon.get("max_range_m",0))<=0):last_error="Native equipped weapon is unavailable or uncertified.";return false
 	for key in ["fire_interval_seconds","max_range_m","projectile_speed"]:
@@ -223,6 +230,10 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 	if not valid_player(snapshot.player):last_error="Incomplete or invalid authoritative player HAM/posture.";return false
 	var seconds:=maxf(elapsed_since_snapshot,POLL_INTERVAL)
 	session_id=incoming;sequence=revision;native_ready=bool(snapshot.ready);weapon=incoming_weapon.duplicate(true);player_state=preload("res://combat/movement_reconciliation.gd").annotate(snapshot.player,response);pending_transport=transport.duplicate(true)
+	if snapshot.get("jtl") is Dictionary:player_state.jtl=snapshot.jtl
+	if space_active:
+		queue.clear();shots.clear();cancel_showdown()
+		if is_instance_valid(rig) and is_instance_valid(rig.rounds_sim):rig.rounds_sim.clear()
 	for value:Dictionary in source_visual_records(snapshot.actors):
 		if preload("res://scripts/service_world.gd").presents_actor(app,value):
 			seen.erase(str(value.id));continue
@@ -249,6 +260,8 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 			entry.state.profile["profession"]={"rpm_scale":1.0}
 			entry.state.profile.projectile_speed=float(weapon.get("projectile_speed",100))
 			entry.state.core.maxRange=float(weapon.max_range_m)
+			sync_commando_profile(entry.state)
+			sync_bountyhunter_profile(entry.state)
 	sync_native_abilities()
 	synchronize_ambient(snapshot.actors)
 	var feedback: Variant = player.get("feedback")
@@ -260,13 +273,29 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 	write_status();return live and session_id==incoming
 
 func sync_native_abilities() -> void:
+	if is_instance_valid(rig.get("squad_leader")):rig.squad_leader.observe(player_state.get("squad_leader",{}),session_id+":"+str(sequence),register_squadleader,world,is_ready)
+	rig.commando_authority=register_commando
+	if rig.has_method("configure_bountyhunter"):rig.configure_bountyhunter(player_state.get("bountyhunter",{}),register_bountyhunter,str(weapon.get("item_id","")),session_id)
+	if rig.has_method("configure_rifleman"):rig.configure_rifleman(player_state.get("rifleman",{}),register_rifleman,str(weapon.get("item_id","")))
+	if rig.has_method("configure_carbineer"):rig.configure_carbineer(player_state.get("carbineer",{}),register_carbineer,str(weapon.get("item_id","")))
+	if rig.has_method("configure_pistoleer"):
+		rig.configure_pistoleer(player_state.get("pistoleer",{}),register_pistoleer,str(weapon.get("item_id","")))
+		rig.showdown_gate=showdown_status
 	if is_instance_valid(rig.get("inventory")) and rig.inventory.has_method("set_combat_loadout_context"):
 		rig.inventory.set_combat_loadout_context(weapon if live else {},request_loadout)
+	if rig.has_method("configure_pikeman"):rig.configure_pikeman(player_state.get("pikeman",{}),register_pikeman,str(weapon.get("item_id","")),str(weapon.get("ability_loadout",{}).get("ultimate","")))
+	if rig.has_method("configure_fencer"):rig.configure_fencer(player_state.get("fencer",{}),register_fencer,str(weapon.get("item_id","")),str(weapon.get("ability_loadout",{}).get("ultimate","")))
+	if rig.has_method("configure_swordsman"):rig.configure_swordsman(player_state.get("swordsman",{}),register_swordsman,str(weapon.get("item_id","")),str(weapon.get("ability_loadout",{}).get("ultimate","")))
+	if rig.has_method("configure_tka"):rig.configure_tka(player_state.get("tka",{}),register_tka,str(weapon.get("item_id","")),str(weapon.get("ability_loadout",{}).get("ultimate","")))
+	if rig.has_method("configure_brawler"):rig.configure_brawler(player_state.get("brawler_buffs",{}),register_brawler_buff,str(weapon.get("item_id","")))
+	if rig.has_method("configure_warcry"):rig.configure_warcry(player_state.get("warcry",{}),register_warcry)
 	if rig.has_method("configure_taunt"):rig.configure_taunt(player_state.get("taunt",{}),register_taunt)
 	var entries:Array=weapon.get("abilities",[])
-	if str(weapon.get("kind",""))=="melee":entries=[]
 	if rig.get("unarmed") is Dictionary:
-		for state in rig.unarmed.values():state.profile["abilities"]=[]
+		for state in rig.unarmed.values():
+			state.profile["abilities"]=entries.duplicate(true) if weapon.get("unarmed",false) else []
+			state.profile["ability_loadout"]=weapon.get("ability_loadout",{}).duplicate(true) if weapon.get("unarmed",false) else {}
+			state.profile["item_id"]=str(weapon.get("item_id","")) if weapon.get("unarmed",false) else ""
 	for entry:Dictionary in rig.weapons:
 		var matching:bool=str(entry.state.profile.get("item_id",""))==str(weapon.get("item_id",""))
 		entry.state.profile["abilities"]=entries.duplicate(true) if matching else []
@@ -277,6 +306,286 @@ func sync_native_abilities() -> void:
 			var id:=str(ability.get("id",""))
 			rig.abilities.cooldowns[id]=maxf(float(rig.abilities.cooldowns.get(id,0)),float(ability.get("cooldown_remaining_seconds",0)))
 	rig.abilities.reconcile(rig.active_profile())
+
+func squad_ability(id:String)->Dictionary:
+	for entry:Dictionary in player_state.get("squad_leader",{}).get("abilities",[]):
+		if str(entry.get("id",""))==id:return entry
+	for entry:Dictionary in weapon.get("abilities",[]):
+		if str(entry.get("id",""))==id:return entry
+	return {}
+func register_squadleader(ability:String,target_id:String,pose:Transform3D,hand:String)->bool:
+	var entry:=squad_ability(ability);var now:=Time.get_ticks_usec()
+	if ability not in ["steady_aim","rally","form_up","boost_morale","retreat","volley_fire"] or not is_ready() or entry.is_empty() or not entry.get("learned",true) or not entry.get("conditions_met",false) or float(entry.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or shots.size()>=MAX_SHOTS or queue.size()>=MAX_QUEUE:return false
+	if target_id.is_empty() or not pose.is_finite() or hand not in ["left","right"] or str(rig.active_profile().get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="volley_fire":
+		if str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability or not actors.has(target_id) or not is_instance_valid(rig.get("squad_leader")) or not rig.squad_leader.enemy(actors.get(target_id)):return false
+	else:
+		if not is_instance_valid(rig.get("squad_leader")) or rig.squad_leader.person(target_id).is_empty():return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(entry.get("action_cost",INF)) or float(ham[2])<=float(entry.get("mind_cost",INF)):return false
+	var interval:=maxf(.25,float(entry.get("interval_seconds",2)))
+	next_launch_usec=now+int(interval*1000000);serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.item_id),"ability_id":ability,"target_id":target_id,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	rig.abilities.cooldowns[ability]=float(entry.get("cooldown_seconds",0))
+	queue.append({"kind":"squadleader","payload":payload,"shot_id":id});return true
+func attack_range(ability:String)->float:
+	for row:Dictionary in weapon.get("abilities",[]):
+		if str(row.get("id",""))==ability:return maxf(0,float(row.get("max_range_m",weapon.get("max_range_m",0))))
+	return maxf(0,float(weapon.get("max_range_m",0)))
+func volley_intent(pose:Transform3D,maximum:float,target_id:="")->Dictionary:
+	if not is_ready() or not is_instance_valid(rig.get("squad_leader")):return {}
+	return rig.squad_leader.volley_intent(pose,maximum,target_id)
+
+func register_commando(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("commando",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability!="overdrive" or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or context.get("active",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or not rig.two_hands or not rig.support_latched or str(weapon.get("native_family",""))!="commando" or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability:return false
+	var state=rig.weapons[rig.selected].state
+	if not state.certified() or state.condition_max<2 or state.condition_damage>=state.condition_max:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.is_finite() or hand not in ["left","right"]:return false
+	var interval:=float(context.get("interval_seconds",.25))
+	next_launch_usec=now+int(interval*1000000);serial+=1
+	state.next_shot=maxf(state.next_shot,state.clock+interval)
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000,"ammo_state":state,"ammo_spent":0}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z),"two_hands":true})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",120))
+	queue.append({"kind":"commando","payload":payload,"shot_id":id});return true
+
+func sync_commando_profile(state:RefCounted)->void:
+	if str(weapon.get("native_family",""))!="commando":return
+	for key in ["native_family","commando_family","delivery","charge_limited","cone_angle_degrees","beam_radius_m","area_radius_m","target_cap","area_budget_multiplier","action_cost","mind_cost","normalized_damage"]:
+		if weapon.has(key):state.profile[key]=weapon[key]
+	if weapon.get("charge_limited",false):
+		var reserved:bool=shots.values().any(func(pending:Dictionary):return pending.get("ammo_state")==state and not pending.get("accepted",false) and int(pending.get("ammo_spent",0))>0)
+		state.observe_native_charges(int(weapon.get("charges",0)),session_id,sequence,reserved)
+
+func sync_bountyhunter_profile(state:RefCounted)->void:
+	for key in ["delivery","pellet_count","half_angle_degrees","acquisition_degrees","turn_degrees_per_second","max_turn_degrees"]:
+		if weapon.has(key):state.profile[key]=weapon[key]
+
+func register_bountyhunter(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("bountyhunter",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["duelist_stance","underhand_shot"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or context.get("active",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	var state=rig.weapons[rig.selected].state
+	var family:=str(state.profile.get("class",""))
+	if state.is_melee() or not state.certified() or state.condition_max<2 or state.condition_damage>=state.condition_max or state.reload_until>=0:return false
+	if family not in ["holdout","pistol","heavy_pistol","carbine","burst_carbine"] and str(state.profile.get("id",""))!="rifle_lightning":return false
+	if ability=="underhand_shot" and (family not in ["carbine","burst_carbine"] or not rig.two_hands or not rig.support_latched):return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.is_finite() or hand not in ["left","right"]:return false
+	var target_id:=""
+	if ability=="duelist_stance":
+		var hit:Dictionary=rig.target_abilities.query(pose.origin,pose.origin-pose.basis.z*float(weapon.max_range_m)*state.range_scale(rig.two_hands))
+		var actor:Variant=hit.get("collider")
+		if not hit.get("complete",false) or not rig.target_abilities.actor_eligible(actor):return false
+		target_id=str(actor.record.id)
+	serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000,"ammo_state":state,"ammo_spent":0}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.item_id),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z),"two_hands":rig.two_hands})
+	if not target_id.is_empty():payload.target_id=target_id
+	if ability=="duelist_stance":rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",60))
+	else:rig.bountyhunter_arm_pending=str(weapon.item_id);rig.bountyhunter_arm_pending_shot=id;rig.bountyhunter_arm_pending_until=now+8000000
+	next_launch_usec=now+100000
+	queue.append({"kind":"bountyhunter","payload":payload,"shot_id":id});return true
+
+func guided_target(pose:Transform3D,maximum:float)->String:
+	var nearest:=deg_to_rad(5.);var selected:=""
+	for id:String in actors:
+		var actor:Node3D=actors[id]
+		if not rig.target_abilities.actor_eligible(actor):continue
+		var point:=actor.global_position+Vector3.UP
+		var offset:=point-pose.origin
+		if offset.length()>maximum or offset.length_squared()<.01:continue
+		var angle:=(-pose.basis.z).angle_to(offset.normalized())
+		if angle<=nearest and rig.target_abilities.clear_line(pose.origin,point,actor):nearest=angle;selected=id
+	return selected
+
+func register_rifleman(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("rifleman",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability!="rifleman_focus" or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or context.get("active",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or not rig.two_hands or not rig.support_latched or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	var state=rig.weapons[rig.selected].state
+	if state.is_melee() or str(state.profile.get("class","")) not in ["rifle","marksman","repeater","bowcaster","slugthrower"] or not state.certified() or state.condition_max<2 or state.condition_damage>=state.condition_max or state.reload_until>=0:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.is_finite() or hand not in ["left","right"]:return false
+	var interval:=float(context.get("interval_seconds",.25))
+	next_launch_usec=now+int(interval*1000000);serial+=1
+	state.next_shot=maxf(state.next_shot,state.clock+interval)
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000,"ammo_state":state,"ammo_spent":0}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z),"two_hands":true})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	queue.append({"kind":"rifleman","payload":payload,"shot_id":id});return true
+
+func register_carbineer(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("carbineer",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["full_auto_sweep","tactical_brace","charge_blast"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or context.get("active",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or not rig.two_hands or not rig.support_latched or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="charge_blast" and str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability:return false
+	var state=rig.weapons[rig.selected].state
+	if state.is_melee() or str(state.profile.get("class","")) not in ["carbine","burst_carbine"] or not state.certified() or state.condition_max<2 or state.condition_damage>=state.condition_max or state.reload_until>=0:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.is_finite() or hand not in ["left","right"]:return false
+	var ammo:=0 if ability=="tactical_brace" else 3
+	if ammo>0 and not state.reserve_rounds(ammo):return false
+	var interval:=float(context.get("interval_seconds",1))
+	next_launch_usec=now+int(interval*1000000);serial+=1
+	state.next_shot=maxf(state.next_shot,state.clock+interval)
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability,"area_pose":pose,"area_grip":rig.weapons[rig.selected].visual.global_position,"area_profile":state.ranged_snapshot(true,rig.current_firing_posture())},"accepted":false,"contacted":false,"expires_usec":now+8000000,"ammo_state":state,"ammo_spent":ammo}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z),"two_hands":true})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	if ability in ["full_auto_sweep","charge_blast"]:payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"carbineer","payload":payload,"shot_id":id});return true
+
+func register_pistoleer(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("pistoleer",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["fan_shot","run_and_gun"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or context.get("active",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	var state=rig.weapons[rig.selected].state
+	if state.is_melee() or str(state.profile.get("class","")) not in ["holdout","pistol","heavy_pistol"] or not state.certified():return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.is_finite() or hand not in ["left","right"]:return false
+	var ammo:=3 if ability=="fan_shot" else 0
+	if ammo>0 and not state.reserve_rounds(ammo):return false
+	next_launch_usec=now+int(float(context.get("interval_seconds",1))*1000000);serial+=1
+	state.next_shot=maxf(state.next_shot,state.clock+float(context.get("interval_seconds",1)))
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability,"fan_pose":pose,"fan_grip":rig.weapons[rig.selected].visual.global_position,"fan_profile":state.ranged_snapshot(false,rig.current_firing_posture())},"accepted":false,"contacted":false,"expires_usec":now+8000000,"ammo_state":state,"ammo_spent":ammo}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	if ability=="fan_shot":payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"pistoleer","payload":payload,"shot_id":id});return true
+
+func showdown_status(id:String)->String:
+	if not is_ready() or showdown_volley.is_empty() or str(showdown_volley.id)!=id or Time.get_ticks_usec()>int(showdown_volley.expires_usec) or str(weapon.get("item_id",""))!=str(showdown_volley.item_id) :return "invalid"
+	var volley_ability:=str(showdown_volley.get("ability_id","showdown"))
+	var definition:Dictionary={}
+	for entry:Dictionary in weapon.get("abilities",[]):
+		if str(entry.get("id",""))==volley_ability:definition=entry;break
+	if not preload("res://combat/loadout.gd").equipped(definition,weapon.get("ability_loadout",{})) or showdown_volley.get("loadout",{})!=weapon.get("ability_loadout",{}):return "invalid"
+	var actor:Variant=actors.get(str(showdown_volley.target_id))
+	if not is_instance_valid(actor) or not actor.is_targetable() or actor.record.get("dead",false) or actor.record.get("incapacitated",false):return "invalid"
+	return "ready" if showdown_volley.get("accepted",false) and Time.get_ticks_usec()>=next_launch_usec else "pending"
+
+func cancel_showdown()->void:
+	showdown_volley.clear()
+	if is_instance_valid(rig) and rig.has_method("cancel_showdown"):rig.cancel_showdown()
+
+func register_pikeman(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("pikeman",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["overhead_whirl","sweeping_trip","driving_jabs","whirlwind"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="whirlwind" and str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
+	next_launch_usec=now+int(float(context.get("interval_seconds",1))*1000000);serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"pikeman","payload":payload,"shot_id":id});return true
+
+func register_fencer(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("fencer",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["probing_jabs","raking_slash","guard_bash","flawless_assault"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="flawless_assault" and str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
+	next_launch_usec=now+int(float(context.get("interval_seconds",1))*1000000);serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"fencer","payload":payload,"shot_id":id});return true
+
+func register_swordsman(ability:String,pose:Transform3D,hand:String,target_id:="")->bool:
+	var context:Dictionary=player_state.get("swordsman",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["overhead_cleave","ground_slam","armour_break"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or float(rig.abilities.cooldowns.get(ability,0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="armour_break" and (target_id.is_empty() or str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability):return false
+	if ability!="armour_break" and not target_id.is_empty():return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
+	next_launch_usec=now+int(float(context.get("interval_seconds",1))*1000000);serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand,"ability_id":ability},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	if ability=="armour_break":payload["target_id"]=target_id
+	rig.abilities.cooldowns[ability]=float(context.get("cooldown_seconds",0))
+	payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"swordsman","payload":payload,"shot_id":id});return true
+
+func register_tka(ability:String,pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("tka",{}).get(ability,{})
+	var now:=Time.get_ticks_usec()
+	if ability not in ["tka_sweep","tka_half_spin","tka_volley","indomitable_focus"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if not weapon.get("unarmed",false) or rig.selected>=0:return false
+	if not rig.unarmed.has(rig.dominant) or str(rig.unarmed[rig.dominant].profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if ability=="indomitable_focus" and str(weapon.get("ability_loadout",{}).get("ultimate",""))!=ability:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
+	next_launch_usec=now+int(float(context.get("interval_seconds",1))*1000000);serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	if ability!="indomitable_focus":payload.merge(volley_intent(pose,attack_range(ability),str(payload.get("target_id",""))))
+	queue.append({"kind":"tka","payload":payload,"shot_id":id});return true
+
+func register_brawler_buff(ability:String,hand:String)->bool:
+	var context:Dictionary=player_state.get("brawler_buffs",{}).get(ability,{})
+	var ham:Array=player_state.get("ham",[])
+	var now:=Time.get_ticks_usec()
+	if ability not in ["center_of_being","berserk"] or not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	next_launch_usec=now+1000000;serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"ability_id":ability})
+	queue.append({"kind":"brawler_buff","payload":payload,"shot_id":id});return true
+
+func register_warcry(pose:Transform3D,hand:String)->bool:
+	var context:Dictionary=player_state.get("warcry",{})
+	var now:=Time.get_ticks_usec()
+	if not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
+	var ham:Array=player_state.get("ham",[])
+	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
+	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
+	next_launch_usec=now+1000000
+	serial+=1
+	var id:="%s-%d"%[session_id,serial]
+	shots[id]={"shot":{"hand":hand},"accepted":false,"contacted":false,"expires_usec":now+8000000}
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.get("item_id","")),"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	queue.append({"kind":"warcry","payload":payload,"shot_id":id})
+	return true
 
 func register_taunt(pose:Transform3D,hand:String)->bool:
 	var context:Dictionary=player_state.get("taunt",{})
@@ -300,15 +609,29 @@ func register_melee(shot:Dictionary,pose:Transform3D)->Dictionary:
 	var item:=str(weapon.get("item_id",""))
 	if not bool(weapon.get("unarmed",false)) and str(shot.get("item_id",""))!=item:return {}
 	if bool(weapon.get("unarmed",false)) and str(shot.get("weapon_id",""))!="unarmed":return {}
+	var requested:=str(shot.get("ability_id",""))
+	var ability:Dictionary={}
+	if not requested.is_empty():
+		for entry:Dictionary in weapon.get("abilities",[]):
+			if str(entry.id)==requested and entry.get("activation","")=="native_melee":ability=entry;break
+		if ability.is_empty() or not preload("res://combat/loadout.gd").equipped(ability,weapon.get("ability_loadout",{})) or not ability.get("conditions_met",true) or str(shot.get("target_id","")).is_empty() or float(rig.abilities.cooldowns.get(requested,0))>0:return {}
+		var cost:Array=rig.abilities.costs(ability)
+		if cost.size()!=3:return {}
+		for i in range(3):
+			if rig.abilities.ham[i*3]<=float(cost[i]):return {}
 	var now:=Time.get_ticks_usec()
 	if now<next_launch_usec or shots.size()>=MAX_SHOTS:return {}
-	next_launch_usec=now+int(float(weapon.fire_interval_seconds)*1000000)
+	next_launch_usec=now+int(float(ability.get("interval_seconds",weapon.fire_interval_seconds))*1000000)
 	serial+=1
 	var id:="%s-%d"%[session_id,serial]
 	var immutable:=shot.duplicate(true);immutable["item_id"]=item;immutable["shot_id"]=id;immutable["live_session"]=session_id
+	var volley:=volley_intent(pose,float(ability.get("max_range_m",weapon.max_range_m)),str(shot.get("target_id",shot.get("volley_target_id",""))));immutable.erase("volley_mark_id");immutable.erase("volley_target_id");immutable.merge(volley)
 	shots[id]={"shot":immutable.duplicate(true),"accepted":false,"contacted":false,"expires_usec":now+8000000}
-	var payload:=owner();payload.merge({"shot_id":id,"item_id":item,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
-	queue.append({"kind":"melee","payload":payload,"shot_id":id})
+	var payload:=owner();payload.merge({"shot_id":id,"item_id":item,"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)});payload.merge(volley)
+	if not ability.is_empty():
+		payload.merge({"ability_id":requested,"target_id":str(shot.target_id)})
+		rig.abilities.cooldowns[requested]=float(ability.get("cooldown_seconds",0))
+	queue.append({"kind":"pikeman" if ability.get("native_family","")=="pikeman" else "fencer" if requested in ["arterial_cut","nerve_strike","disorienting_thrust","exposing_thrust"] else "swordsman" if requested in ["rending_cut","disrupting_blow","hamstring","decisive_strike"] else "melee","payload":payload,"shot_id":id})
 	return immutable
 
 func melee_receipt(id:String,mutation:Dictionary)->void:
@@ -322,54 +645,141 @@ func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
 	if not is_ready() or str(shot.get("item_id",""))!=str(weapon.item_id) or shots.size()>=MAX_SHOTS or queue.size()>=MAX_QUEUE:return {}
 	var ability:Dictionary={}
 	var requested:=str(shot.get("ability_id",""));var target_id:=str(shot.get("target_id",""))
+	var heavy:bool=weapon.get("native_family","")=="commando"
+	var direct:bool=heavy and (weapon.get("delivery","") in ["cone","beam"] or requested=="acid_spray")
+	if heavy and weapon.get("commando_family","")!="pistol_launcher" and not shot.get("two_hands",false):return {}
+	if heavy and weapon.get("charge_limited",false) and int(weapon.get("charges",0))<=0:return {}
+	var volley_index:=int(shot.get("volley_index",0))
+	var continuation:=requested in ["showdown","flurry_shot"] and volley_index>0
+	if continuation and (volley_index not in [1,2] or showdown_status(str(shot.get("volley_id","")))!="ready" or int(showdown_volley.get("next_index",-1))!=volley_index or str(showdown_volley.get("ability_id","showdown"))!=requested or str(showdown_volley.get("target_id",""))!=target_id):return {}
 	if not requested.is_empty():
 		for entry:Dictionary in weapon.get("abilities",[]):
 			if str(entry.get("id",""))==requested:ability=entry;break
-		if not preload("res://combat/loadout.gd").equipped(ability,weapon.get("ability_loadout",{})):return {}
-		if ability.is_empty() or not actors.has(target_id) or not actors[target_id].is_targetable() or not ability.get("conditions_met",true):return {}
-		var record:Dictionary=actors[target_id].record
-		if record.get("relation","") not in ["hostile","attackable"] or record.get("dead",false) or record.get("incapacitated",false):return {}
-		if float(rig.abilities.cooldowns.get(requested,0))>0:return {}
-		var cost:Array=rig.abilities.costs(ability)
-		if cost.size()!=3:return {}
-		for index in range(3):
-			if float(rig.abilities.ham[index*3])<=float(cost[index]):return {}
-		if requested=="last_ditch" and (rig.abilities.ham[3]<=1 or rig.abilities.ham[6]<=1):return {}
-		var distance:float=player.global_position.distance_to(actors[target_id].global_position)
-		if distance>minf(float(weapon.max_range_m),float(ability.get("max_range_m",weapon.max_range_m))) or distance<float(ability.get("min_range_m",0)):return {}
+		if requested!="underhand_shot" and not preload("res://combat/loadout.gd").equipped(ability,weapon.get("ability_loadout",{})):return {}
+		if requested=="underhand_shot":
+			if ability.is_empty() or not ability.get("conditions_met",false) or not shot.get("two_hands",false):return {}
+			if float(rig.abilities.cooldowns.get(requested,0))>0:return {}
+		else:
+			if ability.is_empty() or not actors.has(target_id) or not actors[target_id].is_targetable() or (not continuation and not ability.get("conditions_met",true)):return {}
+			var record:Dictionary=actors[target_id].record
+			if record.get("relation","") not in ["hostile","attackable"] or record.get("dead",false) or record.get("incapacitated",false):return {}
+			if not record.get("ability_target_available",{}).get(requested,true):return {}
+			if ability.get("requires_control_available",false) and not record.get("melee_control_available",true):return {}
+			if ability.get("excludes_bosses",false) and (record.get("boss",true) or int(record.get("level",151))>150):return {}
+			if not continuation and float(rig.abilities.cooldowns.get(requested,0))>0:return {}
+			var cost:Array=[0,0,0] if continuation else rig.abilities.costs(ability)
+			if cost.size()!=3:return {}
+			for index in range(3):
+				if float(rig.abilities.ham[index*3])<=float(cost[index]):return {}
+			if requested=="last_ditch" and (rig.abilities.ham[3]<=1 or rig.abilities.ham[6]<=1):return {}
+			var distance:float=player.global_position.distance_to(actors[target_id].global_position)
+			var limit:=float(ability.get("max_range_m",weapon.max_range_m))
+			if is_equal_approx(limit,float(weapon.max_range_m)):limit*=float(shot.get("range_scale",1.0))
+			if distance>minf(float(weapon.max_range_m)*float(shot.get("range_scale",1.0)),limit) or distance<float(ability.get("min_range_m",0)):return {}
 	var now:=Time.get_ticks_usec()
 	if now<next_launch_usec:return {}
-	next_launch_usec=now+int(float(weapon.fire_interval_seconds)*1000000)
+	var interval:=float(weapon.get("special_interval_seconds",weapon.fire_interval_seconds)) if not requested.is_empty() else float(weapon.fire_interval_seconds)
+	if requested in ["showdown","flurry_shot"] and volley_index<2:interval=.25
+	elif requested=="flurry_shot":interval=float(weapon.fire_interval_seconds)
+	elif not ability.is_empty():interval=float(ability.get("interval_seconds",interval))
+	if requested=="sniper_shot" and not bool(shot.get("two_hands",false)):return {}
+	var ammo_state:RefCounted=rig.weapons[rig.selected].state if (heavy or weapon.get("delivery","") in ["scatter","guided_bolt"] or requested in ["double_tap","disarming_shot","showdown","crippling_shot","wild_shot","charge_shot","suppression_fire","lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot","eye_shot","confusion_shot","fast_blast","underhand_shot","bleeding_shot"]) and rig.get("selected") is int and rig.selected>=0 else null
+	var extra_ammo:=maxi(0,int(ability.get("ammo_cost",1))-1) if requested not in ["showdown","flurry_shot"] else 0
+	if extra_ammo>0 and (ammo_state==null or not ammo_state.reserve_rounds(extra_ammo)):return {}
+	next_launch_usec=now+int(interval*1000000)
 	serial+=1
 	var id:="%s-%d"%[session_id,serial]
 	var immutable:=shot.duplicate(true);immutable["shot_id"]=id;immutable["live_session"]=session_id;immutable["launched_usec"]=now
-	immutable.range=float(weapon.max_range_m);immutable.speed=float(weapon.get("projectile_speed",shot.speed))
+	immutable.range=float(weapon.max_range_m)*float(shot.get("range_scale",1.0));immutable.speed=float(weapon.get("projectile_speed",shot.speed))
+	var volley:=volley_intent(pose,minf(float(immutable.range),float(ability.get("max_range_m",immutable.range))),target_id if not target_id.is_empty() else str(shot.get("volley_target_id","")))
+	immutable.erase("volley_mark_id");immutable.erase("volley_target_id");immutable.merge(volley)
+	if not volley.is_empty():
+		immutable["cosmetic_only"]=true
+		if ammo_state==null and rig.selected>=0:ammo_state=rig.weapons[rig.selected].state
+	if str(weapon.get("delivery","")) in ["scatter","guided_bolt"]:
+		immutable["delivery"]=str(weapon.delivery)
+		for key in ["pellet_count","half_angle_degrees","acquisition_degrees","turn_degrees_per_second","max_turn_degrees"]:
+			if weapon.has(key):immutable[key]=weapon[key]
+	if heavy:
+		immutable["delivery"]=str(weapon.get("delivery",""))
+	if direct:
+		immutable["native_direct"]=true;immutable["heavy_pose"]=pose;immutable["heavy_grip"]=grip;immutable["heavy_profile"]=rig.active_profile().duplicate(true)
+		immutable["heavy_profile"]["delivery"]="cone" if requested=="acid_spray" else "beam" if requested=="focused_discharge" else str(weapon.delivery)
+		if requested=="acid_spray":immutable.heavy_profile.cone_angle_degrees=30.;immutable.range=minf(14,immutable.range)
 	var payload:=owner();payload.merge({"shot_id":id,"item_id":str(weapon.item_id),"origin":source(pose.origin),"direction":source_direction(-pose.basis.z)})
+	payload["two_hands"]=bool(shot.get("two_hands",float(shot.get("range_scale",1.0))>1.0 if int(rig.active_profile().get("hands",2))==1 else float(shot.get("range_scale",1.0))>.3));payload["firing_posture"]=str(shot.get("firing_posture","standing"));payload.merge(volley)
 	if not ability.is_empty():
 		payload.ability_id=str(ability.id)
-		payload.target_id=target_id
+		if not target_id.is_empty():payload.target_id=target_id
 		immutable["ability"]=ability.duplicate(true)
-		rig.abilities.cooldowns[str(ability.id)]=float(ability.get("cooldown_seconds",0))
-	shots[id]={"shot":immutable.duplicate(true),"accepted":false,"contacted":false,"expires_usec":now+int((float(immutable.range)/maxf(float(immutable.speed),1)+5.0)*1000000)}
-	queue.append({"kind":"fire","payload":payload,"shot_id":id});return immutable
+		if not continuation:rig.abilities.cooldowns[str(ability.id)]=float(ability.get("cooldown_seconds",0))
+	if immutable.get("delivery","")=="guided_bolt":
+		var guidance:=target_id if not target_id.is_empty() else guided_target(pose,float(immutable.range))
+		if not guidance.is_empty():
+			payload["guided_target_id"]=guidance;immutable["guided_target_id"]=guidance
+			immutable["guidance_actor"]=actors.get(guidance)
+	if requested in ["showdown","flurry_shot"]:
+		var volley_id:=str(shot.get("volley_id","")) if continuation else id
+		payload.merge({"volley_id":volley_id,"volley_index":volley_index});immutable.merge({"volley_id":volley_id,"volley_index":volley_index})
+		if not continuation:showdown_volley={"ability_id":requested,"loadout":weapon.get("ability_loadout",{}).duplicate(true),"id":id,"item_id":str(weapon.item_id),"target_id":target_id,"next_index":1,"accepted":false,"expires_usec":now+(2000000 if requested=="flurry_shot" else 2500000)}
+		else:showdown_volley.next_index=volley_index+1;showdown_volley.accepted=false
+		immutable.ability.interval_seconds=interval
+	shots[id]={"shot":immutable.duplicate(true),"ammo_state":ammo_state,"ammo_spent":int(shot.get("local_ammo_spent",0))+extra_ammo,"accepted":false,"contacted":false,"expires_usec":now+int((float(immutable.range)/maxf(float(immutable.speed),1)+5.0)*1000000)}
+	if direct:payload["ability_id"]=requested
+	queue.append({"kind":"commando" if direct else "fire","payload":payload,"shot_id":id});return immutable
 
 func contact(shot:Dictionary,target:Dictionary,position:Vector3,_normal:Vector3,_distance:float)->void:
 	var id:=str(shot.get("shot_id",""));var target_id:=str(target.get("id",""))
-	if not is_ready() or str(shot.get("live_session",""))!=session_id or str(target.get("session_id",""))!=session_id or not shots.has(id) or not actors.has(target_id) or not actors[target_id].is_targetable() or shots[id].contacted:return
-	var bound_target:=str(shots[id].shot.get("target_id",""))
+	var world_rocket:bool=target_id=="0" and shot.get("delivery","")=="rocket"
+	if shot.has("volley_mark_id"):return
+	if not is_ready() or str(shot.get("live_session",""))!=session_id or str(target.get("session_id",""))!=session_id or not shots.has(id) or (not world_rocket and (not actors.has(target_id) or not actors[target_id].is_targetable())) or shots[id].contacted:return
+	var bound_target:=str(shots[id].shot.get("target_id",shots[id].shot.get("guided_target_id","")))
 	if not bound_target.is_empty() and target_id!=bound_target:
-		shots.erase(id);return # An intervening actor cannot inherit a targeted special.
+		shots[id].contacted=true;shots[id]["discard_contact"]=true
+		if shots[id].accepted:shots.erase(id)
+		return # Preserve an unacknowledged launch and its cost; never transfer damage.
 	if queue.size()>=MAX_QUEUE:fail("Live combat request budget exceeded; session disarmed.");return
 	shots[id].contacted=true
-	var age:=float(Time.get_ticks_usec()-int(shots[id].shot.launched_usec))/1000000.0
+	var age:=float(shot.get("projectile_age_seconds",float(Time.get_ticks_usec()-int(shots[id].shot.launched_usec))/1000000.0))
 	var payload:=owner();payload.merge({"shot_id":id,"target_id":target_id,"hit_position":source(position),"projectile_age_seconds":age})
+	if shot.get("delivery","")=="scatter":
+		var contacts:Array=[]
+		for pellet:Dictionary in shot.get("pellet_contacts",[]):contacts.append({"pellet_index":int(pellet.pellet_index),"hit_position":source(pellet.hit_position),"projectile_age_seconds":float(pellet.projectile_age_seconds)})
+		if contacts.is_empty():return
+		payload["pellet_contacts"]=contacts
 	queue.append({"kind":"impact","payload":payload,"shot_id":id})
 
 func rejected_fire(id:String)->void:
 	# A confirmed failed launch paid no SAC/cooldown. Replace only the local
 	# reservation with the latest native value, never alter player resources.
-	var ability_id:=str(shots.get(id,{}).get("shot",{}).get("ability_id",""))
+	var pending:Dictionary=shots.get(id,{})
+	if pending.get("accepted",false):return # Failed impacts never refund committed discharges.
+	var state:Variant=pending.get("ammo_state")
+	if state!=null and int(pending.get("ammo_spent",0))>0:state.refund_rounds(int(pending.ammo_spent));pending.ammo_spent=0
+	var ability_id:=str(pending.get("shot",{}).get("ability_id",""))
+	if ability_id in ["showdown","flurry_shot"]:
+		cancel_showdown()
+		if int(pending.get("shot",{}).get("volley_index",0))>0:return
 	if ability_id.is_empty():return
+	if ability_id=="underhand_shot" and rig.has_method("clear_bountyhunter"):rig.clear_bountyhunter()
+	if ability_id in ["steady_aim","rally","form_up","boost_morale","retreat","volley_fire"]:
+		rig.abilities.cooldowns[ability_id]=float(squad_ability(ability_id).get("cooldown_remaining_seconds",0));return
+	if player_state.get("commando",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.commando[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("bountyhunter",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.bountyhunter[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("rifleman",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.rifleman[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("carbineer",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.carbineer[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("pistoleer",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.pistoleer[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("pikeman",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.pikeman[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("fencer",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.fencer[ability_id].get("cooldown_remaining_seconds",0));return
+	if player_state.get("swordsman",{}).has(ability_id):
+		rig.abilities.cooldowns[ability_id]=float(player_state.swordsman[ability_id].get("cooldown_remaining_seconds",0));return
 	for entry:Dictionary in weapon.get("abilities",[]):
 		if str(entry.get("id",""))==ability_id:
 			rig.abilities.cooldowns[ability_id]=float(entry.get("cooldown_remaining_seconds",0));return
@@ -391,9 +801,10 @@ func movement_payload() -> Dictionary:
 	return payload
 
 func request_life_action(action: String) -> bool:
-	if not live or not life_action_pending.is_empty() or not pending_transport.is_empty() or action not in ["recover","medical_transport"]:return false
+	if not live or not life_action_pending.is_empty() or not pending_transport.is_empty() or action not in ["recover","force_of_will","medical_transport"]:return false
 	var posture:=int(player_state.get("posture",0))
-	if action=="recover" and posture!=13:return false
+	if action in ["recover","force_of_will"] and posture!=13:return false
+	if action=="force_of_will" and not preload("res://combat/force_of_will.gd").available(player_state):return false
 	if action=="medical_transport" and posture not in [13,14]:return false
 	# A life transition invalidates pending shots, never an opportunity to fire
 	# after dying or from the old location while a transport is loading.
@@ -420,7 +831,7 @@ func settle_movement_rejection(response:Dictionary,request:Dictionary)->bool:
 		var action:=str(request.payload.get("action",life_action_pending))
 		life_action_pending=""
 		life_action_finished.emit(action,false,str(response.get("error",response.get("error_code","Movement corrected."))))
-	elif request.kind in ["fire","impact","melee","taunt"]:rejected_shots+=1
+	elif request.kind in ["fire","impact","melee","taunt","warcry","pikeman","fencer","swordsman","tka","brawler_buff","pistoleer","carbineer","rifleman","bountyhunter","commando"]:rejected_fire(str(request.get("shot_id","")));rejected_shots+=1
 	return true
 
 func pump()->void:
@@ -466,20 +877,62 @@ func pump()->void:
 		life_action_pending=""
 		var mutation: Dictionary=response.get("mutation",{})
 		life_action_finished.emit(action,bool(mutation.get("success",false)),str(mutation.get("error_code",response.get("error_code",""))))
-	if request.kind in ["fire","impact","melee","taunt"]:
+	combat_receipt(request,response)
+
+func combat_receipt(request:Dictionary,response:Dictionary)->void:
+	var id:=str(request.get("shot_id",""))
+	if request.kind in ["fire","impact","melee","taunt","warcry","pikeman","fencer","swordsman","tka","brawler_buff","pistoleer","carbineer","rifleman","bountyhunter","commando","squadleader"]:
 		var mutation:Dictionary=response.get("mutation",{})
 		if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
-			if request.kind=="fire":rejected_fire(id)
-			rejected_shots+=1;shots.erase(id);return
-		if request.kind=="fire" and shots.has(id):shots[id].accepted=true
+			if request.kind in ["fire","melee","swordsman","fencer","pikeman","pistoleer","carbineer","rifleman","bountyhunter","commando","squadleader"]:rejected_fire(id)
+			rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","Core3 rejected the shot.")));return
+		if mutation.get("volley_consumed",false):
+			if is_instance_valid(rig.get("squad_leader")):rig.squad_leader.consumed(str(request.payload.get("volley_mark_id","")))
+			confirmed_contacts+=1
+			if rig.has_method("action_haptic"):rig.action_haptic("hit")
+		if request.kind=="squadleader":
+			next_launch_usec=maxi(next_launch_usec,Time.get_ticks_usec()+int(maxf(0,float(mutation.get("interval_seconds",2)))*1000000))
+			if rig.has_method("action_haptic"):rig.action_haptic("hit",str(shots.get(id,{}).get("shot",{}).get("hand","")))
+			shots.erase(id)
+		elif request.kind=="fire" and shots.has(id):
+			shots[id].accepted=true
+			var discharge_recovery:=maxf(0,float(mutation.get("interval_seconds",0)))
+			var discharge_state:Variant=shots[id].get("ammo_state")
+			if discharge_state!=null:discharge_state.next_shot=maxf(discharge_state.next_shot,discharge_state.clock+discharge_recovery)
+			next_launch_usec=maxi(next_launch_usec,Time.get_ticks_usec()+int(discharge_recovery*1000000))
+			if shots[id].shot.get("ability_id","") in ["showdown","flurry_shot"] and showdown_volley.get("id","")==shots[id].shot.get("volley_id",""):
+				showdown_volley.accepted=true
+				# Space receipt-to-launch, so backlog cannot compress native cadence.
+				next_launch_usec=Time.get_ticks_usec()+int(float(mutation.get("interval_seconds",.25))*1000000)
+			if shots[id].get("discard_contact",false) or mutation.get("volley_consumed",false):shots.erase(id)
 		elif request.kind=="impact":
 			confirmed_contacts+=1;shots.erase(id)
 			if int(mutation.get("damage",0))>0 and rig.has_method("action_haptic"):rig.action_haptic("hit")
-		elif request.kind=="melee":melee_receipt(id,mutation)
+		elif request.kind=="fencer" and str(mutation.get("ability_id",""))=="flawless_assault":
+			if rig.has_method("action_haptic"):rig.action_haptic("hit",str(shots.get(id,{}).get("shot",{}).get("hand","")))
+			shots.erase(id)
+		elif request.kind in ["melee","swordsman","fencer","pikeman"]:melee_receipt(id,mutation)
 		elif request.kind=="taunt":taunt_receipt(id,mutation)
+		elif request.kind in ["pistoleer","carbineer","rifleman","bountyhunter","commando"]:
+			var recovery:=maxf(0,float(mutation.get("interval_seconds",0)))
+			var state:Variant=shots.get(id,{}).get("ammo_state")
+			if state!=null:state.next_shot=maxf(state.next_shot,state.clock+recovery)
+			next_launch_usec=maxi(next_launch_usec,Time.get_ticks_usec()+int(recovery*1000000))
+			if str(mutation.get("ability_id",""))=="fan_shot" and rig.has_method("fan_shot_feedback"):rig.fan_shot_feedback(shots.get(id,{}).get("shot",{}))
+			if request.kind=="bountyhunter" and rig.has_method("bountyhunter_feedback"):rig.bountyhunter_feedback(mutation)
+			if request.kind=="carbineer" and rig.has_method("carbineer_feedback"):rig.carbineer_feedback(shots.get(id,{}).get("shot",{}))
+			if request.kind=="commando" and str(mutation.get("ability_id",""))!="overdrive" and rig.has_method("commando_feedback"):rig.commando_feedback(shots.get(id,{}).get("shot",{}))
+			shots.erase(id)
+		elif request.kind in ["brawler_buff","tka"]:
+			if rig.has_method("action_haptic"):rig.action_haptic("hit",str(shots.get(id,{}).get("shot",{}).get("hand","")))
+			shots.erase(id)
+		elif request.kind=="warcry":
+			if int(mutation.get("affected",0))>0 and rig.has_method("action_haptic"):rig.action_haptic("hit",str(shots.get(id,{}).get("shot",{}).get("hand","")))
+			shots.erase(id)
 
 func _process(delta:float)->void:
 	if not live:return
+	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	if not pending_transport.is_empty() and bool(app.get("loading_stage")):
 		elapsed_since_snapshot=0.0
 		if queue.any(func(request):return request.payload.has("transport_ack")):pump()

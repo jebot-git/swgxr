@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT / 'runtime/evidence/interior-assets-validation.json')
     args = parser.parse_args()
     world = json.loads(args.world.read_text()); environment = json.loads(args.environment.read_text())
-    source = StaticAssets(Path(world['provenance']['tre_directory']), ROOT / 'runtime/assets/interior_audit')
+    source = StaticAssets(Path(world['provenance']['tre_directory']), ROOT / 'runtime/asset_work/interior_audit')
     planet = world['planet']
     assert environment['planet'] == planet, 'Interior environment belongs to another planet'
     nodes = {node['id']: node for node in snapshot(source, planet)}

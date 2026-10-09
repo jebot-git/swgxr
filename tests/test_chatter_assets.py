@@ -16,7 +16,7 @@ class ChatterAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.catalog = json.loads((ROOT / 'runtime/assets/chatter/catalog.json').read_text())
-        cls.media = TreSet(ROOT / 'runtime/assets/active_tre')
+        cls.media = TreSet(ROOT / 'runtime/asset_sources/active_tre')
 
     def test_original_ids_alphabets_and_display_names(self):
         original = datatable(self.media.read('datatables/game_language/game_language.iff'))

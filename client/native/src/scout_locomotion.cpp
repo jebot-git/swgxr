@@ -64,15 +64,30 @@ Dictionary SwgScoutLocomotion::source_movement(const Dictionary &profile, double
             }
         }
     }
-    const double desired = (walking || run <= 0 ? walk : run) * std::clamp(input, 0.0, 1.0) * modifier;
+    double voluntary = 1.0;
+    if (profile.has("controls")) {
+        const Variant value = profile["controls"];
+        if (value.get_type() != Variant::DICTIONARY) return out;
+        const Dictionary controls = value;
+        const Variant factor = controls.get("voluntary_scale", Variant());
+        const Variant rooted = controls.get("rooted", Variant());
+        if ((factor.get_type() != Variant::FLOAT && factor.get_type() != Variant::INT) || rooted.get_type() != Variant::BOOL) return out;
+        voluntary = factor;
+        if (!std::isfinite(voluntary) || voluntary < 0 || voluntary > 1) return out;
+        if (bool(rooted)) voluntary = 0;
+    }
+    // Control effects affect intentional locomotion only. HMD/controller poses,
+    // room-scale tracking, gravity and collision correction never enter this policy.
+    const double desired = voluntary * (walking || run <= 0 ? walk : run) * std::clamp(input, 0.0, 1.0) * modifier;
     // CreatureObject::getMaximumAcceleration switches at effective walk speed.
     const double acceleration = double(profile[current <= walk ? "walk_acceleration" : "run_acceleration"])
         * double(profile["acceleration_multiplier_base"]) * double(profile["acceleration_multiplier_mod"]);
     if (!std::isfinite(desired) || !std::isfinite(acceleration)) return out;
     double speed = current < desired ? std::min(desired, current + acceleration * delta)
                                     : std::max(desired, current - acceleration * delta);
-    const double server_cap = profile["server_max_speed"];
+    const double server_cap = double(profile["server_max_speed"]) * voluntary;
     if (current < desired && server_cap > 0) speed = std::min(speed, server_cap);
+    if (voluntary < 1.0) speed = std::min(speed, std::min((walking || run <= 0 ? walk : run) * voluntary, server_cap));
     if (!bool(profile["movement_allowed"]) || bool(profile["frozen"])) speed = 0;
     out["valid"] = true; out["speed"] = speed; out["desired_speed"] = desired;
     out["acceleration"] = acceleration; out["terrain_modifier"] = modifier;

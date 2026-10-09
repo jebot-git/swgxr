@@ -34,12 +34,12 @@ def prepare_effects(importer):
     return failures
 
 def main():
-    out = ROOT/'runtime/entertainment'
+    out = ROOT/'runtime/assets/entertainment'
     out.mkdir(parents=True, exist_ok=True)
     data = catalog()
     previous = json.loads((out/'catalog.json').read_text()) if (out/'catalog.json').exists() else {}
     data['provenance'].update(previous.get('provenance',{}))
-    imp = Assets(ROOT/'runtime/assets/active_tre', out, bounded_particle_graphs=True)
+    imp = Assets(ROOT/'runtime/asset_sources/active_tre', out, bounded_particle_graphs=True)
     source_sounds = sorted({s for p in data['performances'].values() for s in p['sounds'].values()})
     failures = []
     for source in source_sounds:
@@ -60,7 +60,7 @@ def main():
     animations = sorted({p['animation'] for p in data['performances'].values()})
     data['rigs'] = {}
     for race, descriptor in characters['races'].items():
-        importer = CharacterImporter(ROOT/'runtime/assets/active_tre', out)
+        importer = CharacterImporter(ROOT/'runtime/asset_sources/active_tre', out)
         model = json.loads((source/descriptor['body']).read_text())
         graph = model['animation_graph']
         _, lat = load_lat(importer, graph['lat_bindings'][0]['lat'])
@@ -89,7 +89,7 @@ def main():
         data['rigs'][race] = library
         data['provenance'].update(importer.dependencies)
         print(json.dumps({'rig':race,'clips':len(library)}), flush=True)
-    inventory = InventoryImporter(ROOT/'runtime/assets/active_tre', out/'items')
+    inventory = InventoryImporter(ROOT/'runtime/asset_sources/active_tre', out/'items')
     inventory.out.mkdir(parents=True, exist_ok=True)
     models = {}
     for template in data['items']:

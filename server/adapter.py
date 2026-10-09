@@ -32,6 +32,8 @@ try:
     from .combat_protocol import snapshot as combat_snapshot
     from .inventory_protocol import inventory_snapshot
     from .vehicles_protocol import command as vehicles_command, snapshot as vehicles_snapshot
+    from .jtl_protocol import command as jtl_command, snapshot as jtl_snapshot
+    from .jtl_presence import HUB as JTL_PRESENCE
     from .medic_protocol import command as medic_command, snapshot as medic_snapshot
     from .scout_protocol import command as scout_command, snapshot as scout_snapshot
     from .services_protocol import command as services_command, snapshot as services_snapshot
@@ -51,6 +53,8 @@ except ImportError:
     from combat_protocol import snapshot as combat_snapshot
     from inventory_protocol import inventory_snapshot
     from vehicles_protocol import command as vehicles_command, snapshot as vehicles_snapshot
+    from jtl_protocol import command as jtl_command, snapshot as jtl_snapshot
+    from jtl_presence import HUB as JTL_PRESENCE
     from medic_protocol import command as medic_command, snapshot as medic_snapshot
     from scout_protocol import command as scout_command, snapshot as scout_snapshot
     from services_protocol import command as services_command, snapshot as services_snapshot
@@ -82,6 +86,12 @@ MAX_BODY = 16384
 
 class BackendError(Exception):
     pass
+
+class NativeJtlRejected(Exception):
+    """Preserve a rejected ship action's owned snapshot for remote transitions."""
+    def __init__(self, response):
+        super().__init__(response['error'])
+        self.result = response
 
 class NativeMovementRejected(Exception):
     """An owned native rejection still carries the authoritative corrected pose."""
@@ -202,7 +212,16 @@ def select_character(account, oid, timeout=60):
     result = invoke(account, [{'action': 'selectContext', 'characterOid': int(oid)},
                               {'action': 'zoneInCharacter'}], timeout=max(0.1, deadline-time.monotonic()))
     scene = result.get('variables', {}).get('scene', {})
-    if (scene.get('terrain') not in {'terrain/'+p+'.trn' for p in SUPPORTED_PLANETS}
+    ground_scene = scene.get('terrain') in {'terrain/'+p+'.trn' for p in SUPPORTED_PLANETS}
+    # Native reconnect recovery can finish before the queued scene-header update
+    # reaches core3client. Accept only an owned, native ground status receipt.
+    if scene.get('terrain') == 'terrain/space_tatooine.trn':
+        try:
+            receipt=session_snapshot(result.get('variables',{}).get('session',{}),oid)
+            ground_scene=receipt.get('source_kind')=='core3_session_status'
+        except ValueError:
+            ground_scene=False
+    if (not ground_scene
             or str(scene.get('characterOid', '')) != oid
             or not result.get('zoneStats', {}).get('sceneReady')):
         raise BackendError('Core3 did not confirm this character in a ready original ground scene.')
@@ -380,6 +399,32 @@ def scout_request(account, oid, action, data):
         raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
             {'action':'zoneInCharacter','inventoryRequest':'swgxr_scout_v1 '+json.dumps(command,separators=(',',':'))}])
         out=scout_snapshot(raw.get('variables',{}).get('scout',{}),oid,raw.get('variables',{}).get('weaponAttributes',{}))
+    return out
+
+def jtl_request(account, oid, action, data):
+    if not isinstance(oid,str) or not oid.isascii() or not oid.isdigit():raise ValueError('Owned character_id required.')
+    intent=jtl_command(action,data)
+    active=LIVE_COMBAT.active_for(account)
+    if not active:raise LiveConflict('JtL requires an owned native gameplay session.')
+    live=LIVE_COMBAT.request(account,'jtl',dict(data,jtl=intent,character_id=oid,
+        session_id=data.get('live_session_id',data.get('session_id',active['id']))))
+    check_live_error(live)
+    out=jtl_snapshot(live['mutation'],oid)
+    SERVICES_PRESENCE.observe_launch_stage(account,oid,out['state'].get('launch_stage'))
+    out['live_response']=live
+    if 'sequence' in live:out['sequence']=live['sequence']
+    # Presentation is never part of the native mutation or its durable receipt.
+    # A rejected tracking sample cannot turn a committed boarding/flight action
+    # into an apparent transaction failure.
+    try:
+        out.update(JTL_PRESENCE.exchange(account,oid,active['id'],out['state'],
+            data.get('presentation') if action in ('status','control','walk') else None))
+    except ValueError as error:
+        JTL_PRESENCE.invalidate(account)
+        out.update(crew_poses=[],crew_pose_ttl_ms=750,presentation_error=str(error))
+    if action in ('decorate','recover') and out['ok']:
+        out['inventory']=read_inventory(account,oid)
+    if not out['ok']:raise NativeJtlRejected(out)
     return out
 
 def services_request(account, oid, action, data):
@@ -604,6 +649,10 @@ def voice_request(account,data,issue=False):
         if active['character_id']!=oid or data.get('session_id',active['id'])!=active['id']:raise ValueError('Owned live voice session required')
         state=VOICE_STATE.owned(account,oid,active['id'])
     else:
+        # A disconnected ship voice request must not turn into a legacy ground
+        # login/status action. Native session recovery belongs to gameplay.
+        if data.get('session_id') or data.get('live_session_id') or any(str(data.get(key,'')).startswith('space_') for key in ('zone','planet')):
+            raise ValueError('An active owned native session is required for space or live voice')
         now=time.monotonic()
         try:state=VOICE_STATE.owned(account,oid,'')
         except ValueError:state=None
@@ -616,7 +665,8 @@ def voice_request(account,data,issue=False):
             services_request(account,oid,'status',data)
             state=VOICE_STATE.owned(account,oid,'')
     allowed,reasons=voice_granted(state)
-    out={'backend':'core3','character_id':oid,'native_session_id':state['session_id'],'needs_presence':not bool(active),'presence_interval':5,'channels':allowed,'reasons':reasons,'channel':'proximity','protocol':'swgxr-voice-v1','relay_port':18084}
+    out={'backend':'core3','character_id':oid,'native_session_id':state['session_id'],'needs_presence':not bool(active),'presence_interval':5,'channels':allowed,'reasons':reasons,'channel':'proximity','protocol':'swgxr-voice-v1','relay_port':18084,
+         'scope':state.get('scope','planet'),'zone':state['zone'],'ship_id':state.get('ship_id','0')}
     if issue:
         out['ticket']=local_authority().issue(account,oid,state['session_id'],'local-debug',True,time.time()+86400)
         out['expires_in']=30
@@ -728,7 +778,7 @@ class Handler(BaseHTTPRequestHandler):
                 # old binaries behind the global lane to avoid player deadlock.
                 self.respond(200,gameplay_session(account,data))
                 return
-            if self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact') and LIVE_COMBAT.parallel_update_allowed(account,data):
+            if self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/warcry','/combat/session/pikeman','/combat/session/fencer','/combat/session/pistoleer','/combat/session/carbineer','/combat/session/rifleman','/combat/session/commando','/combat/session/bountyhunter','/combat/session/squadleader','/combat/session/swordsman','/combat/session/tka','/combat/session/brawler_buff','/combat/session/impact') and LIVE_COMBAT.parallel_update_allowed(account,data):
                 # Cross-account native waits may overlap; the owned IPC gate
                 # still serializes every mutation for one player.
                 self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
@@ -753,12 +803,14 @@ class Handler(BaseHTTPRequestHandler):
                     self.respond(200,logout_session(account,str(data.get('character_id','')),data))
                 elif self.path == '/combat/session/start':
                     self.respond(200,LIVE_COMBAT.start(account,data,SECRET,CONTAINER,characters))
-                elif self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/impact','/combat/session/stop','/combat/session/life'):
+                elif self.path in ('/combat/session/loadout','/combat/session/update','/combat/session/fire','/combat/session/melee','/combat/session/taunt','/combat/session/warcry','/combat/session/pikeman','/combat/session/fencer','/combat/session/pistoleer','/combat/session/carbineer','/combat/session/rifleman','/combat/session/commando','/combat/session/bountyhunter','/combat/session/squadleader','/combat/session/swordsman','/combat/session/tka','/combat/session/brawler_buff','/combat/session/impact','/combat/session/stop','/combat/session/life'):
                     self.respond(200,LIVE_COMBAT.request(account,self.path.rsplit('/',1)[-1],data))
                 elif self.path in ('/gathering/corpse/inspect','/gathering/corpse/harvest','/gathering/corpse/loot'):
                     self.respond(200,corpse_request(account,str(data.get('character_id','')),'corpse_'+self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/services/'):
                     self.respond(200,services_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
+                elif self.path.startswith('/jtl/'):
+                    self.respond(200,jtl_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/vehicles/'):
                     self.respond(200,vehicles_request(account,str(data.get('character_id','')),self.path.rsplit('/',1)[-1],data))
                 elif self.path.startswith('/entertainer/'):
@@ -815,6 +867,8 @@ class Handler(BaseHTTPRequestHandler):
             self.respond(409, {'backend':'core3','session_live':False,'error_code':'live_session_conflict','error':str(exc)})
         except NativeMovementRejected as exc:
             self.respond(400,exc.response())
+        except NativeJtlRejected as exc:
+            self.respond(400,exc.result)
         except (ValueError, TypeError, KeyError, StopIteration) as exc:
             self.respond(400, dict({'error': str(exc) or 'Invalid Core3 result.'}, **({'mutation_started':False,'confirmed_rejection':True} if getattr(exc,'confirmed_rejection',False) else {})))
         except (BackendError, OSError) as exc:

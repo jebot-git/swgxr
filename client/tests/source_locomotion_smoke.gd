@@ -18,6 +18,9 @@ func run()->void:
 	check(is_equal_approx(sample(p,0,1,{},true).speed,4.5),"Walking uses scaled native walk speed")
 	check(is_equal_approx(sample(p,0,.5).desired_speed,6.3),"Analog movement scales desired source speed")
 	check(is_equal_approx(sample(p,.2,0,{},false,.1).speed,0),"Source deceleration reaches rest without overshoot")
+	var retreat:=profile();retreat.speed_multiplier_mod*=1.2;retreat.acceleration_multiplier_mod*=1.2;retreat.server_max_speed*=1.2
+	check(is_equal_approx(sample(retreat,0).speed,sample(p,0).speed*1.2) and is_equal_approx(sample(retreat,0).desired_speed,sample(p,0).desired_speed*1.2),"Squad Retreat native speed and acceleration modifiers apply exactly once")
+	check(is_equal_approx(sample(retreat,12).speed,retreat.server_max_speed),"Squad Retreat retains the authoritative increased movement cap")
 	var environment:Dictionary={"terrain":true,"normal_dot_forward":-.75}
 	result=sample(p,0,1,environment)
 	check(is_equal_approx(result.terrain_modifier,.6) and is_equal_approx(result.desired_speed,7.56),"Original slope threshold/interpolation uses native angle and percent")
@@ -26,6 +29,12 @@ func run()->void:
 	environment.normal_dot_forward=-.75;environment.terrain=false;check(sample(p,0,1,environment).terrain_modifier==1,"Authored solid floors bypass terrain slope penalty")
 	environment.terrain=true;environment.below_water=true;check(is_equal_approx(sample(p,0,1,environment).terrain_modifier,.4),"Wading uses native water modifier instead of slope modifier")
 	environment.swimming=true;check(sample(p,0,1,environment).terrain_modifier==1,"Swimming bypasses wading and terrain modifier as original client")
+	p.controls={"rooted":false,"voluntary_scale":.75}
+	check(is_equal_approx(sample(p,10).desired_speed,9.45) and sample(p,10).speed<=7.875,"Cryoban slow caps existing momentum and desired virtual speed once")
+	p.controls={"rooted":true,"voluntary_scale":0.}
+	check(sample(p,8).speed==0,"Glop root suppresses intentional locomotion immediately")
+	p.controls.voluntary_scale=NAN;check(not sample(p,8).valid,"Invalid native controls fail closed")
+	p.erase("controls")
 	p.frozen=true;check(sample(p,8).speed==0,"Native freeze immediately disallows virtual movement")
 	p.frozen=false;p.movement_allowed=false;check(sample(p,8).speed==0,"Native movement lock immediately disallows virtual movement")
 	p=profile();p.erase("run_speed");check(not sample(p,0).valid,"Incomplete profile cannot invent native movement values")
@@ -48,10 +57,21 @@ func run()->void:
 	player.move_player(Vector3(100,0,0))
 	check(absf(player.global_position.x-before.x-.5*player.get_physics_process_delta_time())<.001,"Actual capsule movement uses source velocity, not addon traction or unbounded requested velocity")
 	check(player.get_camera().transform.is_equal_approx(head),"Native movement policy leaves local HMD transform unchanged")
+	player.feedback.observe({"character_id":"native-fixture","locomotion":retreat});provider.source_speed=0
+	player.ground_control_velocity=Vector2(rig.get_node("LeftHand/MovementDirect").max_speed,0);provider.physics_movement(.1,player,false)
+	check(is_equal_approx(player.source_movement_velocity.length(),.6),"Production XR provider consumes Retreat's increased native acceleration")
+	before=player.global_position;player.get_camera().position.x+=.1;var retreat_head:Transform3D=player.get_camera().transform;player._update_body_under_camera(.016)
+	check(absf(player.global_position.x-before.x-.1)<.005 and player.get_camera().transform==retreat_head,"Retreat does not multiply room-scale motion or rewrite the tracked head")
 	p=profile();p.frozen=true;player.feedback.observe({"character_id":"native-fixture","locomotion":p})
 	before=player.global_position;player.get_camera().position.x+=.1;var tracked_head:Transform3D=player.get_camera().transform
 	player._update_body_under_camera(.016)
 	check(player.global_position.is_equal_approx(before) and player.get_camera().transform==tracked_head,"Native freeze anchors body without rewriting physical head tracking")
+	p=profile();p.controls={"rooted":true,"voluntary_scale":0.}
+	player.feedback.observe({"character_id":"native-fixture","locomotion":p})
+	player.ground_control_velocity=Vector2(rig.get_node("LeftHand/MovementDirect").max_speed,0);provider.physics_movement(.1,player,false)
+	check(player.source_movement_velocity.is_zero_approx(),"Glop disables production XR joystick movement")
+	before=player.global_position;tracked_head=player.get_camera().transform;player._update_body_under_camera(.016)
+	check(player.global_position.distance_to(before)>.01 and player.get_camera().transform==tracked_head,"Glop leaves physical room-scale tracking and HMD pose responsive")
 	player.feedback.observe({"character_id":"another-owner","locomotion":profile()});player.ground_control_velocity=Vector2(rig.get_node("LeftHand/MovementDirect").max_speed,0);provider.physics_movement(.1,player,false)
 	check(is_equal_approx(provider.source_speed,.5),"Changing owner resets prior acceleration state")
 	provider.physics_movement(.1,player,true);check(player.source_movement_active and player.source_movement_velocity.is_zero_approx(),"Disabled movement cannot retain addon momentum")

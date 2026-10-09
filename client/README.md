@@ -566,7 +566,35 @@ First Aid also uses a bandaging motion: with free hands, wrap an open hand aroun
 
 Health Wound Medpacks are held inventory items: touch yourself or a nearby patient with the pack and trigger. The exact pack supplies one charge on confirmed native success. Diagnose and separate Heal/Tend Wound selections are retired. Only Health can receive player wounds; obsolete wound supplies and recipes are removed. See the [medical dependency audit](../docs/CORECU_COMBAT.md).
 
-Medical inventory supplies now include stims, ranged/area stims, antidotes, fire blankets, state cures, Doctor enhancements and resuscitation kits. Hold a supply against an eligible patient and trigger; ranged stims also support aiming. The native server chooses the treatment from the exact item, pays resources, and consumes one charge on success. With the medical focus, aim and tap/release trigger for Tend Damage, or hold trigger for 0.65 seconds for Quick Heal. A hold fires once and never casts Tend Damage first. No wheel selection is needed for these two actions; explicitly selecting First Aid keeps its short-trigger fallback. Food/drink now use bounded CU-inspired bonuses and a shared restoration cooldown; see [balance details](../docs/CORECU_COMBAT.md).
+Medical inventory supplies now include stims, ranged/area stims, antidotes, fire blankets, state cures, Doctor enhancements and resuscitation kits. Hold a supply against an eligible patient and trigger; ranged stims also support aiming. The native server chooses the treatment from the exact item, pays resources, and consumes one charge on success. With the Doctor tool, aim and tap/release for Tend Damage, double-tap within 0.30 seconds for learned Heal Mind, or hold for 0.65 seconds for Quick Heal. Single tap waits for the double-tap window; a double tap or hold fires only its own action. Selecting First Aid retains its single-tap fallback. Heal Mind needs no selection and transfers the healer's Mind to another friendly player or organic pet, paying the actual restored amount plus Action and leaving at least one Mind. Keep the same tool and patient through the input; changing either, losing tracking or entering medical VATS cancels the sequence. Food/drink now use bounded CU-inspired bonuses and a shared restoration cooldown; see [balance details](../docs/CORECU_COMBAT.md).
+
+Doctor adds resuscitation-kit pad presses, fire-blanket sweeps and friendly
+condition targeting. Friendly VATS requires the Doctor tool held: click its
+stick while aiming at a friendly patient, then aim at a condition marker and
+squeeze/release its trigger. The matching state pack must be in accessible
+inventory. Stowing or losing tracking clears the selection; release both
+triggers before weapon combat resumes. Held supply contact/trigger application
+remains available. Doctor has no ultimate.
+
+Combat Medic uses the same held Doctor tool against hostile targets. Click its
+stick to acquire a target, then squeeze/release the Poison, Area Poison, Disease
+or Area Disease marker. Each marker names the exact compatible pack and shows
+its charges and area radius. Pack selection uses the strongest available pack
+that can reach that target; losing it, changing allegiance or losing tracking
+cancels an armed delivery. Both effects have one shared channel per target,
+bounded potency/duration and shared offensive recovery. Area delivery affects
+at most six enemies; area healing affects at most five patients. Combat Medic's
+trained debuff potency leads the combat professions while remaining subject to
+resistance and immunity. No Combat Medic ultimate is enabled.
+
+Doctor direct-heal training reaches +30% for ordinary stims/Tend and +15% for
+Quick Heal; wound treatment retains its +50% specialty. Crafted stim tiers A–E
+have distinct potency ranges and cost 6% base Action/8% base Mind on successful
+Heal Damage. Inspect a pack for its native healing preview. Each patient can
+have one general preparation (Vitality, Endurance or Metabolic) and one
+poison/disease prophylaxis. Preparations do not refill current resources. See
+[Doctor policy](../docs/CORECU_COMBAT.md#doctor-preparations-and-care-2026-10-09)
+for tier bands, costs and the bounded resistance rules.
 
 Companion medical supplies: hold a pet stim or droid repair/reconstruction kit, touch the corresponding creature/droid model and trigger. The server applies the current Health-only treatment and shared recovery rules; ordinary organic medicine cannot repair droids.
 
@@ -608,3 +636,28 @@ independent Core3 selections. No client file grants or persists RPG abilities.
 Empty native melee catalogs are displayed explicitly. Run
 `combat_loadout_smoke.gd` with the dummy renderer and `--xr-mode off`; the optional
 `combat_loadout_capture.gd` uses desktop Forward+ Vulkan and mocked native state.
+
+Commando's seven supported special weapons use native cone/beam discharges or
+physical rockets. Grenades share the trap grip/throw/hip interaction, with
+original models and native fuse timing. Focused Discharge and Acid Spray use
+VATS; Master Overdrive uses the supported two-trigger ultimate chord. Source
+particles remain bounded approximations, with no camera shake. Cryoban/Glop
+control voluntary movement while preserving tracked head and room movement.
+
+Squad Leader friendly VATS exposes all five learned group shouts with any
+weapon, outside offensive slots. Volley Fire is a selectable any-weapon
+ultimate; each member sees and consumes their own native mark. Its large local
+reticle remains visible through geometry, and guaranteed cosmetic projectiles
+cannot submit another impact. See [support controls](../docs/ABILITY_ACTIVATION.md#squad-leader-support).
+
+PvE bounty missions reuse terminal, NPC, inventory, datapad and waypoint controls.
+Trigger a held seeker to search/track; trigger a held Arakyd probe and select a
+native search planet. Core3 supplies eligibility, charges, progress and discovery.
+See [bounty controls](../docs/ABILITY_ACTIVATION.md#pve-bounty-hunting).
+
+BH combat adds Eye/Torso/Confusion VATS choices, Underhand and Duelist gestures,
+Fast Blast, physical scatter pellets and limited lightning guidance. Headless
+checks cover moving targets, obstruction, ordinary lair contacts and the shared
+native pellet coordinate convention. See
+[combat controls](../docs/ABILITY_ACTIVATION.md#bounty-hunter-combat); these are
+mocked-tracking checks, not live headset validation.

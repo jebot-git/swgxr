@@ -12,7 +12,7 @@ Services, gathering, crafting, medicine, scouting, inventory reads/mutations, co
 
 Recorded remote requests during the observed video were individually bounded (median1.27s,max1.66s) but reached45processes/minute, saturating the single native lane. Retained gameplay connections remove those repeated login costs; client background admission still needs a shared budget. Evidence: runtime/evidence/session-20261005/remote-recording-latency.json.
 
-`POST /session/life` accepts session_id and original action `recover` or `medical_transport`, with the same lightweight response. `sequence` carries the native ordering counter; snapshot.player includes authoritative HAM, posture, life state, XP and medical feedback. `/session/update` carries existing transport_ack without projecting combat actors.
+`POST /session/life` accepts session_id and action `recover`, `force_of_will` or `medical_transport`, with the same lightweight response. `sequence` carries the native ordering counter; snapshot.player includes authoritative HAM, posture, life state, XP and medical feedback. `/session/update` carries existing transport_ack without projecting combat actors.
 
 The HTTP adapter releases its native transaction gate before encoding or transmitting a completed response. Slow TCP readers therefore cannot hold the native lane. Native mutation serialization and commit semantics remain intact.
 

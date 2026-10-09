@@ -1,0 +1,105 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatQueueCommand.h
+@@ -80,6 +80,7 @@
+ 	// Only server-created wrappers reached after physical contact/gesture validation
+ 	// opt in. This is never a Lua command property or client request argument.
+ 	virtual bool usesPhysicalContactAccuracy() const { return false; }
++	virtual bool usesClientProjectileContact() const { return false; }
+ 
+ 	enum AnimGenTypes {
+ 		GENERATE_NONE, // Uses animation as given - Default
+@@ -228,13 +229,13 @@
+ 		if (creature->isProne() && (weapon->isMeleeWeapon() || poolsToDamage == 0))
+ 			return NOPRONE;
+ 
+-		if (!checkDistance(creature, targetObject, rangeToCheck))
++		if (!usesClientProjectileContact() && !checkDistance(creature, targetObject, rangeToCheck))
+ 			return TOOFAR;
+ 
+-		if (weapon->isRangedWeapon() && creature->isProne() && checkDistance(targetObject, creature, 7))
++		if (!usesClientProjectileContact() && weapon->isRangedWeapon() && creature->isProne() && checkDistance(targetObject, creature, 7))
+ 			return TOOCLOSE;
+ 
+-		if (!CollisionManager::checkLineOfSight(creature, targetObject)) {
++		if (!usesClientProjectileContact() && !CollisionManager::checkLineOfSight(creature, targetObject)) {
+ 			creature->sendSystemMessage("@cbt_spam:los_fail"); // "You lost sight of your target."
+ 			return GENERALERROR;
+ 		}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSmuggler.h
+@@ -19,6 +19,13 @@
+  explicit SwgxrPreparedRangedCommand(const CombatQueueCommand& source):CombatQueueCommand(source){}
+  bool usesPhysicalContactAccuracy() const override {return true;}
+  int doQueueCommand(CreatureObject* creature,const uint64& target,const UnicodeString& arguments) const override {return doCombatAction(creature,target,arguments);}
++};
++// Constructed only for a consumed, server-registered client projectile receipt.
++// Spatial contact belongs to the client; native target eligibility and resolution remain.
++class SwgxrConfirmedProjectileCommand : public SwgxrPreparedRangedCommand {
++public:
++ explicit SwgxrConfirmedProjectileCommand(const CombatQueueCommand& source):SwgxrPreparedRangedCommand(source){}
++ bool usesClientProjectileContact() const override {return true;}
+ };
+ class SwgxrSmuggler {
+  using Json=JSONSerializationType;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -33,9 +33,10 @@
+ #include <chrono>
+ #include <map>
+ #include "system/thread/Mutex.h"
++#include "ProjectileContactPolicy.h"
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+- struct Shot {int damageType=0,armorPiercing=0;std::string item,ability,target;double multiplier=1;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
++ struct Shot {int damageType=0,armorPiercing=0;std::string item,ability,target;double multiplier=1,nearRange=0,idealRange=0,nearModifier=0,idealModifier=0,farModifier=0;int firingPosture=0;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false;};
+  struct Session {std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;uint64 lair=0;bool ready=false;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+@@ -367,22 +368,25 @@
+     auto chosen=c->getZoneServer()->getObject(std::stoull(boundTarget));
+     if(chosen==nullptr || !chosen->isAiAgent() || chosen->getZone()!=c->getZone())throw std::runtime_error("invalid_ability_target");
+     Locker lock(chosen,c);auto victim=chosen->asAiAgent();
+-    if(victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c) || !c->isInRange(victim,SwgxrSmuggler::range(c,skill)) || !CollisionManager::checkLineOfSight(c,victim))throw std::runtime_error("ability_target_unavailable");
++    if(victim->isDead() || victim->isIncapacitated() || !victim->isAttackableBy(c) )throw std::runtime_error("ability_target_unavailable");
+     if(c->getWeapon()!=weapon || !weapon->isCertifiedFor(c) || !skill->checkStateMask(c) || !skill->checkInvalidLocomotions(c))throw std::runtime_error("ability_conditions_changed");
+    }
++   if(request.contains("two_hands") && !request["two_hands"].is_boolean())throw std::runtime_error("invalid_firing_grip");
++   auto pose=request.value("firing_posture",std::string("standing"));if(pose!="standing" && pose!="crouched" && pose!="prone")throw std::runtime_error("invalid_firing_posture");
++   double gripScale=corecu::projectile::rangeScale(weapon->isPistolWeapon(),request.value("two_hands",!weapon->isPistolWeapon()));
+    double multiplier=ability=="last_ditch"?SwgxrSmuggler::multiplier(c):(ability=="concussion_shot_improved"?SwgxrSmugglerPolicy::concussionDamage:skill->getDamageMultiplier());
+    if(ability=="last_ditch"){if(c->getHAM(3)<=1 || c->getHAM(6)<=1)throw std::runtime_error("insufficient_ham");c->setHAM(3,1);c->setHAM(6,1);}
+    else {CreatureAttackData costs("",skill,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+    if(!ability.empty())c->addCooldown(String(("swgxr_smuggler_"+ability).c_str()),uint64(30000*SwgxrSpice::cooldownScale(c)));
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;
+-   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.target=boundTarget;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange();shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
++   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,1.f);Shot shot;shot.target=boundTarget;shot.ability=ability;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange()*gripScale;shot.nearRange=weapon->getPointBlankRange()*gripScale;shot.idealRange=weapon->getIdealRange()*gripScale;shot.nearModifier=weapon->getPointBlankAccuracy();shot.idealModifier=weapon->getIdealAccuracy();shot.farModifier=weapon->getMaxRangeAccuracy();shot.firingPosture=pose=="prone"?2:pose=="crouched"?1:0;shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);result["ham_cost_committed"]=true;return result;
+   }
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+-  if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3 || travel>160*(stamp-shot.time+.10)+3)throw std::runtime_error("projectile_range_or_time");
++  if(stamp-shot.time>8)throw std::runtime_error("expired_shot");auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(travel>shot.range+2 || travel>160*age+3)throw std::runtime_error("projectile_range_or_time");
+   double dot=0;for(int i=0;i<3;++i)dot+=(hit[i].get<double>()-shot.origin[i].get<double>())*shot.direction[i].get<double>();if(dot<-.5 || travel*travel-dot*dot>9)throw std::runtime_error("projectile_direction");
+-  auto targetID=request.at("target_id").get<std::string>();if(!shot.target.empty() && targetID!=shot.target)throw std::runtime_error("ability_target_mismatch");auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["impact_bounds"]=impactBounds(target);if(!withinImpactBounds(target,hit))throw std::runtime_error("impact_outside_target");
++  auto targetID=request.at("target_id").get<std::string>();if(!shot.target.empty() && targetID!=shot.target)throw std::runtime_error("ability_target_mismatch");auto target=c->getZoneServer()->getObject(std::stoull(targetID));if(target==nullptr || (!target->isAiAgent() && !target->isLairObject()) || target->getZone()!=c->getZone())throw std::runtime_error("invalid_native_target");Locker targetLock(target,c);auto tangible=target->asTangibleObject();if(target->isAiAgent() && static_cast<AiAgent*>(target.get())->isDead())throw std::runtime_error("target_dead");result["contact_authority"]="client";
+   auto weapon=c->getZoneServer()->getObject(std::stoull(shot.item)).castTo<WeaponObject*>();if(weapon==nullptr || !weapon->isASubChildOf(c) || weapon->getMinDamage()!=shot.minDamage || weapon->getMaxDamage()!=shot.maxDamage || weapon->getDamageType()!=shot.damageType || weapon->getArmorPiercing()!=shot.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+-  SwgxrPreparedRangedCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));prepaid.setDamageMultiplier(shot.multiplier);prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
++  SwgxrConfirmedProjectileCommand prepaid(*SwgxrSmuggler::command(c,shot.ability));double distanceScale=corecu::projectile::damageScale(travel,shot.nearRange,shot.idealRange,shot.range,shot.nearModifier,shot.idealModifier,shot.farModifier,shot.firingPosture);prepaid.setDamageMultiplier(shot.multiplier*distanceScale);result["range_damage_multiplier"]=distanceScale;prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);c->setTargetID(0,true);
+   Json before=actor(c,tangible,s);int nativeResult=prepaid.doCombatAction(c,target->getObjectID(),"",weapon);c->setTargetID(0,true);if(nativeResult==QueueCommand::SUCCESS && target->isCreatureObject() && (target->asCreatureObject()->getHAM(0)<before["ham"][0].get<int>() || target->asCreatureObject()->getHAM(3)<before["ham"][1].get<int>() || target->asCreatureObject()->getHAM(6)<before["ham"][2].get<int>()))SwgxrSmuggler::effects(c,target->asCreatureObject(),shot.ability);Json after=actor(c,tangible,s);
+   result["target_id"]=targetID;result["native_result"]=nativeResult;result["success"]=nativeResult==QueueCommand::SUCCESS;result["damage"]=before["health"].get<int>()-after["health"].get<int>();result["before"]=before;result["after"]=after;if(nativeResult!=QueueCommand::SUCCESS)result["error_code"]="native_attack_rejected";return result;
+  }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ProjectileContactPolicy.h
+@@ -0,0 +1,14 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++namespace corecu { namespace projectile {
++inline double rangeScale(bool pistol,bool twoHands){return pistol?(twoHands?1.1:1.):(twoHands?1.:.3);}
++inline double damageScale(double distance,double nearRange,double idealRange,double maxRange,double nearModifier,double idealModifier,double farModifier,int posture){
++ if(!std::isfinite(distance) || distance<0 || distance>maxRange)return 0;
++ double begin=distance<=idealRange?nearRange:idealRange,end=distance<=idealRange?idealRange:maxRange;
++ double a=distance<=idealRange?nearModifier:idealModifier,b=distance<=idealRange?idealModifier:farModifier;
++ double mix=std::max(0.,std::min(1.,(distance-begin)/std::max(.0001,end-begin)));
++ double modifier=a+(b-a)*mix;if(modifier<0){if(posture==1)modifier*=.5;else if(posture==2)modifier=0;}
++ return std::max(0.,1+modifier/100.);
++}
++}}

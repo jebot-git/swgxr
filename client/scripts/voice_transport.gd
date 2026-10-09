@@ -81,7 +81,7 @@ func _process(_delta: float) -> void:
 			frame_received.emit(packet_epoch,int(data.decode_u32(4)),speaker,point,data.slice(28))
 
 func tune(channel: String) -> bool:
-	if not admitted or socket==null or channel not in ["proximity","group","planet","faction"]:return false
+	if not admitted or socket==null or channel not in ["proximity","group","planet","sector","faction"]:return false
 	return socket.send_text(JSON.stringify({"type":"tune","channel":channel}))==OK
 
 func send_frame(payload: PackedByteArray) -> bool:

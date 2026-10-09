@@ -53,7 +53,7 @@ class Importer:
 from planet_config import PLANETS
 
 def main():
-    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/datapad');ap.add_argument('--core3-root',type=Path,default=ROOT/'vendor/Core3');args=ap.parse_args();imp=Importer(args.tre_dir,args.out)
+    ap=argparse.ArgumentParser(description=__doc__);ap.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');ap.add_argument('--out',type=Path,default=ROOT/'runtime/assets/datapad');ap.add_argument('--core3-root',type=Path,default=ROOT/'vendor/Core3');args=ap.parse_args();imp=Importer(args.tre_dir,args.out)
     layout='ui/ui_pda_data_storage.inc';items=Elements(imp.read(layout).decode()).items
     categories=[{'id':a['name'].replace('@datapad_tab_',''),'label':imp.label(a['name']),'label_source':a['name'],'target':a['target']} for t,a in items if t=='data' and a.get('name','').startswith('@datapad_tab_')]
     help_table=string_table(imp.read('string/en/ui_datapad.stf'))

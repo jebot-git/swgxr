@@ -45,12 +45,18 @@ func model(key: String) -> Node3D:
 			meshes[mesh_id] = mesh
 		var instance := MeshInstance3D.new()
 		instance.mesh = meshes[mesh_id]
+		instance.basis = grip_basis(key)
 		root.add_child(instance)
 	return root
 
+static func grip_basis(key:String)->Basis:
+	# These four original heavy meshes use a downward shaft and muzzle2. Rotate
+	# the source model around its grip only; the physical aim frame stays -Z.
+	return Basis(Vector3.RIGHT,PI/2) if key in ["heavy_particle_beam","heavy_acid_beam","heavy_lightning_beam","heavy_rocket_launcher"] else Basis.IDENTITY
+
 func muzzle(key: String) -> Vector3:
 	var p: Array = catalog.weapons[key].muzzle
-	return Vector3(p[0],p[1],p[2])
+	return grip_basis(key)*Vector3(p[0],p[1],p[2])
 
 func source_transform(values: Array) -> Transform3D:
 	return Transform3D(Basis(Vector3(values[0],values[4],values[8]),Vector3(values[1],values[5],values[9]),Vector3(values[2],values[6],values[10])),Vector3(values[3],values[7],values[11]))

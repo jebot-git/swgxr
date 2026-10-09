@@ -12,8 +12,8 @@ from character_animations import load_lat, resolve, decode_clip
 
 def main():
     source = ROOT/'runtime/assets/characters'
-    output = ROOT/'runtime/combat/player_postures'
-    imp = CharacterImporter(ROOT/'runtime/assets/active_tre', output)
+    output = ROOT/'runtime/assets/combat/player_postures'
+    imp = CharacterImporter(ROOT/'runtime/asset_sources/active_tre', output)
     catalog = json.loads((source/'catalog.json').read_text())
     reference = json.loads((source/catalog['races']['human_male']['body']).read_text())['animations']['jump']
     raw = imp.read(reference['source'])

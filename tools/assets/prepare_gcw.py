@@ -88,7 +88,7 @@ def reward_rows(text):
 
 
 def build(root=ROOT):
-    sources = TreSet(root / 'runtime/assets/active_tre')
+    sources = TreSet(root / 'runtime/asset_sources/active_tre')
     hashes = {}
     failures = []
 

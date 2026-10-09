@@ -35,6 +35,7 @@ def service_kind(template):
         if name == 'terminal_bank.iff': return 'bank'
         if name == 'terminal_bazaar.iff': return 'bazaar'
         if name == 'terminal_travel.iff': return 'travel'
+        if name == 'terminal_space.iff': return 'starship'
         if name.startswith('terminal_mission'): return 'mission'
     if '/crafting/station/' in template: return 'crafting'
     return ''
@@ -125,7 +126,7 @@ def export_shuttle(imp, static, template):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--planet',choices=PLANETS,default='tatooine')
-    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--world', type=Path, default=None)
     parser.add_argument('--core3', type=Path, default=ROOT/'vendor/Core3')
     parser.add_argument('--out', type=Path, default=None)

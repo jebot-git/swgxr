@@ -30,6 +30,7 @@ REQUIRED_ASSET_CATALOGS = (
     'runtime/assets/services/bazaar_categories.json',
     'runtime/assets/vehicles/catalog.json',
     'runtime/assets/pets/body_bounds.json',
+    'runtime/assets/jtl/catalog.json',
 )
 
 

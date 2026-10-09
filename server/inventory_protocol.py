@@ -44,7 +44,7 @@ def inventory_snapshot(result, oid):
         item['shared_template'] = names.get(item.get('client_crc'), '')
         item['customization'] = decode_customization(bytes.fromhex(item.get('customization_hex', '')))
         fallback = template_label(item['shared_template'] or item['template'])[0]
-        item['name'] = item.pop('custom_name', '') or display(item.pop('name_table', ''), item.pop('name_key', ''), fallback)
+        item['name'] = item.pop('custom_name', '') or item.get('display_name') or display(item.pop('name_table', ''), item.pop('name_key', ''), fallback)
         description = item.get('description', '')
         if description.startswith('@') and ':' in description:
             table, key = description[1:].split(':', 1)

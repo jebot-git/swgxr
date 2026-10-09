@@ -19,7 +19,7 @@ class RangerAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.catalog=json.loads((ROOT/'runtime/assets/scout/catalog.json').read_text())
-        cls.tre=TreSet(ROOT/'runtime/assets/active_tre')
+        cls.tre=TreSet(ROOT/'runtime/asset_sources/active_tre')
 
     def test_original_descriptions_and_eighteen_skill_boxes_are_preserved(self):
         descriptions=string_table(self.tre.read('string/en/cmd_d.stf'))
@@ -48,7 +48,7 @@ class RangerAssets(unittest.TestCase):
                 self.assertIn('"'+row['effective_zone']+'"',(ROOT/row['source_script']).read_text())
 
     def test_new_ability_icons_are_exact_original_atlas_crops(self):
-        directory=ROOT/'runtime/combat/abilities'
+        directory=ROOT/'runtime/assets/combat/abilities'
         icons=json.loads((directory/'catalog.json').read_text())
         for command in ('conceal','rescue','areatrack'):
             row=icons['icons'][command]

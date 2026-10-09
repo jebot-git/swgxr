@@ -133,7 +133,7 @@ func configure(id: String, values: Dictionary = {}, equipment: Variant = null) -
 				meshes[index].set_meta("equipment_template",record.get("template",""))
 				meshes[index].set_meta("equipment_shared_template",record.get("shared_template",""))
 	animation_library = model.get("animation_library", {}).duplicate(true)
-	var knockdown_path := ProjectSettings.globalize_path("res://../runtime/combat/player_postures/" + race_id + ".json")
+	var knockdown_path := ProjectSettings.globalize_path("res://../runtime/assets/combat/player_postures/" + race_id + ".json")
 	if FileAccess.file_exists(knockdown_path):
 		animation_library["knockdown"] = {"path":knockdown_path}
 		# This race-specific original file resolves loop_incapacitated_face_up.
@@ -141,7 +141,7 @@ func configure(id: String, values: Dictionary = {}, equipment: Variant = null) -
 		# death transition or a clip borrowed from another character skeleton.
 		animation_library["incapacitated"] = {"path":knockdown_path, "logical":"loop_incapacitated_face_up"}
 		animation_library["dead"] = {"path":knockdown_path, "logical":"loop_incapacitated_face_up", "pose_policy":"Frozen original incapacitated pose for authoritative DEAD"}
-	var performance_path := ProjectSettings.globalize_path("res://../runtime/entertainment/catalog.json")
+	var performance_path := ProjectSettings.globalize_path("res://../runtime/assets/entertainment/catalog.json")
 	if FileAccess.file_exists(performance_path):
 		var performances: Dictionary = get_model(performance_path)
 		for key in performances.get("rigs",{}).get(race_id,{}):
@@ -223,10 +223,21 @@ func equipment_selection(equipment: Array) -> Dictionary:
 					if (allowed.is_empty() or allowed.has(slot)) and skeleton.find_bone(str(slot))>=0:
 						bone=str(slot); break
 				if not bone.is_empty(): break
+			var grip_basis:=Basis.IDENTITY
+			var attachment_provenance:="original_source_arrangement"
+			# Core3 explicitly equips these four legacy inventory-only heavies in
+			# hold_both. Preserve the original empty descriptor; the verified
+			# equipped slots supply this narrow authored attachment exception.
+			var native_heavy:bool=template in ["object/weapon/ranged/heavy/heavy_particle_beam.iff","object/weapon/ranged/heavy/heavy_acid_beam.iff","object/weapon/ranged/heavy/heavy_lightning_beam.iff","object/weapon/ranged/heavy/heavy_rocket_launcher.iff"]
+			if bone.is_empty() and native_heavy and selected.get("source_arrangement","")=="abstract/slot/arrangement/wearables/empty.iff" and allowed.has("hold_r") and allowed.has("hold_l") and skeleton.find_bone("hold_r")>=0:
+				bone="hold_r"
+				grip_basis=preload("res://combat/original_assets.gd").grip_basis(template.get_file().get_basename())
+				attachment_provenance="native_commando_hold_both"
 			if bone.is_empty():
 				result.failures.append({"id":str(item.get("id","")),"template":template,"error":"No original equipped arrangement maps to this skeleton"})
 				continue
-			result.rigid.append({"id":str(item.get("id","")),"template":template,"shared_template":shared,"bone":bone,"model":path,"directory":material_directory,"local_transform":[1,0,0,0,0,1,0,0,0,0,1,0],"local_transform_layout":"row_major_3x4","source_arrangement":selected.get("source_arrangement","")})
+			var local_transform:Array=[grip_basis.x.x,grip_basis.y.x,grip_basis.z.x,0,grip_basis.x.y,grip_basis.y.y,grip_basis.z.y,0,grip_basis.x.z,grip_basis.y.z,grip_basis.z.z,0]
+			result.rigid.append({"id":str(item.get("id","")),"template":template,"shared_template":shared,"bone":bone,"model":path,"directory":material_directory,"local_transform":local_transform,"local_transform_layout":"row_major_3x4","source_arrangement":selected.get("source_arrangement",""),"attachment_provenance":attachment_provenance})
 			continue
 		var model := get_model(path)
 		var bones: Array=model.get("bones",[])

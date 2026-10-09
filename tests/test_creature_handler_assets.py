@@ -13,12 +13,12 @@ from swg_formats import TreSet
 from tools.pets.audit_assets import audit, HEAD_ANCHORS
 
 
-@unittest.skipUnless((ROOT/'runtime/assets/active_tre').exists(),'User-provided TREs required')
+@unittest.skipUnless((ROOT/'runtime/asset_sources/active_tre').exists(),'User-provided TREs required')
 class CreatureHandlerAssets(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tre = TreSet(ROOT/'runtime/assets/active_tre')
-        cls.icons_root = ROOT/'runtime/combat/abilities'
+        cls.tre = TreSet(ROOT/'runtime/asset_sources/active_tre')
+        cls.icons_root = ROOT/'runtime/assets/combat/abilities'
         cls.icons = json.loads((cls.icons_root/'catalog.json').read_text())
         cls.audit = audit()
 

@@ -3,7 +3,7 @@ extends PanelContainer
 signal channel_requested(channel: String)
 signal mode_requested(mode: String)
 signal ptt_changed(held: bool)
-const CHANNELS := {"proximity":"PROX","group":"GROUP","planet":"PLANET","faction":"FACTION"}
+const CHANNELS := {"proximity":"PROX","group":"GROUP","planet":"PLANET","sector":"SECTOR","faction":"FACTION"}
 var state: Dictionary={"granted_channels":["proximity"],"reasons":{},"active_channel":"proximity","mic_mode":"muted","connected":false,"transmitting":false}
 var buttons: Dictionary={}
 var mode_buttons: Dictionary={}
@@ -46,19 +46,23 @@ func set_active(value: bool, reason: String="") -> void:
 	refresh()
 func refresh() -> void:
 	if not is_instance_valid(status):return
-	var channel:=str(state.get("active_channel","proximity"))
+	var channel:=str(state.get("desired_channel",state.get("active_channel","proximity")))
 	var mode:=str(state.get("mic_mode","muted"))
 	var mic:="TRANSMITTING" if state.get("transmitting",false) else ("MIC OFF" if mode=="muted" else "READY")
+	if not state.get("context_confirmed",true):mic="UPDATING"
+	elif not state.get("channel_confirmed",true):mic="UPDATING" if channel in state.get("granted_channels",[]) else "UNAVAILABLE"
 	if not active:mic="PAUSED"
 	status.text="VOICE  /  "+str(CHANNELS.get(channel,"PROX"))+"  ·  "+mic
+	var space_scope:bool=state.get("scope","")=="sector" or "sector" in state.get("granted_channels",[])
 	for key in buttons:
+		buttons[key].visible=(not space_scope if key=="planet" else space_scope if key=="sector" else true)
 		buttons[key].disabled=not active or not key in state.get("granted_channels",[])
 		buttons[key].button_pressed=key==channel
-		buttons[key].tooltip_text=str(state.get("reasons",{}).get(key,"Channel unavailable")) if buttons[key].disabled else ("Nearby voices · spatial · 64 m" if key=="proximity" else "Shared channel · non-spatial")
+		buttons[key].tooltip_text=str(state.get("reasons",{}).get(key,"Channel unavailable")) if buttons[key].disabled else ("This ship’s nearby crew · spatial · 64 m" if key=="proximity" and space_scope else "Nearby voices · spatial · 64 m" if key=="proximity" else "Current space sector · non-spatial" if key=="sector" else "Shared channel · non-spatial")
 	for key in mode_buttons:
 		mode_buttons[key].disabled=not active and key!="muted"
 		mode_buttons[key].button_pressed=key==mode
-	talk.disabled=not active or mode!="ptt"
+	talk.disabled=not active or mode!="ptt" or not state.get("channel_confirmed",true)
 	talk.text="HOLD TO TALK" if mode=="ptt" else ("MICROPHONE IS OFF" if mode=="muted" else "TRANSMIT WHEN SPEAKING")
 	var message:=str(state.get("error",""))
 	if not active:message=blocked_reason
@@ -69,7 +73,7 @@ func refresh() -> void:
 	detail.text=message
 func action_at(pixel: Vector2) -> String:
 	for key in buttons:
-		if buttons[key].get_global_rect().has_point(pixel):return "channel:"+key
+		if buttons[key].visible and buttons[key].get_global_rect().has_point(pixel):return "channel:"+key
 	for key in mode_buttons:
 		if mode_buttons[key].get_global_rect().has_point(pixel):return "mode:"+key
 	if talk.get_global_rect().has_point(pixel):return "talk"

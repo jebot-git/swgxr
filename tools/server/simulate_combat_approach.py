@@ -65,7 +65,7 @@ def inputs(sources):
     assert re.search(r"case 'SMAT':\s*break;", manager)
     assert 'templateObject->getAppearanceTemplate() == nullptr' in scene
     objects = sources.read('bin/scripts/object/mobile/objects.lua')
-    tre = TreSet(ROOT / 'runtime/assets/active_tre')
+    tre = TreSet(ROOT / 'runtime/asset_sources/active_tre')
     profiles = []
     for mobile, template, weapon in [
         ('kreetle', 'kreetle', 'creature/creature_default_weapon'),

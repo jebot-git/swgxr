@@ -12,7 +12,7 @@ func _initialize()->void:
 		var profile:=Model.weapon(types[int(row[0])],int(row[1]))
 		var resistance:Dictionary={profile.base_type:row[2],profile.element_type:row[3]}
 		check(absf(Model.damage(1000,profile,resistance)-float(row[4]))<0.001,"Native/client damage parity")
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var state:=State.new()
 	var data:Dictionary=catalog.weapons.pistol_cdef.duplicate(true)
 	check(state.configure(data,data.core3.certificationsRequired),"Weapon config")

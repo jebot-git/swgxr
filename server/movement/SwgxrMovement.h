@@ -1,6 +1,7 @@
 #ifndef SWGXR_MOVEMENT_H
 #define SWGXR_MOVEMENT_H
 #include "SwgxrPlanets.h"
+#include "SwgxrSquadLeader.h"
 #include "server/zone/objects/player/PlayerObject.h"
 #include "MovementBudget.h"
 #include <chrono>
@@ -24,7 +25,7 @@ class SwgxrMovement {
  static double monotonic(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
  static std::map<uint64,Record>& records(){static std::map<uint64,Record> value;return value;}
  static std::mutex& gate(){static std::mutex value;return value;}
- static double maxSpeed(CreatureObject* c){return std::max(0.0,double(c->getRunSpeed()*c->getSpeedMultiplierMod()));}
+ static double maxSpeed(CreatureObject* c){return std::max(0.0,double(c->getRunSpeed()*c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)));}
  static Record read(CreatureObject* c){
   std::lock_guard<std::mutex> lock(gate());auto it=records().find(c->getObjectID());
   if(it!=records().end())return it->second;
@@ -53,15 +54,22 @@ public:
   }
   ~RequestScope(){requestRevision()=previous;}
  };
+ // Control affects intentional movement only. Tracking-driven room movement
+ // still follows the established spatial movement budget, never a head snap.
+ static Json controls(CreatureObject* c){
+  int slow=0;for(auto mod:{"private_swgxr_snare","private_swgxr_hamstring","private_pikeman_pin","private_pikeman_drive","private_carbineer_crippling","private_carbineer_sweep","private_commando_cryo"})slow=std::max(slow,c->getSkillMod(mod));
+  if(c->hasState(CreatureState::IMMOBILIZED))slow=std::max(slow,50);slow=std::max(0,std::min(100,slow));bool root=c->hasState(CreatureState::FROZEN) || c->getSkillMod("private_commando_glop")>0;
+  return {{"slow_percent",slow},{"rooted",root},{"voluntary_scale",root?0.:1.-slow/100.}};
+ }
  static Json snapshot(CreatureObject* c){return {
-  {"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
+  {"controls",controls(c)},{"movement_revision",read(c).budget.revision},{"run_speed",c->getRunSpeed()},{"walk_speed",c->getWalkSpeed()},
   {"run_acceleration",c->getRunAcceleration()},{"walk_acceleration",c->getWalkAcceleration()},
-  {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()},
-  {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()},
+  {"speed_multiplier_base",c->getSpeedMultiplierBase()},{"speed_multiplier_mod",c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
+  {"acceleration_multiplier_base",c->getAccelerationMultiplierBase()},{"acceleration_multiplier_mod",c->getAccelerationMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
   {"slope_mod_angle_radians",c->getSlopeModAngle()},{"slope_mod_percent",c->getSlopeModPercent()},
   {"water_mod_percent",c->getWaterModPercent()},{"swim_height",c->getSwimHeight()},
   {"turn_scale",c->getTurnScale()},{"current_speed",c->getCurrentSpeed()},
-  {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()},
+  {"server_max_speed",c->getRunSpeed()*c->getSpeedMultiplierMod()*SwgxrSquadLeader::movementScale(c)},
   {"movement_allowed",c->isMovementAllowed()},{"frozen",c->isFrozen()},{"swimming",c->isSwimming()}};}
  static void begin(CreatureObject* c){
   if(!c || !c->isPlayerCreature() || !c->getPlayerObject() || !c->getZone())return;

@@ -21,6 +21,13 @@ class StaticAssets:
   result={'shader':path,'texture':''}
   try:
    root=parse_iff(self.read(path));candidates=[]
+   effects={cstring(n.data)[0].replace('\\','/').lower() for n in root.walk('NAME') if n.data.rstrip(b'\0').lower().endswith(b'.eft')}
+   if 'effect/e_invisible_collidable.eft' in effects:
+    # Original collision-only surfaces intentionally have no diffuse texture.
+    # Retain their triangles for collision, but do not invent a visible material.
+    self.read('effect/e_invisible_collidable.eft')
+    result.update(source_invisible=True,source_effect='effect/e_invisible_collidable.eft')
+    self.materials[path]=result;return result
    for node in root.walk('TXM '):
     named=next(node.walk('NAME'),None)
     if named is None:continue

@@ -98,6 +98,7 @@ func costs(ability: Dictionary) -> Array:
 	for pool in ["health", "action", "mind"]:
 		var base := float(ability.get("base_sac", {}).get(pool, NAN))
 		if not is_finite(base) or base < 0: return []
+		if ability.get("sac_policy","")=="fixed":result.append(base);index+=3;continue
 		# Versioned native SAC policy; old/offline profiles retain their source formula.
 		var reduction:float=(float(ham[index+1])-300.0)/1200.0
 		if ability.get("sac_policy","")=="corecu_cu_v1":reduction=.25*clampf(reduction,0,1)

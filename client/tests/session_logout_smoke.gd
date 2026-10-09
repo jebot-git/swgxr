@@ -19,12 +19,18 @@ class Host extends "res://scripts/main.gd":
 		live_combat_reserved=false
 	func quit_application() -> void:quit_requested=true
 class Services extends Node3D:
+	var zone:="tatooine"
 	func identity_payload() -> Dictionary:
-		return {"account":"fixture","character_id":"123","position":[0,0,0],"building_id":"987","cell_index":2,"session_id":"alias"}
+		return {"account":"fixture","character_id":"123","zone":zone,"position":[0,0,0],"building_id":"987","cell_index":2,"session_id":"alias"}
 class Live extends Node3D:
 	var session_id:="native-fixture"
 	var resets:=0
 	func reset(_reason: String) -> void:resets+=1;session_id=""
+class ShipScene extends RefCounted:
+	func source(_point:Vector3)->Array:return [1.0,.4,20.0]
+class Ship extends Node3D:
+	var scene:=ShipScene.new()
+	func aboard()->bool:return true
 class Player extends CharacterBody3D:
 	var active:=true
 var checks:=0
@@ -75,6 +81,16 @@ func run() -> void:
 	await app.leave_character(true)
 	check(app.quit_requested and app.cleared==1 and app.live_combat.resets==1,"Quit saves, detaches acknowledged native session, then exits")
 	check(app.refreshed==0,"Quit avoids another character login after native logout")
+	app.free()
+	app=host();app.services.zone="space_tatooine";app.space=Ship.new();app.add_child(app.space);app.live_combat=Live.new();app.add_child(app.live_combat)
+	app.response={"ok":false,"error":"Unconfirmed ship save"}
+	await app.leave_character()
+	var ship_payload:Dictionary=app.calls.back().payload.duplicate(true)
+	check(ship_payload.get("zone","")=="space_tatooine" and Vector3(ship_payload.position[0],ship_payload.position[1],ship_payload.position[2]).is_equal_approx(Vector3(1,.4,20)) and not ship_payload.has("space_logout"),"POB logout sends native space context and local pose through the existing logout protocol")
+	check(ship_payload.live_session_id=="native-fixture" and app.space.process_mode==Node.PROCESS_MODE_INHERIT,"Ship logout retains native identity and restores process gate after failure")
+	app.response={"ok":true,"source_kind":"core3_session_logout","character_id":"123","saved":true,"session_closed":true}
+	await app.leave_character()
+	check(app.calls.back().payload==ship_payload and app.cleared==1,"POB logout retries retain native landing request identity")
 	app.free()
 	app=host();app.world_ready=false
 	await app.leave_character(true)

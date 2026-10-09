@@ -30,6 +30,9 @@ class PresenceHub:
         self.house_proofs = {}
         self.bump_contacts = {}
         self.bump_proofs = {}
+        self.crew_stages = {}
+        self.crew_contacts = {}
+        self.crew_proofs = {}
 
     @staticmethod
     def point(value):
@@ -44,6 +47,16 @@ class PresenceHub:
         return math.dist(a, b)
 
     def _prune(self, now):
+        for pilot, stage in list(self.crew_stages.items()):
+            if now-stage['seen'] > self.AUTH_TTL:
+                del self.crew_stages[pilot]
+        for pair, contact in list(self.crew_contacts.items()):
+            stage = self.crew_stages.get(pair[0])
+            if not stage or contact['launch_id'] != stage['id']:
+                del self.crew_contacts[pair]
+        for key, proof in list(self.crew_proofs.items()):
+            if now-proof['created'] > self.AUTH_TTL:
+                del self.crew_proofs[key]
         for key, proof in list(self.bump_proofs.items()):
             if now-proof['created'] > self.AUTH_TTL or any(oid not in self.actors for oid in proof['pair']):
                 del self.bump_proofs[key]
@@ -110,10 +123,96 @@ class PresenceHub:
             if oid in pair:del self.bump_contacts[pair]
         for key, proof in list(self.bump_proofs.items()):
             if oid in proof['pair'] and not proof['request_id']:del self.bump_proofs[key]
+        for pair in list(self.crew_contacts):
+            if oid in pair:del self.crew_contacts[pair]
+        for key, proof in list(self.crew_proofs.items()):
+            if oid in (proof['pilot_id'], proof['member_id']) and not proof['request_id']:
+                del self.crew_proofs[key]
+
+    def observe_launch_stage(self, account, character_id, stage):
+        """Only an owned native JtL snapshot may arm a terminal crew handshake."""
+        pilot = str(character_id)
+        with self.lock:
+            now = self.clock()
+            old = self.crew_stages.get(pilot)
+            if not isinstance(stage, dict) or stage.get('pilot_id') != pilot:
+                self.crew_stages.pop(pilot, None)
+                return
+            key = stage.get('id', '')
+            if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', key):
+                raise ValueError('Owned native launch preparation required.')
+            if old and old['id'] == key:
+                old['seen'] = now
+                return
+            self.crew_stages[pilot] = dict(id=key, account=account.lower(), created=now, seen=now)
+            for pair in list(self.crew_contacts):
+                if pilot in pair:del self.crew_contacts[pair]
+
+    def _crew_contact(self, pilot, member, now):
+        stage = self.crew_stages.get(pilot['id'])
+        if not stage or stage['account'] != pilot['account']:
+            return {}
+        pair = (pilot['id'], member['id'])
+        contact = self.crew_contacts.setdefault(pair, dict(launch_id=stage['id'], armed=False, start=None, proof_id=''))
+        if contact['launch_id'] != stage['id']:
+            contact.update(launch_id=stage['id'], armed=False, start=None, proof_id='')
+        hands = [a['hands'].get(a.get('main_hand_side','right'), {}) for a in (pilot,member)]
+        fresh = all(now-a['seen'] <= self.POSE_TTL and a['tracked'] for a in (pilot,member))
+        free = all(h.get('tracked') is True and h.get('free') is True for h in hands)
+        consistent = all(h.get('position') is not None and self.distance(h['position'],a['hand']) <= .01 for a,h in zip((pilot,member),hands))
+        def cancel():
+            proof = self.crew_proofs.get(contact['proof_id'])
+            if proof and not proof['request_id']:del self.crew_proofs[contact['proof_id']]
+            contact.update(start=None, proof_id='')
+        if not fresh or not free or not consistent or not self._near(pilot,member):
+            cancel();contact['armed'] = False
+            return contact
+        distance = self.distance(pilot['hand'], member['hand'])
+        if not pilot['grip'] or not member['grip'] or distance > .24:
+            cancel();contact['armed'] = True
+        elif distance <= .16 and contact['armed']:
+            if contact['start'] is None:contact['start'] = now
+            if now-contact['start'] >= self.CONTACT_TIME:
+                key = secrets.token_hex(12)
+                self.crew_proofs[key] = dict(pilot_id=pilot['id'], member_id=member['id'], launch_id=stage['id'], created=now, request_id='')
+                contact.update(proof_id=key, armed=False, start=None)
+        elif distance > .16:
+            contact['start'] = None
+        return contact
+
+    def authorize_crew_handshake(self, account, character_id, pilot_id, launch_id, request_id, proof_id):
+        with self.lock:
+            now=self.clock();self._prune(now)
+            member=self.actors.get(str(character_id));pilot=self.actors.get(str(pilot_id))
+            proof=self.crew_proofs.get(proof_id)
+            if not member or member['account'] != account.lower() or not proof or (proof['pilot_id'],proof['member_id'],proof['launch_id']) != (str(pilot_id),str(character_id),launch_id):
+                raise ValueError('Mutual tracked crew handshake required.')
+            if not isinstance(request_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',request_id):
+                raise ValueError('Stable crew request ID required.')
+            if proof['request_id']:
+                if proof['request_id'] != request_id:raise ValueError('Crew handshake already consumed.')
+                return {'receipt_only': True}
+            stage=self.crew_stages.get(str(pilot_id))
+            if not pilot or not stage or stage['id'] != launch_id or not self._near(pilot,member) or now-proof['created'] > self.POSE_TTL:
+                raise ValueError('Fresh nearby launch preparation required.')
+            for a in (pilot,member):
+                h=a['hands'].get(a.get('main_hand_side','right'), {})
+                if now-a['seen'] > self.POSE_TTL or not a['tracked'] or not a['grip'] or h.get('free') is not True or h.get('tracked') is not True:
+                    raise ValueError('Fresh free tracked handshake required.')
+                if self.distance(h['position'],a['hand']) > .01:
+                    raise ValueError('Consistent main-hand tracking required.')
+            if self.distance(pilot['hand'],member['hand']) > .24:
+                raise ValueError('Remain in handshake range.')
+            proof['request_id']=request_id
+            return {'receipt_only': False}
 
     def _bump_contact(self, actor, peer, now):
         pair=tuple(sorted((actor['id'],peer['id'])))
         contact=self.bump_contacts.setdefault(pair,{'armed':False,'start':None,'proof_id':''})
+        if actor['id'] in self.crew_stages or peer['id'] in self.crew_stages:
+            self._cancel_bump(contact)
+            contact.update(start=None,armed=False)
+            return contact
         fresh=all(now-a['seen']<=self.POSE_TTL and a['hands'] for a in (actor,peer))
         if not fresh:
             contact.update(start=None,armed=False)
@@ -161,6 +260,8 @@ class PresenceHub:
                 receipt_only=True
             else:
                 receipt_only=False
+                if oid in self.crew_stages or target in self.crew_stages:
+                    raise ValueError('A preparing pilot uses hand contact for crew enrollment.')
                 peer=self.actors.get(target)
                 if not peer or not self._near(actor,peer) or any(now-a['seen']>self.POSE_TTL for a in (actor,peer)) or now-proof['created']>self.POSE_TTL:
                     raise ValueError('Fresh nearby fist bump required.')
@@ -214,6 +315,9 @@ class PresenceHub:
                 pair = tuple(sorted((oid, peer['id'])))
                 bump=self._bump_contact(actor,peer,now)
                 bump_id=bump['proof_id'];bump_proof=self.bump_proofs.get(bump_id,{})
+                self._crew_contact(actor,peer,now)
+                crew=self._crew_contact(peer,actor,now)
+                crew_proof=self.crew_proofs.get(crew.get('proof_id',''),{})
                 fresh = now - peer['seen'] <= self.POSE_TTL and peer['tracked'] and actor['tracked']
                 near = self._near(actor, peer)
                 touching = fresh and near and actor['grip'] and peer['grip'] and self.distance(actor['hand'], peer['hand']) <= 0.16
@@ -241,6 +345,9 @@ class PresenceHub:
                                   'heading_radians': peer.get('heading', 0),
                                   'group_bump_ready':bool(bump_proof and not bump_proof['request_id'] and now-bump_proof['created']<=self.POSE_TTL),
                                   'group_bump_id':bump_id if bump_proof else '',
+                                  'crew_launch_id':self.crew_stages.get(peer['id'],{}).get('id',''),
+                                  'crew_handshake_id':crew.get('proof_id','') if crew_proof else '',
+                                  'crew_handshake_ready':bool(crew_proof and not crew_proof['request_id'] and now-crew_proof['created']<=self.POSE_TTL),
                                   'house_permission_ready': bool(self.house_proofs.get((oid, peer['id']),{}).get('arm_id') and not self.house_proofs[(oid,peer['id'])]['request_id']),
                                   'handshake_authorized': bool(proof and not proof['request_id'])})
             return {'ok': True, 'source_kind': 'authenticated_hand_presence', 'character_id': oid,

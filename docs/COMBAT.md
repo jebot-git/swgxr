@@ -265,9 +265,10 @@ is unsupported; automatic OpenGL and D3D12 fallback are disabled.
   normal range. A pistol gets normal range one-handed and **110% with two hands**.
   All three range-curve distances scale with this multiplier; an in-flight shot
   retains the grip state it had at emission.
-- Crouching halves **negative range-damage modifiers**; prone removes them.
-  Positive range modifiers, grip bonuses/penalties and projectile travel limits
-  stay unchanged. Posture is also frozen at shot emission. Physical XR posture
+- Crouching halves negative range-damage modifiers; prone removes them.
+  Positive range modifiers and grip-scaled projectile travel remain unchanged.
+  These are the original Marksman pose bonuses, independent of skill accuracy.
+  Physical XR posture
   uses grounded eye height relative to calibrated standing height (default 1.7 m):
   crouch enters below 78%, leaves above 86%; prone enters below 38%, leaves above
   46%. Low headset height is a proxy, so a very deep crouch can register as prone
@@ -380,12 +381,14 @@ tuning. Canon and Legends portrayals are reference constraints, not one numerica
 ## Statistics and authority boundary
 
 `tools/combat/export_catalog.py` is a strict read-only exporter. The ignored
-`runtime/combat/catalog.json` records each Core3 Lua path, SHA-256 and checkout
+`runtime/assets/combat/catalog.json` records each Core3 Lua path, SHA-256 and checkout
 revision. It rejects missing explicit fields rather than guessing template
 inheritance. `attackSpeed`, speed modifiers and old DPS do not drive the simulation.
-Only the bounded allowlist is supported; beam weapons, flamethrowers, launchers,
-shotgun pellets and explosives require their own rules and are not silently
-converted to ordinary blaster bolts.
+Only the bounded allowlist is supported. Commando's seven certified weapon
+profiles now have dedicated cone, beam or rocket delivery; supported grenades
+use the trap-style physical throw path. Shotgun pellets and other unsupported
+weapons remain outside that allowlist. The Commando attacks do not use ordinary
+blaster-bolt simulation for cones or beams.
 
 `weapon_state.gd.configure(profile, owned_certificates, item_condition)` is the
 consumer interface. A profile combines an authored class with the following
@@ -709,18 +712,17 @@ Crafted item stats remain unchanged. The provisional coefficients live in
 
 | Original class modifier | Frontend effect |
 | --- | --- |
-| Melee accuracy | +0.0025 m head-aim hit radius per point, capped at 0.35 m |
+| Melee accuracy | Source metadata only; no player contact-radius bonus |
 | Melee speed | +1% Stance recovery per point; shorter qualifying recovery travel |
-| Ranged accuracy | +0.25 percentage points per point to the distance damage modifier |
+| Ranged accuracy | Source metadata only; no player damage or hit-roll bonus |
 | Ranged speed | +1% RoF and capacity recovery rate per point |
 
-Accuracy uses the equipped weapon's class (`pistol`, `rifle`, `carbine`,
-`onehandmelee`, `twohandmelee`, `polearm`, or `unarmed`). Ranged accuracy is added
-after posture mitigation; it never changes grip penalties or projectile lifetime.
-Melee's widened native physics sweep acquires only a target candidate: a source
-world/cell ray must still reach the contact, and contact must remain within the
-posture-scaled weapon range. Existing unarmed STR/QUI/Teras Kasi damage/speed
-translation remains in place; its speed modifier is not applied a second time.
+Source accuracy is reported for the equipped weapon's class but has no player
+hit, damage or contact-radius effect. Speed translations remain independent.
+The old widened-query geometry helper can still be exercised by explicit lab
+fixtures; player weapon snapshots always emit zero accuracy-derived radius.
+Existing unarmed STR/QUI/Teras Kasi damage/speed translation remains in place;
+its speed modifier is not applied a second time.
 
 Only two active frontend abilities are exposed, gated by actual basic mastery
 and weapon certification. The pinned Core3 commands and original string tables
@@ -775,7 +777,7 @@ python3 tools/combat/prepare_abilities.py
 
 The launch wrapper prepares icons and the explicitly synthetic skill fixture.
 No skills or items are granted to a real character. Original icon crops and
-their source hashes stay in ignored `runtime/combat/abilities/`.
+their source hashes stay in ignored `runtime/assets/combat/abilities/`.
 
 Verification: 182 source/translation checks, 31 ability/cost/collision checks,
 20 mocked XR input checks across both handedness settings, and existing ranged,
@@ -859,3 +861,54 @@ current HAM and an explicit `local_prediction_only` marker. This does not create
 a persistent zone connection or mutate server HAM, NPC posture, skills or
 cooldowns. Patch 0018/current baseline 6 is required to observe current pools;
 without it ability priming fails closed. The earlier live-combat blocker remains.
+
+## Physical accuracy in native sessions
+
+Squad Leader's Volley Fire is an explicit exception to physical contact and
+avoidance below: an owned native mark guarantees one in-range direct hit per
+eligible party member. It preserves normal damage, armor, costs and separate
+status resistance. See [Squad Leader support](ABILITY_ACTIVATION.md#squad-leader-support).
+
+The final `0097` + `0098` policy bypasses only the innate player hit/miss roll.
+Validated projectile and melee contacts proceed through normal dodge, block,
+counter and applicable deflection. Player accuracy stats do not modify that
+secondary contest; NPC and companion attacks keep native accuracy. CoB and
+defensive progression remain effective. Active physical guard and moving clear
+of range/trajectory provide additional defenses. Armour, damage variation and
+status resistance remain separate.
+
+Player skill accuracy no longer adds damage or widens melee contacts, including
+cached profiles. Original grip/range and crouch/prone damage bonuses remain.
+Aim cannot provide a player hit-chance buff; enemy accuracy penalties remain useful.
+
+## Client projectile contacts and moving fire
+
+Patch `0099-client-projectile-contact.patch` makes the client authoritative for
+ranged projectile contact and Core3 authoritative for its outcome. The client
+sweeps the actual rendered world, applies movement spread to the bolt, and sends
+its contact against the registered shot. Core3 consumes that receipt once and
+resolves target eligibility, damage, armour, normal dodge/block/counter/deflection,
+status effects, threat and rewards. It does not re-test the target's later position
+or current LOS/range against a contact observed earlier by the client. Receipt
+ownership, age, reported trajectory/travel bounds and weapon identity still apply.
+Server receipt-processing time no longer substitutes for reported flight age.
+Existing melee/area target selection is unchanged by this projectile patch.
+
+Launch captures `two_hands` and `firing_posture`. Long weapons retain 30% range
+one-handed and full range two-handed; pistols retain full range one-handed and
+110% two-handed. These scales apply to all three distance-curve points. Crouch
+halves negative range-damage modifiers and prone removes them; positive modifiers
+are unchanged. Core3 derives the multiplier from its captured weapon values and
+reported contact distance, never a supplied damage number. Later grip/pose changes
+cannot change an in-flight shot. Skill accuracy still adds no player damage.
+
+Movement spread uses horizontal locomotion velocity and roomscale head movement;
+vertical crouching, tracking loss and recenter jumps do not create extra spread.
+The cone half-angle scales from zero above a 0.15 m/s dead zone to its cap at
+5 m/s. Initial tunable caps are 0 degrees for pistols (including heavy pistols),
+1.2 for carbines, 4 for rifles and other supported longarms, and 6 for heavy/repeater
+classes. Uniform solid-angle sampling changes the actual emitted trajectory,
+after target-marker aiming and before both registration and local flight.
+Weapon/HMD/controller transforms remain untouched. Unsupported heavy projectile
+types are not enabled by defining their movement penalty. This adds movement
+spread, not a new recoil simulation.

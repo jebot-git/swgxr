@@ -180,6 +180,9 @@ func make_collision_body(entry: Dictionary, definitions: Dictionary, fallback: S
 
 func make_material(surface: Dictionary, directory: String, allow_disk_load := true) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
+	if surface.get("source_invisible", false):
+		material.shader = preload("res://shaders/source_invisible.gdshader")
+		return material
 	material.shader = load("res://shaders/static_baked.gdshader")
 	material.set_shader_parameter("use_vertex_color", true)
 	material.set_shader_parameter("alpha_cutout", bool(surface.get("alpha", false)))

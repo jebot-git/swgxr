@@ -80,7 +80,7 @@ def prepare(tre_directory, output, stage_path, planet="tatooine"):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--planet', choices=PLANETS, default='tatooine')
-    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir', type=Path, default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--out', type=Path, default=None)
     parser.add_argument('--stage', type=Path, default=ROOT/'runtime/assets/mos_eisley/scene.json')
     args = parser.parse_args(); prepare(args.tre_dir, args.out or path_for(args.planet,"terrain"), args.stage,args.planet)

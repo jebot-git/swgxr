@@ -35,7 +35,7 @@ class Launcher:
         ttk.Label(box, text=self.transport.origin).pack(anchor='w', pady=(4,18))
         self.account = tk.StringVar(); self.password = tk.StringVar(); self.invite = tk.StringVar()
         form = ttk.Frame(box); form.pack(fill='x')
-        for i, (label, variable, hidden) in enumerate((('Account',self.account,False), ('Password',self.password,True), ('Invite code (new accounts)',self.invite,True))):
+        for i, (label, variable, hidden) in enumerate((('Account',self.account,False), ('Password',self.password,True), ('Invite code (if required)',self.invite,True))):
             ttk.Label(form, text=label).grid(row=i,column=0,sticky='w',padx=(0,12),pady=5)
             ttk.Entry(form,textvariable=variable,show='•' if hidden else '').grid(row=i,column=1,sticky='ew',pady=5)
         form.columnconfigure(1,weight=1)
@@ -44,7 +44,7 @@ class Launcher:
         self.buttons = []
         for title, command in (('Sign in',lambda:self.auth(False)), ('Create account',lambda:self.auth(True)), ('Install / Update',lambda:self.work(self.update)), (self.play_label,lambda:self.work(self.play))):
             button = ttk.Button(buttons,text=title,command=command); button.pack(side='left',padx=(0,6)); self.buttons.append(button)
-        self.status = tk.StringVar(value='Sign in or create an account with your tester invitation.')
+        self.status = tk.StringVar(value='Sign in or create a tester account.')
         ttk.Label(box,textvariable=self.status,wraplength=560).pack(anchor='w',pady=14)
         runtime = 'SteamVR or WiVRn' if target.startswith('linux') else 'an active OpenXR runtime (for example SteamVR)'
         ttk.Label(box,text='Updates download only changed chunks. Passwords are never saved.\n' + target + ' • Vulkan • ' + runtime,wraplength=560).pack(anchor='w')
@@ -53,10 +53,9 @@ class Launcher:
 
     def auth(self, register):
         account, password, invite = self.account.get().strip(), self.password.get(), self.invite.get().strip()
-        if register and not invite: self.status.set('Enter the invitation supplied by the server administrator.'); return
         self.password.set(''); self.invite.set('')
         def action():
-            self.transport.authenticate(account,password,invite if register else None)
+            self.transport.authenticate(account,password,invite if register and invite else None,register=register)
             return 'Signed in as ' + account + '. Install/update the client, then press ' + self.play_label + '.'
         self.work(action)
 

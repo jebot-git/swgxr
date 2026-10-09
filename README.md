@@ -1,11 +1,22 @@
 # SWGXR rough prototype
 
+[Download the test clients](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.1) · [Install the client and required SWG assets](docs/TESTER_INSTALL.md)
+
 VR-first Godot/OpenXR client with all ten original ground planets streamed in
 chunks and a persistent CoreCU/Engine3 character backend, derived from SWGEmu Core3. Original SWG media and converted game assets stay
 on this machine in ignored directories.
 
 CoreCU is the local combat fork: pre-CU progression with CU-inspired balance and combat feel. See [the PvE and status rules](docs/CORECU_COMBAT.md).
 Existing Core3 paths and protocol identifiers remain compatible; historical notes below retain the upstream name.
+
+The current tester release includes dependency-checked skill forgetting, supplemental
+party leadership XP and a bounded noncombat Luxury Yacht flow through original
+starship terminals, handshake crew formation, and approved small-ship boarding.
+POB decorating uses the existing house rules and original capacity. POBs,
+gunships and fighters with another occupant cannot board a POB. See
+[the JtL contract](server/JTL_PROTOCOL.md). Politician remains
+deferred until its dependent systems are implemented. This test release is deployed
+on the current VPS; live headset validation remains pending.
 
 The client creates and selects persistent Core3 characters, then retains a native
 connection for inventory, services, resource gathering, crafting and vehicles.
@@ -67,11 +78,12 @@ unmarked items cannot safely be distinguished by template alone.
 
 Voice is the default chat interface, using the native TwoVoIP codec also used by
 FPSlop. The palm-facing underside of the offhand forearm has **PROX**, **GROUP**,
-**PLANET**, and **FACTION** buttons. Point the main-hand finger and press its
+**PLANET** (replaced by **SECTOR** in space), and **FACTION** buttons. Point the main-hand finger and press its
 trigger to switch; a visible fingertip cursor marks the selection. Voice controls
 and the opposite-arm HAM readout run lengthwise along their source forearm bones,
 and follow tracked axial arm roll so turning the forearm reveals them; wrist
-flexion does not tilt them away from the arm. Proximity is spatial within64m; other channels are nonspatial.
+flexion does not tilt them away from the arm. Proximity is spatial within64m
+and stays within the current ship aboard; other channels are nonspatial.
 Group and faction require actual Core3 membership. One channel is heard at a time.
 Listening connects on world entry; the microphone starts muted. Choose voice
 activity or push-to-talk explicitly, then hold **TALK** for push-to-talk. Menus,
@@ -87,7 +99,10 @@ See [voice protocol and limits](server/VOICE_PROTOCOL.md).
 The default launch uses standard OpenXR and the Forward+ Vulkan renderer. Select your
 OpenXR runtime outside the application and connect the headset first. Quest via
 SteamVR or WiVRn is the initial hardware target; XR code has no runtime-specific
-branching. A future Windows client will require a Windows native-extension build.
+branching. Linux and Windows test exports, native libraries, and a separate
+private data archive are prepared in `runtime/releases/tester-distribution-20261010`.
+Windows execution has been checked under Wine; native Windows Vulkan/OpenXR
+testing remains pending. See [tester release requirements](docs/VPS_DEPLOYMENT.md#tester-release-build--10-october-2026).
 
 OBS capture is not a client component. The launcher and benchmark runners disable
 external OBS OpenXR/Vulkan capture injection before starting Godot. The third-person
@@ -286,8 +301,13 @@ Image Design can be opened by holding a two-hand thumb/index frame near eye leve
 for 0.8 seconds. Form opposite L corners with free hands; controllers approximate
 this with grip held, thumb/index off the controls, and opposite corner orientations.
 The gesture opens the recipient selector; native permissions and consent still apply.
-Audience presence still reports `buff_applied: false`: native watch/listen audience
-buff integration is outside this unlock-and-options milestone.
+Eligible players inside an entertainer's eight-metre radius automatically
+receive performance benefits. Core3 checks native position, cell, line of sight
+and recipient eligibility on the existing performance tick; no Watch, Listen or
+buff-recipient selection is needed. Dance and music each retain one source per
+recipient. Earned inspiration applies automatically after the native one-minute
+minimum; leaving the radius stops further accrual while earned buffs retain
+their native duration. The shared presentation circle cannot award buffs.
 
 To register a performance location on the planetary map, stand with both arms raised
 outward in a “praise the sun” V for **10 uninterrupted seconds**. A progress label appears
@@ -313,6 +333,16 @@ both approvals. Stat migration is outside this appearance-options milestone.
 
 See the [ability activation audit](docs/ABILITY_ACTIVATION.md) for the primary
 abilities that still use buttons or menus rather than dedicated gestures.
+
+PvE bounty investigations reuse original terminals, informants and mission
+waypoints. Hold and trigger a seeker to launch it; hold and trigger an Arakyd
+probe, then choose its search planet in the popup. Charges, discoveries and
+rewards remain native. See [bounty controls](docs/ABILITY_ACTIVATION.md#pve-bounty-hunting).
+The [BH combat kit](docs/ABILITY_ACTIVATION.md#bounty-hunter-combat) adds
+single-target VATS, gestures, scatter pellets and slight lightning guidance.
+Current source and offline checks are ready; the full native build, live bounty
+acceptance and authorized VPS starter stock remain pending as recorded in
+[the finalisation audit](docs/WORKFLOW.md#bounty-hunter-combat-and-profession-finalisation-audit--2026-10-09).
 
 Local asset preparation includes `tools/entertainment/prepare_assets.py` and
 `tools/entertainment/prepare_image_design.py --ensure`. The latter hashes original
@@ -638,8 +668,11 @@ Scout VR controls and native authority are documented in [SCOUT_PROTOCOL.md](ser
 
 The basic Medic VR focus now has an independent offhand healing wheel and
 reticle. Point at the first eligible recipient (including your own body), then
-tap/release the offhand trigger for Tend Damage or hold it for 0.65 seconds for
-Quick Heal. A hold fires only Quick Heal; no wheel selection is needed. Explicit
+tap/release the offhand trigger for Tend Damage, double-tap the Doctor tool
+within 0.30 seconds for learned Combat Medic Heal Mind, or hold for 0.65 seconds
+for Quick Heal. A single tap waits for the double-tap window; a double tap or
+hold fires only its own action. Heal Mind targets another friendly player or
+organic pet and transfers the healer's Mind. No wheel selection is needed. Explicit
 First Aid selection retains its short-trigger fallback. Healing leaves locomotion available. Native area stims
 show a ground perimeter, while recipients see restrained local healing/damage
 pulses. See `server/README.md` under “Basic Medic and recipient feedback” for
@@ -781,3 +814,14 @@ python3 tools/character_export/export_character.py --account YOUR_ACCOUNT
 It supports a local account, an authenticated HTTPS gateway, or an offline
 character snapshot. Models, baked textures and exports remain local. This first
 version exports a T-pose humanoid rig without facial presets or spring physics.
+
+Commando now uses certified special weapons and trap-style thrown grenades,
+with native charge reservation, bounded area damage, Focused Discharge, Acid
+Spray and Master Overdrive. See [the activation controls](docs/ABILITY_ACTIVATION.md#commando-equipment)
+and [the CU policy](docs/CORECU_COMBAT.md#commando-equipment-driven-elemental-area-damage-2026-10-09).
+
+Squad Leader supplies bounded planet-wide party passives and five nearby group
+shouts through friendly VATS with any weapon. Master Volley Fire gives each
+eligible party member one marked guaranteed hit, retaining native range,
+damage and costs. See [support controls](docs/ABILITY_ACTIVATION.md#squad-leader-support)
+and [CU support balance](docs/CORECU_COMBAT.md#squad-leader-group-support-2026-10-09).

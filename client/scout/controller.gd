@@ -156,7 +156,7 @@ func sync_items() -> void:
 		for item: Dictionary in app.inventory_snapshot.get("items",[]):
 			if item.get("attributes",[]).is_empty():item["attributes"]=previous.get(str(item.id),[])
 	var hip: Dictionary=state.hip_tool if state.get("hip_tool") is Dictionary else {}
-	if hip.get("tool_kind","")=="trap" or bag.hip_tool.get("tool_kind","")=="trap":
+	if hip.get("tool_kind","") in ["trap","grenade"] or bag.hip_tool.get("tool_kind","") in ["trap","grenade"]:
 		app.gathering.state["hip_tool"]=hip;bag.set_hip_tool(app.gathering.hip_item())
 	app.reconcile_inventory_presentations();app.update_inventory_presentation()
 func belt_action(action: String, item: Dictionary) -> void:
@@ -174,7 +174,7 @@ func use_item(item: Dictionary) -> void:
 		if result.get("ok",false):bag.finish_item_action(true)
 		else:bag.set_busy(false,message)
 	else:bag.show_equipment_hologram(rig.get_node("XRCamera3D").global_transform)
-func trap_held() -> bool:return bag.held_item.get("tool_kind","")=="trap"
+func trap_held() -> bool:return bag.held_item.get("tool_kind","") in ["trap","grenade"]
 func equipped_weapon() -> int:
 	var combat: Node3D=app.combat_rig
 	if not is_instance_valid(combat):return -1
@@ -209,10 +209,15 @@ func target_center(target: Dictionary) -> Vector3:
 	if actor!=null:return actor.to_global(actor.collider.position)
 	var values: Array=target.get("bounds",{}).get("center",[0,0,0])
 	return world(target.position)+Basis(Vector3.UP,-float(target.get("heading_radians",0)))*Vector3(values[0],values[1],-values[2])
-func target_under_reticle() -> String:
+func throwable_volley_intent(grenade:bool,target:="")->Dictionary:
+	if not is_instance_valid(app.combat_rig) or not is_instance_valid(app.combat_rig.get("squad_leader")):return {}
+	return app.combat_rig.squad_leader.volley_intent(aim_pose(),32. if grenade else 64.,target)
+func target_under_reticle(grenade := false) -> String:
+	var volley:=throwable_volley_intent(grenade)
+	if not volley.is_empty():return str(volley.volley_target_id)
 	var pose:=aim_pose();var distance:=INF;var selected:=""
 	for target: Dictionary in state.get("targets",[]):
-		if not target.get("eligible",false):continue
+		if not target.get("grenade_eligible" if grenade else "eligible",false):continue
 		var along:=INF
 		var actor:=live_actor(target)
 		if actor!=null:
@@ -220,24 +225,31 @@ func target_under_reticle() -> String:
 			var point: Variant=actor.visual_bounds().intersects_ray(local.origin,-local.basis.z)
 			if point is Vector3:along=pose.origin.distance_to(actor.to_global(point))
 		elif target.get("bounds") is Dictionary:along=ray_entry(pose,target_center(target),float(target.bounds.radius))
-		if along>=distance or along>64:continue
+		if along>=distance or along>(32.0 if grenade else 64.0):continue
 		var hit:=pose.origin-pose.basis.z.normalized()*along
 		var query:=PhysicsRayQueryParameters3D.create(pose.origin,hit,7)
 		if not get_world_3d().direct_space_state.intersect_ray(query).is_empty():continue
 		distance=along;selected=str(target.id)
 	return selected
 func try_throw(item: Dictionary) -> bool:
-	if item.get("tool_kind","")!="trap" or not gestures.valid_throw():return false
-	var target:=target_under_reticle()
+	if item.get("tool_kind","") not in ["trap","grenade"] or not gestures.valid_throw():return false
+	if busy or bag.is_open or not bag.allowed or last_reply>=12:return false
+	var grenade:bool=item.get("tool_kind","")=="grenade"
+	if grenade and float(state.get("grenade_cooldown",0))-last_reply>0:return false
+	var target:=target_under_reticle(grenade)
 	if target.is_empty():return false
-	throw_trap(item,target);return true
+	if grenade:throw_grenade(item,target)
+	else:throw_trap(item,target)
+	return true
 func throw_trap(item: Dictionary,target: String) -> void:
 	var launch: Transform3D=bag.held_model.global_transform if is_instance_valid(bag.held_model) else aim_pose()
 	var destination:=launch.origin
 	for entry: Dictionary in state.get("targets",[]):
 		if str(entry.id)==target:destination=target_center(entry);break
-	var result:=await request("trap",{"item_id":str(item.id),"target_id":target})
+	var detail:Dictionary={"item_id":str(item.id),"target_id":target};detail.merge(throwable_volley_intent(false,target))
+	var result:=await request("trap",detail)
 	if result.get("ok",false):
+		if result.get("mutation",{}).get("volley_consumed",false) and is_instance_valid(app.combat_rig.get("squad_leader")):app.combat_rig.squad_leader.consumed(str(detail.get("volley_mark_id","")))
 		var visual: Node3D=bag.assets.instance(str(item.template),0.28,item.get("customization",{}))
 		if visual!=null:
 			app.add_child(visual);visual.global_transform=launch
@@ -247,6 +259,73 @@ func throw_trap(item: Dictionary,target: String) -> void:
 			tween.tween_callback(visual.queue_free)
 		bag.finish_item_action(true)
 	else:bag.finish_item_action(false);bag.set_busy(false,message)
+static func grenade_flight(mutation: Dictionary, received_unix_ms: float) -> Dictionary:
+	# The native receipt locks both the world landing point and detonation time.
+	# A delayed response skips the elapsed part of the arc instead of delaying damage.
+	var point: Variant=mutation.get("landing_position")
+	var fuse:=float(mutation.get("fuse_seconds",NAN))
+	var deadline:=float(mutation.get("detonation_at_ms",NAN))
+	if not point is Array or point.size()!=3 or not is_finite(fuse) or fuse<=0 or fuse>10 or not is_finite(deadline) or not is_finite(received_unix_ms):return {}
+	for value in point:
+		if not (value is float or value is int) or not is_finite(float(value)):return {}
+	var remaining:=clampf((deadline-received_unix_ms)/1000.0,0,fuse)
+	return {"landing_position":point.duplicate(),"remaining":remaining,"progress":1.0-remaining/fuse}
+
+func throw_grenade(item: Dictionary, target: String) -> void:
+	var launch_epoch:int=app.datapad_epoch
+	var sent_ms:=Time.get_ticks_msec()
+	var launch: Transform3D=bag.held_model.global_transform if is_instance_valid(bag.held_model) else aim_pose()
+	var detail:Dictionary={"item_id":str(item.id),"target_id":target};detail.merge(throwable_volley_intent(true,target))
+	var result:=await request("grenade",detail)
+	if launch_epoch!=app.datapad_epoch:return
+	if not result.get("ok",false):
+		bag.finish_item_action(false);bag.set_busy(false,message);return
+	bag.finish_item_action(true)
+	var mutation:Dictionary=result.get("mutation",{})
+	if mutation.get("volley_consumed",false) and is_instance_valid(app.combat_rig.get("squad_leader")):app.combat_rig.squad_leader.consumed(str(detail.get("volley_mark_id","")))
+	# Use the native clock, accounting for the entire request round trip. This
+	# conservative visual deadline cannot drift late because client/server wall
+	# clocks disagree or the reply arrived slowly.
+	var server_ms:=float(result.get("state",{}).get("server_time_ms",NAN))
+	var observed_ms:=server_ms+maxi(0,Time.get_ticks_msec()-sent_ms)
+	var flight:=grenade_flight(mutation,observed_ms)
+	if flight.is_empty():return # Never invent timing or a position after an uncertain receipt.
+	var destination:=world(flight.landing_position)
+	var visual:Node3D=bag.assets.instance(str(item.template),0.28,item.get("customization",{}))
+	if visual==null:return
+	app.add_child(visual);visual.global_transform=launch
+	# Model decoding may consume time too; never extend the native fuse for it.
+	flight=grenade_flight(mutation,server_ms+maxi(0,Time.get_ticks_msec()-sent_ms))
+	var arc:=func(t:float):visual.global_position=launch.origin.lerp(destination,t)+Vector3.UP*sin(t*PI)*0.45
+	arc.call(float(flight.progress))
+	if float(flight.remaining)>0:
+		var tween:=visual.create_tween()
+		tween.tween_method(arc,float(flight.progress),1.0,float(flight.remaining))
+		tween.tween_callback(func():
+			visual.queue_free()
+			grenade_detonation(item,destination,launch_epoch))
+	else:
+		visual.queue_free()
+		grenade_detonation(item,destination,launch_epoch)
+
+var grenade_assets:RefCounted
+func grenade_detonation(item:Dictionary, destination:Vector3, launch_epoch:int)->void:
+	if not is_instance_valid(app) or launch_epoch!=app.datapad_epoch or not app.world_ready or not is_instance_valid(app.combat_rig) or not is_instance_valid(app.combat_rig.rounds_sim):return
+	if grenade_assets==null:
+		grenade_assets=preload("res://combat/original_assets.gd").new()
+		grenade_assets.directory=ProjectSettings.globalize_path("res://../runtime/assets/grenades")
+		if not grenade_assets.load_catalog():grenade_assets=null;return
+	var path:=str(grenade_assets.catalog.get("grenade_effects",{}).get(str(item.get("throwable_kind","")),""))
+	var effect:Dictionary=grenade_assets.catalog.get("effects",{}).get(path,{})
+	if effect.is_empty():return
+	var manager:Node3D=app.combat_rig.rounds_sim.effects.ensure_manager()
+	for appearance:Dictionary in effect.get("appearances",[]):
+		manager.burst(str(appearance.particle),Transform3D(Basis.IDENTITY,destination),float(appearance.duration),"impact",grenade_assets)
+	var audio:=get_node_or_null("/root/SWGSpatialAudio")
+	if audio!=null:
+		for sound:String in effect.get("sounds",[]):audio.play_original(grenade_assets,sound,destination,1)
+	# Original camera shake is deliberately omitted: no effect moves the HMD.
+
 func update_reticle() -> void:
 	if not is_instance_valid(app) or not is_instance_valid(app.combat_rig) or not is_instance_valid(rig) or not trap_held() or bag.is_open:return
 	var combat: Node3D=app.combat_rig
@@ -312,7 +391,7 @@ func _process(delta: float) -> void:
 		if not cooldown_queue.is_empty():request(cooldown_queue.pop_front())
 		elif next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("scout")):next_poll=5;request("ranger_status")
 	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)
-	var main: XRController3D=right if offhand=="left" else left
+	var main: XRController3D=left if bag.held_hand_side()=="left" else right
 	gestures.sample_throw(delta,head.global_transform,main.global_position,tracked and trap_held())
 	if not busy and not bag.is_open and last_reply<12:
 		if sample.forage and state.get("forage_available",false) and not state.get("foraging",false) and bag.held_item.is_empty():request("forage")

@@ -14,6 +14,7 @@ except ImportError:
  from capacity import configured_limit
 
 MAX_CLIENTS=configured_limit('SWGXR_MAX_VOICE_CLIENTS')
+MAX_STATE_BYTES=8*1024*1024
 
 def frame(opcode,payload):
  n=len(payload)
@@ -39,39 +40,68 @@ class Relay:
    s=self.states.get(claims['a'])
    if not isinstance(s,dict)or s.get('character_id')!=claims['c'] or s.get('session_id')!=claims['s']:return None
    if not 0<=time.time()-s['updated_at']<=s['ttl'] or not 0<s['ttl']<=15:return None
-   if s['faction']not in('neutral','rebel','imperial')or not isinstance(s['zone'],str)or not s['zone']:return None
-   if not all(isinstance(s[key],str)and s[key].isdigit()for key in('character_id','group_id','zone_id')):return None
-   if not 0<int(s['character_id'])<2**64:return None
-   if not isinstance(s['position'],list)or len(s['position'])!=3 or any(type(x)not in(int,float)or not math.isfinite(x)or abs(x)>100000 for x in s['position']):return None
-   return s
+   return validate_state(s)
   except (KeyError,TypeError,ValueError):return None
  def control(self,p,kind,**extra):
   data={'type':kind,**extra};self.enqueue(p,(None,0,0,frame(1,json.dumps(data,separators=(',',':')).encode())))
  def enqueue(self,p,entry):
-  if len(p['queue'])>=16:p['queue'].popleft()
+  if p.get('closing'):return
+  if len(p['queue'])>=16:
+   # Epoch/context acknowledgments must survive an authorized audio burst.
+   # Evict the oldest audio, never the sole control that makes newer audio usable.
+   audio_index=next((i for i,(_,queued) in enumerate(p['queue']) if queued[0]is not None),None)
+   if audio_index is not None:del p['queue'][audio_index]
+   elif entry[0]is not None:return
+   else:
+    # An unresponsive all-control queue cannot safely lose its context. Close
+    # rather than retain a connection with unknowable client permissions/epoch.
+    p['closing']=True;p['queue'].clear();p['writer'].close();return
   p['queue'].append((time.monotonic(),entry));p['wake'].set()
- def tune(self,p,channel,kind='tuned'):
+ def tune(self,p,channel,kind='tuned',native_change=False):
   allowed,reasons=granted(p['state']);p['channel']=channel if channel in allowed else 'proximity'
+  # A frame already on the wire when native membership changes is harmlessly
+  # discarded until the client receives its new epoch; never deliver it.
+  p['previous_epoch']=p['epoch'] if native_change else None
+  p['epoch_changed_at']=time.monotonic()
   p['epoch']=(p['epoch']+1)&0xffffffff or 1;p['seq']=-1;p['queue'].clear();p['speakers'].clear();p['delivery_seq']={}
-  self.control(p,kind,epoch=p['epoch'],channel=p['channel'],granted_channels=allowed,reasons=reasons)
- def signature(self,state):return(state['zone'],state['zone_id'],state['group_id'],state['faction'])
+  self.control(p,kind,epoch=p['epoch'],channel=p['channel'],granted_channels=allowed,reasons=reasons,
+               scope=routing_scope(p['state']),zone=p['state']['zone'],ship_id=p['state'].get('ship_id','0'))
+ def signature(self,state):return(state['zone'],state['zone_id'],state['group_id'],state['faction'],routing_scope(state),state.get('ship_id','0'),state.get('building_id','0'))
+ def sync_peer(self,p):
+  if self.peers.get(p['key'])is not p or p.get('revoked') or p.get('closing'):
+   p['queue'].clear();p['writer'].close();return False
+  state=self.state(p['claims'])
+  if not state:
+   p['closing']=True;p['queue'].clear()
+   if self.peers.get(p['key'])is p:self.peers.pop(p['key'],None)
+   p['writer'].close();return False
+  changed=self.signature(state)!=self.signature(p['state']);p['state']=dict(state,position=list(state['position']))
+  if changed:
+   channel=p['channel']
+   if channel in('planet','sector'):channel=routing_scope(state)
+   self.tune(p,channel,native_change=True)
+  return True
  def refresh_states(self):
   # Ticket issuance follows the source's atomic publication. Admission cannot
   # wait for the periodic cache refresh or it races the new character's entry.
   try:
-   with self.state_path.open('rb')as stream:raw=stream.read(65537)
-   self.states=json.loads(raw)if len(raw)<=65536 else {}
+   with self.state_path.open('rb')as stream:raw=stream.read(MAX_STATE_BYTES+1)
+   self.states=json.loads(raw)if len(raw)<=MAX_STATE_BYTES else {}
    if not isinstance(self.states,dict):self.states={}
   except (OSError,ValueError):self.states={}
  async def tick(self):
   while True:
    self.refresh_states()
+   active=[]
    for key,p in list(self.peers.items()):
-    state=self.state(p['claims'])
-    if not state or not self.credentials.valid(p['claims']):p['writer'].close();continue
-    changed=self.signature(state)!=self.signature(p['state']);p['state']=state
-    if changed:self.tune(p,p['channel'])
-    roster=[{'id':q['state']['character_id'],'name':str(q['state'].get('name',''))[:64]}for q in self.peers.values()if q is not p and q['channel']==p['channel']and audible(state,q['state'],p['channel'])]
+    if not self.credentials.valid(p['claims']):
+     p['revoked']=True;p['queue'].clear()
+     if self.peers.get(key)is p:self.peers.pop(key,None)
+     p['writer'].close();continue
+    if not self.sync_peer(p):continue
+    active.append(p)
+   for p in active:
+    roster=[{'id':q['state']['character_id'],'name':str(q['state'].get('name',''))[:64]}for q in active if q is not p and q['channel']==p['channel']and audible(p['state'],q['state'],p['channel'])]
     if roster!=p.get('roster'):p['roster']=roster;self.control(p,'roster',peers=roster)
    await asyncio.sleep(.1)
  async def send(self,p):
@@ -81,22 +111,28 @@ class Relay:
     queued_at,(sender,se,epoch,packet)=p['queue'].popleft()
     if sender is not None:
      if time.monotonic()-queued_at>.25:continue
-     source=self.peers.get(sender)
+     source=self.peers.get(sender[0])
+     if not source or source.get('connection_token')is not sender[1]:continue
+     if not source or not self.sync_peer(source)or not self.sync_peer(p):continue
      if not source or source['epoch']!=se or p['epoch']!=epoch or source['channel']!=p['channel']:continue
      if not audible(source['state'],p['state'],p['channel']):continue
     p['writer'].write(packet)
     await asyncio.wait_for(p['writer'].drain(),.25)
    p['wake'].clear()
  def audio(self,p,raw):
+  if not self.sync_peer(p):raise VoiceError('Native voice state stale')
   if not 9<=len(raw)<=408:raise VoiceError('Invalid audio size')
   epoch,seq=CLIENT_HEADER.unpack_from(raw);payload=raw[8:]
+  if epoch==p.get('previous_epoch') and time.monotonic()-p['epoch_changed_at']<=.5:return
   if epoch!=p['epoch'] or seq<=p['seq'] or seq>p['seq']+10000:raise VoiceError('Stale audio sequence')
   if not opus_20ms_mono(payload):raise VoiceError('Expected20ms mono Opus')
   now=time.monotonic();p['tokens']=min(6.,p['tokens']+(now-p['token_time'])*50);p['token_time']=now
   if p['tokens']<1:raise VoiceError('Audio rate exceeded')
   p['tokens']-=1;p['seq']=seq
+  if 'connection_token' not in p:p['connection_token']=object()
   # Metadata is source-owned and shared by recipients; encoded payload remains opaque.
-  for key,q in self.peers.items():
+  for key,q in list(self.peers.items()):
+   if not self.sync_peer(q):continue
    if q['channel']!=p['channel'] or not audible(p['state'],q['state'],p['channel']):continue
    q['speakers']={speaker:at for speaker,at in q['speakers'].items()if now-at<1}
    speaker=p['state']['character_id']
@@ -107,7 +143,7 @@ class Relay:
    delivery=q.setdefault('delivery_seq',{}).get(speaker,0)
    q['delivery_seq'][speaker]=delivery+1
    packet=SERVER_HEADER.pack(q['epoch'],delivery,int(speaker),*p['state']['position'])+payload
-   self.enqueue(q,(p['key'],p['epoch'],q['epoch'],frame(2,packet)))
+   self.enqueue(q,((p['key'],p['connection_token']),p['epoch'],q['epoch'],frame(2,packet)))
  async def accept(self,reader,writer):
   self.connections+=1;p=None;send_task=None
   try:
@@ -135,7 +171,8 @@ class Relay:
    self.refresh_states()
    state=self.state(claims)
    if not state or not self.credentials.valid(claims):raise VoiceError('Voice authentication unavailable')
-   if claims['a']in self.peers:self.peers[claims['a']]['writer'].close()
+   if claims['a']in self.peers:
+    old=self.peers[claims['a']];old['closing']=True;old['queue'].clear();old['writer'].close()
    p={'key':claims['a'],'claims':claims,'state':state,'channel':'proximity','epoch':secrets.randbits(31),'seq':-1,'queue':deque(),'wake':asyncio.Event(),'writer':writer,'speakers':{},'tokens':6.,'token_time':time.monotonic(),'controls':deque()}
    self.peers[p['key']]=p;self.tune(p,'proximity','hello');send_task=asyncio.create_task(self.send(p))
    def sender_done(task):

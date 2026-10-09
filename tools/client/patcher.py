@@ -80,11 +80,11 @@ class Transport:
             return raw
         finally: conn.close()
 
-    def authenticate(self, account, password, invite_code=None):
+    def authenticate(self, account, password, invite_code=None, *, register=False):
         self.session = None
         body = dict(account=account, password=password)
         if invite_code is not None: body['invite_code'] = invite_code
-        session = protocol.decode(self.request('/auth/register' if invite_code is not None else '/auth/login', 16384, body))
+        session = protocol.decode(self.request('/auth/register' if register or invite_code is not None else '/auth/login', 16384, body))
         if not isinstance(session, dict) or session.get('account') != account or not re.fullmatch(r'[A-Za-z0-9_-]{43}', session.get('token','')) or not isinstance(session.get('expires_at'), (int,float)) or session['expires_at'] <= time.time():
             raise ValueError('Server returned an invalid session')
         self.session = session

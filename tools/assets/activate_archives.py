@@ -15,12 +15,12 @@ def digest(path):
     return h.hexdigest()
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--base',type=Path,default=ROOT/'runtime/assets/tre')
-    ap.add_argument('--jtl',type=Path,default=ROOT/'runtime/assets/jtl/tre')
-    ap.add_argument('--tte',type=Path,default=ROOT/'runtime/assets/tte/tre',help='Optional Total Experience extraction (pre-CU allowlist only)')
+    ap.add_argument('--base',type=Path,default=ROOT/'runtime/asset_sources/extracted/base/tre')
+    ap.add_argument('--jtl',type=Path,default=ROOT/'runtime/asset_sources/extracted/jtl/tre')
+    ap.add_argument('--tte',type=Path,default=ROOT/'runtime/asset_sources/extracted/tte/tre',help='Optional Total Experience extraction (pre-CU allowlist only)')
     ap.add_argument('--supplement',type=Path,action='append',default=[],help='Additional extraction directory; only Core3 pre-CU allowlisted names activate')
     ap.add_argument('--audit-only',action='store_true',help='Audit all sources and conflicts without changing active links')
-    ap.add_argument('--output',type=Path,default=ROOT/'runtime/assets/active_tre')
+    ap.add_argument('--output',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     args=ap.parse_args();sources=[args.base.resolve()]
     if args.jtl.exists():sources.append(args.jtl.resolve())
     if args.tte.exists():sources.append(args.tte.resolve())

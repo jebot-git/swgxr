@@ -92,7 +92,7 @@ func refresh(tool_id: String="") -> bool:
 	return accepted
 
 func refresh_tool(tool: Dictionary) -> void:
-	if tool.get("tool_kind","") in ["crafting","camp","trap","medical","fishing","slicing"]: return
+	if tool.get("tool_kind","") in ["crafting","camp","trap","grenade","medical","fishing","slicing"]: return
 	var id:=str(tool.get("id","")); var epoch: int=app.datapad_epoch
 	var held_revision: int=bag.held_revision
 	bag.set_busy(true,"Reading current planetary resources…")
@@ -211,7 +211,7 @@ func deploy(tool: Dictionary, pose: Transform3D) -> void:
 func holster(tool: Dictionary) -> void:
 	if tool.get("tool_kind","")=="medical" and is_instance_valid(app.get("medic")):
 		app.medic.belt_action("holster",tool);return
-	if tool.get("tool_kind","")=="trap" and is_instance_valid(app.get("scout")):
+	if tool.get("tool_kind","") in ["trap","grenade"] and is_instance_valid(app.get("scout")):
 		app.scout.belt_action("holster",tool);return
 	if not valid_held(tool): bag.finish_item_action(false); return
 	bag.begin_mutation("Securing offhand hip tool…")
@@ -222,7 +222,7 @@ func holster(tool: Dictionary) -> void:
 func return_tool(tool: Dictionary) -> void:
 	if tool.get("tool_kind","")=="medical" and is_instance_valid(app.get("medic")):
 		app.medic.belt_action("return_tool",tool);return
-	if tool.get("tool_kind","")=="trap" and is_instance_valid(app.get("scout")):
+	if tool.get("tool_kind","") in ["trap","grenade"] and is_instance_valid(app.get("scout")):
 		app.scout.belt_action("return_tool",tool);return
 	if not valid_held(tool): bag.finish_item_action(false); return
 	bag.begin_mutation("Returning tool to inventory…")

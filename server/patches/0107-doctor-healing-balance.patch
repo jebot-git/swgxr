@@ -1,0 +1,159 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
+@@ -2,12 +2,13 @@
+ #include "CoreCuMedicalPolicy.h"
+ #include "DoctorCarePolicy.h"
+ #include "SwgxrSpice.h"
++#include "server/zone/objects/tangible/pharmaceutical/StimPack.h"
+ // Native command policy, shared by ordinary Core3 commands and the VR bridge.
+ class CoreCuMedicine {
+ public:
+  static int doctorStage(CreatureObject* c){
+   if(!c || !c->isPlayerCreature() || !c->hasSkill("science_doctor_novice"))return 0;
+-  if(c->hasSkill("science_doctor_master"))return 5;
++  if(c->hasSkill("science_doctor_master"))return 6;
+   int stage=1;for(auto node:{"science_doctor_wound_01","science_doctor_wound_02","science_doctor_wound_03","science_doctor_wound_04"})if(c->hasSkill(node))++stage;
+   return std::min(5,stage);
+  }
+@@ -46,13 +47,25 @@
+   c->addCooldown(key(name),int(recovery(c,name)*SwgxrSpice::cooldownScale(c)));
+   if(name=="quickheal")c->addCooldown("corecu_medical_injury",int(recovery(c,"healdamage")*SwgxrSpice::cooldownScale(c)));
+  }
+- static int injury(CreatureObject* healer,CreatureObject* target,int nativePower,bool direct=true){
++ static int injury(CreatureObject* healer,CreatureObject* target,int nativePower,bool direct=true,bool applyBattleFatigue=true){
+   if(!healer->isPlayerCreature() || !(target->isPlayerCreature() || target->isPet()))return nativePower;
+-  return corecu::doctorcare::potency(corecu::medicine::injury(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment"),nativePower/(600.*std::max(.001,double(target->calculateBFRatio())))),direct?doctorStage(healer):0)*target->calculateBFRatio();
++  double fatigue=applyBattleFatigue?target->calculateBFRatio():1.;
++  return corecu::doctorcare::potency(corecu::medicine::injury(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment"),nativePower/(600.*std::max(.001,fatigue))),direct?doctorStage(healer):0)*fatigue;
++ }
++ static int stim(CreatureObject* healer,CreatureObject* target,StimPack* pack,bool applyBattleFatigue=true){
++  if(!pack)return 0;
++  int nativePower=pack->calculatePower(healer,target,applyBattleFatigue);
++  if(!healer->isPlayerCreature() || !(target->isPlayerCreature() || target->isPet()))return nativePower;
++  if(pack->isPetStimPack() || pack->isDroidRepairKit())return nativePower;
++  if(pack->isRangedStimPack())return injury(healer,target,nativePower,false,applyBattleFatigue);
++  int tier=corecu::doctorcare::stimTier(pack->getObjectTemplate()->getFullTemplateString().toCharArray());
++  if(tier<0)return injury(healer,target,nativePower,true,applyBattleFatigue);
++  int amount=corecu::doctorcare::stim(target->getMaxHAM(0)-target->getWounds(0),tier,pack->getEffectiveness(),healer->getSkillMod("healing_injury_treatment"));
++  return corecu::doctorcare::potency(amount,doctorStage(healer))*(applyBattleFatigue?target->calculateBFRatio():1.);
+  }
+  static int tend(CreatureObject* healer,CreatureObject* target,int nativePower){return healer->isPlayerCreature() && (target->isPlayerCreature() || target->isPet())?corecu::doctorcare::potency(corecu::medicine::tend(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment")),doctorStage(healer))*target->calculateBFRatio():nativePower;}
+- static int emergency(CreatureObject* healer,CreatureObject* target,int nativePower){return healer->isPlayerCreature() && (target->isPlayerCreature() || target->isPet())?corecu::doctorcare::potency(corecu::medicine::emergency(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment")),doctorStage(healer))*target->calculateBFRatio():nativePower;}
++ static int emergency(CreatureObject* healer,CreatureObject* target,int nativePower){return healer->isPlayerCreature() && (target->isPlayerCreature() || target->isPet())?corecu::doctorcare::emergencyPotency(corecu::medicine::emergency(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment")),doctorStage(healer))*target->calculateBFRatio():nativePower;}
+  static int woundPack(CreatureObject* healer,CreatureObject* target,int attribute,double quality){
+-  return corecu::doctorcare::potency(corecu::medicine::woundPack(target->getBaseHAM(attribute),healer->getSkillMod("healing_wound_treatment"),quality),doctorStage(healer))*target->calculateBFRatio();
++  return corecu::doctorcare::woundPotency(corecu::medicine::woundPack(target->getBaseHAM(attribute),healer->getSkillMod("healing_wound_treatment"),quality),doctorStage(healer))*target->calculateBFRatio();
+  }
+ };
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DoctorCarePolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DoctorCarePolicy.h
+@@ -1,9 +1,31 @@
+ #pragma once
+ #include <algorithm>
+ #include <cmath>
+-// SWGXR Doctor progression. Ordinary Medic values and unrelated ranged care remain intact.
++#include <string>
++// SWGXR Doctor care tuning. Tier quality uses original crafted power intervals.
+ namespace corecu { namespace doctorcare {
+-inline double multiplier(int stage){return 1.+.10*std::max(0,std::min(5,stage));}
+-inline int potency(int amount,int stage){return amount<=0?amount:int(std::min(1073741823.,std::round(amount*multiplier(stage))));}
++inline int stage(int value){return std::max(0,std::min(6,value));}
++inline double multiplier(int value){return 1.+.05*stage(value);}
++inline double emergencyMultiplier(int value){return 1.+.025*stage(value);}
++inline double woundMultiplier(int value){return 1.+.10*std::min(5,stage(value));}
++inline int scaled(int amount,double factor){return amount<=0?amount:int(std::min(1073741823.,std::round(amount*factor)));}
++inline int potency(int amount,int value){return scaled(amount,multiplier(value));}
++inline int emergencyPotency(int amount,int value){return scaled(amount,emergencyMultiplier(value));}
++inline int woundPotency(int amount,int value){return scaled(amount,woundMultiplier(value));}
++inline int stimTier(const std::string& path){
++ static const char* paths[]={"object/tangible/medicine/crafted/crafted_stimpack_sm_s1_a.iff","object/tangible/medicine/crafted/crafted_stimpack_sm_s1_b.iff","object/tangible/medicine/crafted/crafted_stimpack_sm_s1_c.iff","object/tangible/medicine/crafted/crafted_stimpack_sm_s1_d.iff","object/tangible/medicine/crafted/crafted_stimpack_sm_s1_e.iff"};
++ for(int i=0;i<5;++i)if(path==paths[i])return i;
++ return -1; // Legacy non-tier supplies retain explicit normalized-injury fallback.
++}
++inline double stimQuality(int tier,double effectiveness){
++ if(tier<0 || tier>4 || !std::isfinite(effectiveness))return 0.;
++ static const double low[]={75,75,100,150,200},high[]={100,200,400,700,1000};
++ return std::max(0.,std::min(1.,(effectiveness-low[tier])/(high[tier]-low[tier])));
++}
++inline int stim(int maximum,int tier,double effectiveness,double proficiency){
++ if(tier<0 || tier>4)return 0;
++ double quality=stimQuality(tier,effectiveness),skill=std::isfinite(proficiency)?std::max(0.,std::min(1.,proficiency/100.)):0.;
++ return std::max(1,int(std::round(std::max(1,maximum)*(.10+.03*tier+.04*quality)*(.75+.25*skill))));
++}
+ inline int grogginess(int base){return -std::max(1,int(std::round(std::max(1,base)*.05)));}
+ } }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDoctor.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDoctor.h
+@@ -52,7 +52,9 @@
+    result[command]["supplies"].push_back(supply);
+   }
+   result["healing_multiplier"]=corecu::doctorcare::multiplier(CoreCuMedicine::doctorStage(c));
+-  result["wound_fraction_cap"]=.10*corecu::doctorcare::multiplier(CoreCuMedicine::doctorStage(c));
++  result["emergency_healing_multiplier"]=corecu::doctorcare::emergencyMultiplier(CoreCuMedicine::doctorStage(c));
++  result["wound_healing_multiplier"]=corecu::doctorcare::woundMultiplier(CoreCuMedicine::doctorStage(c));
++  result["wound_fraction_cap"]=.10*corecu::doctorcare::woundMultiplier(CoreCuMedicine::doctorStage(c));
+   return result;
+  }
+  static Json run(CreatureObject* c,const Json& q){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
+@@ -461,7 +461,7 @@
+ 			return GENERALERROR;
+ 		}
+ 
+-		uint32 stimPower = CoreCuMedicine::injury(creature, targetCreature, stimPack->calculatePower(creature, targetCreature),!stimPack->isRangedStimPack());
++		uint32 stimPower = CoreCuMedicine::stim(creature, targetCreature, stimPack);
+ 
+ 		Vector<byte> atts = stimPack->getAttributes();
+ 		int healthHealed = 0, actionHealed = 0, mindHealed = 0;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -8,6 +8,7 @@
+ #include "SwgxrEquipment.h"
+ #include "SwgxrMedicalItem.h"
+ #include "DoctorPolicy.h"
++#include "CoreCuMedicine.h"
+ #include "SwgxrSlicingData.h"
+ #include "server/zone/objects/tangible/deed/structure/StructureDeed.h"
+ #include "server/zone/objects/tangible/tool/SurveyTool.h"
+@@ -63,6 +64,15 @@
+     result["consume_available"]=SwgxrMedicalItem::owned(c,pack) && !c->isDead() && !c->isIncapacitated() && SwgxrMedicalItem::trained(c,pack);
+     result["consume_block_reason"]=result["consume_available"].get<bool>()?"":"medical_training_or_available_owned_supply_required";
+     result["medical_use_hint"]=pack->isRangedStimPack()?"Aim at an injured patient and trigger":"Touch an eligible patient with this supply and trigger";
++   }
++   if(pack->isStimPack() && !pack->isRangedStimPack() && !pack->isPetStimPack() && !pack->isDroidRepairKit()){
++    auto stim=static_cast<StimPack*>(pack);int amount=CoreCuMedicine::stim(c,c,stim,false);
++    int tier=corecu::doctorcare::stimTier(o->getObjectTemplate()->getFullTemplateString().toCharArray());
++    result["medical_healing_amount"]=amount;
++    result["medical_healing_percent"]=100.*amount/std::max(1,c->getMaxHAM(0)-c->getWounds(0));
++    result["medical_healing_preview_scope"]="Current skill and effective maximum Health; before patient battle fatigue and spice effects";
++    result["medical_stim_tier"]=tier<0?"legacy":std::string(1,char('A'+tier));
++    if(tier>=0)result["medical_stim_quality"]=corecu::doctorcare::stimQuality(tier,stim->getEffectiveness());
+    }
+    if(pack->isCurePack())result["medical_state"]=static_cast<CurePack*>(pack)->getState();
+    if(pack->isStatePack()){
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/StimPackImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/StimPackImplementation.cpp
+@@ -1,5 +1,6 @@
+ 
+ #include "server/zone/objects/tangible/pharmaceutical/StimPack.h"
++#include "server/zone/objects/creature/commands/CoreCuMedicine.h"
+ #include "templates/tangible/StimPackTemplate.h"
+ #include "server/zone/managers/object/ObjectManager.h"
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+@@ -56,6 +57,15 @@
+ void StimPackImplementation::fillAttributeList(AttributeListMessage* msg, CreatureObject* object) {
+ 	PharmaceuticalObjectImplementation::fillAttributeList(msg, object);
+ 
++    if(!isRangedStimPack() && !isDroidRepairKit() && !isPetStimPack() && object && object->isPlayerCreature()){
++        int power=CoreCuMedicine::stim(object,object,_this.getReferenceUnsafeStaticCast(),false);
++        double maximum=std::max(1,object->getMaxHAM(0)-object->getWounds(0));
++        msg->insertAttribute("Treatment",String::valueOf(Math::getPrecision(100.*power/maximum,2))+"% effective maximum Health");
++        msg->insertAttribute("Healing preview",String::valueOf(power)+" Health for your current skill and Health pool; before patient battle fatigue and spice effects");
++        msg->insertAttribute("healing_ability",medicineUseRequired);
++        return;
++    }
++
+ 	if (!isRangedStimPack() && !isDroidRepairKit()) {
+ 		Vector<byte> atts = getAttributes();
+ 

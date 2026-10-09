@@ -2,12 +2,14 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include "DoctorPolicy.h"
 // First CU-inspired medical/resource pass; explicit local tuning, not SOE formulas.
 namespace corecu {
 namespace medicine {
 struct Ability { double action, mind; int recovery; const char* group; };
 inline Ability ability(const std::string& name) {
- if(name=="healdamage" || name=="healpet" || name=="healdroiddamage")return {.02,.03,6000,"injury"};
+ if(name=="healdamage")return {.06,.08,6000,"injury"};
+ if(name=="healpet" || name=="healdroiddamage")return {.02,.03,6000,"injury"};
  if(name=="tenddamage")return {.04,.06,8000,"injury"};
  if(name=="quickheal")return {.10,.15,30000,"emergency"};
  if(name=="healmind")return {.06,.10,15000,"resource"};
@@ -22,6 +24,7 @@ inline Ability ability(const std::string& name) {
 inline bool retired(const std::string& name){return name=="diagnose" || name=="healwound" || name=="tendwound" || name=="healWound" || name=="tendWound";}
 // Retain template registration for saved objects, but retire obsolete supplies and recipes.
 inline bool retiredMedicalTemplate(const std::string& path){
+ if(corecu::doctor::retiredRecipe(path))return true;
  auto pos=path.rfind('/');auto name=path.substr(pos==std::string::npos?0:pos+1);
  if(name.compare(0,7,"shared_")==0)name=name.substr(7);
  // Empty legacy droid medicine placeholders; working repair kits and pet vitality packs remain.

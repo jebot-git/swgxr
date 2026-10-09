@@ -1644,3 +1644,263 @@ expired while the native process was still closing after its shutdown-complete
 log; it subsequently exited without force, and readback passed after restart.
 The optional restart smoke now permits240 seconds for full process exit before
 starting another database writer. The subsequent user-authorized deployment passed live audit and authenticated HTTPS survey-limit verification; see `docs/VPS_DEPLOYMENT.md` (Persistent survey limits).
+
+## Asset layout and private bundle — 2026-10-08
+
+The local asset tree now separates converted runtime data (`runtime/assets`),
+original media/extractions and the active51-TRE set (`runtime/asset_sources`),
+audits and rollback metadata (`runtime/asset_reports`), old work/captures
+(`runtime/asset_work`) and verified bundles (`runtime/asset_archives`). Combat
+catalogs, ability icons, posture clips and entertainment assets now reside in
+`runtime/assets/combat` and `runtime/assets/entertainment`. Client, server,
+converter, launcher payload, setup and validation paths were updated. The server
+asset reader retains compatibility with the source mount on existing live realms.
+
+The migration journal records203 planned moves and preserves53 original JSON
+metadata files for rollback; two remaining scout logs were moved to reports.
+Original installation media, duplicate source extractions and old work remain
+locally available in their respective directories. Local Core3 saved and stopped
+before moving TRE paths, then rebuilt/restarted successfully; native readiness
+and original-source character-creation data were verified. The live VPS was not
+changed and no VR client was launched.
+
+Private bundle: `runtime/asset_archives/SWGXR-assets-20261008.zip`.
+It contains56464 files, including all prepared runtime assets for the ten original
+ground planets, the51 required original TREs, and retained provenance/conversion
+limitations. Source bytes:13164795905; ZIP bytes:7882626153 (7.34GiB).
+SHA256: `c0a44271b0b40be8fb4b2d7a4226093fdd109811d35f1fafb6faeff8b7b15ffc`.
+Installation discs, redundant extractions, scratch work, accounts, databases and
+credentials are excluded. TRE symlinks become regular ZIP entries for Windows.
+The included restore helper verifies extracted SHA256 values before rebasing
+absolute JSON workspace paths. Use matching client code with the v2 asset layout.
+
+Verification passed: every ZIP file hash/CRC; a complete extraction into a
+separate directory with56464 hashes and72 rebased JSON files; all ten planets'
+references and Godot catalog readiness; source TRE resource decoding;51 prepared
+asset audits and841 stage provenance dependencies;30 Python tests; headless
+source movement29 checks, combat posture86 and entertainment effects48. The stage
+validator now distinguishes the original17 starport cells from31 already-present
+exterior floor records, preserving exact source identity checks. The temporary
+restored copy was removed after successful validation. Headless checks use the
+dummy renderer and OpenXR off; they do not validate GPU, headset or native Windows
+execution. Receipts are under `runtime/asset_reports/layout-20261008`.
+
+## Equipment-driven Commando — 2026-10-09
+
+Commando now routes seven certified original weapons through native cone, beam
+or physical rocket delivery, with charge/resource conservation, persistent
+recovery, bounded area damage, optional Focused Discharge/Acid Spray and Master
+Overdrive. The four consumable heavy weapons use an explicit native `hold_both`
+arrangement; their original empty media descriptor remains recorded, with a
+verified native-slot attachment exception in the client. Grenades reuse the
+trap grip/throw/release interaction and original models/effects. Their delayed
+native settlement, shared recovery, limited control and crafting quality are
+covered by production-method fixtures. Cryoban/Glop limit voluntary movement
+without stopping physical room-scale tracking.
+
+The 338-scenario arithmetic audit places Master whole-kit sustained output at
+81.5–84.3% of equivalent Rifleman in the documented 120-second unarmored,
+neutral-range reference. Longer resource-aware runs remain within the intended
+75–85% band. Actual range, geometry, armor and elemental resistance change the
+matchup; this is not live encounter evidence. See
+[the CU policy](CORECU_COMBAT.md#commando-equipment-driven-elemental-area-damage-2026-10-09).
+
+Validation passed: 585 Python tests, 99 dedicated Commando client routing checks,
+54 equipment checks, 20 grenade checks, shared client regressions, 34 source
+movement checks, actual imported-stage collision and all 12 starport portal
+profiles. Combat asset validation passes 1,004 checks over 36 weapons and 432
+original dependencies; all seven grenade families convert without failure.
+The full native build links and
+the final source/binary receipt verifies. Earlier native compile failures and
+the old finite-prop collision-test assumption were corrected; their logs remain
+alongside final evidence in `runtime/evidence/commando/validation.json`.
+These checks use the dummy renderer with OpenXR off. No live server/client
+launch, deployment, GPU or headset validation was performed.
+
+## Squad Leader group support — 2026-10-09
+
+Squad Leader now supplies the strongest eligible same-planet party passives,
+capped at 10% direct damage, 10% Action/Mind regeneration and 15 melee/ranged
+defense. Solo, offline and pet-only parties cannot enable those benefits.
+Steady Aim, Rally, Form Up, Boost Morale and Retreat are separate friendly VATS
+options with any weapon, including unarmed. Their nearby effects have bounded
+durations, resource costs and recipient recovery to prevent multiple leaders
+from chaining the same buff. Obsolete accuracy, slope/Burst Run, wound sharing,
+forced posture and automatic Volley attack paths are retired.
+
+Master Volley Fire grants one guaranteed hit per eligible party member against
+a single enemy, with a large local reticle for each unspent grant. It uses the
+existing any-weapon ultimate slot, lasts 12 seconds and has 120-second caster
+and recipient recovery. Native range, eligibility, costs and normal damage
+remain authoritative; only the first direct damage packet bypasses physical
+contact and avoidance. Marks cannot be recovered through weapon/session swaps,
+late joining or departure/rejoin. Throwables retain delayed execution and
+grenade collateral stays at the original landing point when the primary moves.
+See [the CU policy](CORECU_COMBAT.md#squad-leader-group-support-2026-10-09)
+and [activation controls](ABILITY_ACTIVATION.md).
+
+The compiled production-policy audit reports mastered peak/ideal mean direct
+damage support of 1.25x/1.14x, with 1.60x/1.1833x existing Action/Mind regeneration.
+These are arithmetic bounds under ideal repeated application, not measured
+encounter results. The profession catalog retains the original graph and three
+source hashes; only Squad Leader presentation changes among 49 professions
+and 858 nodes.
+
+Validation passed: all 600 Python tests, including 6,649 native support checks,
+47 Volley Fire checks and the affected combat/medical fixtures; 84 dedicated
+client checks, 38 source movement checks, 20 shared profession XR input checks,
+and all 12 actual imported starport portal movement profiles. The full native
+build links and its final source/binary receipt verifies. Resolved fixture
+dependency, concurrent fixture-read and outdated XR input assertions are
+recorded alongside the passing evidence in
+`runtime/evidence/squad-leader/validation.json`. The updated live party fixture
+was not run. All client checks use the dummy renderer with OpenXR off; native
+transport and tracking are mocked where indicated. No live server/client
+launch, deployment, GPU or headset validation was performed.
+
+## PvE bounty investigation and combat proposal — 2026-10-09
+
+Patch `0118-pve-bounty-hunting.patch` connects original bounty terminals,
+informants, mission objectives, consumable Arakyd/seeker droids and NPC marks to
+the existing services, inventory and datapad interfaces. Native generation and
+acceptance reject player bounties. Held trigger launches a seeker; a held probe
+opens the loaded-ground-planet list and selecting a planet launches it with
+automatic signature transmission. Original learned investigation gates, charges,
+search delays, discovery and waypoint tracking remain authoritative.
+
+The implementation protects mission ownership, one-time supply consumption and
+rewards, pending-search reservations, stale callbacks, cancellation and native
+restart recovery. Accepted probe delivery uses its captured launch location;
+subsequent movement, combat or mounting does not cancel it. No-starport target
+planets use local native target movement/spawning. Existing group assistance is
+retained. The source target selection is not yet a validated CU encounter tier
+system. See [controls](ABILITY_ACTIVATION.md#pve-bounty-hunting) and
+[the services protocol](../server/SERVICES_PROTOCOL.md).
+
+Bounty preparation covers 34 target mobile families, 75 target/informant/droid
+appearances and 34 original bounty terminals across the ten original ground
+planets. The decoration audit checks 354 model files and 390 authored wardrobe
+records, with no unexplained converted mesh, texture or attachment omissions.
+Original table/SAT references repair the Valarian leader hat, two desert demon
+glove appearances and a cached weapon variant. An obsolete failed cache now
+retains the original rebel 21B body. Female Tusken gloves, Twi'lek female hair
+style 10 and the rebel 21B CDF remain genuine supplied-media gaps, with explicit
+partial appearances. Functional coverage passes; complete source fidelity does
+not. Setup runs both preparation and the repeatable bounded repair/audit.
+
+The [single-target BH combat proposal](CORECU_COMBAT.md#bounty-hunter-single-target-combat-2026-10-09)
+compares the preserved early CU role proposal with archived official publish
+notes and the current profession policies. It proposes pistol/carbine VATS,
+Underhand and Duelist gestures, a Fast Blast ultimate, retired BH area attacks,
+and bounded speed/status contributions. These combat changes are not active.
+Compiled production-policy arithmetic gives proposed BH ordinary shot rates at
+74.1%/77.8% of the corresponding pistol/carbine specialists, with no added
+combined-build cadence. Whole-kit damage and solo-mark completion remain future
+acceptance tests. Original scatter/lightning inventory models are ready; their
+dedicated combat descriptors remain part of that implementation pass.
+
+Validation: all 625 Python tests pass, including 75 extracted native bounty
+lifecycle checks and the protocol, authenticated HTTP and 12 asset fixtures.
+The dedicated bounty client passes 34 checks and the affected services,
+inventory, parcel and map regressions pass 233. Final Godot editor import passes.
+The existing datapad height assertion at `datapad_ui_smoke.gd:36` still fails;
+the same failure was reproduced against the pre-bounty UI and recorded
+separately. The full Core3 build links and its source/binary receipt verifies.
+An initial generated-setter compile failure was fixed and rebuilt; its log and
+an earlier HTTP fixture content-type failure are preserved beside final evidence.
+See `runtime/evidence/bounty/validation.json` and
+`runtime/evidence/bounty-appearance-audit.json`. All client checks use the dummy
+renderer with OpenXR off and controlled transport/tracking. No live server or
+VR client was launched, and no deployment, GPU or headset validation occurred.
+
+
+## Bounty Hunter combat and profession finalisation audit — 2026-10-09
+
+The single-target BH kit is implemented in source: pistol Eye Shot and the
+shared ranked Torso/Bleeding Shot, carbine Confusion Shot, an armed Underhand
+gesture, opponent-bound Duelist Stance and Master Fast Blast. BH area attacks
+and legacy player command entry points are retired while NPC uses remain.
+Additional Pistoleer training still supplies Fan Shot. Learned advanced speed
+uses the strongest compatible contribution; BH status potency remains below
+Combat Medic. See [combat policy](CORECU_COMBAT.md#bounty-hunter-single-target-combat-2026-10-09)
+and [controls](ABILITY_ACTIVATION.md#bounty-hunter-combat).
+
+Scatter uses eight physical pellets with one target and one damage budget.
+Lightning uses a slightly guided, obstructable bolt. Original weapon descriptors
+now include meshes, textures, muzzle hardpoints, effects and sounds. The
+production Godot physics fixtures cover moving targets, obstruction and evasion;
+source-space pellet directions are checked against the native policy. These
+checks use the dummy renderer, mocked tracking and transport, not live XR.
+The pre-existing wrist datapad height failure is also fixed and rechecked.
+
+A whole-kit audit found the initial lightning normalization too weak and tuned
+it to 65.3–75.0% of the crafted Rifleman reference. Stock-default comparisons are
+62.1–68.7%. Legal pistol/carbine hybrids remain 99.5–102.9% of the corresponding
+specialist output. Doctor's bounded direct-care advantage, Combat Medic's
+highest debuff potency and Squad Leader's bounded group multipliers remain
+consistent in the compiled arithmetic. This is an authored resource-aware
+benchmark, not proof that all original bounty encounters are viable.
+
+The source trace scanned 96 supplied archive instances with 58 unique hashes,
+including inactive supplied patches. None contains the exact female Tusken
+glove, Twi'lek female hair style 10 or rebel 21B CDF resource. Their earliest
+references occur in data_other_00.tre, patch_03.tre and patch_00.tre respectively.
+All 17 appearance-table versions mark the female Tusken glove unsupported;
+the other dangling references persist in the supplied versions. Later owned
+client releases are candidates to inspect, not confirmed sources. The existing
+21B body remains usable. These are appearance-fidelity gaps, distinct from
+code or gameplay failures; no replacement proprietary media was downloaded.
+See runtime/evidence/bounty-source-history.json.
+
+The profession audit fixed the missing advanced-trainer whitelist: 21 trainer
+types became 34, carrying 612 unchanged original skill IDs. Every included
+trainer type has an authored placement somewhere across the ten ground planets;
+wilderness planets retain their original absence of trainers. This fixes trainer
+visibility/recognition, not missing XP producers or city interfaces.
+
+Major remaining work before profession finalisation:
+
+- Squad Leader cannot earn its required leadership XP through current gameplay.
+  Its sixteen branches require squadleader XP, starting at 175,000 per first
+  tier. Current rewards award damage-derived weapon XP and combat_general;
+  support actions do not supply a replacement leadership reward. Add an
+  encounter-related support XP path and verify earned progression without grants.
+- Expose native skill surrender through the profession UI/API, preserving native
+  prerequisite and dependent-skill checks. At present players cannot recover
+  spent skill points to change their build through the supported client.
+- Implement Politician's citizenship, election and municipal-management terminal
+  interfaces. A trainer alone does not make its political XP or core role usable.
+- Validate ordinary and difficult PvE bounty tiers with earned builds and stock
+  supplies. Original scatter damage is particularly weak relative to the rifle
+  benchmark; its wider spread does not establish solo viability. Generic
+  Marksman Lethal Shot also retains normal recovery despite its source 2x value,
+  whereas Rifleman Head Shot explicitly uses twice normal recovery.
+- Link and verify the current complete native build, then validate the shared
+  client/server release and multiplayer support/bounty flows. The last deployed
+  release documented here predates these profession changes; source tests do not
+  establish VPS parity or headset behavior.
+
+The authorized tester bazaar batch is prepared for the current VPS and all ten
+planets: 17 starter types, 24 original-stat items per planet, 240 total, fixed
+prices 10–75 credits. Its eight offline checks cover exact native IDs, default
+item creation, account isolation, original name filters, listings and resume
+without recreating sold stock. It has not been applied: this session cannot
+create sockets, and SSH reports `socket: Operation not permitted`. See
+[VPS stock status](VPS_DEPLOYMENT.md#tester-bazaar-stock--prepared-9-october-2026).
+
+The same environment prevents Podman execution with
+`chmod /run/user/1000/libpod: read-only file system`; full compilation is blocked
+before the compiler runs. New loopback HTTP checks fail at socket creation.
+Earlier passing build/HTTP evidence is preserved but does not validate new
+native source. No live VR client was launched, no VPS stock or profession
+update was applied, and the daily 05:00 UTC restart was not changed.
+
+Final offline evidence is `runtime/evidence/bounty-combat/validation.json`:
+nine focused native test cases (including 175 BH execution checks), 84 BH client
+checks, 933 existing client profession/service checks, 40 cross-profession policy
+tests and all 12 actual-stage starport movement cases pass. Full patch replay
+also passes. Bazaar preparation and resume pass eight offline tests. The current
+full-build attempt and loopback HTTP attempt remain explicitly environment
+blocked. The stock package is
+`runtime/deploy/bazaar-onboarding/starter-stock.tar.gz`; its checksum and exact
+contents are recorded in `runtime/evidence/bazaar-onboarding/prepared.json`.

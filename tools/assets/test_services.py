@@ -18,7 +18,7 @@ class ServicesTests(unittest.TestCase):
         ids={row['id'] for row in data['placements']}
         self.assertEqual(len(ids),len(data['placements']))
         for name,trainer in data['trainers'].items():
-            self.assertEqual(len(trainer['templates']),3)
+            self.assertEqual(len(trainer['templates']),4 if name == 'trainer_bountyhunter' else 3)
             self.assertEqual(len(trainer['skill_ids']),18)
             self.assertEqual(trainer['skill_ids'][0],trainer['profession']+'_novice')
             self.assertTrue(trainer['greeting'] and trainer['name'])
@@ -29,12 +29,12 @@ class ServicesTests(unittest.TestCase):
         for filename,digest in data['provenance']['files_sha256'].items():
             self.assertEqual(hashlib.sha256(Path(filename).read_bytes()).hexdigest(),digest)
 
-    def test_service_classification_excludes_jtl_and_decorations(self):
+    def test_service_classification_includes_starship_terminals(self):
         self.assertEqual(service_kind('object/tangible/terminal/shared_terminal_bank.iff'),'bank')
         self.assertEqual(service_kind('object/tangible/terminal/terminal_bazaar.iff'),'bazaar')
         self.assertEqual(service_kind('object/tangible/terminal/shared_terminal_mission_scout.iff'),'mission')
         self.assertEqual(service_kind('object/tangible/crafting/station/shared_weapon_station.iff'),'crafting')
-        self.assertEqual(service_kind('object/tangible/terminal/shared_terminal_space.iff'),'')
+        self.assertEqual(service_kind('object/tangible/terminal/shared_terminal_space.iff'),'starship')
         self.assertEqual(service_kind('object/static/structure/general/shared_data_terminal_s1.iff'),'')
 
     def test_original_bazaar_hierarchy(self):

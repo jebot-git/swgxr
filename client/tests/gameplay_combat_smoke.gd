@@ -124,7 +124,7 @@ func run()->void:
 	var bystander:=Actor.new();sync.entities.add_child(bystander);bridge.actors["202"]=bystander
 	var before_contacts:int=bridge.queue.size()
 	bridge.contact(launched,{"id":"202","session_id":"owned"},Vector3.ZERO,Vector3.UP,0)
-	check(bridge.queue.size()==before_contacts and not bridge.shots.has(launched.shot_id),"Intervening actor cannot receive selected target's special")
+	check(bridge.queue.size()==before_contacts and bridge.shots.has(launched.shot_id) and bridge.shots[launched.shot_id].discard_contact,"Intervening actor cannot receive selected target's special; launch receipt remains pending")
 	bridge.next_launch_usec=0;bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO)
 	check(not bridge.queue.back().payload.has("ability_id"),"Following ordinary shot has no inherited special")
 	rig.abilities.cooldowns.clear();bridge.next_launch_usec=0

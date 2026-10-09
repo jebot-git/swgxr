@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -90,6 +91,12 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(len(requests),1)
         self.assertNotIn('Authorization',requests[0][1]['headers'])
         self.assertEqual(requests[0][0],('POST','/auth/register'))
+    def test_open_registration_selects_register_without_invitation(self):
+        transport=self.transport();response=dict(account='tester',token='a'*43,expires_at=time.time()+100)
+        with patch.object(transport,'request',return_value=json.dumps(response).encode()) as request:
+            transport.authenticate('tester','long test password',register=True)
+        self.assertEqual(request.call_args.args[0],'/auth/register')
+        self.assertNotIn('invite_code',request.call_args.args[2])
     def test_unpublished_target_explains_client_build_is_pending(self):
         transport=self.transport()
         connection=SimpleNamespace(request=lambda *args,**kwargs:None,

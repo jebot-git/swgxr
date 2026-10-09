@@ -10,7 +10,7 @@ func wait_physics(count: int) -> void:
 
 func run() -> void:
 	create_timer(40).timeout.connect(func(): quit(2))
-	var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/player_postures/catalog.json"))
+	var source: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/player_postures/catalog.json"))
 	var curve := PackedVector2Array()
 	for point in source.jump.height_curve: curve.append(Vector2(point[0], point[1]))
 	var model := SwgViewPosture.new()

@@ -107,6 +107,15 @@ class Tests(unittest.TestCase):
             self.assertEqual(caught.exception.status,503)
         self.assertTrue(auth.KDF_SLOTS.acquire(False));self.assertTrue(auth.KDF_SLOTS.acquire(False))
         auth.KDF_SLOTS.release();auth.KDF_SLOTS.release()
+    def test_test_registration_can_grant_client_access_explicitly(self):
+        self.store.register('normal',PASSWORD,'ip')
+        self.assertFalse(self.store.has_client_access('normal'))
+        enabled=auth.AccountAuth(self.path,registration_enabled=True,registration_grants_client_access=True)
+        enabled.register('tester',PASSWORD,'ip')
+        self.assertTrue(enabled.has_client_access('tester'))
+        self.assertTrue(auth.AccountAuth(self.path).has_client_access('tester'))
+        self.assertFalse(enabled.has_client_access('normal'))
+        with self.assertRaises(ValueError):auth.AccountAuth(self.path,registration_grants_client_access='true')
     def test_validation_and_default_disabled(self):
         for account in ('ab','Alice','1alice','a'*25,'élice','../../x'):
             with self.assertRaises(auth.AuthError):auth.account_name(account)

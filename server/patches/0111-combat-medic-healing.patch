@@ -1,0 +1,321 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CoreCuMedicine.h
+@@ -1,6 +1,7 @@
+ #pragma once
+ #include "CoreCuMedicalPolicy.h"
+ #include "DoctorCarePolicy.h"
++#include "CombatMedicHealingPolicy.h"
+ #include "SwgxrSpice.h"
+ #include "server/zone/objects/tangible/pharmaceutical/StimPack.h"
+ // Native command policy, shared by ordinary Core3 commands and the VR bridge.
+@@ -28,6 +29,7 @@
+   return own;
+  }
+  static int cost(CreatureObject* c,const String& name,int pool){
++  if(name=="healmind" && pool==6)return 0; // Variable transfer payment equals actual Mind restored.
+   auto p=corecu::medicine::ability(name.toCharArray());
+   return corecu::medicine::cost(c->getBaseHAM(pool),pool==3?p.action:p.mind);
+  }
+@@ -57,11 +59,31 @@
+   int nativePower=pack->calculatePower(healer,target,applyBattleFatigue);
+   if(!healer->isPlayerCreature() || !(target->isPlayerCreature() || target->isPet()))return nativePower;
+   if(pack->isPetStimPack() || pack->isDroidRepairKit())return nativePower;
+-  if(pack->isRangedStimPack())return injury(healer,target,nativePower,false,applyBattleFatigue);
++  if(pack->isRangedStimPack())return combatStim(healer,target,pack,applyBattleFatigue);
+   int tier=corecu::doctorcare::stimTier(pack->getObjectTemplate()->getFullTemplateString().toCharArray());
+   if(tier<0)return injury(healer,target,nativePower,true,applyBattleFatigue);
+   int amount=corecu::doctorcare::stim(target->getMaxHAM(0)-target->getWounds(0),tier,pack->getEffectiveness(),healer->getSkillMod("healing_injury_treatment"));
+   return corecu::doctorcare::potency(amount,doctorStage(healer))*(applyBattleFatigue?target->calculateBFRatio():1.);
++ }
++ static int combatStim(CreatureObject* healer,CreatureObject* target,StimPack* pack,bool applyBattleFatigue=true){
++  if(!pack)return 0;
++  auto spec=corecu::combatmedichealing::stim(pack->getObjectTemplate()->getFullTemplateString().toCharArray());
++  if(!healer->isPlayerCreature() || !(target->isPlayerCreature() || target->isPet()) || spec.tier<0)
++   return injury(healer,target,pack->calculatePower(healer,target,applyBattleFatigue),false,applyBattleFatigue);
++  int amount=corecu::combatmedichealing::heal(target->getMaxHAM(0)-target->getWounds(0),spec,pack->getEffectiveness(),healer->getSkillMod("combat_medic_effectiveness"));
++  return amount*(applyBattleFatigue?target->calculateBFRatio():1.);
++ }
++ static double combatStimRange(CreatureObject* healer,StimPack* pack){return pack?pack->getRange()+14.*healer->getSkillMod("healing_range")/100.:0.;}
++ static int mindTransferCapacity(CreatureObject* healer,CreatureObject* target,bool applyBattleFatigue=true){
++  if(!healer || !target)return 0;
++  return corecu::combatmedichealing::mindCapacity(target->getMaxHAM(6)-target->getWounds(6),healer->getSkillMod("combat_medic_effectiveness"))*(applyBattleFatigue?target->calculateBFRatio():1.);
++ }
++ static int mindTransferAvailable(CreatureObject* healer,CreatureObject* target){
++  if(!healer || !target || healer==target)return 0;
++  return corecu::combatmedichealing::transferLimit(mindTransferCapacity(healer,target),target->getMaxHAM(6)-target->getWounds(6)-target->getHAM(6),healer->getHAM(6));
++ }
++ static int mindTransferInput(CreatureObject* healer,CreatureObject* target){
++  return corecu::combatmedichealing::transferInput(mindTransferAvailable(healer,target),SwgxrSpice::active(healer,"crash_n_burn"));
+  }
+  static int tend(CreatureObject* healer,CreatureObject* target,int nativePower){return healer->isPlayerCreature() && (target->isPlayerCreature() || target->isPet())?corecu::doctorcare::potency(corecu::medicine::tend(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment")),doctorStage(healer))*target->calculateBFRatio():nativePower;}
+  static int emergency(CreatureObject* healer,CreatureObject* target,int nativePower){return healer->isPlayerCreature() && (target->isPlayerCreature() || target->isPet())?corecu::doctorcare::emergencyPotency(corecu::medicine::emergency(target->getMaxHAM(0)-target->getWounds(0),healer->getSkillMod("healing_injury_treatment")),doctorStage(healer))*target->calculateBFRatio():nativePower;}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatMedicHealingPolicy.h
+@@ -0,0 +1,30 @@
++#pragma once
++#include "CoreCuPolicy.h"
++#include <string>
++namespace corecu { namespace combatmedichealing {
++struct Stim {int tier;bool area;};
++inline Stim stim(const std::string& path){
++ const std::string prefix="object/tangible/medicine/crafted/medpack_grenade_";
++ for(int i=0;i<5;++i)if(path==prefix+"damage_"+char('a'+i)+".iff")return {i,false};
++ for(int i=0;i<3;++i)if(path==prefix+"area_"+char('a'+i)+".iff")return {i,true};
++ return {-1,false};
++}
++inline double proficiency(double skill){return .75+.25*clamp(skill/100.,0,1);}
++inline double quality(Stim pack,double power){
++ if(pack.tier<0 || pack.tier>(pack.area?2:4))return 0;
++ const double low[]={75,75,100,150,200},high[]={150,300,500,700,1000};
++ return pack.area?clamp((power-100.)/(200.+200.*pack.tier),0,1):clamp((power-low[pack.tier])/(high[pack.tier]-low[pack.tier]),0,1);
++}
++inline double fraction(Stim pack,double power,double skill){
++ if(pack.tier<0 || pack.tier>(pack.area?2:4))return 0;
++ double base=pack.area?.06+.02*pack.tier:.10+.03*pack.tier;
++ return (base+(pack.area?.02:.04)*quality(pack,power))*proficiency(skill);
++}
++inline int heal(int maximum,Stim pack,double power,double skill){return int(std::round(std::max(1,maximum)*fraction(pack,power,skill)+1e-8));}
++inline int mindCapacity(int maximum,double skill){return int(std::round(std::max(1,maximum)*(.12+.10*clamp(skill/100.,0,1))));}
++inline int transferLimit(int capacity,int missing,int healerMind){return std::max(0,std::min({capacity,missing,healerMind-1}));}
++// Native healing spice rounds 1.5x; choose an input whose final output fits the
++// transfer cap and available Mind, including a one-point remainder.
++inline int transferInput(int limit,bool boosted){return boosted?int(std::floor(std::max(0,limit)/1.5)):std::max(0,limit);}
++constexpr int AreaTargetCap=5;
++} }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealDamageCommand.h
+@@ -2,6 +2,8 @@
+ #include "CoreCuMedicine.h"
+ #include "SwgxrSpiceMedicine.h"
+ #include "SwgxrVitalFeedback.h"
++#include <algorithm>
++#include <vector>
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions.*/
+@@ -270,7 +272,7 @@
+ 			if (rangeStim == nullptr)
+ 				return;
+ 
+-			uint32 stimPower = CoreCuMedicine::injury(creature, targetCreature, rangeStim->calculatePower(creature, targetCreature),false);
++			uint32 stimPower = CoreCuMedicine::combatStim(creature, targetCreature, rangeStim);
+ 
+ 			Vector<byte> atts = stimPack->getAttributes();
+ 			int healthHealed = 0, actionHealed = 0, mindHealed = 0;
+@@ -313,69 +315,43 @@
+ 		}
+ 	}
+ 
+-	void handleArea(CreatureObject* creature, CreatureObject* areaCenter, StimPack* pharma, float range) const {
+-
+-		// TODO: Replace this with a CombatManager::getAreaTargets() call
+-
+-		Zone* zone = creature->getZone();
+-
+-		if (zone == nullptr)
+-			return;
+-
+-		try {
+-			//zone->rlock();
+-
+-			CloseObjectsVector* closeObjectsVector = (CloseObjectsVector*) areaCenter->getCloseObjects();
+-
+-			SortedVector<TreeEntry*> closeObjects;
+-			closeObjectsVector->safeCopyReceiversTo(closeObjects, CloseObjectsVector::CREOTYPE);
+-
+-			for (int i = 0; i < closeObjects.size(); i++) {
+-				SceneObject* object = static_cast<SceneObject*>( closeObjects.get(i));
+-
+-				if (!object->isPlayerCreature() && !object->isPet())
+-					continue;
+-
+-				if (object == areaCenter || object->isDroidObject())
+-					continue;
+-
+-				if (areaCenter->getWorldPosition().distanceTo(object->getWorldPosition()) - object->getTemplateRadius() > range)
+-					continue;
+-
+-				CreatureObject* creatureTarget = cast<CreatureObject*>( object);
+-
+-				if (creatureTarget->isAttackableBy(creature))
+-					continue;
+-
+-				if (!creatureTarget->isHealableBy(creature))
+-					continue;
+-
+-				if (creature != creatureTarget && checkForArenaDuel(creatureTarget))
+-					continue;
+-
+-				//zone->runlock();
+-
+-				try {
+-
+-					Locker crossLocker(creatureTarget, creature);
+-
+-					if (checkTarget(creature, creatureTarget)) {
+-						doAreaMedicActionTarget(creature, creatureTarget, pharma);
+-					}
+-
+-				} catch (Exception& e) {
+-
+-				}
+-
+-				//zone->rlock();
+-
+-			}
+-
+-			//zone->runlock();
+-		} catch (Exception& e) {
+-			//zone->runlock();
+-		}
+-	}
++    bool areaTargetEligible(CreatureObject* creature, CreatureObject* areaCenter, CreatureObject* patient, float range) const {
++        if (!patient || patient == areaCenter || patient->getZone() != creature->getZone() ||
++            (!patient->isPlayerCreature() && !patient->isPet()) || patient->isDroidObject() ||
++            patient->isRidingMount() || patient->isDead() || !patient->hasDamage(CreatureAttribute::HEALTH)) return false;
++        if (areaCenter->getWorldPosition().distanceTo(patient->getWorldPosition()) - patient->getTemplateRadius() > range) return false;
++        if (patient->isAttackableBy(creature) || !patient->isHealableBy(creature) ||
++            (patient != creature && checkForArenaDuel(patient))) return false;
++        return checkTarget(creature, patient);
++    }
++
++    void handleArea(CreatureObject* creature, CreatureObject* areaCenter, StimPack* pharma, float range) const {
++        if (!creature->getZone() || !areaCenter || areaCenter->getZone() != creature->getZone() || range <= 0) return;
++        auto nearby = areaCenter->getCloseObjects();
++        if (!nearby) return;
++        SortedVector<TreeEntry*> objects;
++        nearby->safeCopyReceiversTo(objects, CloseObjectsVector::CREOTYPE);
++        std::vector<ManagedReference<CreatureObject*>> patients;
++        for (int i = 0; i < objects.size(); ++i) {
++            auto object = static_cast<SceneObject*>(objects.get(i));
++            if (!object->isCreatureObject()) continue;
++            auto patient = object->asCreatureObject();
++            Locker lock(patient, creature);
++            if (areaTargetEligible(creature, areaCenter, patient, range)) patients.push_back(patient);
++        }
++        std::sort(patients.begin(), patients.end(), [&](const ManagedReference<CreatureObject*>& a, const ManagedReference<CreatureObject*>& b) {
++            double x = areaCenter->getDistanceTo(a), y = areaCenter->getDistanceTo(b);
++            return x == y ? a->getObjectID() < b->getObjectID() : x < y;
++        });
++        int treated = 1; // Primary patient already received this pack's treatment.
++        for (const auto& patient : patients) {
++            if (treated >= corecu::combatmedichealing::AreaTargetCap) break;
++            Locker lock(patient, creature);
++            if (!areaTargetEligible(creature, areaCenter, patient, range)) continue;
++            doAreaMedicActionTarget(creature, patient, pharma);
++            ++treated;
++        }
++    }
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+ 		SwgxrVitalFeedback::MedicalAction feedbackScope;
+@@ -443,10 +419,7 @@
+ 		float rangeToCheck = 7;
+ 
+ 		if (stimPack->isRangedStimPack()) {
+-			float packRange = (cast<RangedStimPack*>(stimPack.get()))->getRange();
+-			float healRange = (float)(creature->getSkillMod("healing_range") / 100.0f) * 14;
+-
+-			rangeToCheck = packRange + healRange;
++            rangeToCheck = CoreCuMedicine::combatStimRange(creature, stimPack);
+ 		}
+ 
+ 		if(!checkDistance(creature, targetCreature, rangeToCheck))
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealMindCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealMindCommand.h
+@@ -11,16 +11,12 @@
+ #include "server/zone/managers/collision/CollisionManager.h"
+ 
+ class HealMindCommand : public QueueCommand {
+-	float mindCost;
+-	float mindWoundCost;
+ 	float range;
+ public:
+ 
+ 	HealMindCommand(const String& name, ZoneProcessServer* server)
+ 		: QueueCommand(name, server) {
+ 
+-		mindCost = 250;
+-		mindWoundCost = 250;
+ 		range = 5;
+ 	}
+ 
+@@ -121,10 +117,6 @@
+ 			return GENERALERROR;
+ 		}
+ 
+-		if (creature->getHAM(CreatureAttribute::MIND) <= CoreCuMedicine::mind(creature,name,mindCost)) {
+-			creature->sendSystemMessage("@healing_response:not_enough_mind"); //You do not have enough mind to do that.
+-			return GENERALERROR;
+-		}
+ 
+ 		if (!(creatureTarget->hasDamage(CreatureAttribute::MIND))) {
+ 			if (creatureTarget->isPlayerCreature()) {
+@@ -153,20 +145,26 @@
+ 			return GENERALERROR;
+ 		}
+ 
+-		float modSkill = (float) creature->getSkillMod("combat_medic_effectiveness");
+-		int healPower = corecu::medicine::injury(creatureTarget->getMaxHAM(6)-creatureTarget->getWounds(6),modSkill,1.0);
+-
+-		// Check BF
+-		healPower = (int) (healPower * creature->calculateBFRatio());
+-
+-		int healedMind = creatureTarget->healDamage(creature, CreatureAttribute::MIND, healPower);
++        int healPower = CoreCuMedicine::mindTransferInput(creature, creatureTarget);
++        if (healPower <= 0) {
++            creature->sendSystemMessage("Insufficient transferable Mind.");
++            return GENERALERROR;
++        }
++        const int beforeMind = creatureTarget->getHAM(CreatureAttribute::MIND);
++        int healedMind = creatureTarget->healDamage(creature, CreatureAttribute::MIND, healPower);
++        // Native withdrawal returns a visual healing amount while harming Health.
++        // Only a measured Mind increase is a transfer and carries a Mind payment.
++        const int transferredMind = std::max(0, creatureTarget->getHAM(CreatureAttribute::MIND) - beforeMind);
++        if (transferredMind > 0) {
++            SwgxrSpice::HamAdjustment adjustment;
++            creature->setHAM(CreatureAttribute::MIND, creature->getHAM(CreatureAttribute::MIND) - transferredMind, true);
++        }
+ 
+ 		if (creature->isPlayerCreature()) {
+ 			playerManager->sendBattleFatigueMessage(creature, creatureTarget);
+ 		}
+ 
+ 		sendHealMessage(creature, creatureTarget, healedMind);
+-        creature->inflictDamage(creature,CreatureAttribute::MIND,CoreCuMedicine::mind(creature,name,mindCost),false);
+         CoreCuMedicine::commit(creature,name);
+ 
+ 		doAnimations(creature, creatureTarget);
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/RangedStimPackImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/RangedStimPackImplementation.cpp
+@@ -1,11 +1,20 @@
+ 
+ #include "server/zone/objects/tangible/pharmaceutical/RangedStimPack.h"
++#include "server/zone/objects/creature/commands/CoreCuMedicine.h"
+ #include "server/zone/packets/scene/AttributeListMessage.h"
+ #include "templates/params/creature/CreatureAttribute.h"
+ 
+ void RangedStimPackImplementation::fillAttributeList(AttributeListMessage* msg, CreatureObject* object) {
+ 	StimPackImplementation::fillAttributeList(msg, object);
+ 
++    if (object && object->isPlayerCreature()) {
++        int power = CoreCuMedicine::combatStim(object, object, _this.getReferenceUnsafeStaticCast(), false);
++        double maximum = std::max(1, object->getMaxHAM(0) - object->getWounds(0));
++        msg->insertAttribute("Treatment", String::valueOf(Math::getPrecision(100.*power/maximum,2))+"% effective maximum Health");
++        msg->insertAttribute("Healing preview", String::valueOf(power)+" Health per patient for your skill and Health pool; before patient battle fatigue and spice effects");
++        msg->insertAttribute("Patients", isArea()?"Up to 5 including the primary patient; nearest eligible injured patients":"One patient");
++        msg->insertAttribute("examine_heal_range", Math::getPrecision(CoreCuMedicine::combatStimRange(object, _this.getReferenceUnsafeStaticCast()), 1));
++    } else {
+ 	Vector<byte> atts = getAttributes();
+ 
+ 	if (atts.contains(CreatureAttribute::HEALTH)) {
+@@ -20,7 +29,8 @@
+ 		msg->insertAttribute("examine_heal_damage_mind", Math::getPrecision(effectiveness, 0));
+ 	}
+ 
+-	msg->insertAttribute("examine_heal_range", Math::getPrecision(range, 0));
++        msg->insertAttribute("examine_heal_range", Math::getPrecision(range, 0));
++    }
+ 
+ 	if (isArea()) {
+ 		msg->insertAttribute("examine_heal_area", Math::getPrecision(area, 0));

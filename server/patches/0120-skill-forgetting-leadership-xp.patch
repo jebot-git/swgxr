@@ -1,0 +1,156 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSkillForgetting.h
+@@ -0,0 +1,44 @@
++#ifndef SWGXR_SKILL_FORGETTING_H
++#define SWGXR_SKILL_FORGETTING_H
++#include "server/zone/managers/skill/SkillManager.h"
++#include <set>
++// The original skill graph, modifiers, certificates and point accounting remain
++// SkillManager-owned. Never recursively surrender prerequisites or refund XP.
++class SwgxrSkillForgetting {
++ using Json=JSONSerializationType;
++ static std::string text(const String& name){return name.toCharArray();}
++ static bool supported(Skill* skill){
++  if(!skill || skill->isHidden() || skill->isGodOnly())return false;
++  std::set<std::string> seen;auto parent=SkillManager::instance()->getSkill(skill->getParentName());
++  while(parent && seen.insert(text(parent->getSkillName())).second){if(parent->isSkill())return !parent->isHidden() && !parent->isGodOnly();parent=SkillManager::instance()->getSkill(parent->getParentName());}
++  return false;
++ }
++ static bool depends(Skill* skill,const std::string& target,std::set<std::string>& seen){
++  if(!skill || !seen.insert(text(skill->getSkillName())).second)return false;
++  auto requirements=skill->getSkillsRequired();
++  for(int i=0;i<requirements->size();++i){auto required=requirements->get(i);if(text(required)==target || depends(SkillManager::instance()->getSkill(required),target,seen))return true;}
++  return false;
++ }
++public:
++ static Json row(CreatureObject* c,const std::string& name){
++  Json blockers=Json::array();auto skill=SkillManager::instance()->getSkill(String(name.c_str()));std::string reason;
++  if(!supported(skill))reason="This skill cannot be forgotten here.";
++  else if(!c->hasSkill(String(name.c_str())))reason="This skill is not learned.";
++  else {
++   auto learned=c->getSkillList();for(int i=0;i<learned->size();++i){auto other=learned->get(i);if(other==skill)continue;std::set<std::string> seen;if(depends(other,name,seen))blockers.push_back(text(other->getSkillName()));}
++   if(!blockers.empty())reason="Forget the learned skills that depend on this skill first.";
++   else if(c->isDead() || c->isIncapacitated() || c->isInCombat())reason="Leave combat before forgetting a skill.";
++  }
++  return {{"skill_id",name},{"eligible",reason.empty()},{"reason",reason},{"refunded_points",skill?skill->getSkillPointsRequired():0},{"blocking_skills",blockers}};
++ }
++ static Json snapshot(CreatureObject* c){
++  Json out=Json::array();auto list=c->getSkillList();for(int i=0;i<list->size();++i){auto name=text(list->get(i)->getSkillName());if(supported(list->get(i)))out.push_back(row(c,name));}return out;
++ }
++ static Json forget(CreatureObject* c,const std::string& name){
++  auto eligibility=row(c,name);if(!eligibility["eligible"].get<bool>())throw std::runtime_error(eligibility["reason"].get<std::string>());
++  auto ghost=c->getPlayerObject();int before=ghost->getSkillPoints();
++  if(!SkillManager::instance()->surrenderSkill(String(name.c_str()),c,true,true,true) || c->hasSkill(String(name.c_str())))throw std::runtime_error("native_skill_forgetting_rejected");
++  return {{"skill_id",name},{"refunded_points",ghost->getSkillPoints()-before},{"skill_points",ghost->getSkillPoints()},{"message","Skill forgotten. Skill points returned; training credits and experience are not refunded."}};
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/LeadershipExperiencePolicy.h
+@@ -0,0 +1,18 @@
++#ifndef SWGXR_LEADERSHIP_EXPERIENCE_POLICY_H
++#define SWGXR_LEADERSHIP_EXPERIENCE_POLICY_H
++#include <string>
++#include <cstdint>
++class LeadershipExperiencePolicy {
++public:
++ // combat_general is a second award for the same damage, so never share it.
++ // No leadership, crafting, mission cash, pet, pilot or Jedi award can recurse.
++ static bool source(const std::string& name){
++  return name=="combat_rangedspecialize_pistol" || name=="combat_rangedspecialize_carbine" || name=="combat_rangedspecialize_rifle" || name=="combat_rangedspecialize_heavy" || name=="combat_meleespecialize_unarmed" || name=="combat_meleespecialize_onehand" || name=="combat_meleespecialize_twohand" || name=="combat_meleespecialize_polearm";
++ }
++ static int share(int actualEarned,int& remainder){
++  if(actualEarned<=0)return 0;
++  int64_t tenths=int64_t(actualEarned)+(remainder>=0 && remainder<10?remainder:0);
++  remainder=int(tenths%10);return int(tenths/10);
++ }
++};
++#endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLeadershipExperience.h
+@@ -0,0 +1,39 @@
++#ifndef SWGXR_LEADERSHIP_EXPERIENCE_H
++#define SWGXR_LEADERSHIP_EXPERIENCE_H
++#include "LeadershipExperiencePolicy.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/group/GroupObject.h"
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/ZoneServer.h"
++#include <vector>
++// Reward source is native cap-clamped XP, never a client receipt or damage claim.
++class SwgxrLeadershipExperience {
++ static bool eligible(CreatureObject* source,CreatureObject* leader,GroupObject* group){
++  if(!source || !leader || source==leader || !group || !leader->isPlayerCreature() || !leader->isOnline() || leader->getZone()==nullptr || leader->getZone()!=source->getZone() || leader->getGroup()!=group || source->getGroup()!=group || !leader->hasSkill("outdoors_squadleader_novice"))return false;
++  auto a=source->getPlayerObject();auto b=leader->getPlayerObject();return a && b && a->getAccountID()!=b->getAccountID();
++ }
++public:
++ static void earned(CreatureObject* source,const String& xpType,int actualEarned){
++  if(!source || actualEarned<=0 || !LeadershipExperiencePolicy::source(xpType.toCharArray()) || !source->isPlayerCreature())return;
++  ManagedReference<GroupObject*> group=source->getGroup();if(!group)return;
++  ManagedReference<CreatureObject*> earner=source;
++  // Capture recipients at earning time. New joiners cannot claim older awards.
++  std::vector<ManagedReference<CreatureObject*>> recipients;
++  {Locker groupLock(group,source);for(int i=0;i<group->getGroupSize();++i){auto member=group->getGroupMember(i);if(eligible(source,member,group))recipients.push_back(member);}}
++  if(recipients.empty())return;
++  // PlayerManager callers can hold victim/player locks. Defer cross-player writes
++  // to avoid acquiring party member locks while those combat locks are held.
++  Core::getTaskManager()->executeTask([earner,group,recipients,actualEarned](){
++   Locker sourceLock(earner);
++   for(const auto& member:recipients){Locker memberLock(member,earner);if(!eligible(earner,member,group))continue;
++    auto ghost=member->getPlayerObject();auto saved=ghost->getScreenPlayData("swgxr_leadership","tenths");int remainder=0;
++    if(saved.length()==1 && saved.charAt(0)>='0' && saved.charAt(0)<='9')remainder=saved.charAt(0)-'0';
++    int award=LeadershipExperiencePolicy::share(actualEarned,remainder);
++    ghost->setScreenPlayData("swgxr_leadership","tenths",String(std::to_string(remainder).c_str()));
++    if(award>0)member->getZoneServer()->getPlayerManager()->awardExperience(member,"squadleader",award,true,1.f,false,false);
++   }
++  },"SwgxrLeadershipExperience");
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainers.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrTrainers.h
+@@ -1,6 +1,7 @@
+ #ifndef SWGXR_TRAINERS_H
+ #define SWGXR_TRAINERS_H
+ #include "SwgxrTrainerCatalog.h"
++#include "SwgxrSkillForgetting.h"
+ #include "server/zone/objects/creature/ai/AiAgent.h"
+ #include "server/zone/objects/creature/ai/CreatureTemplate.h"
+ #include "server/zone/managers/skill/SkillManager.h"
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -73,6 +73,7 @@
+   out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   SwgxrDelivery::snapshot(c,out);SwgxrVendorPlacement::snapshot(c,out);for(auto& row:out["placed_vendors"]){auto v=c->getZoneServer()->getObject(std::stoull(row["id"].get<std::string>()));if(row["owner_id"]==id(c))row["customization_controls"]=SwgxrVendorCommerce::controls(v);}
+   if(r.value("action",std::string())=="delivery_open" || r.value("action",std::string())=="delivery_pickup")out["terminal"]=SwgxrDelivery::open(c,r);
++  out["forget_skills"]=SwgxrSkillForgetting::snapshot(c);out["skill_points"]=c->getPlayerObject()->getSkillPoints();
+   out["skills"]=SwgxrTrainers::skills(c);out["skills_complete"]=true;out["experience"]=SwgxrTrainers::experience(c);out["experience_complete"]=true;
+   out["player"]["appearance"]={{"template",str(c->getObjectTemplate()->getFullTemplateString())},{"client_crc",c->getClientObjectCRC()},{"customization_hex",hex},{"height",c->getHeight(false)}};
+   SortedVector<TreeEntry*> objects;auto w=c->getWorldPosition();c->getZone()->getInRangeObjects(w.getX(),w.getZ(),w.getY(),64,&objects,true);
+@@ -100,6 +101,7 @@
+   else if(action=="vendor_place"){auto placed=SwgxrVendorPlacement::place(c,r);for(auto it=placed.begin();it!=placed.end();++it)result[it.key()]=it.value();}
+   else if(action.rfind("recruiter_",0)==0 || action=="contraband_answer"){ManagedReference<SceneObject*> npc;if(action!="contraband_answer")npc=nearby(c,r,"recruiter");auto changed=SwgxrGcw::mutate(c,npc,r);for(auto& field:changed.items())result[field.key()]=field.value();}
+   else if(action.rfind("bounty_",0)==0){auto update=SwgxrBounty::mutate(c,r);for(auto& entry:update.items())result[entry.key()]=entry.value();}
++  else if(action=="skill_forget"){auto forgotten=SwgxrSkillForgetting::forget(c,r.at("skill_id").get<std::string>());for(auto it=forgotten.begin();it!=forgotten.end();++it)result[it.key()]=it.value();}
+   else if(action=="trainer_train"){auto t=nearby(c,r,"trainer");auto trained=SwgxrTrainers::train(c,t,r.at("skill_id").get<std::string>());for(auto it=trained.begin();it!=trained.end();++it)result[it.key()]=it.value();}
+   else if(action=="bank_transfer"){nearby(c,r,"bank");int n=amount(r);auto direction=r.at("direction").get<std::string>();int64 cash=c->getCashCredits(),bank=c->getBankCredits();if(direction=="deposit"){cash-=n;bank+=n;}else if(direction=="withdraw"){cash+=n;bank-=n;}else throw std::runtime_error("invalid_transfer_direction");if(cash<0 || bank<0 || cash>2147483647 || bank>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");c->transferCredits(int(cash),int(bank),true);if(c->getCashCredits()!=cash || c->getBankCredits()!=bank)throw std::runtime_error("native_transfer_rejected");}
+   else if(action=="pay"){auto target=c->getZoneServer()->getObject(oid(r,"target_id")).castTo<CreatureObject*>();auto payment=SwgxrSmugglerWallet::pay(c,target,r);for(auto& field:payment.items())result[field.key()]=field.value();}
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -13,6 +13,7 @@
+ 
+ #include "server/zone/managers/player/SwgxrPveRewardPolicy.h"
+ #include "server/zone/managers/player/PlayerManager.h"
++#include "server/zone/objects/creature/commands/SwgxrLeadershipExperience.h"
+ #include <utility>
+ #include <mutex>
+ 
+@@ -2633,6 +2634,7 @@
+ 		}
+ 	}
+ 
++	SwgxrLeadershipExperience::earned(player, xpType, xp);
+ 	return xp;
+ }
+ 

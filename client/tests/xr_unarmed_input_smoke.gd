@@ -2,7 +2,7 @@ extends "res://tests/xr_combat_input_smoke.gd"
 const Target = preload("res://combat/training_target.gd")
 func run() -> void:
 	create_timer(30).timeout.connect(func(): quit(2))
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"))
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"))
 	var origin:XROrigin3D=load("res://xr/player_rig.tscn").instantiate()
 	var head_tracker:=XRPositionalTracker.new(); head_tracker.name="head"; head_tracker.type=XRServer.TRACKER_HEAD
 	head_tracker.set_pose("default",Transform3D(Basis.IDENTITY,Vector3(0,1.7,0)),Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH)

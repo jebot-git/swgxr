@@ -17,8 +17,10 @@ from collections import deque
 from pathlib import Path
 try:
  from .multiplayer_sync import HUB as WORLD_SYNC
+ from .jtl_presence import HUB as JTL_PRESENCE
 except ImportError:
  from multiplayer_sync import HUB as WORLD_SYNC
+ from jtl_presence import HUB as JTL_PRESENCE
 try:
  from .character_protocol import template_names,decode_customization
 except ImportError:
@@ -63,6 +65,7 @@ class LiveCombatHub:
   try:VOICE_STATE.remove(account.lower())
   except OSError:pass
   WORLD_SYNC.remove(account.lower())
+  JTL_PRESENCE.remove(account.lower())
   try:
    if active['process'].poll() is None:
     self._exchange(active,{'action':'stop','session_id':active['id']},timeout=2)
@@ -72,6 +75,7 @@ class LiveCombatHub:
    if active['process'].poll() is None:active['process'].terminate()
   # The final native stop reply can publish once more; clear it after IPC too.
   WORLD_SYNC.remove(account.lower())
+  JTL_PRESENCE.remove(account.lower())
   try:VOICE_STATE.remove(account.lower())
   except OSError:pass
   active['options'].unlink(missing_ok=True)
@@ -80,7 +84,7 @@ class LiveCombatHub:
   # Bounded local diagnostics; never retain credentials or entire actor snapshots.
   action=command.get('action','unknown');counts=active.setdefault('action_counts',{})
   counts[action]=counts.get(action,0)+1
-  if action not in ('start','fire','melee','taunt','impact','stop','life') and not result.get('error_code'):return
+  if action not in ('start','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','life') and not result.get('error_code'):return
   mutation=result.get('mutation',{});snap=result.get('snapshot',{});player=snap.get('player',{})
   entry={'time_unix':time.time(),'action':action,'sequence':result.get('sequence'),
    'life_action':command.get('life_action'),'shot_id':command.get('shot_id'),'item_id':command.get('item_id'),'target_id':mutation.get('target_id',command.get('target_id')),'taunted':mutation.get('taunted'),
@@ -136,7 +140,13 @@ class LiveCombatHub:
    try:from .chatter_protocol import normalize as normalize_speech
    except ImportError:from chatter_protocol import normalize as normalize_speech
    snapshot['player']['npc_speech']=normalize_speech(snapshot['player']['npc_speech'],snapshot['player'],world)
-  for actor in snapshot.get('actors',[])+world.get('actors',[])+world.get('players',[])+world.get('deployments',[])+world.get('spice_outlines',[]):
+  actors=snapshot.get('actors',[])+world.get('actors',[])+world.get('players',[])+world.get('deployments',[])+world.get('spice_outlines',[])
+  # JtL publishes the same native public appearance in its ship-local roster.
+  # Normalize each wire copy used by mutation, session and scene consumers.
+  for ship_state in (snapshot.get('jtl'),snapshot.get('player',{}).get('jtl'),result.get('mutation',{}).get('jtl')):
+   if isinstance(ship_state,dict) and isinstance(ship_state.get('ship'),dict):
+    actors+=ship_state['ship'].get('crew',[])
+  for actor in actors:
    visual(actor)
    appearance=actor.get('appearance')
    if isinstance(appearance,dict):
@@ -199,9 +209,31 @@ class LiveCombatHub:
   account=account.lower()
   active=self.active_for(account)
   if not active or active['account']!=account or active['character_id']!=str(data.get('character_id','')) or active['id']!=data.get('session_id'):raise LiveConflict('Live session identity does not match this owned character.')
-  if action not in ('snapshot','loadout','update','fire','melee','taunt','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer'):raise ValueError('Unsupported live combat action.')
-  fields={'loadout':('item_id','loadout'),'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
-  command={'action':action,'session_id':active['id'],**planet_context(data)}
+  if action not in ('snapshot','loadout','update','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer','jtl'):raise ValueError('Unsupported live combat action.')
+  fields={'jtl':('jtl',),'loadout':('item_id','loadout'),'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'warcry':('shot_id','item_id','origin','direction'),'pistoleer':('shot_id','item_id','ability_id','origin','direction'),'pikeman':('shot_id','item_id','ability_id','origin','direction'),'fencer':('shot_id','item_id','ability_id','origin','direction'),'swordsman':('shot_id','item_id','ability_id','origin','direction'),'tka':('shot_id','item_id','ability_id','origin','direction'),'brawler_buff':('shot_id','item_id','ability_id'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
+  if action in ('carbineer','rifleman','commando','bountyhunter'):fields=('shot_id','item_id','ability_id','origin','direction','two_hands')
+  if action=='squadleader':fields=('shot_id','item_id','ability_id','target_id','origin','direction')
+  if action=='jtl':
+   try:from .jtl_protocol import command as jtl_command, context as jtl_context
+   except ImportError:from jtl_protocol import command as jtl_command, context as jtl_context
+   intent=data.get('jtl')
+   if not isinstance(intent,dict):raise ValueError('JtL intent required.')
+   data=dict(data,jtl=jtl_command(intent.get('action'),intent))
+   if data['jtl']['action']=='crew_join':
+    try:from .services_presence import HUB as presence
+    except ImportError:from services_presence import HUB as presence
+    crew=data['jtl']
+    proof=presence.authorize_crew_handshake(account,active['character_id'],crew['pilot_id'],crew['launch_id'],crew['request_id'],crew['crew_handshake_id'])
+    crew['handshake_authorized']=True
+    crew['handshake_receipt_only']=proof['receipt_only']
+   source_context=jtl_context(data)
+  elif action=='session' and isinstance(data.get('session'),dict) and data['session'].get('action')=='logout' and data['session'].get('zone',data['session'].get('planet'))=='space_tatooine':
+   # The native session helper restores the owned ship's actual ground return
+   # and checks its persistent receipt before applying movement. Omit the outer
+   # ground-zone fence so a lost logout reply can be replayed after landing.
+   source_context={}
+  else:source_context=planet_context(data)
+  command={'action':action,'session_id':active['id'],**source_context}
   for key in fields:
    if key not in data and key!='heading_radians':raise ValueError('Missing '+key)
    command['life_action' if action=='life' and key=='action' else key]=data.get(key,0)
@@ -215,11 +247,114 @@ class LiveCombatHub:
    try:from .combat_loadout_protocol import validate
    except ImportError:from combat_loadout_protocol import validate
    command['loadout']=validate(data.get('loadout'))
-  if action=='life' and command.get('life_action') not in ('recover','medical_transport'):raise ValueError('Unsupported life action.')
+  if action=='life' and command.get('life_action') not in ('recover','force_of_will','medical_transport'):raise ValueError('Unsupported life action.')
+  if any(key in data for key in ('volley_id','volley_index')) and not (action=='fire' and data.get('ability_id') in ('showdown','flurry_shot')):raise ValueError('Volley metadata is only valid for Showdown or Flurry Shot fire.')
+  if action=='squadleader':
+   try:from .squad_leader_protocol import validate_cast
+   except ImportError:from squad_leader_protocol import validate_cast
+   validate_cast(data)
+  if action=='bountyhunter':
+   ability=data.get('ability_id')
+   if ability not in ('underhand_shot','duelist_stance'):raise ValueError('Unsupported Bounty Hunter gesture.')
+   if type(data.get('two_hands')) is not bool:raise ValueError('two_hands must be boolean.')
+   if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Bounty Hunter shot_id.')
+   if ability=='underhand_shot':
+    if data['two_hands'] is not True:raise ValueError('Underhand Shot requires two_hands true.')
+    if 'target_id' in data:raise ValueError('Underhand arming is not target-bound.')
+   else:
+    value=data.get('target_id')
+    if not isinstance(value,str) or not value.isascii() or not value.isdigit() or not 0<int(value)<2**64:raise ValueError('Duelist Stance requires target_id.')
+    command['target_id']=value
+  if action=='pistoleer':
+   if data.get('ability_id') not in ('fan_shot','run_and_gun'):raise ValueError('Unsupported Pistoleer gesture.')
+   if 'target_id' in data:raise ValueError('Pistoleer gesture targets are selected by the server.')
+   if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Pistoleer gesture shot_id.')
+  if action=='carbineer':
+   if data.get('ability_id') not in ('full_auto_sweep','tactical_brace','charge_blast'):raise ValueError('Unsupported Carbineer ability.')
+   if 'target_id' in data:raise ValueError('Carbineer area targets are selected by the server.')
+   if data.get('two_hands') is not True:raise ValueError('Carbineer ability requires two_hands true.')
+   if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Carbineer shot_id.')
+  if action=='rifleman':
+   if data.get('ability_id')!='rifleman_focus':raise ValueError('Unsupported Rifleman gesture.')
+   if 'target_id' in data:raise ValueError('Rifleman Focus is self-only.')
+   if data.get('two_hands') is not True:raise ValueError('Rifleman Focus requires two_hands true.')
+   if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Rifleman shot_id.')
+  if action=='commando':
+   ability=data.get('ability_id')
+   if ability not in ('','focused_discharge','acid_spray','overdrive'):raise ValueError('Unsupported Commando discharge.')
+   if type(data.get('two_hands')) is not bool:raise ValueError('two_hands must be boolean.')
+   if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Commando shot_id.')
+   if ability in ('focused_discharge','acid_spray'):
+    value=data.get('target_id')
+    if not isinstance(value,str) or not value.isascii() or not value.isdigit() or not 0<int(value)<2**64:raise ValueError('Commando discharge requires target_id.')
+    command['target_id']=value
+   elif 'target_id' in data:raise ValueError('Commando area and self targets are selected by the server.')
+  if action=='pikeman':
+   ability=data.get('ability_id')
+   if ability not in ('knockdown_strike','polearm_stun','pinning_strike','disrupting_jab','overhead_whirl','sweeping_trip','driving_jabs','whirlwind'):raise ValueError('Unsupported Pikeman ability.')
+   if ability in ('overhead_whirl','sweeping_trip','driving_jabs','whirlwind'):
+    if 'target_id' in data:raise ValueError('Gesture targets are selected by the server.')
+   else:
+    if not data.get('target_id'):raise ValueError('Pikeman ability requires target_id.')
+    command['target_id']=data['target_id']
+  if action=='fencer':
+   ability=data.get('ability_id')
+   if ability not in ('arterial_cut','nerve_strike','disorienting_thrust','exposing_thrust','probing_jabs','raking_slash','guard_bash','flawless_assault'):raise ValueError('Unsupported Fencer ability.')
+   if ability in ('probing_jabs','raking_slash','guard_bash','flawless_assault'):
+    if 'target_id' in data:raise ValueError('Gesture targets are selected by the server.')
+   else:
+    if not data.get('target_id'):raise ValueError('Fencer ability requires target_id.')
+    command['target_id']=data['target_id']
+  if action=='swordsman':
+   ability=data.get('ability_id')
+   if ability not in ('rending_cut','disrupting_blow','hamstring','decisive_strike','overhead_cleave','ground_slam','armour_break'):raise ValueError('Unsupported Swordsman ability.')
+   if ability in ('overhead_cleave','ground_slam'):
+    if 'target_id' in data:raise ValueError('Gesture targets are selected by the server.')
+   else:
+    if not data.get('target_id'):raise ValueError('Swordsman ability requires target_id.')
+    command['target_id']=data['target_id']
+  if action=='tka' and data.get('ability_id') not in ('tka_sweep','tka_half_spin','tka_volley','indomitable_focus'):raise ValueError('Unsupported Teras Kasi ability.')
+  if action=='brawler_buff' and data.get('ability_id') not in ('center_of_being','berserk'):raise ValueError('Unsupported Brawler buff.')
+  if action=='melee' and 'ability_id' in data:
+   if data['ability_id'] not in ('knockdown_strike','unarmed_stun','unarmed_blind','polearm_stun','challenging_strike'):raise ValueError('Unsupported native melee ability.')
+   if not data.get('target_id'):raise ValueError('Melee ability requires target_id.')
+   command['ability_id']=data['ability_id'];command['target_id']=data['target_id']
+  if action=='fire':
+   if 'two_hands' in data:
+    if type(data['two_hands']) is not bool:raise ValueError('two_hands must be boolean.')
+    command['two_hands']=data['two_hands']
+   if 'firing_posture' in data:
+    if data['firing_posture'] not in ('standing','crouched','prone'):raise ValueError('Invalid firing_posture.')
+    command['firing_posture']=data['firing_posture']
   if action=='fire' and 'ability_id' in data:
-   if data['ability_id'] not in ('lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved'):raise ValueError('Unsupported native ranged ability.')
+   if data['ability_id'] not in ('lethal_shot','last_ditch','low_blow','restraining_shot','concussion_shot_improved','suppression_fire','warning_shot','controlled_burst','bleeding_shot','double_tap','disarming_shot','showdown','crippling_shot','wild_shot','charge_shot','piercing_shot','flurry_shot','surprise_shot','sniper_shot','focused_discharge','eye_shot','confusion_shot','underhand_shot','fast_blast'):raise ValueError('Unsupported native ranged ability.')
+   if data['ability_id'] in ('eye_shot','confusion_shot','underhand_shot','fast_blast'):
+    value=data.get('target_id')
+    if (data['ability_id']!='underhand_shot' or 'target_id' in data) and (not isinstance(value,str) or not value.isascii() or not value.isdigit() or not 0<int(value)<2**64):raise ValueError('Bounty Hunter attack requires a valid target_id.')
+    if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid Bounty Hunter shot_id.')
+    if data['ability_id'] in ('confusion_shot','underhand_shot') and data.get('two_hands') is not True:raise ValueError('Bounty Hunter carbine attack requires two_hands true.')
+   if data['ability_id'] in ('suppression_fire','warning_shot','controlled_burst','bleeding_shot') and not data.get('target_id'):raise ValueError('Marksman ability requires target_id.')
+   if data['ability_id'] in ('double_tap','disarming_shot','showdown') and not data.get('target_id'):raise ValueError('Pistoleer ability requires target_id.')
+   if data['ability_id'] in ('crippling_shot','wild_shot','charge_shot') and not data.get('target_id'):raise ValueError('Carbineer ability requires target_id.')
+   if data['ability_id'] in ('piercing_shot','flurry_shot','surprise_shot','sniper_shot') and not data.get('target_id'):raise ValueError('Rifleman ability requires target_id.')
+   if data['ability_id']=='focused_discharge' and not data.get('target_id'):raise ValueError('Focused Discharge requires target_id.')
+   if data['ability_id']=='sniper_shot' and data.get('two_hands') is not True:raise ValueError('Sniper Shot requires two_hands true.')
+   if data['ability_id'] in ('showdown','flurry_shot'):
+    volley_name='Showdown' if data['ability_id']=='showdown' else 'Flurry Shot'
+    volley_id=data.get('volley_id');volley_index=data.get('volley_index')
+    if not isinstance(volley_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',volley_id):raise ValueError('Invalid '+volley_name+' volley_id.')
+    if type(volley_index) is not int or not 0<=volley_index<=2:raise ValueError('Invalid '+volley_name+' volley_index.')
+    if volley_index==0 and volley_id!=data['shot_id']:raise ValueError(volley_name+' first shot must identify its volley.')
+    if not isinstance(data.get('shot_id'),str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,80}',data['shot_id']):raise ValueError('Invalid '+volley_name+' shot_id.')
+    command['volley_id']=volley_id;command['volley_index']=volley_index
    command['ability_id']=data['ability_id']
    if 'target_id' in data:command['target_id']=data['target_id']
+  try:from .squad_leader_protocol import mark_intent
+  except ImportError:from squad_leader_protocol import mark_intent
+  command.update(mark_intent(data,action,command.get('ability_id',''),data.get('target_id')))
+  try:from .bounty_combat_protocol import contact_fields
+  except ImportError:from bounty_combat_protocol import contact_fields
+  command.update(contact_fields(data,action))
   if action=='update':
    if 'guard_pose' in data:
     try:from .physical_guard_protocol import pose as guard_pose
@@ -267,6 +402,7 @@ class LiveCombatHub:
    try:VOICE_STATE.remove(account)
    except OSError:pass
    WORLD_SYNC.remove(account)
+   JTL_PRESENCE.remove(account)
    (active['folder']/'final.json').unlink(missing_ok=True)
   elif not result.get('session_live'):
    self.close(account);raise LiveConflict(result.get('error_code','Native session lost.'))

@@ -33,7 +33,7 @@ func run() -> void:
 	manager.set_process(false)
 	manager.set_view(Transform3D.IDENTITY,100,1.4)
 	check(manager.styles.size()==assets.catalog.particles.size(),"All original source paths precompiled before first shot")
-	check(manager.compiled_style_count<=26,"Original effect graphs reduced to at most two source layers")
+	check(manager.compiled_style_count<=mini(manager.MAX_COMPILED_STYLES,2*assets.catalog.particles.size()),"Original effect graphs reduced to at most two source layers")
 	var initial_programs: int = manager.styles.size()
 	var texture_count: int = assets.textures.size()
 	for i in range(200): manager.burst("missing/%d" % i,Transform3D.IDENTITY)

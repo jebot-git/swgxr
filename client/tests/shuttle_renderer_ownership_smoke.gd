@@ -32,7 +32,7 @@ func run()->void:
 	var host:=Host.new();root.add_child(host);host.stage=Stage.new();host.add_child(host.stage);host.stage.set_meta("manifest",{"origin":p})
 	host.services=Services.new();host.add_child(host.services);host.services.scenery=World.new();host.services.add_child(host.services.scenery);host.services.scenery.configure(Vector3(p[0],p[1],p[2]))
 	var body:=CharacterBody3D.new();host.add_child(body);var head:=Camera3D.new();body.add_child(head)
-	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/combat/catalog.json"));var profile:Dictionary=catalog.weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
+	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat/catalog.json"));var profile:Dictionary=catalog.weapons.pistol_fwg5.duplicate(true);profile.item_id="987";profile.source_kind="core3_weapon_instance";profile.certified=true
 	var rig:=Fixture.Rig.new();host.add_child(rig);rig.configure(head,body,[profile]);rig.set_process(false);rig.set_physics_process(false)
 	var live:=Fixture.Live.new();host.add_child(live);live.configure(host,rig,host.stage,body);live.set_process(false)
 	host.reply={"ok":true,"backend":"core3","source_kind":"core3_live_combat","character_id":"123","session_id":"fixture","sequence":1,"session_live":true,"snapshot":{"ready":true,"full":true,"truncated":false,"actors":[row],"player":{"ham":[900,900,900],"max_ham":[1000,1000,1000],"wounds":[0,0,0],"posture":0,"dead":false,"incapacitated":false,"shock_wounds":0},"weapon":{"item_id":"987","certified":true,"fire_interval_seconds":.2,"max_range_m":64,"projectile_speed":100}}}

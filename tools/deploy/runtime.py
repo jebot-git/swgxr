@@ -93,7 +93,22 @@ def render_config(source, password, planets=("tatooine",), capacity=None):
                         'Core3.MaxNavMeshJobs':str(profile['navmesh_jobs']),
                         'Core3.LoginAllowedConnections':str(profile['native_connections']),
                         'Core3.ZoneAllowedConnections':str(profile['native_connections'])})
+        changes['Core3.SpaceZonesEnabled']='{'+','.join(json.dumps(p) for p in profile.get('space_zones',[]))+'}'
     for key,value in changes.items(): source=assignment(source,key,value)
+    if capacity is not None and profile['space_enabled']:
+        # Patch 0003 uses this flag to skip ShipManager::initialize entirely.
+        if re.search(r'(?m)^Core3\.SWGXR\.RetailGroundOnly\s*=',source):
+            source=assignment(source,'Core3.SWGXR.RetailGroundOnly','false')
+        else:source+='\nCore3.SWGXR = Core3.SWGXR or {}\nCore3.SWGXR.RetailGroundOnly = false\n'
+        source+='\nCore3.JTL = Core3.JTL or {}\n'
+        for key in ('JTLEnabled','SwgxrTesterYachts','SwgxrDisableCombatSpawns'):
+            full='Core3.JTL.'+key
+            if re.search(r'(?m)^'+re.escape(full)+r'\s*=',source):source=assignment(source,full,'true')
+            else:source+=full+' = true\n'
+        full='Core3.JTL.SwgxrShipTemplates'
+        ships='{'+','.join(json.dumps(p) for p in profile['ship_templates'])+'}'
+        if re.search(r'(?m)^'+re.escape(full)+r'\s*=',source):source=assignment(source,full,ships)
+        else:source+=full+' = '+ships+'\n'
     # The optional bug-tracker database is outside this prototype's scope.
     if re.search(r'(?m)^Core3\.MantisHost\s*=',source):
         source=assignment(source,'Core3.MantisHost','""')

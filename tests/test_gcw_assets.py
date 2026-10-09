@@ -18,7 +18,7 @@ class GcwAssets(unittest.TestCase):
         cls.catalog = json.loads((ROOT / 'runtime/assets/gcw/catalog.json').read_text())
         cls.inventory = json.loads((ROOT / 'runtime/assets/inventory/catalog.json').read_text())
         cls.npcs = json.loads((ROOT / 'runtime/assets/ambient_npcs/catalog.json').read_text())
-        cls.media = TreSet(ROOT / 'runtime/assets/active_tre')
+        cls.media = TreSet(ROOT / 'runtime/asset_sources/active_tre')
 
     def test_original_ordered_rewards_exclude_unlisted_and_campaign_content(self):
         rewards = self.catalog['rewards']

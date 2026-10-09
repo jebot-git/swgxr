@@ -8,18 +8,20 @@ if podman container exists "${SWGXR_CONTAINER:-swgxr-core3-build}" 2>/dev/null &
 fi
 python3 -c 'from PIL import Image' || { echo 'Python Pillow is required for local DDS texture conversion.' >&2; exit 1; }
 python3 tools/assets/extract_media.py --bootstrap-unshield "$@"
-JTL_CUE="$ROOT/Star Wars Galaxies - Jump to Lightspeed (USA).cue"
+JTL_CUE="$ROOT/runtime/asset_sources/media/jtl/Star Wars Galaxies - Jump to Lightspeed (USA).cue"
+[[ -f "$JTL_CUE" ]] || JTL_CUE="$ROOT/Star Wars Galaxies - Jump to Lightspeed (USA).cue"
 if [[ -f "$JTL_CUE" ]]; then
-  python3 tools/assets/extract_media.py --output-root runtime/assets/jtl --bootstrap-unshield "$JTL_CUE"
+  python3 tools/assets/extract_media.py --output-root runtime/asset_sources/extracted/jtl --bootstrap-unshield "$JTL_CUE"
 fi
-TTE_IMAGES=("$ROOT"/SWG_TTE_CD*.ISO)
+TTE_IMAGES=("$ROOT"/runtime/asset_sources/media/tte/SWG_TTE_CD*.ISO)
+[[ -f "${TTE_IMAGES[0]}" ]] || TTE_IMAGES=("$ROOT"/SWG_TTE_CD*.ISO)
 if [[ -f "${TTE_IMAGES[0]}" ]]; then
-  python3 tools/assets/extract_media.py --output-root runtime/assets/tte --bootstrap-unshield "${TTE_IMAGES[@]}"
+  python3 tools/assets/extract_media.py --output-root runtime/asset_sources/extracted/tte --bootstrap-unshield "${TTE_IMAGES[@]}"
 fi
 python3 tools/assets/activate_archives.py
-python3 tools/assets/prepare_stage.py --tre-dir runtime/assets/active_tre
+python3 tools/assets/prepare_stage.py --tre-dir runtime/asset_sources/active_tre
 python3 tools/assets/validate_stage.py
-python3 tools/assets/prepare_characters.py --tre-dir runtime/assets/active_tre
+python3 tools/assets/prepare_characters.py --tre-dir runtime/asset_sources/active_tre
 python3 tools/assets/validate_characters.py
 python3 tools/assets/validate_animations.py
 python3 tools/assets/prepare_terrain.py
@@ -51,8 +53,12 @@ python3 tools/assets/refresh_static_materials.py --ensure
 python3 tools/assets/validate_corpses.py
 # Reconstruct all original ground worlds, retaining per-source limitations.
 python3 tools/assets/prepare_planets.py
+python3 tools/assets/prepare_jtl.py
+python3 tools/assets/prepare_bounty_assets.py
+python3 tools/assets/audit_bounty_appearance.py --repair
 python3 tools/combat/export_catalog.py
 python3 tools/combat/prepare_assets.py
+python3 tools/scout/prepare_assets.py
 python3 tools/pets/prepare_bounds.py --ensure
 tools/client/build_native.sh
 python3 tools/client/install_xr_tools.py

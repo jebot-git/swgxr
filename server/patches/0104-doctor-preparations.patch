@@ -1,0 +1,855 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DoctorPolicy.h
+@@ -0,0 +1,33 @@
++#pragma once
++#include <algorithm>
++#include <cmath>
++#include <string>
++// SWGXR Doctor preparation balance. Original item power remains the quality input.
++namespace corecu { namespace doctor {
++inline double clamp(double x,double lo,double hi){return std::isfinite(x)?std::max(lo,std::min(hi,x)):lo;}
++inline int canonical(int a){return a==1 || a==4 || a==5?2:a;}
++inline bool general(int a){a=canonical(a);return a==0 || a==2 || a==3;}
++inline bool protection(int a){return a==9 || a==10;}
++inline const char* family(int a){a=canonical(a);return a==0?"vitality":a==3?"endurance":a==2?"metabolic":a==9?"poison_prophylaxis":a==10?"disease_prophylaxis":"unknown";}
++inline const char* label(int a){a=canonical(a);return a==0?"Vitality Preparation":a==3?"Endurance Preparation":a==2?"Metabolic Preparation":a==9?"Poison Prophylaxis":a==10?"Disease Prophylaxis":"Unknown Preparation";}
++inline int tier(const std::string& path){auto n=path.size();return n>6 && path[n-6]=='_' && path[n-5]>='a' && path[n-5]<='d'?path[n-5]-'a':0;}
++inline double quality(int a,int t,double power){t=std::max(0,std::min(protection(a)?2:3,t));double low=protection(a)?(t?17:12):10.*(t+1);double high=protection(a)?(t?160:60):(t==0?100:t==1?200:t==2?400:800);return clamp((power-low)/(high-low),0,1);}
++inline double percent(int a,int t,double q,double skill=100,double rating=100,double fatigue=1){
++ t=std::max(0,std::min(protection(a)?2:3,t));q=clamp(q,0,1);
++ const double low=protection(a)?10.+5.*t:5.+2.*t;
++ const double high=protection(a)?15.+5.*t:t==3?15.:8.+2.*t;
++ // Supplies retain the dominant share of potency; clinical skill/rating cannot erase tier/quality progression.
++ double blend=protection(a)?q:.7*q+.2*clamp(skill/100.,0,1)+.1*clamp(rating/100.,0,1);
++ return (low+(high-low)*blend)*clamp(fatigue,0,1);
++}
++inline int amount(int a,int base,double pct){a=canonical(a);return a==2?int(std::round(clamp(pct,0,15)*100)):protection(a)?int(std::round(clamp(pct,0,25))):int(std::floor(std::max(1,base)*clamp(pct,0,15)/100.));}
++inline double appliedPercent(int a,int base,int value){return canonical(a)==2?value/100.:protection(a)?value:100.*value/std::max(1,base);}
++inline int absorption(int a,int t,double legacy){return protection(a) && t==2?int(std::round(clamp(legacy/25.,0,1)*10)):0;}
++inline double regen(int basisPoints){return 1.+clamp(basisPoints,0,1500)/10000.;}
++inline bool retiredRecipe(const std::string& path){if(path.find("draft_schematic/chemistry/")==std::string::npos)return false;for(auto name:{"strength","quickness","stamina"})if(path.find(std::string("medpack_enhance_")+name+"_")!=std::string::npos)return true;return false;}
++inline std::string schematicGroup(const std::string& path,const std::string& original){
++ if(path.find("medpack_enhance_constitution_")!=std::string::npos){int t=tier(path);return t==0?"craftMedpackBEnhanceGroupA":t==1?"craftMedpackBGroupC":t==2?"craftMedpackBGroupD":"craftMedpackBGroupE";}
++ if(path.find("medpack_enhance_poison_")!=std::string::npos || path.find("medpack_enhance_disease_")!=std::string::npos){int t=tier(path);return t==0?"craftMedpackBEnhanceGroupB":t==1?"craftMedpackBEnhanceGroupC":"craftMedpackBEnhanceGroupD";}
++ return original;
++}
++} }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDoctorPreparation.h
+@@ -0,0 +1,38 @@
++#pragma once
++#include "DoctorPolicy.h"
++#include "server/zone/objects/creature/CreatureObject.h"
++#include "server/zone/objects/creature/buffs/Buff.h"
++#include "server/zone/objects/creature/buffs/BuffCRC.h"
++#include "server/zone/objects/creature/BuffAttribute.h"
++// Native single-group replacement and migration; never refills current HAM.
++class SwgxrDoctorPreparation {
++public:
++ static int strength(Buff* buff,int attribute){if(!buff)return 0;attribute=corecu::doctor::canonical(attribute);return attribute==2?buff->getSkillModifierValue("private_swgxr_metabolic_regen"):corecu::doctor::protection(attribute)?buff->getSkillModifierValue(BuffAttribute::getProtectionString(attribute)):buff->getAttributeModifierValue(attribute);}
++ static int bounded(CreatureObject* c,int a,int value){a=corecu::doctor::canonical(a);return std::max(0,std::min(value,a==2?1500:corecu::doctor::protection(a)?25:int(c->getBaseHAM(a)*.15)));}
++ static void apply(CreatureObject* c,int a,int value,float duration,int absorption=0){
++  a=corecu::doctor::canonical(a);if(!c || (!corecu::doctor::general(a) && !corecu::doctor::protection(a)) || duration<=0)return;
++  value=bounded(c,a,value);int ham[9];for(int i=0;i<9;++i)ham[i]=c->getHAM(i);
++  Reference<Buff*> next=new Buff(c,BuffCRC::getMedicalBuff(a),duration,BuffType::MEDICAL);
++  next->setFillAttributesOnBuff(false);next->setSkillModifier("private_swgxr_preparation_version",1);
++  if(a==2)next->setSkillModifier("private_swgxr_metabolic_regen",value);
++  else if(corecu::doctor::protection(a)){next->setSkillModifier(BuffAttribute::getProtectionString(a),value);next->setSkillModifier(BuffAttribute::getAbsorptionString(a),std::max(0,std::min(10,absorption)));}
++  else next->setAttributeModifier(a,value);
++  // All command validation precedes this transaction. Different families are intentional replacements.
++  for(int i=0;i<11;++i)if(corecu::doctor::protection(a)?corecu::doctor::protection(i):corecu::doctor::general(i))c->removeBuff(BuffCRC::getMedicalBuff(i));
++  c->addBuff(next);
++  for(int i=0;i<9;++i)c->setHAM(i,std::min(ham[i],std::max(1,c->getMaxHAM(i)-c->getWounds(i))));
++ }
++ static void normalize(CreatureObject* c){
++  if(!c || !(c->isPlayerCreature() || c->isPet()))return;
++  for(int group=0;group<2;++group){int count=0,best=-1,value=0,absorption=0;double score=-1;float remaining=0;bool legacy=false;
++   for(int a=0;a<11;++a){if(group? !corecu::doctor::protection(a):!corecu::doctor::general(a))continue;auto old=c->getBuff(BuffCRC::getMedicalBuff(a));if(!old)continue;++count;
++    bool current=old->getSkillModifierValue("private_swgxr_preparation_version")>0;legacy|=!current;int canonical=corecu::doctor::canonical(a);
++    int amount=current?strength(old,a):corecu::doctor::protection(a)?old->getSkillModifierValue(BuffAttribute::getProtectionString(a)):old->getAttributeModifierValue(a);
++    if(!current && canonical==2)amount=int(std::round(10000.*amount/std::max(1,c->getBaseHAM(a))));
++    amount=bounded(c,canonical,amount);double rank=corecu::doctor::appliedPercent(canonical,c->getBaseHAM(group?0:canonical),amount);
++    if(rank>score || (rank==score && old->getTimeLeft()>remaining)){score=rank;best=canonical;value=amount;remaining=old->getTimeLeft();absorption=group?old->getSkillModifierValue(BuffAttribute::getAbsorptionString(a)):0;}
++   }
++   if(best>=0 && (legacy || count>1) && remaining>0)apply(c,best,value,remaining,absorption);
++  }
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/HealEnhanceCommand.h
+@@ -1,4 +1,5 @@
+ #include "SwgxrMedicalItem.h"
++#include "SwgxrDoctorPreparation.h"
+ #include "CoreCuMedicine.h"
+ #include "SwgxrSpiceMedicine.h"
+ /*
+@@ -70,7 +71,7 @@
+ 				if (pharma->isEnhancePack()) {
+ 					EnhancePack* enhancePack = cast<EnhancePack*>(pharma);
+ 
+-					if (enhancePack->getMedicineUseRequired() <= medicineUse && enhancePack->getAttribute() == attribute)
++					if (enhancePack->getMedicineUseRequired() <= medicineUse && corecu::doctor::canonical(enhancePack->getAttribute()) == corecu::doctor::canonical(attribute))
+ 						return enhancePack;
+ 				}
+ 			}
+@@ -165,68 +166,19 @@
+ 		if (enhancer == nullptr || patient == nullptr || !enhancer->isPlayerCreature())
+ 			return;
+ 
+-		String enhancerName = enhancer->getFirstName();
+-		String patientName;
+-		String attributeName = BuffAttribute::getName(attribute, true);
+-
+-		if (patient->isPlayerCreature())
+-			patientName = patient->getFirstName();
+-		else
+-			patientName = patient->getDisplayedName();
+-
+-		if (BuffAttribute::isProtection(attribute))
+-			attributeName += " Resistance";
+-
+-		StringBuffer msgPlayer, msgTarget, msgBuff;
+-
+-		if (buffApplied == 0) {
+-			if (enhancer == patient) {
+-				msgPlayer << "You re-apply your ";
+-			} else {
+-				msgPlayer << "You re-apply " << patientName << "'s ";
+-				msgTarget << enhancerName << " re-applies your ";
+-			}
+-			msgBuff << attributeName << " enhancement.";
+-		} else {
+-			if (enhancer == patient) {
+-				msgPlayer << "You enhance your ";
+-			} else {
+-				msgPlayer << "You enhance " << patientName << "'s ";
+-				msgTarget << enhancerName << " enhances your ";
+-			}
+-			msgBuff << attributeName << " by " << buffApplied << ".";
+-		}
+-
+-		msgPlayer << msgBuff.toString();
+-		enhancer->sendSystemMessage(msgPlayer.toString());
+-
+-		if (enhancer != patient) {
+-			msgTarget << msgBuff.toString();
+-			patient->sendSystemMessage(msgTarget.toString());
+-		}
+-	}
+-
+-	uint32 getEnhancePackStrength(EnhancePack* enhancePack, CreatureObject* enhancer, CreatureObject* patient) const {
+-		uint32 buffPower = 0;
+-
+-		if (BuffAttribute::isProtection(enhancePack->getAttribute())) { // If it's a protection enhancement, wound treatment has no effect
+-			buffPower = enhancePack->getEffectiveness();
+-			buffPower = buffPower * patient->calculateBFRatio();
+-		} else
+-			buffPower = enhancePack->calculatePower(enhancer, patient);
+-
+-		return buffPower;
+-	}
+-
+-	uint32 getBuffStrength(Buff* existingbuff, int attribute) const {
+-		if (existingbuff != nullptr) {
+-			if (BuffAttribute::isProtection(attribute))
+-				return existingbuff->getSkillModifierValue(BuffAttribute::getProtectionString(attribute));
+-			else
+-				return existingbuff->getAttributeModifierValue(attribute);
+-		}
+-		return 0;
+-	}
++        const int amount=SwgxrDoctorPreparation::strength(patient->getBuff(BuffCRC::getMedicalBuff(attribute)),attribute);
++        const double percent=corecu::doctor::appliedPercent(attribute,patient->getBaseHAM(corecu::doctor::protection(attribute)?0:attribute),amount);
++        StringBuffer message;message << corecu::doctor::label(attribute) << ": " << percent;
++        if(attribute==2)message << "% faster Health, Action and Mind regeneration.";
++        else if(corecu::doctor::protection(attribute))message << " resistance points; preventive protection, not a cure.";
++        else message << "% maximum " << (attribute==0?"Health":"Action") << "; current resources are not refilled.";
++        enhancer->sendSystemMessage(message.toString());if(enhancer!=patient)patient->sendSystemMessage(message.toString());
++	}
++
++    uint32 getEnhancePackStrength(EnhancePack* enhancePack,CreatureObject* enhancer,CreatureObject* patient) const {
++        return enhancePack->calculatePower(enhancer,patient);
++    }
++    uint32 getBuffStrength(Buff* buff,int attribute) const {return SwgxrDoctorPreparation::strength(buff,attribute);}
+ 
+ 	void awardXp(CreatureObject* creature, const String& type, int power) const {
+ 		if (!creature->isPlayerCreature())
+@@ -315,60 +267,12 @@
+ 			if (enhancePack->getAttribute() != attribute) {
+ 				attribute = enhancePack->getAttribute();
+ 			}
+-		} else {
+-			if (attribute == BuffAttribute::UNKNOWN) {
+-				SortedVector<Buff*> currentBuffs; // values are sorted by duration
+-				VectorMap<Buff*, int> attributeMap;
+-
+-				for (int i = 0; i < CreatureAttribute::MIND; i++) {
+-					uint32 buffCRC = BuffCRC::getMedicalBuff(i);
+-					if (patient->hasBuff(buffCRC)) {
+-						Buff* buff = patient->getBuff(buffCRC);
+-						currentBuffs.put(buff);
+-						attributeMap.put(buff, i);
+-
+-						continue;
+-					}
+-
+-					attribute = i;
+-					enhancePack = findEnhancePack(enhancer, i);
+-					if (enhancePack != nullptr)
+-						break;
+-				}
+-
+-				if (enhancePack == nullptr) {
+-					// We couldn't find any enhance packs for non-applied buffs.
+-					// Loop through the applied buffs and see if one matches our criteria
+-					// This should be sorted by time applied - This ensures we don't overwrite the same buff repeatedly
+-					for (int i = 0; i < currentBuffs.size(); i++) {
+-						Buff* buff = currentBuffs.get(i);
+-
+-						attribute = attributeMap.get(buff);
+-						enhancePack = findEnhancePack(enhancer, attribute);
+-						if (enhancePack != nullptr) {
+-							uint32 currentBuff = getBuffStrength(buff, attribute);
+-							uint32 newBuff = getEnhancePackStrength(enhancePack, enhancer, patient);
+-
+-							if (newBuff < currentBuff) {
+-								enhancePack = nullptr;
+-								attribute = BuffAttribute::UNKNOWN;
+-							} else {
+-								break;
+-							}
+-						}
+-					}
+-
+-					if (attribute == BuffAttribute::UNKNOWN) {
+-						StringIdChatParameter stringId("healing", "no_attrib_to_buff"); // %TT has no attribute that you can enhance.
+-						stringId.setTT(patient->getDisplayedName());
+-						enhancer->sendSystemMessage(stringId);
+-						return GENERALERROR;
+-					}
+-				}
+-			} else {
+-				enhancePack = findEnhancePack(enhancer, attribute);
+-			}
+-		}
++        } else {
++            if(attribute==BuffAttribute::UNKNOWN){enhancer->sendSystemMessage("Select a Vitality, Endurance, Metabolic or prophylaxis pack to apply.");return GENERALERROR;}
++            enhancePack=findEnhancePack(enhancer,attribute);
++        }
++        attribute=corecu::doctor::canonical(attribute);
++        if(!corecu::doctor::general(attribute) && !corecu::doctor::protection(attribute))return GENERALERROR;
+ 
+ 		if (patient->isDead() || patient->isRidingMount())
+ 			patient = enhancer;
+@@ -390,7 +294,8 @@
+ 
+ 		// Applies battle fatigue
+ 		uint32 buffPower = getEnhancePackStrength(enhancePack, enhancer, patient);
+-		if ((patient->isPlayerCreature() || patient->isPet()) && attribute < 9) buffPower = corecu::medicine::enhancement(patient->getBaseHAM(attribute), buffPower);
++        buffPower=SwgxrDoctorPreparation::bounded(patient,attribute,buffPower);
++        if(buffPower<=0)return GENERALERROR;
+ 
+ 		if (buffPower < currentBuff) {
+ 			if (patient == enhancer)
+@@ -411,7 +316,7 @@
+ 		if (playerMan == nullptr)
+ 			return GENERALERROR;
+ 
+-		uint32 amountEnhanced = playerMan->healEnhance(enhancer, patient, attribute, buffPower, enhancePack->getDuration(), enhancePack->getAbsorption());
++		uint32 amountEnhanced = playerMan->healEnhance(enhancer, patient, attribute, buffPower, enhancePack->getDuration(), corecu::doctor::absorption(attribute,corecu::doctor::tier(enhancePack->getObjectTemplate()->getFullTemplateString().toCharArray()),enhancePack->getAbsorption()));
+ 
+ 		if (enhancer->isPlayerCreature() && patient->isPlayerCreature()) {
+ 			playerMan->sendBattleFatigueMessage(enhancer, patient);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrInventory.h
+@@ -7,6 +7,7 @@
+ #include <set>
+ #include "SwgxrEquipment.h"
+ #include "SwgxrMedicalItem.h"
++#include "DoctorPolicy.h"
+ #include "SwgxrSlicingData.h"
+ #include "server/zone/objects/tangible/deed/structure/StructureDeed.h"
+ #include "server/zone/objects/tangible/tool/SurveyTool.h"
+@@ -64,7 +65,23 @@
+     result["medical_use_hint"]=pack->isRangedStimPack()?"Aim at an injured patient and trigger":"Touch an eligible patient with this supply and trigger";
+    }
+    if(pack->isCurePack())result["medical_state"]=static_cast<CurePack*>(pack)->getState();
+-   if(pack->isStatePack())result["medical_state"]=static_cast<StatePack*>(pack)->getState();
++   if(pack->isStatePack()){
++    auto state=static_cast<StatePack*>(pack)->getState();result["medical_state"]=state;
++    result["medical_state_name"]=state==CreatureState::STUNNED?"stunned":state==CreatureState::DIZZY?"dizzy":state==CreatureState::BLINDED?"blinded":state==CreatureState::INTIMIDATED?"intimidated":"";
++   }
++   if(auto preparation=dynamic_cast<EnhancePack*>(pack)){
++    int a=corecu::doctor::canonical(preparation->getAttribute()),tier=corecu::doctor::tier(o->getObjectTemplate()->getFullTemplateString().toCharArray());
++    double quality=corecu::doctor::quality(a,tier,preparation->getEffectiveness());
++    int amount=preparation->calculatePower(c,c,false);
++    result["display_name"]=std::string(corecu::doctor::label(a))+" - "+char('A'+tier);
++    result["medical_preparation_family"]=corecu::doctor::family(a);result["medical_preparation_group"]=corecu::doctor::protection(a)?"prophylaxis":"general";
++    result["medical_preparation_tier"]=std::string(1,char('A'+tier));result["medical_preparation_quality"]=quality;
++    result["medical_preparation_percent"]=corecu::doctor::appliedPercent(a,c->getBaseHAM(corecu::doctor::protection(a)?0:a),amount);
++    result["medical_preparation_potency_unit"]=corecu::doctor::protection(a)?"resistance_points":a==2?"regeneration_percent":"maximum_resource_percent";
++    result["medical_preparation_duration_seconds"]=preparation->getDuration();
++    result["medical_preparation_absorption_percent"]=corecu::doctor::absorption(a,tier,preparation->getAbsorption());
++    result["medical_use_hint"]=corecu::doctor::protection(a)?"Preventive protection; replaces current prophylaxis. Apply outside combat in a medical facility, camp or near a surgical droid.":a==2?"Faster Health, Action and Mind regeneration; replaces current general preparation. Apply outside combat in a medical facility, camp or near a surgical droid.":"Maximum resource reserve without refilling; replaces current general preparation. Apply outside combat in a medical facility, camp or near a surgical droid.";
++   }
+   }
+   if(auto deed=dynamic_cast<StructureDeed*>(o))result["structure_template"]=std::string(deed->getGeneratedObjectTemplate().toCharArray());
+   result["fishing_bait"]=o->isFishingBait();
+--- a/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/player/PlayerManagerImplementation.cpp
+@@ -1,4 +1,5 @@
+ #include "server/zone/objects/creature/commands/CoreCuResources.h"
++#include "server/zone/objects/creature/commands/SwgxrDoctorPreparation.h"
+ #include "server/zone/objects/creature/commands/CoreCuMedicine.h"
+ #include "server/zone/objects/creature/commands/SwgxrArmour.h"
+ #include "server/zone/objects/creature/commands/SwgxrSpice.h"
+@@ -3263,52 +3264,16 @@
+ }
+ 
+ int PlayerManagerImplementation::healEnhance(CreatureObject* enhancer, CreatureObject* patient, byte attribute, int buffvalue, float duration, int absorption) {
+-	if ((patient->isPlayerCreature() || patient->isPet()) && attribute < 9) buffvalue = corecu::medicine::enhancement(patient->getBaseHAM(attribute), buffvalue);
+-	String buffname = "medical_enhance_" + BuffAttribute::getName(attribute);
+-	uint32 buffcrc = buffname.hashCode();
+-	uint32 buffdiff = buffvalue;
+-
+-	//If a stronger buff already exists, then we don't buff the patient.
+-	if (patient->hasBuff(buffcrc)) {
+-		Buff* buff = patient->getBuff(buffcrc);
+-
+-		if (buff != nullptr) {
+-			int value = buff->getAttributeModifierValue(attribute);
+-
+-			if (BuffAttribute::isProtection(attribute))
+-				value = buff->getSkillModifierValue(BuffAttribute::getProtectionString(attribute));
+-
+-			if (value > buffvalue)
+-				return 0;
+-
+-			buffdiff -= value;
+-		}
+-	}
+-
+-	// Twi'lek race receives a 10% duration bonus
+-	if (patient->getSpeciesName() == "twilek") {
+-		duration *= 1.10f;
+-	}
+-
+-	Reference<Buff*> buff = new Buff(patient, buffcrc, duration, BuffType::MEDICAL);
+-
+-	Locker locker(buff);
+-
+-	if (BuffAttribute::isProtection(attribute)) {
+-		buff->setSkillModifier(BuffAttribute::getProtectionString(attribute), buffvalue);
+-
+-		if (absorption > 0)
+-			buff->setSkillModifier(BuffAttribute::getAbsorptionString(attribute), absorption);
+-	} else {
+-		buff->setAttributeModifier(attribute, buffvalue);
+-		buff->setFillAttributesOnBuff(!(patient->isPlayerCreature() || patient->isPet()));
+-	}
+-
+-	patient->addBuff(buff);
+-
+-	enhancer->notifyObservers(ObserverEventType::ENHANCINGPERFORMED, patient, buffdiff);
+-
+-	return buffdiff;
++    attribute=corecu::doctor::canonical(attribute);
++    if(!corecu::doctor::general(attribute) && !corecu::doctor::protection(attribute))return 0;
++    buffvalue=SwgxrDoctorPreparation::bounded(patient,attribute,buffvalue);
++    int previous=SwgxrDoctorPreparation::strength(patient->getBuff(BuffCRC::getMedicalBuff(attribute)),attribute);
++    if(previous>buffvalue)return 0;
++    if(patient->getSpeciesName()=="twilek")duration*=1.10f;
++    SwgxrDoctorPreparation::apply(patient,attribute,buffvalue,duration,absorption);
++    int difference=std::max(0,buffvalue-previous);
++    enhancer->notifyObservers(ObserverEventType::ENHANCINGPERFORMED,patient,difference);
++    return difference;
+ }
+ 
+ void PlayerManagerImplementation::stopListen(CreatureObject* creature, uint64 entertainerID, bool doSendPackets, bool forced, bool doLock, bool outOfRange) {
+--- a/MMOCoreORB/src/server/zone/managers/crafting/schematicmap/SchematicMap.cpp
++++ b/MMOCoreORB/src/server/zone/managers/crafting/schematicmap/SchematicMap.cpp
+@@ -9,6 +9,7 @@
+  */
+ 
+ #include "SchematicMap.h"
++#include "server/zone/objects/creature/commands/CoreCuMedicalPolicy.h"
+ 
+ SchematicMap::SchematicMap() : objectManager(nullptr) {
+ 	setLoggingName("SchematicMap");
+@@ -61,6 +62,9 @@
+ 		row->getCell(0)->getValue(groupId);
+ 		row->getCell(1)->getValue(schematicName);
+ 
++        // Original source rows remain intact; obsolete recipes have no crafting grant.
++        if (corecu::medicine::retiredMedicalTemplate(schematicName.toCharArray())) continue;
++        groupId = corecu::doctor::schematicGroup(schematicName.toCharArray(),groupId.toCharArray()).c_str();
+ 		iffGroupMap.put(schematicName.hashCode(), groupId);
+ 	}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/CreatureObjectImplementation.cpp
+@@ -3270,9 +3270,9 @@
+ 			CreatureAttribute::WILLPOWER)) * 13.0f / 2100.0f * modifier * SwgxrSpice::regenScale(asCreatureObject(), 6));
+ 
+     if (isPlayerCreature() || isPet()) {
+-        healthTick = (uint32)ceil(getBaseHAM(0)*CoreCuResources::regen(0,isInCombat())*corecu::medicine::regeneration(getHAM(2),getBaseHAM(2))*modifier*SwgxrSpice::regenScale(asCreatureObject(),0));
+-        actionTick = (uint32)ceil(getBaseHAM(3)*CoreCuResources::regen(3,isInCombat())*corecu::medicine::regeneration(getHAM(5),getBaseHAM(5))*modifier*SwgxrSpice::regenScale(asCreatureObject(),3));
+-        mindTick = (uint32)ceil(getBaseHAM(6)*CoreCuResources::regen(6,isInCombat())*corecu::medicine::regeneration(getHAM(8),getBaseHAM(8))*modifier*SwgxrSpice::regenScale(asCreatureObject(),6));
++        healthTick = (uint32)ceil(getBaseHAM(0)*CoreCuResources::regen(0,isInCombat())*corecu::medicine::regeneration(getHAM(2),getBaseHAM(2))*modifier*SwgxrSpice::regenScale(asCreatureObject(),0)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
++        actionTick = (uint32)ceil(getBaseHAM(3)*CoreCuResources::regen(3,isInCombat())*corecu::medicine::regeneration(getHAM(5),getBaseHAM(5))*modifier*SwgxrSpice::regenScale(asCreatureObject(),3)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
++        mindTick = (uint32)ceil(getBaseHAM(6)*CoreCuResources::regen(6,isInCombat())*corecu::medicine::regeneration(getHAM(8),getBaseHAM(8))*modifier*SwgxrSpice::regenScale(asCreatureObject(),6)*corecu::doctor::regen(getSkillMod("private_swgxr_metabolic_regen")));
+     }
+ 	if (healthTick < 1 && !((isPlayerCreature() || isPet()) && isInCombat()))
+ 		healthTick = 1;
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/EnhancePackImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/EnhancePackImplementation.cpp
+@@ -1,14 +1,11 @@
+ #include "server/zone/objects/tangible/pharmaceutical/EnhancePack.h"
++#include "server/zone/objects/creature/commands/DoctorPolicy.h"
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/managers/skill/SkillModManager.h"
+ #include "server/zone/objects/building/BuildingObject.h"
+ #include "server/zone/objects/player/FactionStatus.h"
+ 
+ uint32 EnhancePackImplementation::calculatePower(CreatureObject* healer, CreatureObject* patient, bool applyBattleFatigue) {
+-		float power = getEffectiveness();
+-
+-		if (applyBattleFatigue)
+-			power *= patient->calculateBFRatio();
+ 
+ 		int mod = healer->getSkillModOfType("private_medical_rating", SkillModManager::CITY);
+ 
+@@ -35,8 +32,28 @@
+ 			}
+ 		}
+ 
+-		float modEnvironment = ((float) mod / 100);
+ 		float modSkill = (float) healer->getSkillMod("healing_wound_treatment");
+ 
+-		return power * modEnvironment * (100 + modSkill) / 100;
++        const int a = getAttribute();
++        const int tier = corecu::doctor::tier(getObjectTemplate()->getFullTemplateString().toCharArray());
++        const double q = corecu::doctor::quality(a,tier,getEffectiveness());
++        const double pct = corecu::doctor::percent(a,tier,q,modSkill,mod,applyBattleFatigue?patient->calculateBFRatio():1.);
++        return corecu::doctor::amount(a,patient->getBaseHAM(corecu::doctor::protection(a)?0:corecu::doctor::canonical(a)),pct);
+ }
++
++void EnhancePackImplementation::fillAttributeList(AttributeListMessage* msg, CreatureObject* object) {
++    PharmaceuticalObjectImplementation::fillAttributeList(msg,object);
++
++        int a = corecu::doctor::canonical(attribute);
++        int tier = corecu::doctor::tier(getObjectTemplate()->getFullTemplateString().toCharArray());
++        int amount = calculatePower(object, object, false);
++        float percent = corecu::doctor::appliedPercent(a, object->getBaseHAM(corecu::doctor::protection(a) ? 0 : a), amount);
++        msg->insertAttribute("Preparation", String(corecu::doctor::label(a)));
++        msg->insertAttribute("Potency", String::valueOf(Math::getPrecision(percent, 2)) + (corecu::doctor::protection(a) ? " resistance points" : a == 2 ? "% regeneration" : "% maximum resource"));
++        msg->insertAttribute("Duration", String::valueOf(Math::getPrecision(duration, 0)) + " seconds");
++        msg->insertAttribute("Preparation group", corecu::doctor::protection(a) ? "One prophylaxis" : "One general preparation");
++        msg->insertAttribute("healing_ability", medicineUseRequired);
++        int boundedAbsorption = corecu::doctor::absorption(a, tier, absorption);
++        if (boundedAbsorption > 0) msg->insertAttribute("Absorption", String::valueOf(boundedAbsorption) + "%");
++
++}
+--- a/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/EnhancePack.idl
++++ b/MMOCoreORB/src/server/zone/objects/tangible/pharmaceutical/EnhancePack.idl
+@@ -48,21 +48,7 @@
+ 	 */
+ 	@local
+ 	@dirty
+-	public void fillAttributeList(AttributeListMessage msg, CreatureObject object) {
+-		super.fillAttributeList(msg, object);
+-
+-		string attributeName = BuffAttribute.getName(attribute);
+-		string enhace = "examine_enhance_" + attributeName;
+-		string durationStr = "examine_duration_" + attributeName;
+-
+-		msg.insertAttribute(enhace, Math.getPrecision(effectiveness, 0));
+-		msg.insertAttribute(durationStr, Math.getPrecision(duration, 0));
+-
+-		msg.insertAttribute("healing_ability", super.medicineUseRequired);
+-
+-		if (absorption > 0)
+-			msg.insertAttribute("absorption", Math.getPrecision(absorption, 0));
+-	}
++	public native void fillAttributeList(AttributeListMessage msg, CreatureObject object);
+ 
+ 	/**
+ 	 * Reads and sets the template data from a SharedTangibleObjectTemplate LuaObject
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_a.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_a.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Health Medpack - A",
++	customObjectName = "Vitality Preparation - A",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 22,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_a.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_a.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_health_a = object_tangible_medicine_crafted_shared_medpack_enhance_health_a:new {
++	customObjectName = "Vitality Preparation - A",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_b.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_b.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Health Medpack - B",
++	customObjectName = "Vitality Preparation - B",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 27,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_b.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_b.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_health_b = object_tangible_medicine_crafted_shared_medpack_enhance_health_b:new {
++	customObjectName = "Vitality Preparation - B",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_c.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_c.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Health Medpack - C",
++	customObjectName = "Vitality Preparation - C",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 32,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_c.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_c.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_health_c = object_tangible_medicine_crafted_shared_medpack_enhance_health_c:new {
++	customObjectName = "Vitality Preparation - C",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_d.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_health_d.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Health Medpack - D",
++	customObjectName = "Vitality Preparation - D",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 37,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_d.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_health_d.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_health_d = object_tangible_medicine_crafted_shared_medpack_enhance_health_d:new {
++	customObjectName = "Vitality Preparation - D",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 21,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_a.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_a.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Action Medpack - A",
++	customObjectName = "Endurance Preparation - A",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 22,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_a.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_a.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_action_a = object_tangible_medicine_crafted_shared_medpack_enhance_action_a:new {
++	customObjectName = "Endurance Preparation - A",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_b.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_b.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Action Medpack - B",
++	customObjectName = "Endurance Preparation - B",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 27,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_b.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_b.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_action_b = object_tangible_medicine_crafted_shared_medpack_enhance_action_b:new {
++	customObjectName = "Endurance Preparation - B",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_c.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_c.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Action Medpack - C",
++	customObjectName = "Endurance Preparation - C",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 32,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_c.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_c.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_action_c = object_tangible_medicine_crafted_shared_medpack_enhance_action_c:new {
++	customObjectName = "Endurance Preparation - C",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_d.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_action_d.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Action Medpack - D",
++	customObjectName = "Endurance Preparation - D",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 37,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_d.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_action_d.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_action_d = object_tangible_medicine_crafted_shared_medpack_enhance_action_d:new {
++	customObjectName = "Endurance Preparation - D",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 21,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_a.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_a.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Constitution Medpack - A",
++	customObjectName = "Metabolic Preparation - A",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 22,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_a.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_a.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_constitution_a = object_tangible_medicine_crafted_shared_medpack_enhance_constitution_a:new {
++	customObjectName = "Metabolic Preparation - A",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_b.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_b.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Constitution Medpack - B",
++	customObjectName = "Metabolic Preparation - B",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 27,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_b.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_b.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_constitution_b = object_tangible_medicine_crafted_shared_medpack_enhance_constitution_b:new {
++	customObjectName = "Metabolic Preparation - B",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_c.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_c.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Constitution Medpack - C",
++	customObjectName = "Metabolic Preparation - C",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 32,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_c.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_c.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_constitution_c = object_tangible_medicine_crafted_shared_medpack_enhance_constitution_c:new {
++	customObjectName = "Metabolic Preparation - C",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 10,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_d.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_constitution_d.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Constitution Medpack - D",
++	customObjectName = "Metabolic Preparation - D",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 37,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_d.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_constitution_d.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_constitution_d = object_tangible_medicine_crafted_shared_medpack_enhance_constitution_d:new {
++	customObjectName = "Metabolic Preparation - D",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 21,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_a.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_a.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Poison Resist Medpack - A",
++	customObjectName = "Poison Prophylaxis - A",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 27,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_a.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_a.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_poison_a = object_tangible_medicine_crafted_shared_medpack_enhance_poison_a:new {
++	customObjectName = "Poison Prophylaxis - A",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_b.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_b.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Poison Resist Medpack - B",
++	customObjectName = "Poison Prophylaxis - B",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 32,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_b.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_b.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_poison_b = object_tangible_medicine_crafted_shared_medpack_enhance_poison_b:new {
++	customObjectName = "Poison Prophylaxis - B",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_c.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_poison_c.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Poison Resist Medpack - C",
++	customObjectName = "Poison Prophylaxis - C",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 37,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_c.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_poison_c.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_poison_c = object_tangible_medicine_crafted_shared_medpack_enhance_poison_c:new {
++	customObjectName = "Poison Prophylaxis - C",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_a.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_a.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Disease Resist Medpack - A",
++	customObjectName = "Disease Prophylaxis - A",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 27,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_a.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_a.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_disease_a = object_tangible_medicine_crafted_shared_medpack_enhance_disease_a:new {
++	customObjectName = "Disease Prophylaxis - A",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_b.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_b.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Disease Resist Medpack - B",
++	customObjectName = "Disease Prophylaxis - B",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 32,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_b.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_b.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_disease_b = object_tangible_medicine_crafted_shared_medpack_enhance_disease_b:new {
++	customObjectName = "Disease Prophylaxis - B",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,
+--- a/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_c.lua
++++ b/MMOCoreORB/bin/scripts/object/draft_schematic/chemistry/medpack_enhance_disease_c.lua
+@@ -45,7 +45,7 @@
+ 
+ 	templateType = DRAFTSCHEMATIC,
+ 
+-	customObjectName = "Enhance Disease Resist Medpack - C",
++	customObjectName = "Disease Prophylaxis - C",
+ 
+ 	craftingToolTab = 64, -- (See DraftSchematicObjectTemplate.h)
+ 	complexity = 37,
+--- a/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_c.lua
++++ b/MMOCoreORB/bin/scripts/object/tangible/medicine/crafted/medpack_enhance_disease_c.lua
+@@ -42,6 +42,7 @@
+ 
+ 
+ object_tangible_medicine_crafted_medpack_enhance_disease_c = object_tangible_medicine_crafted_shared_medpack_enhance_disease_c:new {
++	customObjectName = "Disease Prophylaxis - C",
+ 	gameObjectType = 8238,
+ 	templateType = ENHANCEPACK,
+ 	useCount = 15,

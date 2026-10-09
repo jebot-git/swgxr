@@ -130,7 +130,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--planet',choices=('corellia','dantooine','dathomir','endor','lok','naboo','rori','talus','tatooine','yavin4'),default='tatooine')
     parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/combat_population/tatooine_entities')
-    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/assets/active_tre')
+    parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre')
     parser.add_argument('--index-only',action='store_true')
     parser.add_argument('--retry-missing',action='store_true')
     args=parser.parse_args();args.out=args.out.resolve();args.out.mkdir(parents=True,exist_ok=True)

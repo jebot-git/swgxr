@@ -14,6 +14,27 @@ This pipeline reads the user's original installation images. It downloads no gam
 | `runtime/asset_work/` | Old export experiments, diagnostic captures and build/test scratch files |
 | `runtime/asset_archives/` | Private verified ZIP64 bundles, SHA256 files, manifests and verification receipts |
 
+For portable testers, build a runtime-only archive:
+
+```sh
+python3 tools/assets/bundle_assets.py --profile client-runtime --output runtime/asset_archives/test-runtime-data-20261010.zip
+```
+
+This selects the transitive converted-data dependencies of the client source and
+explicit dynamic loaders. It retains conditional catalog alternatives and embedded
+source hashes/conversion limitations, while excluding original TREs and binary source exports, server-only
+catalogs, standalone development reports and unreferenced conversion outputs.
+The adjacent `.selection.json` records roots, client source hashes and excluded
+paths. Selection is conservative static reachability, not a claim that every
+retained asset appears during a play session. Identical files at different required
+paths remain separate; deduplication would require a separate archive/layout change.
+The existing `swgxr-assets-v2` client importer supports this profile unchanged.
+Put the unextracted ZIP in the client `data/` folder and run `import-data.sh` or
+`import-data.cmd`. Keep exactly one ZIP there. Switching from a full archive
+requires a fresh client directory; do not overlay an existing import receipt.
+
+For source/development backup, the default full profile remains available:
+
 `python3 tools/assets/bundle_assets.py --output runtime/asset_archives/SWGXR-assets.zip`
 bundles every converted runtime file and the complete required TRE set, with
 conversion limitations and source provenance retained. It excludes installation

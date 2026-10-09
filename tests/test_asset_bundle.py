@@ -7,9 +7,53 @@ from unittest.mock import patch
 import zipfile
 from tools.assets import bundle_assets as pack
 from tools.assets.restore_asset_paths import restore
+from tools.client.tester_data import install
 
 
 class AssetBundleTests(unittest.TestCase):
+    def test_runtime_profile_rejects_windows_filename_collisions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            assets=root/'runtime/assets'
+            assets.mkdir(parents=True)
+            (assets/'model.json').write_text('{}')
+            (assets/'MODEL.json').write_text('{}')
+            with self.assertRaisesRegex(ValueError, 'duplicate archive path'):
+                pack.file_list(root, profile='client-runtime')
+
+    def test_runtime_bundle_follows_catalogs_and_installs_without_source_archives(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)/'source'
+            for directory in ('client/scripts', 'runtime/assets/models', 'runtime/assets/textures',
+                              'runtime/assets/entertainment/items', 'runtime/assets/services'):
+                (root/directory).mkdir(parents=True)
+            (root/'client/scripts/main.gd').write_text('var path="res://../runtime/assets/catalog.json"')
+            (root/'runtime/assets/catalog.json').write_text(json.dumps({'model':'models/actor.json', 'provenance':{'source':'source.trn'}}))
+            (root/'runtime/assets/source.trn').write_bytes(b'original terrain; converted geometry is already in JSON')
+            (root/'runtime/assets/models/actor.json').write_text(json.dumps({'texture':'textures/color.png','catalog':str(root/'runtime/assets/catalog.json')}))
+            (root/'runtime/assets/textures/color.png').write_bytes(b'fixture texture')
+            (root/'runtime/assets/unused.json').write_text('{}')
+            (root/'runtime/assets/entertainment/items/catalog.json').write_text('{}')
+            (root/'runtime/assets/services/screens.json').write_text('{}')
+            output=root/'runtime/asset_archives/runtime.zip'
+            with patch.object(pack.subprocess,'check_output',return_value='test-commit\n'):
+                result=pack.bundle(output,root,profile='client-runtime')
+            self.assertEqual(result['tre_count'],0)
+            self.assertEqual(result['files'],5)
+            with zipfile.ZipFile(output) as archive:
+                self.assertNotIn('runtime/assets/unused.json',archive.namelist())
+                self.assertNotIn('runtime/assets/source.trn',archive.namelist())
+                self.assertNotIn('restore_asset_paths.py',archive.namelist())
+                self.assertFalse(any('asset_sources/' in name for name in archive.namelist()))
+            destination=Path(folder)/'tester'
+            receipt=install(output,destination)
+            self.assertEqual(receipt['verified_files'],5)
+            self.assertTrue((destination/'runtime/assets/textures/color.png').is_file())
+            self.assertFalse((destination/'runtime/asset_sources').exists())
+            model=json.loads((destination/'runtime/assets/models/actor.json').read_text())
+            self.assertEqual(model['catalog'],str(destination/'runtime/assets/catalog.json'))
+            self.assertTrue(install(output,destination)['already_installed'])
+
     def fixture(self, root):
         (root/'runtime/assets/planets').mkdir(parents=True)
         (root/'runtime/assets/planets/catalog.json').write_text(json.dumps({'world': str(root/'runtime/assets/world.json')}))

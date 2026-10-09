@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and fully verify a private ZIP64 of converted SWG assets and source TREs.
+"""Create and fully verify a private ZIP64 of client runtime or full source assets.
 
 Includes original provenance and conversion reports; excludes installation discs,
 duplicate extractions, development captures, credentials, databases and code.
@@ -24,13 +24,26 @@ BLOCKED = {'.log', '.pid', '.iso', '.bin', '.cue', '.pem', '.key', '.db', '.sqli
 STORED = {'.tre', '.png', '.jpg', '.ogg', '.mp3', '.zip'}
 
 
-def file_list(root):
+def validate_paths(root, paths):
+    folded = set()
+    for path in paths:
+        name = path.relative_to(root).as_posix()
+        if name.casefold() in folded or re.search(r'[<>:"|?*]', name):
+            raise ValueError('Non-portable or duplicate archive path: ' + name)
+        folded.add(name.casefold())
+
+
+def file_list(root, profile='full'):
     paths = []
     for path in sorted((root / 'runtime/assets').rglob('*')):
         if path.is_symlink(): raise ValueError('Unexpected runtime asset symlink: ' + str(path))
         if not path.is_file() or path.suffix.lower() in BLOCKED: continue
         if any(part.startswith('.') or part in ('__pycache__', 'logs') for part in path.relative_to(root).parts): continue
         paths.append(path)
+    if profile == 'client-runtime':
+        validate_paths(root, paths)
+        return paths, {}
+    if profile != 'full': raise ValueError('Unknown asset bundle profile')
     source = root / 'runtime/asset_sources/active_tre'
     archives = sorted(source.glob('*.tre'))
     provenance = json.loads((source / 'provenance.json').read_text())
@@ -45,16 +58,11 @@ def file_list(root):
     for name in ('critical-format-versions.json', 'retail-format-audit.json', 'static_material_report.json'):
         path = root / 'runtime/asset_reports' / name
         if path.exists(): paths.append(path)
-    folded = set()
-    for path in paths:
-        name = path.relative_to(root).as_posix()
-        if name.casefold() in folded or re.search(r'[<>:"|?*]', name):
-            raise ValueError('Non-portable or duplicate archive path: ' + name)
-        folded.add(name.casefold())
+    validate_paths(root, paths)
     return paths, expected
 
 
-def bundle(output, root=ROOT):
+def bundle(output, root=ROOT, profile='full'):
     root, output = Path(root).resolve(), Path(output).resolve()
     if not output.is_relative_to(root / 'runtime/asset_archives'):
         raise ValueError('Archive must remain in ignored runtime/asset_archives')
@@ -62,13 +70,20 @@ def bundle(output, root=ROOT):
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     temporary = output.with_suffix(output.suffix + '.partial')
     if temporary.exists(): raise ValueError('Partial archive already exists; inspect before retrying')
-    paths, expected = file_list(root)
+    paths, expected = file_list(root, profile)
+    selection = None
+    if profile == 'client-runtime':
+        try:
+            from .client_runtime_assets import select
+        except ImportError:
+            from client_runtime_assets import select
+        paths, selection = select(root, paths)
     source_bytes = sum(path.stat().st_size for path in paths)
     if shutil.disk_usage(output.parent).free < source_bytes + 1024**3:
         raise ValueError('Insufficient space for a conservative uncompressed archive')
     manifest = dict(schema=1, layout='swgxr-assets-v2', workspace_root=str(root),
                     source_commit=subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
-                    converted_root='runtime/assets', tre_root='runtime/asset_sources/active_tre',
+                    profile=profile, converted_root='runtime/assets', tre_root='runtime/asset_sources/active_tre' if expected else None,
                     tre_count=len(expected), source_bytes=source_bytes, files=[])
     print(json.dumps(dict(phase='packing', files=len(paths), source_bytes=source_bytes)), flush=True)
     last = time.monotonic()
@@ -94,22 +109,34 @@ def bundle(output, root=ROOT):
             if time.monotonic() - last > 20:
                 print(json.dumps(dict(phase='packing', complete=index + 1, files=len(paths))), flush=True); last=time.monotonic()
         archive.writestr('ASSET_MANIFEST.json', json.dumps(manifest, indent=2) + '\n')
-        archive.write(root / 'tools/assets/restore_asset_paths.py', 'restore_asset_paths.py')
-        archive.writestr('ASSET_README.txt',
-            'SWGXR private asset bundle (ZIP64; Linux and Windows)\n\n'
-            'Contains converted assets for all ten original ground planets, the original Luxury\n'
-            'Yacht, eleven small-ship cockpits/exteriors, Tatooine navigation landmark, and the 51 required\n'
-            'original TRE archives, with provenance and conversion failures retained.\n'
-            'No replacement media was downloaded. Game code, Godot, databases, accounts,\n'
-            'credentials, installation discs and redundant extraction caches are not included.\n\n'
-            'Extract into an empty workspace or staging folder, keeping runtime/ intact.\n'
-            'For a portable testing client, put this ZIP in its data/ folder and run its launcher.\n'
-            'Run: python restore_asset_paths.py --root <extracted-workspace>\n'
-            'This first verifies every asset SHA256, then adjusts recorded absolute workspace\n'
-            'paths in JSON metadata for the destination. Use matching SWGXR code with the v2\n'
-            'asset layout. Extract again before rerunning restore after a path change.\n'
-            'TRE entries are regular files; no symlinks or administrator rights are required.\n'
-            'Keep this user-supplied proprietary material private and outside source control.\n')
+        if profile == 'client-runtime':
+            archive.writestr('ASSET_README.txt',
+                'SWGXR private client runtime assets (ZIP64; Linux and Windows)\n\n'
+                'Converted data for ten ground planets and the bounded JtL test.\n'
+                'Source TREs, developer reports and unreferenced converted files are excluded.\n'
+                'Source hashes and conversion limitations remain in the retained catalogs.\n'
+                'Put this ZIP, unextracted, in the matching client data/ folder.\n'
+                'Run import-data.sh or import-data.cmd to verify and install without launching.\n'
+                'Keep exactly one ZIP in data/. Import into a fresh client directory.\n'
+                'Compatible with the swgxr-assets-v2 importer; no raw TREs are needed.\n'
+                'Keep this user-supplied proprietary material private and outside source control.\n')
+        else:
+            archive.write(root / 'tools/assets/restore_asset_paths.py', 'restore_asset_paths.py')
+            archive.writestr('ASSET_README.txt',
+                'SWGXR private asset bundle (ZIP64; Linux and Windows)\n\n'
+                'Contains converted assets for all ten original ground planets, the original Luxury\n'
+                'Yacht, eleven small-ship cockpits/exteriors, Tatooine navigation landmark, and the 51 required\n'
+                'original TRE archives, with provenance and conversion failures retained.\n'
+                'No replacement media was downloaded. Game code, Godot, databases, accounts,\n'
+                'credentials, installation discs and redundant extraction caches are not included.\n\n'
+                'Extract into an empty workspace or staging folder, keeping runtime/ intact.\n'
+                'For a portable testing client, put this ZIP in its data/ folder and run its launcher.\n'
+                'Run: python restore_asset_paths.py --root <extracted-workspace>\n'
+                'This first verifies every asset SHA256, then adjusts recorded absolute workspace\n'
+                'paths in JSON metadata for the destination. Use matching SWGXR code with the v2\n'
+                'asset layout. Extract again before rerunning restore after a path change.\n'
+                'TRE entries are regular files; no symlinks or administrator rights are required.\n'
+                'Keep this user-supplied proprietary material private and outside source control.\n')
     print(json.dumps(dict(phase='verifying', files=len(paths))), flush=True)
     with zipfile.ZipFile(temporary) as archive:
         for index, entry in enumerate(manifest['files']):
@@ -123,8 +150,9 @@ def bundle(output, root=ROOT):
     with output.open('rb') as source: digest = hashlib.file_digest(source, 'sha256').hexdigest()
     output.with_suffix('.sha256').write_text(digest + '  ' + output.name + '\n')
     output.with_suffix('.manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+    if selection: output.with_suffix('.selection.json').write_text(json.dumps(selection, indent=2) + '\n')
     report = dict(passed=True, archive=str(output), files=len(paths), source_bytes=source_bytes,
-                  archive_bytes=output.stat().st_size, sha256=digest, tre_count=len(expected),
+                  archive_bytes=output.stat().st_size, sha256=digest, tre_count=len(expected), profile=profile,
                   validation='Every extracted entry SHA256 and ZIP CRC checked', symlinks_in_archive=False)
     output.with_suffix('.validation.json').write_text(json.dumps(report, indent=2) + '\n')
     print(json.dumps(report), flush=True)
@@ -134,4 +162,6 @@ def bundle(output, root=ROOT):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True)
-    bundle(parser.parse_args().output)
+    parser.add_argument('--profile', choices=('full', 'client-runtime'), default='full')
+    args = parser.parse_args()
+    bundle(args.output, profile=args.profile)

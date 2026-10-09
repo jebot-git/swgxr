@@ -7,11 +7,13 @@ Download the Linux or Windows client from the [test release](https://github.com/
 | Platform | Requirements |
 | --- | --- |
 | Linux | x86_64, **glibc 2.43 or newer**, libstdc++ providing **GLIBCXX_3.4.30**, Python 3.10+, Vulkan graphics drivers |
-| Windows | x86_64, Python 3.10+ with the `py` launcher, Vulkan graphics drivers |
+| Windows | x86_64, Vulkan graphics drivers; **Python is included** |
 | VR | A configured OpenXR runtime and connected headset; initial hardware target is Quest through SteamVR or WiVRn on Linux |
 | Storage | At least **25 GB free** for the client, compressed data and installed data |
 
-Use a supported Python version from [python.org](https://www.python.org/downloads/). Windows setup is covered by the [official Python installation guide](https://docs.python.org/3/using/windows.html); verify that `py -3 --version` works before proceeding. On Linux, verify `python3 --version` and `ldd --version`.
+Windows includes a private Python 3.13.16 runtime for data installation and startup. No Python installation, `py` launcher, pip, compiler, administrator setup, or developer tools are required. The launchers use the bundled runtime without changing system Python settings.
+
+On Linux, Python 3.10+ is still required; use a supported version from [python.org](https://www.python.org/downloads/) or your distribution. Verify `python3 --version` and `ldd --version`.
 
 Older Linux distributions with glibc below 2.43 cannot run this particular build. Do not replace your system C library to work around that requirement. The client uses **Forward+ on Vulkan only**. Standalone Quest, Mobile, Compatibility/OpenGL, Direct3D and ARM builds are unsupported. Godot and the native extensions are included; no separate Godot installation or compiler is needed.
 
@@ -79,7 +81,9 @@ For desktop regression or asset inspection, use `./play-desktop.sh`, which expli
 3. Run `import-data.cmd`. It verifies and installs the assets without starting the client. From PowerShell, use `.\import-data.cmd`.
 4. Configure your OpenXR runtime and connect the headset, then run `play-vr.cmd`.
 
-Use `play-desktop.cmd` only for desktop regression or asset inspection. If `py` is not recognized, finish the Python installation and reopen the terminal. An equivalent import command is `python start_client.py --import-only` if that command selects Python 3.10 or newer.
+Use `play-desktop.cmd` only for desktop regression or asset inspection. Keep the included `python/` folder with the client. If the launcher reports that bundled Python is missing, extract the complete client ZIP again.
+
+The refreshed Windows download retains the filename `test-client-windows-20261010.zip`; verify it against the updated release checksum. Older copies that call `py -3` require a fresh download. Extract the updated package into a fresh folder and import the same runtime data ZIP; no new data download is needed.
 
 After installation, the folder has this shape:
 
@@ -90,6 +94,7 @@ test-client-<platform>-20261010/
   runtime/
     assets/
   engine/
+  python/       # Windows only; included in the client ZIP
   client/
   server.json
   server-ca.pem
@@ -119,3 +124,5 @@ Create a new account in the sign-in panel, then create/select a character. Invit
 - **OpenXR initialization failure:** confirm that your headset is connected and the intended OpenXR runtime is active. Desktop mode is only a separate inspection/regression option.
 
 Both executable/PCK packages passed headless native-loading and catalog preflight checks. Clean runtime-only imports and repeat imports passed with both released package importers; executable preflight passed on Linux and under Wine. Ground transitions across all ten planets, housing, equipment, original-starport movement, crafted creature appearances and JtL smoke tests passed using only the new runtime data. The Windows native DLL passed the same stair ascent/descent test in an exported harness under Wine. Native Windows Vulkan/OpenXR and live headset validation remain pending; dummy-renderer tests do not validate a GPU or headset. The Windows package uses standard spatial audio fallback and includes TwoVoIP.
+
+The bundled Windows Python completed the full 54,861-file runtime import through `import-data.cmd`, repeat import, startup configuration and Godot process/preflight checks under Wine. Validation used an installation path with spaces and non-ASCII characters and ignored invalid system Python settings. Original-starport movement passed against the Windows-rebased data. Native Windows GPU/headset testing remains pending.

@@ -10,6 +10,10 @@ import ssl
 import subprocess
 import tarfile
 import zipfile
+try:
+    from . import windows_python
+except ImportError:
+    import windows_python
 
 ROOT=Path(__file__).resolve().parents[2]
 TARGETS=('linux-x86_64','windows-x86_64')
@@ -160,14 +164,15 @@ def package(output,target,origin,ca,allow_incomplete=False):
         (output/'data').mkdir();(output/'runtime').mkdir()
         (output/'data/DROP-DATA-HERE.txt').write_text('Place the separately supplied SWGXR test-data ZIP here. Do not unpack it.\nFirst launch verifies every data file and installs runtime/assets beside client/.\nThis folder intentionally ships empty of original SWG data.\n')
         runnable=not missing
+        python_runtime=None
         if windows:
-            for name, argument in (('play-vr.cmd',''),('play-desktop.cmd','--desktop '),('import-data.cmd','--import-only ')):
-                (output/name).write_text('@echo off\ncd /d "%~dp0"\npy -3 start_client.py '+argument+'%*\nif errorlevel 1 pause\n')
+            python_runtime=windows_python.install(output/'python')
+            windows_python.write_launchers(output)
         else:
             for name, argument in (('play-vr.sh',''),('play-desktop.sh','--desktop '),('import-data.sh','--import-only ')):
                 (output/name).write_text('#!/bin/sh\nset -eu\ncd -- "$(dirname -- "$0")"\nexec python3 start_client.py '+argument+'"$@"\n')
                 (output/name).chmod(0o755)
-        requirements=('Windows x86_64, Python 3.10+ with the py launcher, Vulkan graphics drivers and an OpenXR runtime. Windows native libraries and PCK are included. Automated execution was checked through Wine on Linux; Windows Vulkan/OpenXR headset testing remains pending. Standard spatial audio fallback is used on Windows.\n' if windows else 'Linux x86_64, Python 3.10+, glibc 2.43+, libstdc++ providing GLIBCXX_3.4.30, Vulkan graphics drivers and SteamVR or WiVRn configured as OpenXR runtime. Older Linux C libraries are unsupported.\n')
+        requirements=('Windows x86_64, Vulkan graphics drivers and an OpenXR runtime. A private Python runtime, Windows native libraries and PCK are included; no Python installation, py launcher or developer tools are needed. Automated execution was checked through Wine on Linux; Windows Vulkan/OpenXR headset testing remains pending. Standard spatial audio fallback is used on Windows.\n' if windows else 'Linux x86_64, Python 3.10+, glibc 2.43+, libstdc++ providing GLIBCXX_3.4.30, Vulkan graphics drivers and SteamVR or WiVRn configured as OpenXR runtime. Older Linux C libraries are unsupported.\n')
         (output/'START-HERE.txt').write_text('SWGXR test client — '+target+'\n\nRequires '+requirements+'\n1. Extract this client to a short, writable folder (Windows example: C:\\SWGXR).\n2. Put the separately supplied test-data ZIP in data/; do not unpack it.\n3. Run '+('play-vr.cmd' if windows else './play-vr.sh')+' to enter VR. Use play-desktop for explicit desktop regression mode, or import-data to install data without launching.\nFirst start verifies every data file; allow at least 25 GB free for the ZIP and installed files.\n\nCreate a new account in the sign-in panel. This test realm has been reset; previous accounts and characters are removed.\nOnly the public server address and CA certificate are included. No account credentials are bundled. Original user-supplied SWG data stays in the separate private archive.\nDo not move the client folder after importing data; extract a fresh client folder to relocate.\nScope: ten original ground planets plus the noncombat Tatooine space test, Luxury Yacht, crew launch and supported small-ship boarding/return. Forward+ Vulkan only.\n')
         # Linux editor needs its host libraries during Windows resource import.
         host_libraries=[]
@@ -184,6 +189,7 @@ def package(output,target,origin,ca,allow_incomplete=False):
         for source in sorted(output.rglob('*')):
             if source.is_file():files.append({'path':source.relative_to(output).as_posix(),'bytes':source.stat().st_size,'sha256':sha(source)})
         report=dict(schema=1,target=target,runnable=runnable,engine=executable,engine_uses_pck=True,working_directory='engine',linux_glibc_minimum='2.43' if not windows else None,linux_glibcxx_minimum='3.4.30' if not windows else None,original_data_included=False,credentials_included=False,missing=missing,files=files)
+        if python_runtime:report['python_runtime']=python_runtime
         (output/'PACKAGE.json').write_text(json.dumps(report,indent=2)+'\n')
         return report
     except BaseException:

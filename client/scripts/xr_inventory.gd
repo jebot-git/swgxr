@@ -768,7 +768,7 @@ func tool_pointer_pose(controller: XRController3D) -> Dictionary:
 	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"left" if controller==controller_for("left") else "right",rig,controller)
 
 func vehicle_hand_busy(side: String)->bool:
-	return is_instance_valid(body) and is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)
+	return is_instance_valid(body) and ((is_instance_valid(body.get("vehicles")) and body.vehicles.hand_busy(side)) or (is_instance_valid(body.get("space")) and body.space.hand_busy(side)))
 
 func set_combat_loadout_context(value:Dictionary,callback:Callable)->void:
 	loadout_request=callback

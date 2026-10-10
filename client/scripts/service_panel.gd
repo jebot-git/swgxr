@@ -19,6 +19,8 @@ var terminal: Dictionary={}
 var wallet: Dictionary={"cash":0,"bank":0}
 var rows: Array=[]
 var tickets: Array=[]
+var travel_overview=preload("res://scripts/travel_overview.gd").new()
+const TRAVEL_ROWS_RECT=Rect2(20,128,390,352)
 var selected := -1
 var offset := 0.0
 var pending := false
@@ -130,7 +132,7 @@ func set_pending(value: bool) -> void:
 	queue_redraw()
 
 func row_at(pixel: Vector2) -> int:
-	var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else ROWS_RECT
+	var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else TRAVEL_ROWS_RECT if terminal.get("kind","")=="travel" else ROWS_RECT
 	if not region.has_point(pixel): return -1
 	var index:=int((pixel.y-ROWS_RECT.position.y)/ROW_HEIGHT)+int(offset)
 	return index if index>=0 and index<rows.size() else -1
@@ -218,7 +220,7 @@ func navigation_target(pixel:Vector2)->Vector2:
 	if navigation_category and category_selected>=0:
 		return Vector2(CATEGORY_RECT.get_center().x,128+(category_selected-category_offset+.5)*ROW_HEIGHT)
 	if selected>=0:
-		var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else ROWS_RECT
+		var region:=BAZAAR_ROWS_RECT if terminal.get("kind","")=="bazaar" else TRAVEL_ROWS_RECT if terminal.get("kind","")=="travel" else ROWS_RECT
 		return Vector2(region.get_center().x,128+(selected-int(offset)+.5)*ROW_HEIGHT)
 	return pixel
 
@@ -253,6 +255,10 @@ func category_back() -> void:
 func click_at(pixel: Vector2) -> void:
 	if pending: return
 	if CLOSE_RECT.has_point(pixel): close_requested.emit(); return
+	if terminal.get("kind","")=="travel" and travel_overview.RECT.has_point(pixel):
+		var destination:int=travel_overview.select_at(pixel,rows,selected)
+		if destination>=0:selected=destination;offset=clampf(offset,maxi(0,selected-7),selected);queue_redraw()
+		return
 	if terminal.get("kind","")=="ship_crew":
 		if REFRESH_RECT.has_point(pixel):close_requested.emit();return
 		if ROWS_RECT.has_point(pixel):
@@ -464,7 +470,7 @@ func _draw() -> void:
 			draw_string(FONT,Vector2(170,122),"Imperial %d FP · Rebel %d FP · delegation cost ×%.2f"%[int(wallet.get("faction_points",{}).get("imperial",0)),int(wallet.get("faction_points",{}).get("rebel",0)),float(wallet.get("delegation_ratio",1.0))],HORIZONTAL_ALIGNMENT_LEFT,650,17,Color("9ac7da"))
 		else:draw_string(FONT,Vector2(170,414),"Grab and drag to set an amount; confirm to submit",HORIZONTAL_ALIGNMENT_LEFT,550,19,Color("9ac7da"))
 	else:
-		var item_region:=BAZAAR_ROWS_RECT if kind=="bazaar" else ROWS_RECT
+		var item_region:=BAZAAR_ROWS_RECT if kind=="bazaar" else TRAVEL_ROWS_RECT if kind=="travel" else ROWS_RECT
 		if kind=="ship_crew":
 			draw_multiline_string(FONT,Vector2(590,155),"Crew %d / %d\n\nShake the pilot’s\nfree main hand to join.\n\nTap a guest to remove.\n\nPress Launch when\neveryone is ready.\n\nWalking away cancels."%[rows.size(),int(terminal.get("capacity",0))],HORIZONTAL_ALIGNMENT_LEFT,242,19,16,Color("d2f6ff"))
 		if kind=="bazaar":
@@ -491,11 +497,12 @@ func _draw() -> void:
 		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
 			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
-		if kind!="ship_crew" and selected>=0 and selected<rows.size():
+		if kind not in ["ship_crew","travel"] and selected>=0 and selected<rows.size():
 			var row: Dictionary=rows[selected]
 			var detail:=detail_for(row)
 			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
 		if rows.size()>8 and kind!="bazaar": draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("9ac7da"))
+	if kind=="travel":travel_overview.draw(self,rows,selected,FONT)
 	if kind=="house_deposit":
 		draw_style_box(Holo.button(),REFRESH_RECT);draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back",HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if kind in ["bazaar","mission","travel","trainer","ship_crew"]:

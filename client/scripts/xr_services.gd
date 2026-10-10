@@ -481,4 +481,6 @@ func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) 
 		var toward:=head-pose.origin
 		var candidate:=pose.basis.z.normalized().dot(toward.normalized())*10.0-toward.length()
 		if candidate>score:best=pose;score=candidate
+	if record.get("kind","") in ["starship","ship_crew"]:
+		best.origin.y=maxf(best.origin.y+.40,float(record.get("position",fallback_center).y)+1.65)
 	return best

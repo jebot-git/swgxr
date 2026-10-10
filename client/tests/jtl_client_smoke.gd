@@ -101,7 +101,7 @@ func run()->void:
 	panel.selected=0;panel.confirm()
 	check(launch_calls.size()==1 and launch_calls[0][0]=="jtl_launch" and launch_calls[0][1].terminal_id=="555","Original starship terminal launch retains native terminal identity")
 	var full:=FullHost.new();root.add_child(full);full.datapad_character_id="123";full.datapad_epoch=1
-	full.xr_origin=load("res://xr/player_rig.tscn").instantiate();full.add_child(full.xr_origin);full.player=full.xr_origin.get_node("PlayerBody");full.player.set_physics_process(false);full.player.set_process(false)
+	full.xr_origin=load("res://xr/player_rig.tscn").instantiate();full.add_child(full.xr_origin);full.xr_origin.rotation.y=1.1;full.player=full.xr_origin.get_node("PlayerBody");full.player.set_physics_process(false);full.player.set_process(false)
 	full.stage=preload("res://scripts/cell_stage.gd").new();full.add_child(full.stage);full.player.ground_provider=full.stage
 	full.datapad=Pad.new();full.add_child(full.datapad)
 	var old_stage:Node3D=full.stage;var old_origin:Transform3D=full.xr_origin.global_transform
@@ -109,6 +109,9 @@ func run()->void:
 	var flight:=Controller.new();full.add_child(flight);flight.setup(full,settings);flight.set_process(false);full.space=flight
 	var launched:=authoritative.duplicate(true);launched.ship={"id":"123456789","station":"pilot","position":[100,200,300],"quaternion":[0,0,0,1],"player_position":[-.76,.93,21.14],"cell_index":1,"decorations":[],"stations":[],"commands":[]}
 	check(flight.observe(launched,12) and flight.seated(),"Owned native launch enters production original interior and pilot station")
+	check(absf(wrapf(full.player.get_camera().global_rotation.y,-PI,PI))<.001,"Seat entry turns play space to face original forward controls")
+	var hotas_frame:Transform3D=flight.hotas_pose()
+	check(absf((hotas_frame*Vector3(.28,.6,-.32)).y-(full.player.get_camera().global_position.y-.45))<.001,"Virtual HOTAS grip height is reachable relative to seated eyes")
 	check(not full.datapad.ui.professions.forgetting_available,"Forget is unavailable aboard while native learned skills remain intact")
 	check(full.stage!=old_stage and full.player.ground_provider==full.stage and not old_stage.visible,"Interior replaces ground support while preserving ground scene")
 	check(full.player.get_camera().transform.is_equal_approx(tracked_camera),"Pilot boarding preserves tracked camera's local transform")
@@ -156,13 +159,15 @@ func run()->void:
 	flight.scene.place_player(full.player,[0,.4,20],1)
 	full.inventory=preload("res://scripts/xr_inventory.gd").new();full.add_child(full.inventory);full.inventory.configure(full.xr_origin,full.player);full.inventory.set_process(false);full.inventory.set_allowed(true)
 	full.housing=preload("res://housing/controller.gd").new();full.add_child(full.housing);full.housing.set_process(false);full.housing.app=full;full.housing.bag=full.inventory
+	full.inventory.hip_candidate=true;full.inventory.shoulder_candidate=true;full.inventory.interaction_active=true
+	check(not flight.flight_inventory_busy(),"Idle hand proximity does not reset flight controls")
 	var item:Dictionary={"id":"knife","template":"object/weapon/melee/knife/knife_stone.iff","name":"Stone knife","equippable":true}
 	full.inventory.take_item(item);full.inventory.begin_mutation("Dropping item…")
 	full.response={"ok":true,"source_kind":"core3_jtl","character_id":"123","state":interior,"mutation":{"success":true},"live_response":{"sequence":14}}
 	flight.busy=true;var drop_calls:=full.ship_calls.size()
 	check(flight.try_drop(item,Transform3D(Basis.IDENTITY,full.player.global_position)) and flight.interaction_waiting and full.inventory.action_pending,"Ship placement queues behind walking update and keeps mutation pending")
 	await process_frame;flight.busy=false;await process_frame;await process_frame;await process_frame
-	check(full.ship_calls.size()==drop_calls+1 and full.ship_calls.back().path=="/jtl/decorate","Queued item drop sends exactly one native decoration request")
+	check(full.ship_calls.size()==drop_calls+2 and full.ship_calls[-2].path=="/jtl/walk" and full.ship_calls.back().path=="/jtl/decorate","Queued item drop confirms current room before exactly one native decoration request")
 	check(full.inventory.held_item.is_empty() and not full.inventory.action_pending and full.inventory.ui.status.is_empty(),"Confirmed placement clears item, pending state and obsolete Dropping item message")
 	full.inventory.take_item(item);full.inventory.begin_mutation("Dropping item…")
 	full.response={"ok":false,"error":"Placement reply timed out; check inventory before retrying."}

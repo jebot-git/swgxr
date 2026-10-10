@@ -15,6 +15,28 @@ var template_entry:Dictionary={}
 var cockpit:Node3D
 var crew:Node3D
 var nearby:Dictionary={}
+var visual_ship_pose:=Transform3D.IDENTITY
+var visual_from:=Transform3D.IDENTITY
+var visual_target:=Transform3D.IDENTITY
+var visual_age:=0.0
+var visual_duration:=.1
+var visual_stamp:=-1
+var nearby_poses:Dictionary={}
+func _process(delta:float)->void:
+	if visual_stamp<0:return
+	visual_age=minf(visual_duration,visual_age+delta)
+	visual_ship_pose=visual_from.interpolate_with(visual_target,visual_age/visual_duration)
+	if is_instance_valid(exterior):exterior.transform=visual_ship_pose.affine_inverse()
+	for id in nearby_poses:
+		if nearby.has(id):nearby[id].transform=visual_ship_pose.affine_inverse()*nearby_poses[id]
+func observe_motion(pose:Transform3D)->void:
+	var now:=Time.get_ticks_msec()
+	if visual_stamp<0:visual_ship_pose=pose
+	visual_from=visual_ship_pose;visual_target=pose;visual_age=0
+	visual_duration=clampf((now-visual_stamp)/1000.0,.05,.3) if visual_stamp>=0 else .1
+	visual_stamp=now
+	_process(0)
+
 func ready_assets(template:="")->bool:
 	if not FileAccess.file_exists(catalog_path):error="Luxury Yacht assets are missing. Install the testing data archive.";return false
 	var value:Variant=JSON.parse_string(FileAccess.get_file_as_string(catalog_path))
@@ -66,7 +88,7 @@ func observe(ship:Dictionary)->void:
 	if is_instance_valid(exterior) and ship.get("position") is Array and ship.get("quaternion") is Array:
 		var p:Array=ship.position;var q:Array=ship.quaternion
 		var pose:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
-		exterior.transform=pose.affine_inverse()
+		observe_motion(pose)
 	var keep:Dictionary={}
 	for row:Dictionary in ship.get("decorations",[]):
 		var id:=str(row.get("id",""));keep[id]=true
@@ -90,8 +112,6 @@ func update_crew(ship:Dictionary,poses:Array,owner:String,observer:Vector3)->voi
 	crew.apply_snapshot(rows,owner,observer,ship_id+":"+str(cell_index()),true)
 func update_nearby(rows:Array,ship:Dictionary)->void:
 	if not ship.get("position") is Array or not ship.get("quaternion") is Array:return
-	var p:Array=ship.position;var q:Array=ship.quaternion
-	var own:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
 	var keep:Dictionary={}
 	for row:Dictionary in rows.slice(0,32):
 		var id:=str(row.get("id",row.get("ship_id","")))
@@ -107,6 +127,6 @@ func update_nearby(rows:Array,ship:Dictionary)->void:
 			for body:Node in node.find_children("*","StaticBody3D",true,false):body.free()
 			nearby[id]=node
 		var point:Array=row.position;var rotation:Array=row.quaternion
-		nearby[id].transform=own.affine_inverse()*Transform3D(Basis(Quaternion(-rotation[0],-rotation[1],rotation[2],rotation[3]).normalized()),Vector3(point[0],point[1],-point[2]))
+		nearby_poses[id]=Transform3D(Basis(Quaternion(-rotation[0],-rotation[1],rotation[2],rotation[3]).normalized()),Vector3(point[0],point[1],-point[2]))
 	for id in nearby.keys():
-		if not keep.has(id):nearby[id].queue_free();nearby.erase(id)
+		if not keep.has(id):nearby[id].queue_free();nearby.erase(id);nearby_poses.erase(id)

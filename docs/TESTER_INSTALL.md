@@ -155,3 +155,17 @@ another room remain unavailable.
 Ship item placement waits for an in-flight walking update to finish. A rejected
 or unconfirmed placement keeps the item in hand and replaces the pending message
 with its outcome. Check inventory before retrying an unconfirmed action.
+
+Entering a ship seat turns your view toward the controls. In **Virtual HOTAS**
+mode, grip the right handle for the stick and the left handle for throttle;
+release grip to let go. Handles are placed below eye level when you enter the
+seat. Ship scenery moves smoothly between the positions confirmed by Core3.
+
+Walking through a yacht doorway now updates the native room before item placement.
+If that update is rejected, the client returns to the confirmed position and
+keeps the item in hand. Ship-terminal holograms open above the keyboard.
+
+At a starport travel terminal, select a destination to see its original planet
+map, marked arrival point and fare. You can also select a destination by its map
+marker. Press **Buy ticket** to purchase. Maps use the existing runtime assets;
+this client update does not require a new assets archive.

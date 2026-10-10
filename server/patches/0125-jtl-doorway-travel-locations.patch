@@ -1,0 +1,36 @@
+--- a/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -77,11 +77,21 @@
+   }
+   persist(c,s);
+  }
++ static bool walkClear(CreatureObject* c,ShipObject* s,const Vector3& destination){
++  // Destination support is checked in its own cell. The old-cell LOS helper
++  // also requires a floor under the destination in the OLD room, blocking doors.
++  auto layout=s->getObjectTemplate()->getPortalLayout();if(!layout)return false;
++  Vector3 start=c->getPosition(),end=destination;start.set(start.getX(),start.getY(),start.getZ()+.5f);end.set(end.getX(),end.getY(),end.getZ()+.5f);
++  float distance=end.distanceTo(start);if(distance<.001f)return true;
++  Vector3 direction=end-start;direction.normalize();Ray ray(start,direction);float hit=0;Triangle* triangle=nullptr;
++  for(int i=1;i<layout->getAppearanceTemplatesSize();++i){auto appearance=layout->getAppearanceTemplate(i);if(appearance && appearance->intersects(ray,distance,hit,triangle,true))return false;}
++  return true;
++ }
+  static void walk(CreatureObject* c,ShipObject* s,const Json& r){
+   if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(passengerSeated(c))throw std::runtime_error("jtl_leave_station_first");auto old=interior(c,s);auto p=vec(r.at("position"));int index=r.at("cell_index").get<int>();auto pob=s->asPobShip();if(index<=0 || index>pob->getTotalCellNumber())throw std::runtime_error("jtl_invalid_cell");auto cell=pob->getCell(index-1);if(!cell)throw std::runtime_error("jtl_invalid_cell");
+   auto layout=s->getObjectTemplate()->getPortalLayout();if(cell!=old){auto prop=layout?layout->getCellProperty(old->getCellNumber()):nullptr;if(!prop || !prop->hasConnectedCell(index))throw std::runtime_error("jtl_unconnected_cell");}
+   UniqueReference<Vector<float>*> floors(CollisionManager::getCellFloorCollision(p[0],p[2],cell));double error=1000;if(floors)for(int i=0;i<floors->size();++i)error=std::min(error,std::abs(double(floors->get(i))-p[1]));if(error>.3)throw std::runtime_error("jtl_floor_mismatch");
+-  Vector3 dest(p[0],p[2],p[1]);if(!CollisionManager::checkLineOfSightInParentCell(c,dest))throw std::runtime_error("jtl_walk_obstructed");
++  Vector3 dest(p[0],p[2],p[1]);if(!walkClear(c,s,dest))throw std::runtime_error("jtl_walk_obstructed");
+   auto& m=motion(s).walkers[c->getObjectID()];auto sequence=r.at("sequence").get<uint64>();if(!sequence || sequence<=m.sequence)throw std::runtime_error("jtl_stale_walk");m.sequence=sequence;double stamp=now(),credit=m.credit;swgxr::jtl::Vec from{{c->getPositionX(),c->getPositionZ(),c->getPositionY()}};bool accepted=swgxr::jtl::walkBudget(from,p,stamp-m.stamp,credit);m.stamp=stamp;m.credit=credit;if(!accepted)throw std::runtime_error("jtl_walk_speed_rejected");
+   Locker cellLock(cell,c);if(cell!=old && !cell->transferObject(c,-1,true))throw std::runtime_error("jtl_cell_transfer_rejected");c->initializePosition(p[0],p[1],p[2]);c->updateZoneWithParent(cell,true);
+  }
+--- a/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
++++ b/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
+@@ -1683,7 +1683,7 @@
+  auto out=JSONSerializationType::array();auto points=planetTravelPointList->swgxrSnapshot();
+  for(int i=0;i<points.size();++i){auto p=points.get(i);if(p==nullptr || !p->isIncomingAllowed())continue;
+   std::string planet=p->getPointZone().toCharArray();std::string name=p->getPointName().toCharArray();
+-  out.push_back({{"id",name},{"name",name},{"planet",planet},{"zone",planet},{"destination_planet",planet},{"available",p->getShuttle()!=nullptr}});
++  out.push_back({{"id",name},{"name",name},{"planet",planet},{"zone",planet},{"destination_planet",planet},{"position",JSONSerializationType::array({p->getArrivalPositionX(),p->getArrivalPositionZ(),p->getArrivalPositionY()})},{"available",p->getShuttle()!=nullptr}});
+  }
+  return String(out.dump().c_str());
+ }

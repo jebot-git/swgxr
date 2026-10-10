@@ -24,6 +24,7 @@ var notice_until:=0
 var ground:Dictionary={}
 var station:="ground"
 var seat_origin:=Transform3D.IDENTITY
+var seat_eye_height:=0.0
 var view_environment:Environment
 var previous_environment:Environment
 var stars:ShaderMaterial
@@ -64,9 +65,9 @@ func session()->Node:
 	return app.gameplay_session if is_instance_valid(app.gameplay_session) and app.gameplay_session.live else null
 func assets_ready(template:="")->bool:
 	var probe:=Scene.new();var ready:bool=probe.ready_assets(template);error=probe.error;probe.free();return ready
-func request(action:String,detail:Dictionary={})->Dictionary:
+func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictionary:
 	if busy:
-		if action in ["status","control","walk"] or interaction_waiting:return {"ok":false,"error":"Ship request in progress"}
+		if (action in ["status","control","walk"] and not synchronize_walk) or interaction_waiting:return {"ok":false,"error":"Ship request in progress"}
 		# A trigger press during a flight heartbeat must not silently disappear.
 		# Stop scheduling new heartbeats while one deliberate action waits.
 		interaction_waiting=true
@@ -74,6 +75,9 @@ func request(action:String,detail:Dictionary={})->Dictionary:
 		while busy and waiting_epoch==app.datapad_epoch and not app.session_leaving and Time.get_ticks_msec()<deadline:await get_tree().process_frame
 		interaction_waiting=false
 		if busy or waiting_epoch!=app.datapad_epoch or app.session_leaving:return {"ok":false,"error":"Wait for the current ship request to finish."}
+	if synchronize_walk:
+		if not aboard() or seated():return {"ok":false,"error":"Walk inside the ship before placing items."}
+		walk_sequence+=1;detail={"position":scene.source(app.player.global_position),"cell_index":scene.cell_index(),"sequence":walk_sequence}
 	var native:=session()
 	if native==null:return {"ok":false,"error":"Connect your character before using a ship"}
 	if action in ["launch","crew_prepare"]:
@@ -122,6 +126,7 @@ func request(action:String,detail:Dictionary={})->Dictionary:
 	var landing:bool=(action=="land" and response.get("ok",false)) or (aboard() and (not next_ship is Dictionary or str(next_ship.get("station","ground"))=="ground"))
 	if landing:app.world_ready=false;app.player.active=false;app.player.set_physics_process(false)
 	crew_poses=response.get("crew_poses",[]) if response.get("crew_poses",[]) is Array else []
+	if action=="walk" and not response.get("ok",false):needs_reconcile=true
 	if not observe(value,native_revision):return {"ok":false,"error":"The native ship scene could not be displayed. "+error}
 	if live is Dictionary:
 		if native.has_method("accept_native_response"):native.accept_native_response(live)
@@ -163,7 +168,11 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 		if changed or needs_reconcile or bool(ship.get("walk_corrected",false)):
 			scene.place_player(app.player,ship.get("player_position",[-.76,.43,21.14] if next=="pilot" else [0,.4,20]),int(ship.get("cell_index",1)))
 			inputs.reset();needs_reconcile=false
-			if next in ["pilot","passenger","gunner"]:seat_origin=app.xr_origin.global_transform
+			if next in ["pilot","passenger","gunner"]:
+				# Rotate the play-space origin once; tracked HMD/controller local poses stay untouched.
+				app.player.rotate_player(app.player.get_camera().global_rotation.y-scene.stage.global_rotation.y)
+				scene.place_player(app.player,ship.get("player_position",[0,0,0]),int(ship.get("cell_index",1)))
+				seat_origin=app.xr_origin.global_transform;seat_eye_height=app.player.get_camera().global_position.y
 		app.player._update_locomotion()
 		update_crew()
 	update_lobby()
@@ -387,12 +396,25 @@ func show_station_targets(permitted:bool)->void:
 		var label:Label3D=station_labels[id]
 		label.global_position=scene.world(candidate.position)+Vector3(0,.95,0)
 		label.text=("Take pilot seat" if id=="pilot" else "Take passenger seat")+"\nAim · Trigger";label.show()
+func hotas_pose()->Transform3D:
+	var pose:=pilot_pose()
+	pose.origin.y=seat_eye_height-1.05 # Handles are .60m above this frame, .45m below the seated eyes.
+	pose.basis=scene.stage.global_basis.orthonormalized()
+	return pose
+func hand_busy(side:String)->bool:
+	if not seated() or station!="pilot" or preferences.mode!="virtual_hotas":return false
+	var hand:XRController3D=app.xr_origin.get_node(side.capitalize()+"Hand")
+	var anchor:=Vector3(-.28 if side=="left" else .28,.60,-.32)
+	return (inputs.throttle_held if side=="left" else inputs.stick_held) or (hotas_pose().affine_inverse()*hand.global_position).distance_to(anchor)<preferences.grip_radius
+func flight_inventory_busy()->bool:
+	var bag:Node3D=app.inventory
+	return is_instance_valid(bag) and (bag.is_open or not bag.held_item.is_empty() or not bag.equipment_drag.is_empty() or bag.hologram.active or bag.action_pending)
 func controls(delta:float)->Dictionary:
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
 	var tracked:bool=bool(app.player.combat_tracking_context().tracked) and Hands.controller_tracked(left) and Hands.controller_tracked(right)
-	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or app.inventory.is_open or app.inventory.interaction_active or age>3:
+	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or age>3:
 		inputs.reset();return inputs.neutral()
-	return inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),pilot_pose(),delta,preferences.physical_values() if preferences.mode=="physical_hotas" else {})
+	return inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,preferences.physical_values() if preferences.mode=="physical_hotas" else {})
 func _process(delta:float)->void:
 	if not is_instance_valid(app) or app.session_leaving:return
 	if epoch!=app.datapad_epoch:reset();return
@@ -413,9 +435,9 @@ func _process(delta:float)->void:
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · NON-COMBAT\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
 	if not state.get("boarding",{}).get("incoming",[]).is_empty():readout.text+="\nBoarding request · open commands to allow or decline"
 	elif not state.get("boarding",{}).get("pending",{}).is_empty():readout.text+="\nAwaiting the other pilot’s boarding consent"
-	control_handles.visible=seated() and station=="pilot" and preferences.mode=="virtual_hotas";control_handles.global_transform=pilot_pose()
+	control_handles.visible=seated() and station=="pilot" and preferences.mode=="virtual_hotas";control_handles.global_transform=hotas_pose()
 	if ship.get("quaternion") is Array and ship.quaternion.size()==4:
-		var q:Array=ship.quaternion;stars.set_shader_parameter("ship_rotation",Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()))
+		stars.set_shader_parameter("ship_rotation",scene.visual_ship_pose.basis)
 	var output:=controls(delta) if seated() and station=="pilot" else inputs.neutral()
 	if seated():
 		app.xr_origin.global_transform=seat_origin;app.player.velocity=Vector3.ZERO
@@ -475,6 +497,12 @@ func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	return true
 func finish_drop(payload:Dictionary)->void:
 	var version:int=app.datapad_epoch
+	var walked:Dictionary=await request("walk",{},true)
+	if version!=app.datapad_epoch:return
+	if not walked.get("ok",false) or scene.cell_index()!=int(ship.get("cell_index",0)):
+		app.inventory.finish_item_action(false,str(walked.get("error","Wait until your current room is confirmed before placing an item.")));return
+	if int(payload.cell_index)!=int(ship.get("cell_index",0)):
+		app.inventory.finish_item_action(false,"Room changed while placing the item. Release it inside your current room.");return
 	var response:=await request("decorate",payload)
 	if version!=app.datapad_epoch:return
 	var success:bool=response.get("ok",false) and response.get("mutation",{}).get("success",false)

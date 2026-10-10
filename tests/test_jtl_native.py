@@ -19,6 +19,9 @@ class JtlNative(unittest.TestCase):
  def test_ground_building_never_indexes_ship_cells(self):
   source=(ROOT/'server/jtl/SwgxrJtl.h').read_text()
   self.compile_run('jtl_cell_native.cpp','class NativeJtl {public: static ShipObject* current(CreatureObject*c){return c->ship;}\n'+method(source,' static CellObject* playerCell(')+'\n};','jtl_cell_native.inc')
+ def test_doorway_segment_keeps_both_room_wall_checks(self):
+  source=(ROOT/'server/jtl/SwgxrJtl.h').read_text()
+  self.compile_run('jtl_walk_native.cpp','class NativeJtl {public:\n'+method(source,' static bool walkClear(')+'\n};','jtl_walk_native.inc')
  def test_actual_provision(self):
   source=(ROOT/'server/jtl/SwgxrJtl.h').read_text()
   methods='\n'.join(method(source,signature) for signature in (' static bool yacht(', ' static ShipObject* entitled(', ' static void persist(', ' static void provision('))

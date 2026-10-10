@@ -388,7 +388,9 @@ def medic_request(account, oid, action, data):
     if LIVE_COMBAT.active_for(account):
         live=LIVE_COMBAT.request(account,'medic',dict(data,medic=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',LIVE_COMBAT.active_for(account)['id']))))
         check_live_error(live)
-        return medic_snapshot(live['mutation'],oid)
+        out=medic_snapshot(live['mutation'],oid)
+        out['live_response']=live
+        return out
     raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
         {'action':'zoneInCharacter','inventoryRequest':'swgxr_medic_v1 '+json.dumps(command,separators=(',',':'))}])
     return medic_snapshot(raw.get('variables',{}).get('medic',{}),oid)
@@ -403,6 +405,7 @@ def scout_request(account, oid, action, data):
         live=LIVE_COMBAT.request(account,'scout',dict(data,scout=command,character_id=oid,session_id=data.get('live_session_id',data.get('session_id',active['id']))))
         check_live_error(live)
         out=scout_snapshot(live['mutation'],oid,live.get('scout_attributes',{}))
+        out['live_response']=live
     else:
         raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
             {'action':'zoneInCharacter','inventoryRequest':'swgxr_scout_v1 '+json.dumps(command,separators=(',',':'))}])
@@ -567,6 +570,7 @@ def corpse_request(account, oid, action='corpses', data=None):
         raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
             {'action':'zoneInCharacter','inventoryRequest':'swgxr_corpse_v1 '+json.dumps(command,separators=(',',':'))}])
     result=corpse_snapshot(raw,oid)
+    if active:result['live_response']=live
     if action in ('corpse_harvest','corpse_loot'):
         if result.get('mutation',{}).get('success') is not True:raise BackendError('Native corpse mutation incomplete.')
         result['inventory']=read_inventory(account,oid)

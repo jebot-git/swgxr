@@ -1,0 +1,101 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GetAttributesBatchCommand.h
+@@ -14,6 +14,7 @@
+ #include "SwgxrLiveCombat.h"
+ #include "SwgxrCrafting.h"
+ #include "SwgxrScout.h"
++#include "SnapshotCodec.h"
+ 
+ class GetAttributesBatchCommand : public QueueCommand {
+ public:
+@@ -26,7 +27,7 @@
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+ 		if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_livecombat_v1 ")) {
+ 			JSONSerializationType out,request;try{std::string raw=arguments.toString().toCharArray();request=JSONSerializationType::parse(raw.substr(raw.find(' ')+1));out=SwgxrLiveCombat::run(creature,request);}catch(const std::exception& e){out={{"error_code",std::string(e.what())},{"session_live",false},{"character_id",std::to_string(creature->getObjectID())}};}
+-			out["request_id"]=request.is_object()?request.value("request_id",std::string()):std::string();auto msg=new AttributeListMessage(creature->getObjectID());msg->insertAttribute("swgxr.live.snapshot",String(out.dump(-1,' ',true).c_str()));creature->sendMessage(msg);return SUCCESS;
++			out["request_id"]=request.is_object()?request.value("request_id",std::string()):std::string();auto msg=new AttributeListMessage(creature->getObjectID());auto wire=out.dump(-1,' ',true);if(request.is_object() && request.value("reply_codec",std::string())=="zlib_hex_v1")wire=swgxr::snapshot_codec::encode(wire);msg->insertAttribute("swgxr.live.snapshot",String(wire.c_str()));creature->sendMessage(msg);return SUCCESS;
+ 		}
+         if (creature->isPlayerCreature() && creature->getPlayerObject()!=nullptr && arguments.toString().beginsWith("swgxr_session_v1 ")) {
+             JSONSerializationType out;try{std::string raw=arguments.toString().toCharArray();out=SwgxrServices::sessionState(creature,JSONSerializationType::parse(raw.substr(raw.find(' ')+1)));}catch(const std::exception& e){out={{"error",std::string(e.what())},{"character_id",std::to_string(creature->getObjectID())}};}
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -9,6 +9,7 @@
+ #include <fstream>
+ #include <cstdio>
+ #include <chrono>
++#include "server/zone/objects/creature/commands/SnapshotCodec.h"
+ #include "client/ActionBase.h"
+ #include "client/ActionResult.h"
+ #include "client/ActionManager.h"
+@@ -214,9 +215,9 @@
+ 				if(!std::ifstream(liveDirectory+"/request.json").good()){Thread::sleep(10);continue;}
+ 				JSONSerializationType input;
+ 				try{std::ifstream file(liveDirectory+"/request.json");file>>input;file.close();std::remove((liveDirectory+"/request.json").c_str());}catch(const std::exception& e){publish({{"session_live",false},{"error_code","invalid_ipc_json"}});break;}
+-				last=std::chrono::steady_clock::now();auto message=new ObjectControllerMessage(oid,0x0B,0x116);message->insertInt(counter++);message->insertInt(STRING_HASHCODE("getattributesbatch"));message->insertLong(0);message->insertUnicode(UnicodeString(String(("swgxr_livecombat_v1 "+input.dump()).c_str())));core.zone->getZoneClient()->sendMessage(message);
++				input["reply_codec"]="zlib_hex_v1";last=std::chrono::steady_clock::now();auto message=new ObjectControllerMessage(oid,0x0B,0x116);message->insertInt(counter++);message->insertInt(STRING_HASHCODE("getattributesbatch"));message->insertLong(0);message->insertUnicode(UnicodeString(String(("swgxr_livecombat_v1 "+input.dump()).c_str())));core.zone->getZoneClient()->sendMessage(message);
+ 				const auto replyDeadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+-				bool complete=false;while(std::chrono::steady_clock::now()<replyDeadline){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(values["swgxr.live.snapshot"].get<std::string>());if(reply.value("request_id",std::string())==input.value("request_id",std::string())){if(input.value("action",std::string())=="scout" && reply.contains("mutation")){
++				bool complete=false;while(std::chrono::steady_clock::now()<replyDeadline){auto values=core.getVar<JSONSerializationType>(String("weaponAttributes/o")+String::valueOf(oid),JSONSerializationType::object());if(values.contains("swgxr.live.snapshot")){auto reply=JSONSerializationType::parse(swgxr::snapshot_codec::decode(values["swgxr.live.snapshot"].get<std::string>()));if(reply.value("request_id",std::string())==input.value("request_id",std::string())){if(input.value("action",std::string())=="scout" && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("state",JSONSerializationType::object()).value("inventory",JSONSerializationType::object());reply["scout_attributes"]=JSONSerializationType::object();auto inspection=reply["mutation"].value("mutation",JSONSerializationType::object()).value("inspection",JSONSerializationType::object());if(inspection.contains("id")){auto key="o"+inspection.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering" || input.value("action",std::string())=="inventory") && reply.contains("mutation")){
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SnapshotCodec.h
+@@ -0,0 +1,57 @@
++#ifndef SWGXR_SNAPSHOT_CODEC_H
++#define SWGXR_SNAPSHOT_CODEC_H
++#include <string>
++#include <stdexcept>
++// zconf.h pulls POSIX declarations; keep those in the global namespace.
++#include <unistd.h>
++namespace zlib {
++#include <zlib.h>
++}
++namespace swgxr { namespace snapshot_codec {
++// Compress before SOE fragmentation, rather than compressing each tiny fragment.
++// Negotiated only by our native child; legacy clients still receive plain JSON.
++constexpr size_t max_bytes = 4 * 1024 * 1024;
++inline std::string encode(const std::string& plain) {
++    if (plain.size() < 1024 || plain.size() > max_bytes) return plain;
++    zlib::uLongf length = zlib::compressBound(plain.size());
++    std::string compressed(length, '\0');
++    if (zlib::compress2(reinterpret_cast<zlib::Bytef*>(&compressed[0]), &length,
++            reinterpret_cast<const zlib::Bytef*>(plain.data()), plain.size(), 1) != Z_OK) return plain;
++    std::string out = "z1:" + std::to_string(plain.size()) + ":";
++    if (out.size() + length * 2 >= plain.size()) return plain;
++    static const char hex[] = "0123456789abcdef";
++    out.reserve(out.size() + length * 2);
++    for (size_t i = 0; i < length; ++i) {
++        auto b = static_cast<unsigned char>(compressed[i]);
++        out += hex[b >> 4]; out += hex[b & 15];
++    }
++    return out;
++}
++inline std::string decode(const std::string& wire) {
++    if (wire.size() > max_bytes) throw std::runtime_error("native_snapshot_size_limit");
++    if (wire.compare(0, 3, "z1:") != 0) return wire;
++    auto end = wire.find(':', 3);
++    if (end == std::string::npos || end <= 3 || end > 10) throw std::runtime_error("native_snapshot_codec_invalid");
++    size_t expected = 0;
++    for (size_t i = 3; i < end; ++i) {
++        if (wire[i] < '0' || wire[i] > '9') throw std::runtime_error("native_snapshot_codec_invalid");
++        expected = expected * 10 + wire[i] - '0';
++    }
++    auto size = wire.size() - end - 1;
++    if (!expected || expected > max_bytes || !size || size % 2) throw std::runtime_error("native_snapshot_codec_invalid");
++    auto nibble = [](char c) -> unsigned char {
++        if (c >= '0' && c <= '9') return c - '0';
++        if (c >= 'a' && c <= 'f') return c - 'a' + 10;
++        throw std::runtime_error("native_snapshot_codec_invalid");
++    };
++    std::string compressed(size / 2, '\0'), plain(expected, '\0');
++    for (size_t i = 0; i < size / 2; ++i)
++        compressed[i] = (nibble(wire[end + 1 + i * 2]) << 4) | nibble(wire[end + 2 + i * 2]);
++    zlib::uLongf length = expected;
++    if (zlib::uncompress(reinterpret_cast<zlib::Bytef*>(&plain[0]), &length,
++            reinterpret_cast<const zlib::Bytef*>(compressed.data()), compressed.size()) != Z_OK || length != expected)
++        throw std::runtime_error("native_snapshot_codec_invalid");
++    return plain;
++}
++}}
++#endif

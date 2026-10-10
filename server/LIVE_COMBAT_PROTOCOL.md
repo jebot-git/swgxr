@@ -995,3 +995,12 @@ fields cannot change weapon classification, damage, pellet count or turn limits.
 Volley Fire retains one guaranteed damage budget per member. Its accepted
 launch resolves the marked attack once; cosmetic scatter pellets or lightning
 flight do not submit additional damaging impacts.
+
+The native adapter child negotiates `reply_codec: zlib_hex_v1` on its private
+SOE command envelope. Core3 compresses the complete JSON reply before UDP
+fragmentation and returns `z1:<uncompressed byte count>:<zlib hex>` in the same
+`swgxr.live.snapshot` attribute when smaller. Legacy children still receive JSON;
+the updated child accepts both formats. Decompression is bounded to 4 MiB and
+rejects malformed lengths, hex and streams. HTTP responses and native authority
+checks are unchanged. This avoids repeatedly fragmenting large nearby-actor
+snapshots into hundreds of UTF-16 attribute packets on every movement update.

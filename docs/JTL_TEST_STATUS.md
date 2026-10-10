@@ -53,7 +53,7 @@ are not automatically interchangeable with standard crafted hull components.
 
 ## Known asset and presentation limits
 
-All 58 supplied Total Experience TREs lack these original resources (see [media scope audit](MEDIA_SCOPE.md)):
+All 58 supplied Total Experience TREs lack these original resources (see [media scope audit](https://github.com/jebot-git/swgxr/blob/main/docs/MEDIA_SCOPE.md)):
 
 - `object/static/space/asteroid/shared_asteroid_molten_mammoth_01.iff`
 - `object/static/space/asteroid/shared_asteroid_molten_mammoth_02.iff`

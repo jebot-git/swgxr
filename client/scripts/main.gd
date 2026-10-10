@@ -420,7 +420,7 @@ func make_ui() -> void:
 		if is_instance_valid(combat_rig):combat_rig.aim_assist_mode=vr_settings.aim_assist
 		vr_settings.save_preferences())
 	var flight_panel:=preload("res://space/settings_panel.gd").new();controls_page.add_child(flight_panel);flight_panel.setup(flight_preferences)
-	var help := add_label(controls_page, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
+	var help := add_label(controls_page, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nWave an empty hand at a nearby NPC to interact\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL

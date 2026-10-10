@@ -39,6 +39,8 @@ func setup(host: Node) -> void:
 		add_child(ui)
 		ui.configure(app.xr_origin, app.player, app.vr_settings.offhand)
 		ui.terminal_provider = terminal_records
+		ui.wave_hand_free=party_hand_free
+		ui.wave_visible=wave_line_clear
 		ui.remote_hands_provider = remote_hands
 		ui.inventory_focus_provider=func()->bool:return is_instance_valid(app.inventory) and app.inventory.has_method("blocks_services") and app.inventory.blocks_services()
 		ui.action_requested.connect(request)
@@ -66,7 +68,7 @@ func reset() -> void:
 	queued_action = {}
 	presented_skills = []; have_presented_skills = false
 	epoch = app.datapad_epoch if is_instance_valid(app) else -1
-	if is_instance_valid(ui): ui.set_allowed(false); ui.set_pending(false)
+	if is_instance_valid(ui): ui.set_allowed(false); ui.set_pending(false);ui.npc_wave.reset()
 	if is_instance_valid(scenery):
 		scenery.reset()
 		var origin: Array = app.loader.report.get("origin", [0,0,0])
@@ -322,6 +324,17 @@ func terminal_records(require_fresh: bool=true) -> Array:
 			for offset: Transform3D in scenery.screen_offsets(record):value.ui_anchors.append(object_pose*offset)
 		records.append(value)
 	return records
+
+func wave_line_clear(from:Vector3,to:Vector3,record:Dictionary)->bool:
+	if not is_instance_valid(app.stage) or app.stage.get("combat_collision")==null:return false
+	var cell:Dictionary=app.stage.advance_world(app.player.global_position+Vector3.UP*.5,from,app.stage.current_cell.duplicate(true))
+	var hit:Dictionary=app.stage.combat_collision.trace_segment(from,to,str(cell.get("cell_id","")),7)
+	if not hit.get("complete",false) or hit.get("hit",false):return false
+	var query:=PhysicsRayQueryParameters3D.create(from,to,8)
+	var dynamic:=get_world_3d().direct_space_state.intersect_ray(query)
+	if dynamic.is_empty():return true
+	var actor:Variant=dynamic.get("collider")
+	return is_instance_valid(actor) and actor.get("record") is Dictionary and str(actor.record.get("id",""))==str(record.get("id",""))
 
 func remote_hands() -> Array:
 	return peers if presence_age < 0.8 else []

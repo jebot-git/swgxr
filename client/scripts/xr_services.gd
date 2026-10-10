@@ -55,6 +55,9 @@ var boarding_latch:=""
 var pointer_saved: Dictionary={}
 var inventory_focus:=false
 var inventory_focus_provider:Callable
+var wave_hand_free:Callable
+var wave_visible:Callable
+var npc_wave=preload("res://scripts/npc_wave_gesture.gd").new()
 
 func configure(origin: XROrigin3D, player: CharacterBody3D, side: String="left") -> void:
 	rig=origin;body=player;offhand="right" if side=="right" else "left"
@@ -90,6 +93,7 @@ func set_allowed(value: bool) -> void:
 	if allowed==value: return
 	allowed=value
 	if not value:
+		npc_wave.interrupt()
 		close_interface();set_wallet_held(false)
 		grip_armed=false;trigger_armed=false
 		handshake_id="";handshake_seconds=0;handshake_latched=false
@@ -413,9 +417,12 @@ func _process(delta: float) -> void:
 	var tracked:=head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(mount) and HandInput.controller_tracked(hand)
 	if not inventory_focus:update_wallet_gesture(tracked,head.global_transform,mount.global_transform,mount.get_float("grip") if tracked else 0)
 	if not tracked:
+		npc_wave.interrupt()
 		close_interface();pointer_pressed=false;trigger_armed=false;return
 	if inventory_focus:
+		npc_wave.interrupt()
 		update_proximity(body.global_position);pointer_visual.hide();return
+	update_npc_wave(delta,head.global_transform)
 	var finger:=finger_pose(hand)
 	if wallet_held:
 		var peers: Array=remote_hands_provider.call() if remote_hands_provider.is_valid() else []
@@ -447,6 +454,22 @@ func _process(delta: float) -> void:
 	pointer_visual.hide()
 	if trigger_armed and hand.get_float("trigger")>=0.55:
 		trigger_armed=false;open_terminal(candidate)
+
+func update_npc_wave(delta:float,head:Transform3D)->void:
+	var hands:Dictionary={}
+	for side in ["left","right"]:
+		var controller:XRController3D=rig.get_node("LeftHand" if side=="left" else "RightHand")
+		var tracked:=HandInput.controller_tracked(controller)
+		var state:=HandInput.controller_state(controller)
+		hands[side]={"tracked":tracked,"position":controller.global_position,"wave_tip":controller.global_transform*Vector3(0,0,-.18),"open":state.grip<.2 and state.trigger<.2,"free":wave_hand_free.is_valid() and wave_hand_free.call(side)}
+	wave_frame(delta,head,hands)
+
+func wave_frame(delta:float,head:Transform3D,hands:Dictionary)->void:
+	var permitted:=allowed and not pending and not wallet_held and not inventory_focus and terminal.is_empty()
+	var candidate:Dictionary={}
+	var raised_hand:=hands.values().any(func(hand):return hand.get("tracked",false) and hand.get("free",false) and hand.get("open",false) and hand.get("position") is Vector3 and preload("res://scripts/npc_wave_gesture.gd").raised(head,hand.position))
+	if permitted and raised_hand and terminal_provider.is_valid():candidate=preload("res://scripts/npc_wave_gesture.gd").target(terminal_provider.call(),body.global_position,head,wave_visible)
+	if npc_wave.sample(delta,head,hands,candidate,permitted):open_terminal(candidate)
 
 func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3, direction: Vector3, viewer: Vector3=Vector3.INF) -> Dictionary:
 	# Any visible face of a terminal can open it; screen anchors only position UI.

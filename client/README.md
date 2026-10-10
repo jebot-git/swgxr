@@ -661,3 +661,30 @@ checks cover moving targets, obstruction, ordinary lair contacts and the shared
 native pellet coordinate convention. See
 [combat controls](../docs/ABILITY_ACTIVATION.md#bounty-hunter-combat); these are
 mocked-tracking checks, not live headset validation.
+
+### Nearby NPC greeting (unreleased)
+
+Look toward an interactable NPC within 3 metres, raise either empty hand near
+shoulder/face height, release grip and trigger, and wave side to side. A deliberate
+wave with three direction reversals within about 1.8 seconds opens the same panel
+as pointing and selecting. Arm movement and raised wrist rotation both work.
+Lower the hand before greeting again; there is also a two-second cooldown.
+
+This applies to the existing trainer, delivery, recruiter, broker/informant,
+pilot-trainer, chassis-dealer and creature-vendor service records. It initiates
+interaction only: purchases, training, travel and dialogue choices still require
+their usual confirmation. Look more directly at the desired NPC if several are
+close together. Waving at scenery or NPCs without an available interaction does
+not invent a dialogue.
+
+Discovery freshness, native room membership, stage collision coverage and line
+of sight gate selection. Occupied hands, other interfaces, tracking/focus loss,
+small tremor, a single reach and large pose discontinuities cannot complete a
+wave. A completed gesture stays latched through lost tracking or closing the
+panel until the hand is lowered. Head and controller poses remain tracking-owned.
+
+`npc_wave_smoke.gd` covers 44 synthetic gesture, selection and real service-panel
+routing checks with mocked native requests. Existing service UI, coordinator,
+gesture arbitration and settings checks also pass. Tests use the dummy renderer
+with `--xr-mode off`; no headset behavior is claimed. The change is prepared
+locally for the next release, with no release or remote deployment performed.

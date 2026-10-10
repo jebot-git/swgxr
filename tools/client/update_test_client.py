@@ -182,19 +182,21 @@ def update(root):
         print('Checking published client updates…',flush=True)
         version,asset,checksums=discover(target)
         current=root/'UPDATE_RECEIPT.json'
-        if current.exists():
-            installed=json.loads(current.read_text())['version']
-            if installed==version:
-                inventory=json.loads((root/'PACKAGE.json').read_text())
-                rows=[r for r in inventory['files'] if managed(safe_name(r['path']))]
-                if all((root/r['path']).is_file() and not (root/r['path']).is_symlink() and sha(root/r['path'])==r['sha256'] for r in rows):
-                    print('Already up to date: '+version,flush=True);return json.loads(current.read_text())
-            if tuple(map(int,re.findall(r'\d+',installed)))>tuple(map(int,re.findall(r'\d+',version))):raise ValueError('Refusing release downgrade')
+        receipt=json.loads(current.read_text()) if current.exists() else {}
+        installed=receipt.get('version','')
+        if installed and tuple(map(int,re.findall(r'\d+',installed)))>tuple(map(int,re.findall(r'\d+',version))):raise ValueError('Refusing release downgrade')
         with tempfile.TemporaryDirectory(prefix='.swgxr-update-',dir=root.parent) as temporary:
             work=Path(temporary);archive=work/asset['name'];checksum_file=work/'CHECKSUMS.sha256'
             download(checksums['browser_download_url'],checksum_file,65536)
             matches=[line.split()[0] for line in checksum_file.read_text().splitlines() if len(line.split())==2 and line.split()[1].lstrip('*')==asset['name']]
             if len(matches)!=1 or not re.fullmatch('[0-9a-fA-F]{64}',matches[0]):raise ValueError('Missing release checksum')
+            # A release may receive a launcher revision without changing its tag.
+            # Compare the published archive digest before accepting a local receipt.
+            if installed==version and receipt.get('archive_sha256','').lower()==matches[0].lower():
+                inventory=json.loads((root/'PACKAGE.json').read_text())
+                rows=[r for r in inventory['files'] if managed(safe_name(r['path']))]
+                if all((root/r['path']).is_file() and not (root/r['path']).is_symlink() and sha(root/r['path'])==r['sha256'] for r in rows):
+                    print('Already up to date: '+version,flush=True);return receipt
             print('Downloading '+version+' ('+asset['name']+')…',flush=True);download(asset['browser_download_url'],archive)
             digest=sha(archive)
             if digest.lower()!=matches[0].lower():raise ValueError('Release archive checksum mismatch')

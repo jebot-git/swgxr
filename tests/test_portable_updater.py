@@ -76,6 +76,22 @@ class UpdaterTests(unittest.TestCase):
         with patch.object(updater,'discover',return_value=release),patch.object(updater,'download',side_effect=download),self.assertRaisesRegex(ValueError,'archive checksum'):
             updater.update(self.root)
         self.assertEqual((self.root/'engine/godot').read_bytes(),b'old')
+    def test_same_tag_revision_installs_changed_archive_then_skips_identical(self):
+        archive=self.archive();digest=updater.sha(archive)
+        checks=self.base/'checks';checks.write_text(digest+'  client.tar.gz\n')
+        (self.root/'UPDATE_RECEIPT.json').write_text(json.dumps({'version':'v2026.10.10-test.11','archive_sha256':'0'*64}))
+        downloads=[]
+        def download(url,path,maximum=0):
+            downloads.append(url);shutil.copy2(archive if url=='archive' else checks,path)
+        release=('v2026.10.10-test.11',{'name':'client.tar.gz','browser_download_url':'archive'},{'browser_download_url':'checks'})
+        with patch.object(updater,'discover',return_value=release),patch.object(updater,'download',side_effect=download):
+            receipt=updater.update(self.root)
+            self.assertEqual(receipt['archive_sha256'],digest)
+            self.assertEqual((self.root/'client/main.gd').read_bytes(),b'new')
+            self.assertEqual(downloads,['checks','archive'])
+            downloads.clear();updater.update(self.root)
+            self.assertEqual(downloads,['checks'])
+
     def test_safe_paths(self):
         for name in ['../a','/a','a/../b','a//b','C:/a','a\\b','']:
             with self.assertRaises(ValueError):updater.safe_name(name)

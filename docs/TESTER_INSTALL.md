@@ -133,6 +133,8 @@ run `updates.sh` / `updates.cmd`. No account or developer tools are required.
 The same test.9 private data ZIP remains valid for test.11, so there is no asset
 re-download or re-import for this update. Existing desktop shortcuts keep working.
 
+For **the original text-menu test.11 build**, use the current standalone `update_test_client.py` once with the commands below to install this GUI revision. Its old updater recognizes version tags but cannot detect replaced packages under the same tag. The revised updater also checks the published archive checksum.
+
 For **test.10 or older**, the installed Updates option only opens the release
 page. Download `update_test_client.py` from the test.11 release and run it once
 against the existing client folder:

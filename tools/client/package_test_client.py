@@ -164,8 +164,9 @@ def preflight_client(output, target):
     finally:asset_link.unlink()
 
 
-def package(output,target,origin,ca,allow_incomplete=False):
+def package(output,target,origin,ca,allow_incomplete=False,release_version=None):
     if target not in TARGETS:raise ValueError('Unsupported target')
+    if release_version is not None and not re.fullmatch(r'v\d{4}\.\d{2}\.\d{2}-test\.\d+',release_version):raise ValueError('Invalid release version')
     if not re.fullmatch(r'https://[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?',origin):raise ValueError('Expected public HTTPS server origin')
     ca=Path(ca).resolve();certificate=ca.read_bytes()
     if b'PRIVATE KEY' in certificate:raise ValueError('Only a public CA certificate may be packaged')
@@ -221,7 +222,7 @@ def package(output,target,origin,ca,allow_incomplete=False):
         files=[]
         for source in sorted(output.rglob('*')):
             if source.is_file():files.append({'path':source.relative_to(output).as_posix(),'bytes':source.stat().st_size,'sha256':sha(source)})
-        report=dict(schema=1,source_commit=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),target=target,runnable=runnable,engine=executable,engine_uses_pck=True,working_directory='engine',linux_glibc_minimum='2.43' if not windows else None,linux_glibcxx_minimum='3.4.30' if not windows else None,original_data_included=False,credentials_included=False,missing=missing,files=files)
+        report=dict(schema=1,release_version=release_version,source_commit=subprocess.check_output(["git","rev-parse","HEAD"],cwd=ROOT,text=True).strip(),target=target,runnable=runnable,engine=executable,engine_uses_pck=True,working_directory='engine',linux_glibc_minimum='2.43' if not windows else None,linux_glibcxx_minimum='3.4.30' if not windows else None,original_data_included=False,credentials_included=False,missing=missing,files=files)
         if python_runtime:report['python_runtime']=python_runtime
         (output/'PACKAGE.json').write_text(json.dumps(report,indent=2)+'\n')
         return report
@@ -243,7 +244,7 @@ def archive(folder,target):
     return destination
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--target',choices=TARGETS,required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--origin',required=True);parser.add_argument('--ca',type=Path,required=True);parser.add_argument('--allow-incomplete',action='store_true');parser.add_argument('--archive',action='store_true')
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--target',choices=TARGETS,required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--origin',required=True);parser.add_argument('--ca',type=Path,required=True);parser.add_argument('--allow-incomplete',action='store_true');parser.add_argument('--archive',action='store_true');parser.add_argument('--release-version')
     args=vars(parser.parse_args());compressed=args.pop('archive');result=package(**args)
     output=archive(args['output'],args['target']) if compressed else args['output']
     print(json.dumps({'output':str(output),'target':result['target'],'runnable':result['runnable'],'missing':result['missing'],'files':len(result['files'])}))

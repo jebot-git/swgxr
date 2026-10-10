@@ -54,8 +54,11 @@ foreach ($entry in $entries) {
 
 
 def menu(root):
-    print('\nSWGXR test client\n1. Play VR\n2. Desktop mode (XR off)\n3. Import assets only\n4. Open client updates\n5. Install / refresh desktop shortcuts\n0. Exit')
+    print('\nSWGXR test client\n1. Play VR\n2. Desktop mode (XR off)\n3. Import assets only\n4. Install client updates\n5. Install / refresh desktop shortcuts\n0. Exit')
     choice = input('Choose: ').strip()
-    if choice == '4': webbrowser.open(RELEASES); return None
+    if choice == '4':
+        try: from .update_test_client import update
+        except ImportError: from update_test_client import update
+        update(root); return None
     if choice == '5': install_shortcuts(root); return None
     return {'1': [], '2': ['--desktop'], '3': ['--import-only']}.get(choice)

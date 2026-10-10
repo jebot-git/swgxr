@@ -30,7 +30,9 @@ def main():
         if args.install_shortcuts:
             launcher.install_shortcuts(root);return 0
         if args.updates:
-            launcher.webbrowser.open(launcher.RELEASES);return 0
+            try: from .update_test_client import update
+            except ImportError: from update_test_client import update
+            update(root);return 0
         if args.launcher:
             selected=launcher.menu(root)
             if selected is None:return 0

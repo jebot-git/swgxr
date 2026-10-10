@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.10), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.11), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
 
 ## Requirements
 
@@ -102,7 +102,7 @@ test-client-<platform>-20261010/
   play-vr.sh or play-vr.cmd
 ```
 
-The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate or upgrade, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. Keep the data ZIP in `data/` after installation; repeat starts use the verified install receipt.
+The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. Keep the data ZIP in `data/` after installation; repeat starts use the verified install receipt.
 
 ## Desktop launchers and updates (test.8)
 
@@ -114,14 +114,41 @@ no administrator privileges and does not start the game.
 
 **SWGXR** opens a small terminal menu for VR, desktop mode, asset import, updates,
 and refreshing shortcuts. `launcher.sh` / `launcher.cmd` opens the same menu.
-**SWGXR Updates** opens the GitHub release downloads page in your browser; sign
-in with your authorized GitHub account. It does not automatically download or
-replace the client. Prereleases appear on this page too. The client does not
-store GitHub credentials. Original assets are still supplied separately.
+**SWGXR Updates** (test.11 onward) downloads and verifies the latest complete
+Linux or Windows test release, then updates this installation in place. Close the
+game first. Assets, imported-data receipts, server settings and credentials remain
+untouched. Changed code files are backed up under `.updates/`; an installation
+failure restores them. The updater never starts VR or the desktop client.
 
 ## Upgrading an existing installation
 
-Extract the new client into a fresh folder, put only `test-runtime-data-test9-20261010.zip` in its `data/` folder, and run its import command. Runtime ZIPs from before test.6 lack seated avatar poses, ship and sector audio, and NPC variant pools. The test.9 bundle retains those assets and adds original shuttle landing, takeoff, power-down and idle audio. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Run the new folder's `install-shortcuts` script to retarget all four shortcuts to the new version. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
+For **test.11 and later**, choose **Install client updates** in the launcher, or
+run `updates.sh` / `updates.cmd`. No account or developer tools are required.
+The same test.9 private data ZIP remains valid for test.11, so there is no asset
+re-download or re-import for this update. Existing desktop shortcuts keep working.
+
+For **test.10 or older**, the installed Updates option only opens the release
+page. Download `update_test_client.py` from the test.11 release and run it once
+against the existing client folder:
+
+```sh
+python3 ~/Downloads/update_test_client.py --root ~/Downloads/test-client-linux-20261010
+```
+
+On Windows, use the existing bundled Python (adjust both paths):
+
+```bat
+C:\SWGXR\python\python.exe -I -X utf8 "%USERPROFILE%\Downloads\update_test_client.py" --root C:\SWGXR
+```
+
+The bootstrap performs the verified update automatically; do not copy package
+files over the installation yourself. Afterwards, use the normal launcher Updates
+option. Download the bootstrap and checksum file from the same release. Original
+SWG assets remain in the separately supplied private archive.
+
+To relocate or change the asset bundle, use a fresh folder and import its matching
+data ZIP. Older pre-test.9 data archives lack newer shuttle audio or other required
+runtime assets; do not merge different data ZIPs into one installed asset tree.
 
 ## Connect and create a character
 
@@ -302,3 +329,25 @@ ordinary worrts. Minor worrts are level 5 with a converted weapon range of 16–
 ordinary worrts are level 6 with 17–29. An unarmoured 3,000-health test character
 took 21–32 health per landed minor-worrt hit. Net health loss after combat also
 reflects regeneration. This release does not change creature balance.
+
+
+## Aim assist, combat timing and NPC waving (test.11)
+
+Controls now offers **Ground weapon aim assist: Off / Subtle**. Subtle applies
+at most a 0.5-degree correction to ordinary ground shots near a visible hostile
+body. It fades out on stale target information and respects cover. Hands, weapon
+and viewpoint stay under your control; special and guided attacks retain their
+existing targeting.
+
+Ordinary firing now accounts for delayed replies and bounded network jitter,
+with server-enforced firing rate and shot costs. A shot that could not be sent in
+time restores its reserved capacity. Damage remains server-confirmed.
+
+To greet an interactable NPC, look toward them within 3 metres, raise either
+empty hand, release grip and trigger, and wave side to side. Waving opens the
+same panel as selecting them; choices and purchases still need confirmation.
+Lower your hand before greeting again. Blocked sight lines, other interfaces,
+occupied hands and ambiguous targets prevent activation.
+
+Linux and Windows package preflights and synthetic interaction tests are used;
+Windows execution is checked through Wine. Live headset testing remains suspended.

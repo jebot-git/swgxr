@@ -45,9 +45,9 @@ class LauncherTests(unittest.TestCase):
             self.assertTrue((root/'launched').exists())
 
     def test_menu_updates_does_not_launch_engine(self):
-        with patch('builtins.input',return_value='4'), patch.object(launcher.webbrowser,'open') as browser:
+        with patch('builtins.input',return_value='4'), patch('tools.client.update_test_client.update') as updater:
             self.assertIsNone(launcher.menu(Path('/client')))
-            browser.assert_called_once_with(launcher.RELEASES)
+            updater.assert_called_once_with(Path('/client'))
 
     def test_explicit_desktop_and_import_choices(self):
         for choice, result in [('2',['--desktop']),('3',['--import-only']),('0',None)]:

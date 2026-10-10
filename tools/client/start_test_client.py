@@ -54,7 +54,10 @@ def main():
         command+=['--','--connection-profile='+str(profile)]
         if args.desktop:command+=['--desktop']
         env=os.environ.copy();env.pop('OBS_VKCAPTURE',None);env.update(DISABLE_XR_APILAYER_NOVENDOR_OBSMirror='1',DISABLE_OBS_VKCAPTURE='1')
-        return subprocess.run(command,cwd=root/state["working_directory"],env=env,check=False).returncode
+        try: from .update_test_client import installation_lock
+        except ImportError: from update_test_client import installation_lock
+        with installation_lock(root):
+            return subprocess.run(command,cwd=root/state["working_directory"],env=env,check=False).returncode
     except (ValueError,OSError,KeyError,EOFError,subprocess.CalledProcessError,zipfile.BadZipFile) as exc:
         print('Cannot start SWGXR: '+str(exc),file=sys.stderr);return 2
 

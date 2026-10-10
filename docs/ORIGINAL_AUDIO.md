@@ -1,6 +1,6 @@
 # Original audio integration
 
-All recordings come from the user-provided Total Experience TREs. Public packages contain only code and conversion tools. Preparation preserves source archive/file hashes and explicit failures.
+All recordings come from the user-provided Total Experience TREs. Public packages contain only code and conversion tools. Preparation preserves source archive/file hashes and explicit failures. The 51 pinned archives take precedence; the seven additional Total Experience archives supply otherwise absent client files without changing the server archive set.
 
 The original-derived client references used here are `GameAnimationMessageCallback.cpp`, `ClientEventManager.cpp`, `CuiSoundManager.cpp` and `GameMusicManager.cpp` at [SWG-Source/client-tools 9494510](https://github.com/SWG-Source/client-tools/tree/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared).
 

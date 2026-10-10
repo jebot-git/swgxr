@@ -39,4 +39,8 @@ def prepare(tre,out):
     return failures+assets.failures
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre');parser.add_argument('--out',type=Path,default=ROOT/'runtime/assets/jtl')
-    args=parser.parse_args();raise SystemExit(1 if prepare(args.tre_dir,args.out) else 0)
+    parser.add_argument('--allow-missing-original-media',action='store_true',help='Accept only the documented absent corvette interior; retain the failure in the catalog')
+    args=parser.parse_args();failures=prepare(args.tre_dir,args.out)
+    if args.allow_missing_original_media:
+        failures=[row for row in failures if not (row.get('template')=='object/ship/corvette_interior.iff' and row.get('error')=="'appearance/corellian_corvette_pob.pob'")]
+    raise SystemExit(1 if failures else 0)

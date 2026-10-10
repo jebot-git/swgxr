@@ -29,7 +29,7 @@ STEPS = [
  ('mounts', ['tools/vehicles/prepare_mounts.py']),
  ('jtl', ['tools/assets/prepare_jtl.py']),
  ('sectors', ['tools/assets/prepare_space_sectors.py', '--allow-missing-original-media']),
- ('traffic', ['tools/assets/prepare_space_traffic.py']),
+ ('traffic', ['tools/assets/prepare_space_traffic.py', '--allow-missing-original-media']),
  ('space_effects', ['tools/assets/prepare_space_effects.py']),
  ('space_audio', ['tools/assets/prepare_space_audio.py']),
  ('bounty', ['tools/assets/prepare_bounty_assets.py']),

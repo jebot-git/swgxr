@@ -62,16 +62,16 @@ def sources(binding):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--ensure', action='store_true'); args = parser.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--ensure', action='store_true'); parser.add_argument('--tre-dir',type=Path,default=ROOT/'runtime/asset_sources/active_tre'); args = parser.parse_args()
     paths = [Path(__file__), ROOT/'tools/assets/prepare_environment.py', ROOT/'runtime/assets/vehicles/catalog.json', ROOT/'runtime/assets/services/catalog.json', ROOT/'runtime/assets/combat/assets.json',
-             *sorted((ROOT/'runtime/asset_sources/active_tre').glob('*.tre'))]
-    signature = hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
+             *sorted(args.tre_dir.rglob('*.tre'))]
+    signature = hashlib.sha256(json.dumps([(str(p.resolve()), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
     target = OUT/'catalog.json'
     if args.ensure and target.exists():
         prior = json.loads(target.read_text())
         if prior.get('signature') == signature and all((OUT/p).is_file() for d in prior['sounds'].values() for p in d['samples']):
             print('Original mobile audio ready:',len(prior['templates']),'templates'); return
-    imp = EnvironmentImporter(ROOT/'runtime/asset_sources/active_tre', OUT)
+    imp = EnvironmentImporter(args.tre_dir, OUT)
     templates = {}; bindings = {}
     vehicles = json.loads((ROOT/'runtime/assets/vehicles/catalog.json').read_text())
     for template, descriptor in vehicles['items'].items():

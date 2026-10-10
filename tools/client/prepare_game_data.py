@@ -81,7 +81,7 @@ def collect_sources(root,bundle,installation=None):
         if target.resolve()!=source.resolve() and (not target.exists() or sha(target)!=digest):
             temporary=target.with_suffix('.partial');shutil.copy2(source,temporary);temporary.replace(target)
         records.append(dict(filename=name,bytes=target.stat().st_size,sha256=digest,active=name in policy.CORE3_TRE_PRIORITY))
-    result=dict(schema=1,installation=str(Path(installation).resolve()),discs=discs,archives=records,active_count=len(policy.CORE3_TRE_PRIORITY),policy='Full local source set retained for future recipes; only pinned pre-CU archives active.')
+    result=dict(schema=1,installation=str(Path(installation).resolve()),discs=discs,archives=records,active_count=len(policy.CORE3_TRE_PRIORITY),policy='Pinned pre-CU archives take precedence. Additional original archives supply only otherwise absent client assets; no server archive configuration is changed.')
     write(receipt,result)
     return {r['filename']:retained/r['filename'] for r in records},result
 
@@ -116,7 +116,8 @@ def prepare(root,bundle=None,installation=None,python=None,steps=None):
         target=work/name;target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,target)
     active=work/'runtime/asset_sources/active_tre';active.mkdir(parents=True,exist_ok=True)
     for row in sources['archives']:
-        if not row['active']:continue
+        # TreSet loads unknown archives first, then the pinned 51 in server order.
+        # Extra TTE files can fill absent audio/art without overriding that set.
         source=source_files[row['filename']];target=active/row['filename']
         if not target.exists() or target.stat().st_size!=row['bytes'] or sha(target)!=row['sha256']:
             temporary=target.with_suffix('.partial');shutil.copy2(source,temporary);temporary.replace(target)

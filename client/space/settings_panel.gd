@@ -29,6 +29,6 @@ func setup(value:RefCounted)->void:
 		source.item_selected.connect(func(index):preferences.axis_devices[name]=source.get_item_metadata(index);save());row.add_child(source)
 	var deadzone:=HSlider.new();deadzone.min_value=0;deadzone.max_value=.45;deadzone.step=.01;deadzone.value=preferences.deadzone;mappings.add_child(deadzone)
 	deadzone.tooltip_text="Rotational axis deadzone";deadzone.value_changed.connect(func(value):preferences.deadzone=value;save())
-	notice=Label.new();notice.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;notice.text="Pilot: right stick pitches/rolls; left stick adjusts throttle/yaw. Right stick click opens ship commands; left stick click leaves the station. To return, walk near the seat, open ship commands, and choose Take pilot seat. Virtual HOTAS grips are beside the seat.";notice.add_theme_font_size_override("font_size",14);add_child(notice)
+	notice=Label.new();notice.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;notice.text="Pilot: right stick pitches/rolls; left stick adjusts throttle/yaw. Right stick click opens ship commands; left stick click leaves the station. To return, walk near the seat, aim at Take pilot seat above the chair, and press trigger. Virtual HOTAS grips are beside the seat.";notice.add_theme_font_size_override("font_size",14);add_child(notice)
 func save()->void:
 	if preferences.save_preferences()!=OK and is_instance_valid(notice):notice.text="Flight settings updated for this session; could not save preferences."

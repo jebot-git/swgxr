@@ -323,10 +323,13 @@ func take_item(item: Dictionary, side := "") -> void:
 		if is_survey_held(): survey_ui.set_context({"tool_id":str(held_item.get("id",""))}); survey_ui.set_pending(true,"Reading current planet resources…")
 		tool_context_requested.emit(held_item.duplicate(true))
 
-func finish_item_action(success: bool) -> void:
+func finish_item_action(success: bool, message := "") -> void:
 	mutation_pending=false; action_pending=false; ui.set_pending(false)
-	if success: clear_held()
-	else: main_grip_armed=true # A failed drop must not repeat until squeezed/released again.
+	if success:
+		set_busy(false);clear_held()
+	else:
+		main_grip_armed=true # A failed drop must not repeat until squeezed/released again.
+		set_busy(false,message if not message.is_empty() else "Item action was not confirmed. Check inventory before retrying.")
 	sync_pointers(); sync_presentation()
 
 func clear_held() -> void:

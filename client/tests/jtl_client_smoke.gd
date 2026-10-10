@@ -119,7 +119,14 @@ func run()->void:
 	var pilot_station:Dictionary={"id":"pilot","cell_index":1,"position":[-.76,.43,21.14],"occupied_by":"0"}
 	interior.ship.owner_id="123";interior.ship.stations=[pilot_station]
 	flight.observe(interior,13)
-	check(flight.command_rows()[0].id=="station:pilot" and flight.command_rows()[0].available,"Leaving pilot chair exposes reachable Take pilot seat command on the actual bridge")
+	check(flight.command_rows().is_empty() and not flight.button("primary_click",full.player.dominant_hand) and not flight.wheel.opened,"Walking in the interior cannot open flight commands or consume the equipment shortcut")
+	flight.show_station_targets(true)
+	check(flight.station_labels.pilot.visible and "Take pilot seat" in flight.station_labels.pilot.text,"Reachable original pilot chair exposes its own visible seat target")
+	var aim_origin:=full.player.global_position+Vector3(0,1.5,1)
+	var seat_point:Vector3=flight.scene.world(pilot_station.position)+Vector3(0,.95,0)
+	var seat_target:=flight.station_target({"ray_origin":aim_origin,"direction":(seat_point-aim_origin).normalized()},aim_origin)
+	check(not seat_target.is_empty() and aim_origin.distance_to(seat_point)>.65,"Shared controller aim selects pilot seat without reaching into chair")
+	check(flight.station_target({"ray_origin":aim_origin,"direction":Vector3.UP},aim_origin).is_empty(),"Pointing away from seat cannot select it")
 	var occupied:=pilot_station.duplicate(true);occupied.occupied_by="987"
 	check(not flight.station_option(occupied).available,"Another occupant cannot be displaced through pilot command")
 	flight.ship.owner_id="987";check(not flight.station_option(pilot_station).available,"Guest cannot take owner's pilot station");flight.ship.owner_id="123"
@@ -137,9 +144,32 @@ func run()->void:
 	check(full.ship_calls.size()==seat_calls+1 and full.ship_calls.back().path=="/jtl/station" and full.ship_calls.back().body.station_id=="pilot","Queued pilot-seat request is dispatched exactly once after heartbeat completes")
 	check(flight.seated() and flight.station=="pilot" and full.player.get_camera().transform.is_equal_approx(tracked_camera),"Native reseat acknowledgement restores controls without changing tracked HMD local pose")
 	check(not flight.command_rows().any(func(row):return str(row.id).begins_with("station:")),"Already seated player is offered Leave rather than another seat request")
+	check(flight.button("primary_click",full.player.dominant_hand) and flight.wheel.opened,"Pilot can deliberately open flight commands")
+	var copilot:=interior.duplicate(true);copilot.ship.station="passenger"
+	check(flight.observe(copilot,14) and not flight.wheel.opened,"Changing stations closes the prior seat's wheel")
+	check(flight.button("primary_click",full.player.dominant_hand) and flight.wheel.opened,"Seated copilot can open command wheel")
+	check(not flight.command_rows().filter(func(row):return row.id=="land")[0].available,"Copilot wheel preserves native pilot-only landing permission")
 	flight.observe(interior,14);flight.scene.place_player(full.player,[0,.4,10],1)
 	seat_calls=full.ship_calls.size();flight.command("station:pilot")
 	check(full.ship_calls.size()==seat_calls and flight.error=="Move closer to the seat.","Stale open menu rechecks reach at selection and reports why seat is unavailable")
+	check(not flight.wheel.opened,"Native seat exit dismisses an already open flight wheel")
+	flight.scene.place_player(full.player,[0,.4,20],1)
+	full.inventory=preload("res://scripts/xr_inventory.gd").new();full.add_child(full.inventory);full.inventory.configure(full.xr_origin,full.player);full.inventory.set_process(false);full.inventory.set_allowed(true)
+	full.housing=preload("res://housing/controller.gd").new();full.add_child(full.housing);full.housing.set_process(false);full.housing.app=full;full.housing.bag=full.inventory
+	var item:Dictionary={"id":"knife","template":"object/weapon/melee/knife/knife_stone.iff","name":"Stone knife","equippable":true}
+	full.inventory.take_item(item);full.inventory.begin_mutation("Dropping item…")
+	full.response={"ok":true,"source_kind":"core3_jtl","character_id":"123","state":interior,"mutation":{"success":true},"live_response":{"sequence":14}}
+	flight.busy=true;var drop_calls:=full.ship_calls.size()
+	check(flight.try_drop(item,Transform3D(Basis.IDENTITY,full.player.global_position)) and flight.interaction_waiting and full.inventory.action_pending,"Ship placement queues behind walking update and keeps mutation pending")
+	await process_frame;flight.busy=false;await process_frame;await process_frame;await process_frame
+	check(full.ship_calls.size()==drop_calls+1 and full.ship_calls.back().path=="/jtl/decorate","Queued item drop sends exactly one native decoration request")
+	check(full.inventory.held_item.is_empty() and not full.inventory.action_pending and full.inventory.ui.status.is_empty(),"Confirmed placement clears item, pending state and obsolete Dropping item message")
+	full.inventory.take_item(item);full.inventory.begin_mutation("Dropping item…")
+	full.response={"ok":false,"error":"Placement reply timed out; check inventory before retrying."}
+	flight.try_drop(item,Transform3D(Basis.IDENTITY,full.player.global_position));await process_frame;await process_frame
+	check(not full.inventory.held_item.is_empty() and not full.inventory.action_pending and not full.inventory.mutation_pending and "timed out" in full.inventory.ui.status,"Unconfirmed placement retains item and replaces pending message with the actual failure")
+	drop_calls=full.ship_calls.size();await process_frame
+	check(full.ship_calls.size()==drop_calls,"Uncertain placement does not replay automatically")
 	check(flight.observe(authoritative,14) and not flight.aboard() and full.stage==old_stage and old_stage.visible,"Native land restores exact prior ground stage and presentation")
 	check(full.datapad.ui.professions.forgetting_available,"Landing restores native skill eligibility presentation")
 	check(full.xr_origin.global_transform.is_equal_approx(old_origin) and full.player.get_camera().transform.is_equal_approx(tracked_camera),"Landing restores ground origin without changing tracked HMD pose")

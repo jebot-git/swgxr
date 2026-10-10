@@ -146,7 +146,12 @@ before deciding whether to retry. Voice availability follows the native session;
 group and faction channels also require the corresponding membership.
 
 To return to the pilot seat after walking around the yacht, approach the seat on
-the bridge and click the dominant-hand stick to open ship commands. Choose
-**Take pilot seat** with the stick and confirm with the trigger. The ship owner
-can pilot; occupied seats and seats in another room remain unavailable. The
-offhand stick click leaves the current station.
+the bridge, aim at **Take pilot seat** above the chair, and press the trigger.
+Only controller aim moves this pointer. The ship commands wheel opens with the
+dominant-hand stick click while seated as pilot or copilot. The offhand stick click leaves
+the current station. The ship owner can pilot; occupied seats and seats in
+another room remain unavailable.
+
+Ship item placement waits for an in-flight walking update to finish. A rejected
+or unconfirmed placement keeps the item in hand and replaces the pending message
+with its outcome. Check inventory before retrying an unconfirmed action.

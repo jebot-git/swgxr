@@ -38,6 +38,8 @@ var handshake=preload("res://space/crew_handshake.gd").new()
 var presentation_sequence:=int(Time.get_unix_time_from_system()*1000000.0)
 var crew_poses:Array=[]
 var interaction_waiting:=false
+var station_labels:Dictionary={}
+var station_pointer:Node3D
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
@@ -45,6 +47,7 @@ func setup(host:Node,prefs:RefCounted)->void:
 	control_handles=Node3D.new();add_child(control_handles);control_handles.hide()
 	for offset in [Vector3(.28,.60,-.32),Vector3(-.28,.60,-.32)]:
 		var handle:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=.022;mesh.bottom_radius=.022;mesh.height=.13;handle.mesh=mesh;handle.position=offset;control_handles.add_child(handle)
+	station_pointer=preload("res://scripts/finger_pointer_visual.gd").new();add_child(station_pointer)
 	app.player.space=self
 	app.datapad.ui.ship_action_requested.connect(datapad_action)
 func aboard()->bool:return is_instance_valid(scene) and is_instance_valid(scene.stage) and not ground.is_empty()
@@ -156,6 +159,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	if aboard():
 		scene.observe(ship)
 		scene.update_nearby(state.get("nearby_ships",[]),ship)
+		if changed and is_instance_valid(wheel):wheel.close()
 		if changed or needs_reconcile or bool(ship.get("walk_corrected",false)):
 			scene.place_player(app.player,ship.get("player_position",[-.76,.43,21.14] if next=="pilot" else [0,.4,20]),int(ship.get("cell_index",1)))
 			inputs.reset();needs_reconcile=false
@@ -192,6 +196,8 @@ func enter_scene(value:Dictionary)->bool:
 	if is_instance_valid(app.datapad):app.datapad.set_open(false);app.datapad.ui.set_skill_forgetting_available(false,"Return to ground before forgetting skills.")
 	return true
 func leave_scene()->void:
+	show_station_targets(false)
+	if is_instance_valid(station_pointer):station_pointer.hide()
 	if not aboard():return
 	app.stage=ground.stage;app.player.ground_provider=ground.provider
 	app.xr_origin.global_transform=ground.origin;app.player.global_position=ground.position;app.player.velocity=Vector3.ZERO
@@ -289,6 +295,7 @@ func pilot_pose()->Transform3D:
 	return Transform3D(Basis.IDENTITY,scene.world(location))
 func button(name:String,side:String)->bool:
 	if not aboard() or name!="primary_click":return false
+	if not seated():return false
 	if side==app.player.dominant_hand:
 		if wheel.opened:wheel.close()
 		else:wheel.open(app.player.get_camera().global_transform,command_rows())
@@ -316,8 +323,7 @@ func take_station(id:String)->void:
 	notice("Station unavailable. Refresh ship status and try again.")
 func command_rows()->Array:
 	var rows:Array=[]
-	if not seated() and ship.get("kind","pob")=="pob":
-		for candidate:Dictionary in ship.get("stations",[]):rows.append(station_option(candidate))
+	if not seated():return rows
 	for group in ["shield","power","droid"]:
 		var available:bool=ship.get("commands",[]).any(func(row):return str(row.get("id","")).begins_with(group))
 		if available:rows.append({"id":"group_"+group,"label":{"shield":"Shield distribution","power":"Power distribution","droid":"Droid commands"}[group],"available":true})
@@ -356,6 +362,31 @@ func command(id:String)->void:
 	if id=="back":wheel.open(app.player.get_camera().global_transform,command_rows());return
 	if id in ["land","leave","return_ship"]:request(id)
 	else:request("command",{"command_id":id})
+func station_target(pointer:Dictionary,hand_position:Vector3)->Dictionary:
+	var nearest:Dictionary={};var best:=INF
+	for candidate:Dictionary in ship.get("stations",[]):
+		if not station_option(candidate).available:continue
+		var point:Vector3=scene.world(candidate.position)+Vector3(0,.95,0)
+		var distance:=hand_position.distance_to(point)
+		var hit:=distance<.65
+		if not pointer.is_empty():
+			var origin:Vector3=pointer.ray_origin;var direction:Vector3=pointer.direction
+			var along:float=(point-origin).dot(direction)
+			if along>=0 and along<=3 and (origin+direction*along).distance_to(point)<.3:hit=true;distance=along
+		if hit and distance<best:nearest={"station":candidate,"world":point};best=distance
+	return nearest
+func show_station_targets(permitted:bool)->void:
+	for label:Label3D in station_labels.values():label.hide()
+	if not permitted or seated() or not aboard():return
+	for candidate:Dictionary in ship.get("stations",[]):
+		if not station_option(candidate).available:continue
+		var id:=str(candidate.id)
+		if not station_labels.has(id):
+			var label:=Label3D.new();label.font=readout.font;label.font_size=22;label.pixel_size=.0008
+			label.billboard=BaseMaterial3D.BILLBOARD_ENABLED;label.outline_size=5;add_child(label);station_labels[id]=label
+		var label:Label3D=station_labels[id]
+		label.global_position=scene.world(candidate.position)+Vector3(0,.95,0)
+		label.text=("Take pilot seat" if id=="pilot" else "Take passenger seat")+"\nAim · Trigger";label.show()
 func controls(delta:float)->Dictionary:
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
 	var tracked:bool=bool(app.player.combat_tracking_context().tracked) and Hands.controller_tracked(left) and Hands.controller_tracked(right)
@@ -398,23 +429,26 @@ func _process(delta:float)->void:
 		walk_sequence+=1;request("walk",{"position":scene.source(app.player.global_position),"cell_index":scene.cell_index(),"sequence":walk_sequence})
 	interaction()
 func interaction()->void:
-	if is_instance_valid(app.get("voice_controls")) and app.voice_controls.blocks_combat():return
+	show_station_targets(false);station_pointer.hide()
+	if is_instance_valid(app.get("voice_controls")) and app.voice_controls.blocks_combat():trigger_ready=false;return
+	if is_instance_valid(app.inventory) and app.inventory.blocks_services():trigger_ready=false;return
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
 	var tracked:bool=Hands.controller_tracked(left) and Hands.controller_tracked(right) and bool(app.player.combat_tracking_context().tracked) and app.xr_focused and not app.menu.visible
 	var main:XRController3D=right if app.player.dominant_hand=="right" else left
+	if not tracked:trigger_ready=false;return
 	var pressed:bool=tracked and main.get_float("trigger")>.65
 	if not pressed:trigger_ready=true
 	if wheel.opened:
 		wheel.choose(main.get_vector2("primary"))
 		if pressed and trigger_ready:trigger_ready=false;wheel.confirm()
 	elif not seated() and tracked:
-		for candidate:Dictionary in ship.get("stations",[]):
-			if not station_option(candidate).available:continue
-			var point:Vector3=scene.world(candidate.position)+Vector3(0,.7,0)
-			if main.global_position.distance_to(point)<.65:
-				readout.text=str(candidate.get("id", "Station")).capitalize()+" · Trigger to board"
-				if pressed and trigger_ready:trigger_ready=false;take_station(str(candidate.id))
-				break
+		show_station_targets(true)
+		var pointer:Dictionary=preload("res://scripts/rendered_finger_pointer.gd").pose(null,app.player.dominant_hand,app.xr_origin,main)
+		var target:=station_target(pointer,main.global_position)
+		station_pointer.update_pointer(pointer.get("tip",main.global_position),target)
+		if not target.is_empty():
+			readout.text="Take "+str(target.station.id)+" seat · Trigger"
+			if pressed and trigger_ready:trigger_ready=false;take_station(str(target.station.id))
 	if not seated() and tracked and not wheel.opened:
 		for candidate:Dictionary in ship.get("interactions",[]):
 			if int(candidate.get("cell_index",0))!=scene.cell_index():continue
@@ -432,12 +466,16 @@ func interaction()->void:
 				request("recover",{"item_id":id,"left_hand":scene.source(left.global_position),"right_hand":scene.source(right.global_position)});break
 func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	if not aboard():return false
-	if seated() or busy:app.inventory.finish_item_action(false);return true
+	if seated():app.inventory.finish_item_action(false,"Leave your seat before placing items.");return true
 	var placement:Dictionary=app.housing.decoration_pose(pose)
 	var actual:Transform3D=placement.pose
 	var q:=actual.basis.get_rotation_quaternion()
+	app.inventory.set_busy(true,"Placing item in ship…")
 	finish_drop({"item_id":str(item.id),"cell_index":scene.cell_index(),"placement_position":scene.source(actual.origin),"local_quaternion":[-q.x,-q.y,q.z,q.w],"suspended":placement.suspended})
 	return true
 func finish_drop(payload:Dictionary)->void:
+	var version:int=app.datapad_epoch
 	var response:=await request("decorate",payload)
-	app.inventory.finish_item_action(response.get("ok",false) and response.get("mutation",{}).get("success",false))
+	if version!=app.datapad_epoch:return
+	var success:bool=response.get("ok",false) and response.get("mutation",{}).get("success",false)
+	app.inventory.finish_item_action(success,str(response.get("error",response.get("mutation",{}).get("message","Placement was not confirmed. Check inventory before retrying."))))

@@ -438,6 +438,8 @@ func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void
 	if not slider_dragger.capture.is_empty():
 		stick_captured=stick.length()>.15;apply_capture();return
 	if stick.length()<0.15: stick_captured=false; scroll_time=0
+	if not hit.is_empty() and preload("res://scripts/frontend_choice.gd").scroll_active(surfaces[int(hit.surface)].viewport,-stick.y,delta):
+		stick_captured=stick.length()>.15;apply_capture();return
 	if is_survey_held() and not hologram.active and not hit.is_empty() and int(hit.get("surface",-1)) in [survey_surface,resource_surface] and stick.length()>0.2:
 		stick_captured=true; resource_panel.scroll(stick,delta) if int(hit.get("surface",-1))==resource_surface else survey_ui.scroll(stick,delta)
 	elif hologram.active and absf(stick.y)>0.5:
@@ -464,7 +466,7 @@ func _process(delta: float) -> void:
 	var right:XRController3D=controller_for("right")
 	sample_ability_editor(right.is_button_pressed("primary_click"),main.global_transform,main.get_float("grip"),main.get_float("trigger"),tracked and allowed)
 	var slider_consumed:=slider_frame(hit,bag_pointer.global_transform,bag_pointer.get_float("grip"),bag_pointer.get_float("trigger"),tracked and not action_pending and held_item.is_empty())
-	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,{} if slider_consumed else hit,main.global_transform)
+	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,{} if slider_consumed or (not hit.is_empty() and preload("res://scripts/frontend_choice.gd").active(surfaces[int(hit.surface)].viewport)) else hit,main.global_transform)
 	if is_open:
 		pose_bag()
 		if not slider_consumed:update_pointer(hit,bag_pointer.get_float("trigger"))

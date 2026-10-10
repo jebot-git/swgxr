@@ -78,7 +78,8 @@ func open_popup() -> void:
 	factor.x=maxf(.1,factor.x);factor.y=maxf(.1,factor.y)
 	popup.scale=factor
 	var width:=minf(maxf(size.x,180),maxf(80,(bounds.x-24)/factor.x))
-	var height:=minf(minf(popup_height,items.size()*48+16),maxf(44,(bounds.y-24)/factor.y))
+	var content_height:=rows.get_combined_minimum_size().y+popup.get_theme_stylebox("panel").get_minimum_size().y
+	var height:=minf(minf(popup_height,content_height),maxf(44,(bounds.y-24)/factor.y))
 	popup.size=Vector2(width,height)
 	var below:=transform*Vector2(0,size.y)
 	var y:=below.y if below.y+height*factor.y<=bounds.y-12 else transform.origin.y-height*factor.y
@@ -97,7 +98,13 @@ func close_popup() -> void:
 func _choose(index: int) -> void:
 	if not is_open() or dragged or disabled or is_item_disabled(index):return
 	select(index);close_popup();grab_focus();item_selected.emit(index)
+static func active(viewport: Viewport) -> bool:
+	if not is_instance_valid(viewport) or not viewport.is_inside_tree():return false
+	for choice in viewport.get_tree().get_nodes_in_group(GROUP):
+		if choice.get_viewport()==viewport and choice.is_open():return true
+	return false
 static func close_all(viewport: Viewport) -> void:
+	if not is_instance_valid(viewport) or not viewport.is_inside_tree():return
 	for choice in viewport.get_tree().get_nodes_in_group(GROUP):
 		if choice.get_viewport()==viewport:choice.close_popup()
 static func scroll_active(viewport: Viewport,axis: float,delta: float) -> bool:

@@ -7,7 +7,7 @@ var experience: Dictionary = {}
 var experience_known := false
 var selected_skill_id := ""
 var xp_controls: Dictionary = {}
-var selector: OptionButton
+var selector: Button
 var progress: Label
 var scroll: ScrollContainer
 var tree: VBoxContainer
@@ -19,9 +19,8 @@ var forgetting_available := true
 var forgetting_reason := ""
 
 func _ready() -> void:
-	selector = OptionButton.new()
+	selector = preload("res://scripts/frontend_choice.gd").new()
 	selector.custom_minimum_size.y = 44
-	selector.get_popup().max_size = Vector2i(840, 320)
 	selector.item_selected.connect(show_profession)
 	add_child(selector)
 	progress = Label.new()

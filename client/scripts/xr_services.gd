@@ -40,8 +40,6 @@ var stick_scroll:=0.0
 var stick_captured:=false
 var drag_hand_anchor:=Vector3.ZERO
 var drag_pixel_anchor:=Vector2.ZERO
-var hover_anchor: Dictionary={}
-var hover_hand_anchor:=Vector3.ZERO
 var pointer_last:=Vector2.ZERO
 var interaction_epoch:=0
 var assets:=InventoryAssets.new()
@@ -60,7 +58,7 @@ var inventory_focus_provider:Callable
 func configure(origin: XROrigin3D, player: CharacterBody3D, side: String="left") -> void:
 	rig=origin;body=player;offhand="right" if side=="right" else "left"
 	process_priority=123
-	pointer_visual=preload("res://scripts/finger_pointer_visual.gd").new();pointer_visual.show_beam=false;add_child(pointer_visual)
+	pointer_visual=preload("res://scripts/finger_pointer_visual.gd").new();add_child(pointer_visual)
 	panel=ServicePanel.new()
 	viewport=SubViewport.new();viewport.size=Vector2i(860,620)
 	viewport.transparent_bg=true;viewport.disable_3d=true;viewport.gui_disable_input=false
@@ -100,7 +98,7 @@ func set_inventory_focus(value: bool) -> void:
 	inventory_focus=value
 	if value:
 		pointer_pressed=false;pointer_button="";trigger_armed=false;pointer_grip_armed=false
-		hover_anchor.clear();panel.cancel_pointer();set_stick_capture(false);pointer_visual.hide()
+		panel.cancel_pointer();set_stick_capture(false);pointer_visual.hide()
 
 func confirm_button(side: String) -> bool:
 	if inventory_focus_provider.is_valid():set_inventory_focus(bool(inventory_focus_provider.call()))
@@ -188,7 +186,7 @@ func open_terminal(record: Dictionary) -> void:
 func close_interface() -> void:
 	var was_open:=not terminal.is_empty()
 	terminal={};interaction_epoch+=1
-	pointer_pressed=false;pointer_button="";stick_scroll=0;hover_anchor.clear()
+	pointer_pressed=false;pointer_button="";stick_scroll=0
 	set_stick_capture(false)
 	if is_instance_valid(pointer_visual):pointer_visual.hide()
 	if is_instance_valid(panel):
@@ -374,16 +372,9 @@ func interaction_hit(hand: XRController3D, finger: Dictionary) -> Dictionary:
 	if pointer_grip_armed and hand.get_float("grip")>=.65:
 		var physical:=physical_slider_hit(hand.global_position)
 		if not physical.is_empty():return physical
-	if hand.get_float("trigger")>=.3 and not hover_anchor.is_empty():
-		# Retain the extended-finger hover before analog trigger curl starts.
-		# Continue to account for hand translation; the point is not frozen in space.
-		var movement: Vector3=surface.global_basis.inverse()*(hand.global_position-hover_hand_anchor)
-		var pixel: Vector2=hover_anchor.pixel+Vector2(movement.x/PANEL_METERS.x*viewport.size.x,-movement.y/PANEL_METERS.y*viewport.size.y)
-		return {"valid":true,"pixel":pixel,"world":surface.global_transform*Vector3((pixel.x/viewport.size.x-.5)*PANEL_METERS.x,(.5-pixel.y/viewport.size.y)*PANEL_METERS.y,.002)}
+
 	var hit: Dictionary=point_math.point(surface.global_transform,PANEL_METERS,Vector2(viewport.size),finger.get("ray_origin",finger.tip),finger.direction)
 	hit=hit if bool(hit.get("valid",false)) else {}
-	if hand.get_float("trigger")<.3:
-		hover_anchor=hit;hover_hand_anchor=hand.global_position
 	return hit
 
 func set_stick_capture(value: bool) -> void:

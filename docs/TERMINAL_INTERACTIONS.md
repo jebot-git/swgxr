@@ -2,8 +2,8 @@
 
 Approach a bazaar, mission terminal, bank, crafting station, or travel terminal
 and point with the main hand, then press trigger. Its holographic interface is
-visible only to the local player and stays in front of that terminal. Finger
-clicks select controls; holding trigger or grip while moving the finger drags
+visible only to the local player and stays in front of that terminal. Trigger
+clicks select controls; holding trigger or grip while moving the hand drags
 lists and amount handles. Moving more than three metres away closes the screen.
 Losing tracking, opening the system menu, changing character, or entering a
 loading transition also releases the interface.
@@ -193,9 +193,7 @@ rejection reporting were corrected. No live headset test was launched.
 
 ## Second recording follow-up: core1.mp4
 
-Mission controls use separate trigger-click and grip-drag edges. A pre-press hover
-latch preserves the intended button while squeezing the trigger curls the rendered
-index finger. Dragging captures hand translation until release. Only the pointing
+Mission controls use separate trigger-click and grip-drag edges. The shared controller aim keeps finger bending independent from pointer movement. Dragging captures hand translation until release. Only the pointing
 hand's joystick is consumed by a terminal list; the other hand can move away.
 Open static terminal UI survives delayed status refreshes, while original cell and
 range checks still close it and Core3 validates every mutation. Shuttle freshness
@@ -205,8 +203,9 @@ Voice and HAM mounts use the source forearm center/long axis plus tracked wrist
 axial twist. The original lower-arm IK basis alone stayed neutral during wrist
 roll, which caused the recording's permanently hidden readouts. Fixed-eye desktop
 Vulkan captures now show both arms' controls revealed by native tracked roll, with
-no camera-following correction. Shared finger rays derive their source skin extent
-once and transform it using the rendered skeleton each frame.
+no camera-following correction. All UI rays use the runtime controller aim, with the same XR Tools grip offset
+fallback when an aim pose is unavailable. Animated or optically tracked finger
+joints never steer a UI cursor. Only the hit dot is drawn.
 
 Client regression evidence is in `runtime/evidence/gameplay-core1/`,
 `runtime/evidence/forearm-roll/`, and `runtime/evidence/datapad-vehicle-preview.png`.

@@ -56,7 +56,8 @@ unconfirmed save leaves the menu open for an explicit retry. **Sign out** ends
 the session from character selection. See [remote accounts](docs/REMOTE_NETWORKING.md).
 The explicit `--local` option selects the trusted loopback development backend.
 
-Character creation dropdowns open inside the menu canvas. Point and trigger to
+All dropdowns—including character creation, flight controls, inventory containers,
+and professions—open inside their UI canvas. Point and trigger to
 select; hold trigger and drag the list, or use either joystick while pointing at
 the menu, to scroll. The open dropdown takes priority over the page underneath.
 Desktop mouse-wheel scrolling is also supported. Changing tabs, closing the menu
@@ -78,8 +79,8 @@ unmarked items cannot safely be distinguished by template alone.
 
 Voice is the default chat interface, using the native TwoVoIP codec also used by
 FPSlop. The palm-facing underside of the offhand forearm has **PROX**, **GROUP**,
-**PLANET** (replaced by **SECTOR** in space), and **FACTION** buttons. Point the main-hand finger and press its
-trigger to switch; a visible fingertip cursor marks the selection. Voice controls
+**PLANET** (replaced by **SECTOR** in space), and **FACTION** buttons. Aim the main-hand controller and press its
+trigger to switch; a small cursor marks the selection. Voice controls
 and the opposite-arm HAM readout run lengthwise along their source forearm bones,
 and follow tracked axial arm roll so turning the forearm reveals them; wrist
 flexion does not tilt them away from the arm. Proximity is spatial within64m
@@ -137,8 +138,9 @@ keyboard posture/emote controls do not drive the VR player.
 Hold **grip + trigger on the left hand** for a quarter second to show the wrist
 minimap. Touch it with the other fingertip to open the full datapad ahead of you.
 You can release and lower your hands; press **Close** to dismiss the datapad.
-Point the other index finger at an entry or button and squeeze its trigger to
-select. Keep the finger over the interface and use that hand’s joystick to
+Aim the other hand’s controller at an entry or button and squeeze its trigger to
+select. All UI uses the same tracked aim, independent of finger bending, with a
+target dot and no visible ray. Keep aiming at the interface and use that hand’s joystick to
 scroll or pan; turning remains suppressed until the stick returns to neutral.
 The datapad floats 75cm ahead (95cm expanded) and follows larger turns gently.
 Looking across any of its three panels or leaning slightly leaves it stationary;

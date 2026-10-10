@@ -56,7 +56,7 @@ func run()->void:
 		bag.update_gestures(true,head.global_transform,off.global_transform,.8,0,{},main.global_transform)
 		check(deployments.is_empty() and bag.held_item.get("id")=="101",side+" free-hand grip release cannot drop/deploy offhand tool")
 		check(bag.tool_pointer_controller()==main and bag.bag_hand_side()==bag.main_side(),side+" free hand is assigned survey pointing and bag pickup")
-		main.global_position=head.global_position+head_yaw*Vector3(.19 if bag.main_side()=="right" else -.19,-.16,.12)
+		main.global_position=head.global_position+head_yaw*Vector3(.19 if bag.offhand=="right" else -.19,-.16,.12)
 		bag.update_gestures(true,head.global_transform,off.global_transform,.8,.8,{},main.global_transform)
 		check(bag.is_open and bag.surfaces[0].mesh.visible and bag.surfaces[1].mesh.visible,side+" free-hand shoulder grab renders complete bag while survey tool remains held")
 		check(not bag.surfaces[bag.survey_surface].mesh.visible and not bag.surfaces[bag.resource_surface].mesh.visible,side+" bag takes display priority over survey panes")
@@ -79,16 +79,15 @@ func run()->void:
 		var tracker:XRControllerTracker=trackers[0 if side=="left" else 1]
 		var hand:=bag.controller_for(side);tracker.set_input("trigger",0.0)
 		var first:=Finger.pose(avatar,side,rig,hand)
-		var bone:int=first.bone;var rotation:Quaternion=avatar.skeleton.get_bone_pose_rotation(bone)
+		var bone:int=avatar.skeleton.find_bone(("l" if side=="left" else "r")+"index02");var rotation:Quaternion=avatar.skeleton.get_bone_pose_rotation(bone)
 		tracker.set_input("trigger",.9);avatar.skeleton.set_bone_pose_rotation(bone,rotation*Quaternion(Vector3.UP,1.2));avatar.skeleton.force_update_all_bone_transforms()
 		var curled:=Finger.pose(avatar,side,rig,hand)
-		check(Vector3(curled.tip).distance_to(first.tip)>.01,side+" source fingertip truly curls in original skeleton during click")
-		check(Vector3(curled.ray_origin).is_equal_approx(first.tip) and Vector3(curled.direction).is_equal_approx(first.direction),side+" mathematical click ray is stable despite actual finger curl")
-		check(Vector3(curled.tip).distance_to((avatar.skeleton.global_transform*avatar.skeleton.get_bone_global_pose(bone))*Vector3(first.local_tip))<.00001,side+" visible laser still originates at actual rendered fingertip")
-		var transform:=avatar.global_transform;avatar.global_transform=Transform3D(Basis(Vector3.UP,.4),Vector3(.2,.1,-.2))*transform
+		check(curled==first,side+" entire UI ray ignores trigger-driven finger curl")
+		check(Vector3(curled.ray_origin).is_equal_approx(first.ray_origin) and Vector3(curled.direction).is_equal_approx(first.direction),side+" mathematical click ray is stable despite actual finger curl")
+		var transform:=hand.global_transform;hand.global_transform=Transform3D(Basis(Vector3.UP,.4),Vector3(.2,.1,-.2))*transform
 		var moved:=Finger.pose(avatar,side,rig,hand)
-		check(Vector3(moved.direction).is_equal_approx(Basis(Vector3.UP,.4)*Vector3(first.direction)) and Vector3(moved.ray_origin).distance_to(first.ray_origin)>.05,side+" click stabilization follows tracked wrist motion instead of freezing aim in world")
-		avatar.global_transform=transform;tracker.set_input("trigger",0.0);avatar.skeleton.set_bone_pose_rotation(bone,rotation);avatar.skeleton.force_update_all_bone_transforms()
+		check(Vector3(moved.direction).is_equal_approx(Basis(Vector3.UP,.4)*Vector3(first.direction)) and Vector3(moved.ray_origin).distance_to(first.ray_origin)>.05,side+" pointer follows whole controller motion")
+		hand.global_transform=transform;tracker.set_input("trigger",0.0);avatar.skeleton.set_bone_pose_rotation(bone,rotation);avatar.skeleton.force_update_all_bone_transforms()
 	# Actual main cleanup invoked while the removed avatar is emitting a signal.
 	var main_app:=Main.new();root.add_child(main_app);main_app.player=Player.new();main_app.add_child(main_app.player)
 	main_app.menu=PanelContainer.new();main_app.add_child(main_app.menu)

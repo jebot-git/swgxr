@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/xr_player.gd" id="1_body"]
 [ext_resource type="PackedScene" path="res://addons/godot-xr-tools/functions/movement_direct.tscn" id="2_move"]
@@ -9,6 +9,8 @@
 [ext_resource type="PackedScene" path="res://addons/godot-xr-tools/effects/fade.tscn" id="7_fade"]
 
 [ext_resource type="Script" path="res://scout/movement.gd" id="8_scout"]
+
+[ext_resource type="Script" path="res://scripts/ui_function_pointer.gd" id="9_pointer"]
 
 [node name="XROrigin3D" type="XROrigin3D"]
 
@@ -34,8 +36,11 @@ max_speed = 9.36
 strafe = true
 
 [node name="FunctionPointer" parent="LeftHand" instance=ExtResource("4_pointer")]
+script = ExtResource("9_pointer")
+hand_offset_mode = 4
+y_offset = 0.0
 distance = 8.0
-show_laser = 2
+show_laser = 0
 laser_length = 1
 show_target = true
 target_radius = 0.008
@@ -55,8 +60,11 @@ step_turn_angle = 30.0
 step_turn_delay = 0.0
 
 [node name="FunctionPointer" parent="RightHand" instance=ExtResource("4_pointer")]
+script = ExtResource("9_pointer")
+hand_offset_mode = 4
+y_offset = 0.0
 distance = 8.0
-show_laser = 2
+show_laser = 0
 laser_length = 1
 show_target = true
 target_radius = 0.008

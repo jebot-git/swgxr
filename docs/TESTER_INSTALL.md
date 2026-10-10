@@ -126,3 +126,8 @@ Create a new account in the sign-in panel, then create/select a character. Invit
 Both executable/PCK packages passed headless native-loading and catalog preflight checks. Clean runtime-only imports and repeat imports passed with both released package importers; executable preflight passed on Linux and under Wine. Ground transitions across all ten planets, housing, equipment, original-starport movement, crafted creature appearances and JtL smoke tests passed using only the new runtime data. The Windows native DLL passed the same stair ascent/descent test in an exported harness under Wine. Native Windows Vulkan/OpenXR and live headset validation remain pending; dummy-renderer tests do not validate a GPU or headset. The Windows package uses standard spatial audio fallback and includes TwoVoIP.
 
 The bundled Windows Python completed the full 54,861-file runtime import through `import-data.cmd`, repeat import, startup configuration and Godot process/preflight checks under Wine. Validation used an installation path with spaces and non-ASCII characters and ignored invalid system Python settings. Original-starport movement passed against the Windows-rebased data. Native Windows GPU/headset testing remains pending.
+
+UI pointing uses the controller aim throughout the client. Finger bending does not
+move the cursor, and only a targeting dot is shown. Dropdowns open within the VR
+panel: trigger to select, hold trigger and drag to scroll, or use the pointing
+hand’s stick. Character-creation slider handles stay inside their scroll area.

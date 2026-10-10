@@ -21,7 +21,7 @@ var split_button: Button
 var split_label: Label
 var container_button: Button
 var back_button: Button
-var container_switch: OptionButton
+var container_switch: Button
 var unequip_button: Button
 var first_row := 0
 var selected_id := ""
@@ -40,7 +40,7 @@ func _init() -> void:
 	size=Vector2(PIXELS)
 	mouse_filter=Control.MOUSE_FILTER_STOP
 	gui_input.connect(on_input)
-	container_switch=OptionButton.new(); add_child(container_switch)
+	container_switch=preload("res://scripts/frontend_choice.gd").new(); add_child(container_switch)
 	container_switch.position=Vector2(786,14); container_switch.size=Vector2(220,48)
 	container_switch.add_theme_font_size_override("font_size",18)
 	container_switch.item_selected.connect(func(index):
@@ -216,16 +216,19 @@ func refresh_controls() -> void:
 	back_button.disabled=container_id==str(snapshot.get("inventory",{}).get("id",""))
 
 func refresh_container_switch() -> void:
-	container_switch.clear()
-	container_switch.add_item("Inventory")
-	container_switch.set_item_metadata(0,str(snapshot.get("inventory",{}).get("id","")))
+	var options:Array=[{"label":"Inventory","id":str(snapshot.get("inventory",{}).get("id",""))}]
 	var backpack: Variant=snapshot.get("equipped_backpack")
-	if backpack is Dictionary and not str(backpack.get("id","")).is_empty():
-		container_switch.add_item("Equipped backpack")
-		container_switch.set_item_metadata(1,str(backpack.id))
-		if container_id==str(backpack.id): container_switch.select(1)
-	container_switch.add_item("Equipped items");container_switch.set_item_metadata(container_switch.item_count-1,"@equipment")
-	if container_id=="@equipment":container_switch.select(container_switch.item_count-1)
+	if backpack is Dictionary and not str(backpack.get("id","")).is_empty():options.append({"label":"Equipped backpack","id":str(backpack.id)})
+	options.append({"label":"Equipped items","id":"@equipment"})
+	var changed:bool=container_switch.item_count!=options.size()
+	if not changed:
+		for i in range(options.size()):
+			if container_switch.get_item_metadata(i)!=options[i].id:changed=true;break
+	if changed:
+		container_switch.clear()
+		for i in range(options.size()):container_switch.add_item(options[i].label);container_switch.set_item_metadata(i,options[i].id)
+	for i in range(options.size()):
+		if options[i].id==container_id:container_switch.select(i)
 	container_switch.disabled=false
 
 func attribute_name(value: String) -> String:

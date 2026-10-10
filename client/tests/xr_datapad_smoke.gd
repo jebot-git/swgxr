@@ -90,7 +90,7 @@ func run() -> void:
 	check(not pad.pressed and requests.is_empty(),"Trigger already held on opening cannot click")
 	pad.update_pointer(hit,0.0)
 	pad.update_pointer(hit,0.2)
-	check(pad.aim_latch.is_empty() and not pad.pressed,"Early analog trigger keeps ray on actual finger until press")
+	check(pad.aim_latch.is_empty() and not pad.pressed,"Early analog trigger retains stable controller aim until press")
 	pad.update_pointer(hit,0.9)
 	await process_frame
 	check(pad.pressed and requests.is_empty(),"Fresh trigger press reaches SubViewport without premature activation")
@@ -149,16 +149,22 @@ func run() -> void:
 	pad.ui.select_category("skills")
 	await process_frame
 	await process_frame
-	var selector: OptionButton = pad.ui.professions.selector
+	var selector: Button = pad.ui.professions.selector
 	var skill_hit := hit_button(pad,selector)
 	pad.update_pointer(skill_hit,0.0)
 	pad.update_pointer(skill_hit,0.9)
 	await process_frame
 	pad.update_pointer(skill_hit,0.0)
 	await process_frame
-	check(selector.get_popup().visible and selector.get_popup().is_embedded(), "Profession selector opens inside wrist viewport through actual trigger click")
-	check(selector.get_popup().size.y <= 320, "All 49 professions use a bounded scrolling selector")
-	selector.get_popup().hide()
+	check(selector.is_open() and selector.popup.get_viewport()==selector.get_viewport(), "Profession selector opens inside wrist viewport through actual trigger click")
+	check(selector.popup.size.y <= 320, "All 49 professions use a bounded scrolling selector")
+	var profession_row:Button=selector.rows.get_child(1)
+	selector.scroll.ensure_control_visible(profession_row)
+	for i in range(3):await process_frame
+	var profession_hit:=hit_button(pad,profession_row)
+	pad.update_pointer(profession_hit,0);pad.update_pointer(profession_hit,.9);await process_frame;pad.update_pointer(profession_hit,0);await process_frame
+	check(not selector.is_open() and selector.selected==1,"Datapad dropdown selects a profession through trigger events without list-navigation interception")
+	selector.select(0);pad.ui.professions.show_profession(0)
 	var novice: Button
 	for button: Button in pad.ui.professions.buttons.values():
 		if button.get_global_rect().get_center().y < 530 and button.get_global_rect().get_center().y > 200:

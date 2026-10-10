@@ -252,6 +252,8 @@ func update_stick_capture(stick: Vector2, hit: Dictionary, delta: float) -> void
 	if stick.length() < 0.15: stick_captured = false;navigation_repeat=0
 	if is_open and not hit.is_empty() and stick.length() > 0.2:
 		stick_captured = true
+		if preload("res://scripts/frontend_choice.gd").scroll_active(surfaces[int(hit.surface)].viewport,-stick.y,delta):
+			apply_capture();return
 		if int(hit.surface) == 0:
 			var steps:=(-1 if stick.y>0 else 1) if absf(stick.y)>.5 and navigation_repeat<=0 else 0
 			if ui.navigate_at(hit.pixel,steps):
@@ -322,7 +324,7 @@ func wrist_mount(controller: XRController3D) -> Transform3D:
 	return Transform3D(Basis(up.cross(facing),up,facing),origin+dorsal*0.035)
 
 func pointing_pose(controller: XRController3D) -> Dictionary:
-	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"right" if offhand=="left" else "left",rig,controller,false)
+	return preload("res://scripts/rendered_finger_pointer.gd").pose(avatar,"right" if offhand=="left" else "left",rig,controller)
 
 func find_hit(finger: Dictionary) -> Dictionary:
 	if finger.is_empty(): return {}
@@ -350,7 +352,12 @@ func update_pointer(hit: Dictionary, trigger: float) -> void:
 	else:last_hover=hit.duplicate()
 	if trigger < 0.35: released_trigger = true
 	if pressed:
-		# Freeze target while the trigger curls the rendered index finger.
+		# Ordinary buttons retain press ownership; dropdowns support the same
+		# pointer dragging and release-outside cancellation as the frontend.
+		if preload("res://scripts/frontend_choice.gd").active(surfaces[int(capture.surface)].viewport):
+			capture.pixel=hit.pixel if not hit.is_empty() and hit.surface==capture.surface else Vector2(-100,-100)
+			var drag:=InputEventMouseMotion.new();drag.position=capture.pixel;drag.global_position=capture.pixel;drag.button_mask=MOUSE_BUTTON_MASK_LEFT
+			surfaces[int(capture.surface)].viewport.push_input(drag,true)
 		if trigger < 0.35:
 			send_button(capture,false)
 			pressed = false
@@ -375,7 +382,7 @@ func update_pointer(hit: Dictionary, trigger: float) -> void:
 	dot.global_position = hit.world+surfaces[index].mesh.global_basis.z*0.001
 	if released_trigger and trigger >= 0.55:
 		capture = hit.duplicate()
-		if int(capture.surface)==0 and ui.has_method("navigation_target"):capture.pixel=ui.navigation_target(capture.pixel)
+		if int(capture.surface)==0 and not preload("res://scripts/frontend_choice.gd").active(surfaces[0].viewport) and ui.has_method("navigation_target"):capture.pixel=ui.navigation_target(capture.pixel)
 		pressed = true
 		released_trigger = false
 		send_button(capture,true)
@@ -396,6 +403,7 @@ func clear_hover() -> void:
 		hover_surface = -1
 
 func cancel_press() -> void:
+	for surface:Dictionary in surfaces:preload("res://scripts/frontend_choice.gd").close_all(surface.viewport)
 	slider_dragger.cancel()
 	if pressed:
 		# A close/tracking loss cancels the click rather than activating on release.

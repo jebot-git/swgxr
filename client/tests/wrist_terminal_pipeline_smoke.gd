@@ -40,13 +40,7 @@ func run()->void:
 		check(after.basis.z.distance_to(Basis(before.basis.x,1.0)*before.basis.z)<.002,side+" actual tracked wrist roll exposes forearm overlay")
 		check(after.basis.x.dot(before.basis.x)>.999,side+" panel remains lengthwise and unmirrored")
 		check((after.origin-after.basis.z*.085).distance_to(before.origin-before.basis.z*.085)<.0001,side+" arm roll retains physical forearm anchor")
-		var tip:=Finger.pose(avatar,side)
-		check(tip.source=="rendered_skin" and Vector3(tip.local_tip).length()>.015 and Vector3(tip.local_tip).length()<.08,side+" pointer endpoint measured from original distal finger skin")
-		var distal:int=tip.bone;var rotation:=skeleton.get_bone_pose_rotation(distal)
-		skeleton.set_bone_pose_rotation(distal,rotation*Quaternion(Vector3.UP,.5));skeleton.force_update_all_bone_transforms()
-		var curled:=Finger.pose(avatar,side)
-		check(Vector3(tip.direction).distance_to(curled.direction)>.1 and Vector3(curled.tip).distance_to((skeleton.global_transform*skeleton.get_bone_global_pose(distal))*Vector3(tip.local_tip))<.0001,side+" pointer follows rendered distal articulation")
-		skeleton.set_bone_pose_rotation(distal,rotation)
+
 	var rig:=XROrigin3D.new();world.add_child(rig)
 	var camera:=XRCamera3D.new();camera.name="XRCamera3D";rig.add_child(camera);camera.position=Vector3(0,1.7,0)
 	var head:=XRPositionalTracker.new();head.name="head";head.type=XRServer.TRACKER_HEAD;head.set_pose("default",camera.transform,Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH);XRServer.add_tracker(head);trackers.append(head)
@@ -57,17 +51,17 @@ func run()->void:
 	for i in range(36):rows.append({"id":str(i),"name":"Mission "+str(i),"supported":true})
 	ui.open_terminal({"id":"terminal","kind":"mission","position":Vector3.ZERO})
 	ui.apply_response({"terminal":{"id":"terminal","kind":"mission","missions":rows}})
-	var finger:=Finger.pose(avatar,"right")
+	var finger:=Finger.pose(avatar,"right",rig,rig.get_node("RightHand"))
 	var normal: Vector3=-finger.direction
 	var x:=Vector3.UP.cross(normal).normalized();var y:=normal.cross(x).normalized()
 	# Place the actual plane under the rendered fingertip at list row zero.
 	var pixel:=Vector2(300,150)
-	var local:=Vector3((pixel.x/860-.5)*Services.PANEL_METERS.x,(.5-pixel.y/580)*Services.PANEL_METERS.y,0)
+	var local:=Vector3((pixel.x/ui.viewport.size.x-.5)*Services.PANEL_METERS.x,(.5-pixel.y/ui.viewport.size.y)*Services.PANEL_METERS.y,0)
 	ui.surface.global_transform=Transform3D(Basis(x,y,normal),finger.tip+finger.direction*.08-Basis(x,y,normal)*local)
 	for i in range(2):await process_frame
 	ui._process(.016)
 	check(ui.pointer_visual.visible,"Rendered fingertip produces visible terminal contact")
-	var distal:int=finger.bone;var rotation:=skeleton.get_bone_pose_rotation(distal)
+	var distal:int=skeleton.find_bone("rindex02");var rotation:=skeleton.get_bone_pose_rotation(distal)
 	skeleton.set_bone_pose_rotation(distal,rotation*Quaternion(Vector3.UP,1.2));skeleton.force_update_all_bone_transforms()
 	right.set_input("grip",.9);right.set_input("trigger",.8);await process_frame;ui._process(.016)
 	check(ui.pointer_pressed and ui.pointer_button=="trigger","Trigger click captures even when grip is held")
@@ -76,7 +70,8 @@ func run()->void:
 	skeleton.set_bone_pose_rotation(distal,rotation);skeleton.force_update_all_bone_transforms()
 	right.set_input("primary",Vector2(0,-1));await process_frame
 	for i in range(20):ui._process(.05)
-	check(ui.panel.offset>=10,"Main joystick scrolls mission list through actual controller process path")
+	check(ui.panel.selected>=10 and ui.panel.offset>0,"Main joystick navigates and scrolls mission list through actual controller process path")
+	var selected:int=ui.panel.selected
 	var previous: float=ui.panel.offset
 	right.set_input("primary",Vector2.ZERO);await process_frame;ui._process(.1)
 	check(ui.panel.offset==previous,"Joystick neutral stops scrolling")
@@ -89,15 +84,15 @@ func run()->void:
 	rig.get_node("RightHand").global_transform=moved # XR-off has no interface to apply tracker poses.
 	await process_frame;ui._process(.016)
 	right.set_input("grip",0.0);await process_frame;ui._process(.016)
-	check(ui.panel.offset<old_offset and ui.panel.selected==0,"Physical grip drag scrolls without accidentally selecting final row")
+	check(ui.panel.offset<old_offset and ui.panel.selected==selected,"Physical grip drag scrolls without accidentally selecting final row")
 	var requests: Array=[];ui.action_requested.connect(func(action,payload):requests.append([action,payload]))
 	var confirm: Vector2=ui.panel.CONFIRM_RECT.get_center()
-	var contact:=ui.surface.global_transform*Vector3((confirm.x/860-.5)*Services.PANEL_METERS.x,(.5-confirm.y/580)*Services.PANEL_METERS.y,.002)
-	# Move rendered avatar with its finger to the button (controller ray stays elsewhere).
-	avatar.global_position+=contact-Finger.pose(avatar,"right").tip
+	var contact:=ui.surface.global_transform*Vector3((confirm.x/ui.viewport.size.x-.5)*Services.PANEL_METERS.x,(.5-confirm.y/ui.viewport.size.y)*Services.PANEL_METERS.y,.002)
+	# Runtime aim points at the button independently of avatar fingers and grip.
+	right.set_pose("aim",rig.global_transform.affine_inverse()*Transform3D(ui.surface.global_basis,contact+ui.surface.global_basis.z*.1),Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH)
 	ui._process(.016);right.set_input("trigger",.8);await process_frame;ui._process(.016)
 	right.set_input("trigger",0.0);await process_frame;ui._process(.016)
-	check(requests.size()==1 and requests[0][0]=="mission_accept" and requests[0][1].mission_id=="0","Real contact+controller edges emit selected native mission exactly once")
+	check(requests.size()==1 and requests[0][0]=="mission_accept" and requests[0][1].mission_id==str(selected),"Real contact+controller edges emit selected native mission exactly once")
 	ui.set_allowed(false);check(not ui.pointer_visual.visible and not ui.pointer_pressed,"Lifecycle close clears pointer and drag")
 	var head_pose:=camera.global_transform
 	var anchor:=preload("res://scripts/body_grab_anchor.gd").from_pose(head_pose,rig.global_transform,Vector3(0,-.5,.25)).origin

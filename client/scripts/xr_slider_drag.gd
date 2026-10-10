@@ -13,6 +13,18 @@ static func controls(root:Control)->Array:
 	return result
 static func enabled(control:Control)->bool:
 	return control.is_visible_in_tree() and (control.editable and control.max_value>control.min_value if control is HSlider else bool(control.get("enabled")))
+static func clipped_rect(control:Control,rect:Rect2)->Rect2:
+	if not control.is_visible_in_tree() or preload("res://scripts/frontend_choice.gd").active(control.get_viewport()):return Rect2()
+	var bounds:=Rect2(Vector2.ZERO,control.get_viewport_rect().size)
+	var parent:=control.get_parent()
+	while parent!=null:
+		if parent is Control and parent.clip_contents:bounds=bounds.intersection(parent.get_global_rect())
+		parent=parent.get_parent()
+	return rect.intersection(bounds)
+static func visible_handle(control:Control)->bool:
+	var rect:=handle_rect(control)
+	# A partly clipped thumb remains in the 2D canvas; omit its 3D extrusion.
+	return rect.has_area() and clipped_rect(control,rect).encloses(rect)
 static func handle_rect(control:Control)->Rect2:
 	if not control is HSlider:return control.get_global_transform()*control.handle_rect()
 	var icon:Texture2D=control.get_theme_icon("grabber","HSlider")
@@ -28,7 +40,7 @@ static func near_handle(surface:Dictionary,position:Vector3)->Dictionary:
 	var pixel:=hand_pixel(surface,position)
 	var padding:=Vector2(.014/surface.meters.x*surface.viewport.size.x,.014/surface.meters.y*surface.viewport.size.y)
 	for control:Control in controls(surface.control):
-		if not enabled(control):continue
+		if not enabled(control) or not visible_handle(control):continue
 		var rect:=handle_rect(control)
 		if rect.grow_individual(padding.x,padding.y,padding.x,padding.y).has_point(pixel):return {"control":control,"pixel":rect.get_center()}
 	return {}
@@ -38,7 +50,7 @@ func frame(surfaces:Array,hit:Dictionary,pose:Transform3D,grip:float,trigger:flo
 	if trigger<.35:trigger_ready=true
 	if not capture.is_empty():
 		var slider:HSlider=capture.control
-		if not is_instance_valid(slider) or not enabled(slider):cancel();return true
+		if not is_instance_valid(slider) or not enabled(slider) or not clipped_rect(slider,slider.get_global_rect()).has_area():cancel();return true
 		if (grip<.35 if capture.button=="grip" else trigger<.35):capture={};return true
 		var surface:Dictionary=surfaces[capture.surface]
 		var pixel:=hand_pixel(surface,pose.origin)
@@ -56,7 +68,7 @@ func frame(surfaces:Array,hit:Dictionary,pose:Transform3D,grip:float,trigger:flo
 		trigger_ready=false
 		if not hit.is_empty():
 			for control:Control in controls(surfaces[int(hit.surface)].control):
-				if control is HSlider and enabled(control) and control.get_global_rect().has_point(hit.pixel):candidate={"control":control,"surface":int(hit.surface),"pixel":hit.pixel};button="trigger";break
+				if control is HSlider and enabled(control) and clipped_rect(control,control.get_global_rect()).has_point(hit.pixel):candidate={"control":control,"surface":int(hit.surface),"pixel":hit.pixel};button="trigger";break
 	if candidate.is_empty():return false
 	var slider:HSlider=candidate.control
 	if button=="trigger":
@@ -83,7 +95,7 @@ static func sync_handles(surfaces:Array)->void:
 				var front:=MeshInstance3D.new();front.name="Thumb";front.mesh=QuadMesh.new();front.position.z=.0092;front.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 				var ink:=StandardMaterial3D.new();ink.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;ink.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;ink.texture_filter=BaseMaterial3D.TEXTURE_FILTER_LINEAR;front.material_override=ink
 				handle.add_child(front);surface.mesh.add_child(handle);surface.slider_handles[id]=handle
-			handle.visible=control.is_visible_in_tree()
+			handle.visible=visible_handle(control)
 			if not handle.visible:continue
 			var rect:=handle_rect(control)
 			var meters:=Vector2(rect.size.x/surface.viewport.size.x*surface.meters.x,rect.size.y/surface.viewport.size.y*surface.meters.y)

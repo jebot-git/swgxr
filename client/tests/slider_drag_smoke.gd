@@ -78,5 +78,22 @@ func run()->void:
 	menu.set_input_active(false)
 	check(menu.slider_capture_hand.is_empty() and not menu.screen.enabled,"Losing menu input cancels physical ownership")
 	menu.set_input_active(true);check(menu.screen.enabled,"Normal XRTools pointer returns after physical capture cancellation")
+	var scroll:=ScrollContainer.new();control.add_child(scroll);scroll.position=Vector2(50,380);scroll.size=Vector2(560,130)
+	var rows:=VBoxContainer.new();scroll.add_child(rows);rows.size_flags_horizontal=Control.SIZE_EXPAND_FILL
+	for i in range(6):
+		var option:=HSlider.new();rows.add_child(option);option.custom_minimum_size=Vector2(500,60)
+	for i in range(4):await process_frame
+	Drag.sync_handles(owner.surfaces)
+	var hidden:HSlider=rows.get_child(4)
+	var hidden_hand:=world_point(surface,Drag.handle_rect(hidden).get_center())
+	check(not surface.slider_handles[hidden.get_instance_id()].visible,"Offscreen appearance thumb cannot escape scroll clipping in 3D")
+	check(Drag.near_handle(surface,hidden_hand).is_empty(),"Offscreen slider cannot be physically grabbed")
+	owner.slider_dragger.cancel();owner.slider_frame({},Transform3D.IDENTITY,0,0,true)
+	check(not owner.slider_frame({"surface":0,"pixel":Drag.handle_rect(hidden).get_center()},Transform3D.IDENTITY,0,.9,true),"Offscreen slider cannot intercept a trigger")
+	scroll.scroll_vertical=210
+	for i in range(4):await process_frame
+	Drag.sync_handles(owner.surfaces)
+	check(surface.slider_handles[hidden.get_instance_id()].visible,"Scrolling a thumb into view restores its physical handle")
+	check(not surface.slider_handles[rows.get_child(0).get_instance_id()].visible,"Scrolling hides the thumb above the page")
 	menu.free();services.free();owner.free();origin.free()
 	print(JSON.stringify({"passed":errors.is_empty(),"checks":checks,"errors":errors,"renderer":"headless dummy","mocked_tracking":true,"native_mutations":false}));quit(0 if errors.is_empty() else 1)

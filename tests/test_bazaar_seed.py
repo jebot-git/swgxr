@@ -37,6 +37,8 @@ class BazaarSeed(unittest.TestCase):
         self.assertIn('writeScreenPlayData(p,namespace,row[1],id)', source)
         self.assertIn('getTemplateObjectPath()~="object/tangible/terminal/terminal_bazaar.iff"', source)
         self.assertIn(TAG, source)
+        self.assertIn('local x=SceneObject(terminal):getPositionX()+1', source)
+        self.assertNotRegex(source, r'SceneObject\(p\):(?:switchZone|teleport)\([^\n]*SceneObject\(')
         for setter in ('setUseCount', 'setMinDamage', 'setMaxDamage', 'setAttackSpeed',
                        'setQuality', 'setSkillPoints', 'awardSkill', 'setCustomObjectName'):
             self.assertNotIn(setter, source)

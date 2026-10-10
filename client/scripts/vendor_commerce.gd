@@ -83,6 +83,14 @@ func anchor(row:Dictionary)->void:
 	if forward.length_squared()<.001:forward=Vector3.BACK
 	forward=forward.normalized();root_ui.global_position=position+forward*.6+Vector3.UP*1.2
 	root_ui.global_basis=Basis.looking_at(-forward,Vector3.UP)
+	if is_instance_valid(app.services.ui) and app.services.has_method("terminal_records"):
+		for record:Dictionary in app.services.terminal_records():
+			if str(record.id)!=str(row.id):continue
+			var center:=position+forward*.6;center.y=eye.y-.10
+			root_ui.global_transform=app.services.ui.terminal_pose(record,center,eye)
+			# The sale board is taller than the browse surface, with knobs in front.
+			root_ui.global_position+=root_ui.global_basis.z*.06
+			break
 	root_ui.show()
 	if is_instance_valid(app.services.ui):app.services.ui.set_allowed(false)
 	if is_instance_valid(app.combat_rig):app.combat_rig.stow()

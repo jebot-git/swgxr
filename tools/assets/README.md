@@ -914,3 +914,16 @@ descriptors. The lightning rifle is distinct from `heavy_lightning_beam`.
 the prototype's normalized delivery settings in `client/combat/balance.json`.
 The original projectile datatable does not supply the prototype projectile speed,
 scatter cone or guidance limits. Those settings remain explicit balance policy.
+
+### Test-client presentation data
+
+After preparing JtL sectors and the character catalogs, run
+`python3 tools/assets/prepare_space_effects.py`. This also prepares original
+ship/sector audio and the twenty chair poses through `prepare_space_audio.py`.
+Audio CDF references absent from the supplied media are recorded in
+`runtime/assets/space_audio/catalog.json`; empty original music fields are not
+filled with replacement tracks. Run `python3 tools/assets/refresh_npc_variant_pools.py`
+to update existing ground placement manifests from their original mobile and
+city-screenplay pools. New ambient exports retain those pools automatically.
+Then build the private `client-runtime` archive with `bundle_assets.py`; raw TREs
+and developer outputs are excluded by the runtime dependency selection.

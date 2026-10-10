@@ -23,6 +23,11 @@ class ServicesProtocolTests(unittest.TestCase):
   raw={'source_kind':'core3_services','character_id':'100','terminal':{'kind':'ship_outfit','options':[{'operation':'ship_component_install','slot_name':'engine','item_name':'@space_item:engine'}]}}
   with patch('server.services_protocol.display',return_value='Ion Engine'):
    self.assertEqual(snapshot(raw,'100')['state']['terminal']['options'][0]['name'],'Install Engine: Ion Engine')
+ def test_bazaar_scope_survives_adapter_validation(self):
+  for scope in ("local","planet","galaxy","vendor"):
+   self.assertEqual(command("open",self.data(search_scope=scope))["search_scope"],scope)
+  for scope in ("all",None,True,[],{}):
+   with self.assertRaises(ValueError):command("open",self.data(search_scope=scope))
  def test_strict_amounts(self):
   for value in (True,0,-1,1.5,2000000001,'12'):
    with self.assertRaises(ValueError):command('bank_transfer',self.data(amount=value,direction='deposit'))

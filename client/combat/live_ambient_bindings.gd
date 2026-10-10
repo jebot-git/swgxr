@@ -23,7 +23,8 @@ func configure(manifest:Dictionary,trainer_audit:Dictionary={})->void:
 		var position:=Vector3(float(values[0]),float(values[1]),float(values[2]))
 		if not position.is_finite():continue
 		placements[id]=entry.duplicate(true)
-		var variants:Array=[template]
+		var variants:Array=entry.get("source_templates",[template]).duplicate()
+		if template not in variants:variants.append(template)
 		var trainer:Dictionary=trainer_audit.get("trainers",{}).get(str(entry.get("mobile","")),{})
 		var basic_trainer:bool=not trainer.is_empty() and id in trainer.get("placement_ids",[]) and template in trainer.get("templates",[])
 		if basic_trainer:variants=trainer.templates
@@ -31,7 +32,7 @@ func configure(manifest:Dictionary,trainer_audit:Dictionary={})->void:
 		if chassis_dealer:variants=CHASSIS_VARIANTS
 		for variant:String in variants:
 			if not by_template.has(variant):by_template[variant]=[]
-			by_template[variant].append({"id":id,"position":position,"trainer":basic_trainer or chassis_dealer,
+			by_template[variant].append({"id":id,"position":position,"trainer":basic_trainer or chassis_dealer or variant!=template,
 				"building_id":str(entry.get("building_object_id","0")),"cell_index":int(str(entry.get("cell_id","0:0")).get_slice(":",1))})
 func update(actors:Array)->Dictionary:
 	var candidates:Array=[]

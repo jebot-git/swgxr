@@ -37,6 +37,9 @@ var category_selected:=-1
 var drag_category:=false
 var page:=0
 var has_more:=false
+var search_scope:="galaxy"
+const SEARCH_SCOPES=["local","planet","galaxy","vendor"]
+const SCOPE_RECT=Rect2(20,66,548,38)
 var target_id := ""
 var slider: Control
 var faction_sliders: Dictionary={}
@@ -83,6 +86,7 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
 		if terminal.get("kind","")=="underworld" and not terminal.get("eligible",false) and not str(terminal.get("blocked_reason","")).is_empty():delivery_dialogue.text+="\n\n"+str(terminal.blocked_reason)
 	if terminal.get("kind","")=="bazaar":
+		search_scope=str(terminal.get("search_scope","galaxy" if previous_id!=str(terminal.get("id","")) else search_scope))
 		var source_categories: Array=terminal.get("categories",[])
 		if previous_id!=str(terminal.get("id","")) or source_categories!=categories:
 			categories=source_categories.duplicate(true)
@@ -228,7 +232,12 @@ func navigation_target(pixel:Vector2)->Vector2:
 	return pixel
 
 func browse_payload() -> Dictionary:
-	return {"terminal_id":str(terminal.get("id","")),"category_id":category_id,"page":page}
+	return {"terminal_id":str(terminal.get("id","")),"category_id":category_id,"page":page,"search_scope":search_scope}
+
+func select_scope(index:int)->void:
+	if pending or index<0 or index>=SEARCH_SCOPES.size():return
+	search_scope=SEARCH_SCOPES[index];page=0;offset=0;selected=-1
+	request_browse()
 
 func request_browse() -> void:
 	rows=[] # A rejected filter request must never relabel results from its parent.
@@ -258,6 +267,8 @@ func category_back() -> void:
 func click_at(pixel: Vector2) -> void:
 	if pending: return
 	if CLOSE_RECT.has_point(pixel): close_requested.emit(); return
+	if terminal.get("kind","")=="bazaar" and not bid_mode and SCOPE_RECT.has_point(pixel):
+		select_scope(int((pixel.x-SCOPE_RECT.position.x)/(SCOPE_RECT.size.x/4)));return
 	if terminal.get("kind","")=="travel" and travel_overview.RECT.has_point(pixel):
 		var destination:int=travel_overview.select_at(pixel,rows,selected)
 		if destination>=0:selected=destination;offset=clampf(offset,maxi(0,selected-7),selected);queue_redraw()
@@ -474,7 +485,13 @@ func _draw() -> void:
 	var kind:=str(terminal.get("kind","service"))
 	draw_string(FONT,Vector2(30,50),str(terminal.get("name",kind.to_upper())),HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("d2f6ff"))
 	draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("d2f6ff"))
-	draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("9ac7da"))
+	if kind=="bazaar" and not bid_mode:
+		for index in range(4):
+			var rect:=Rect2(SCOPE_RECT.position+Vector2(index*SCOPE_RECT.size.x/4,0),Vector2(SCOPE_RECT.size.x/4-4,SCOPE_RECT.size.y))
+			draw_style_box(Holo.button("hover" if search_scope==SEARCH_SCOPES[index] else "normal"),rect)
+			draw_string(FONT,rect.position+Vector2(4,26),SEARCH_SCOPES[index].capitalize(),HORIZONTAL_ALIGNMENT_CENTER,rect.size.x-8,18,Color("d2f6ff"))
+		draw_string(FONT,Vector2(590,82),"BANK  %d cr"%int(wallet.get("bank",0)),HORIZONTAL_ALIGNMENT_LEFT,240,17,Color("9ac7da"))
+	else:draw_string(FONT,Vector2(22,82),"CARRIED  %d cr       BANK  %d cr"%[int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,800,19,Color("9ac7da"))
 	if kind=="underworld":
 		draw_multiline_string(FONT,Vector2(40,408),"Front money: %d cr · Underworld reputation: %d\nReward: %d cr + %d reputation\nTime limit: %d minutes · Shuttle travel restricted"%[int(terminal.get("front_money",0)),int(terminal.get("reputation",0)),int(terminal.get("reward_credits",0)),int(terminal.get("reward_faction",0)),int(terminal.get("duration_seconds",1800))/60],HORIZONTAL_ALIGNMENT_LEFT,770,20,3,Color("9ac7da"))
 	elif kind=="bounty_informant":

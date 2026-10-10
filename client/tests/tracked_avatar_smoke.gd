@@ -3,6 +3,14 @@ extends SceneTree
 ## Optional --capture renders evidence; this is not a hardware tracking claim.
 const Avatar = preload("res://scripts/avatar.gd")
 const TrackedAvatar = preload("res://scripts/tracked_avatar.gd")
+class PlayerBody extends CharacterBody3D:
+	var space:Node
+class Chair extends Node:
+	var enabled:=false
+	var poses:Dictionary={}
+	func seated()->bool:return enabled
+	func seat_pose()->Transform3D:return Transform3D(Basis.IDENTITY,Vector3(0,.45,0))
+	func rider_pose(race:String)->Dictionary:return poses.get(race,{})
 var capture := false
 var results: Array = []
 var view: Camera3D
@@ -39,7 +47,10 @@ func run() -> void:
 		view.make_current()
 	var rig := XROrigin3D.new()
 	world.add_child(rig)
-	var player := CharacterBody3D.new()
+	var player := PlayerBody.new()
+	var chair:=Chair.new();world.add_child(chair)
+	chair.poses=Avatar.read_json(ProjectSettings.globalize_path("res://../runtime/assets/space_effects/assets.json")).get("seat_poses",{})
+	player.space=chair
 	player.name = "PlayerBody"
 	rig.add_child(player)
 	var camera := XRCamera3D.new()
@@ -59,6 +70,7 @@ func run() -> void:
 	var directory := ProjectSettings.globalize_path("res://../runtime/evidence/tracked-avatar-wrapper")
 	DirAccess.make_dir_recursive_absolute(directory)
 	for race in races:
+		chair.enabled=false
 		var tracked := TrackedAvatar.new()
 		world.add_child(tracked)
 		var avatar := Avatar.new()
@@ -165,7 +177,20 @@ func run() -> void:
 		tracked.update_tracking(1.0/90,head,null,right,4.0)
 		passed = passed and not tracked.last_report.left_tracked and tracked.last_report.right_tracked
 		passed = passed and avatar.skeleton.get_bone_global_pose(avatar.skeleton.find_bone("lwrist")).origin.is_finite() and eye_error < 0.0005
-		results.append({"race":race,"passed":passed,"eye_error":eye_error,"crouch_ankle_error":ankle_error,"fit_scale":fit,"first_person_parts":first_person_parts,"observer_head_parts":observer_parts,"original_core3_appearance":authoritative})
+		chair.enabled=true
+		head=Transform3D(Basis.IDENTITY,Vector3(0,1.13,0));left=Transform3D(Basis.IDENTITY,Vector3(-.27,.9,-.34));right=Transform3D(Basis.IDENTITY,Vector3(.27,.9,-.34))
+		tracked.update_tracking(1.0/90,head,left,right,0)
+		var pelvis:Vector3=avatar.skeleton.global_transform*avatar.skeleton.get_bone_global_pose(avatar.skeleton.find_bone("root")).origin
+		var thigh:Vector3=avatar.skeleton.global_transform*avatar.skeleton.get_bone_global_pose(avatar.skeleton.find_bone("lthigh")).origin
+		var knee:Vector3=avatar.skeleton.global_transform*avatar.skeleton.get_bone_global_pose(avatar.skeleton.find_bone("lshin")).origin
+		var seat_error:=pelvis.distance_to(chair.seat_pose().origin)
+		passed=passed and seat_error<.001 and absf((knee-thigh).z)>absf((knee-thigh).y) and rig.global_transform.is_equal_approx(rig_before) and camera.global_transform.is_equal_approx(camera_before) and player.global_transform.is_equal_approx(player_before)
+		if capture:
+			view.position=Vector3(1,1.15,1.7);view.look_at(Vector3(0,.8,0),Vector3.UP)
+			for frame in range(3):await process_frame
+			await RenderingServer.frame_post_draw
+			root.get_texture().get_image().save_png(directory.path_join(race+"_chair.png"))
+		results.append({"race":race,"passed":passed,"seat_pelvis_error":seat_error,"seated_thigh_delta":[(knee-thigh).x,(knee-thigh).y,(knee-thigh).z],"eye_error":eye_error,"crouch_ankle_error":ankle_error,"fit_scale":fit,"first_person_parts":first_person_parts,"observer_head_parts":observer_parts,"original_core3_appearance":authoritative})
 		all_passed = all_passed and passed
 		tracked.free()
 	var output := {"test":"tracked_avatar_wrapper","hardware_tested":false,"native_ik":true,"passed":all_passed,"races":results}

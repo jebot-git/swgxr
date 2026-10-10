@@ -5,10 +5,13 @@ var assets=preload("res://combat/original_assets.gd").new()
 var phase:="idle"
 var iteration:=-1
 var available:=false
-func setup(_eye:Camera3D)->void:
+var camera:Camera3D
+func setup(eye:Camera3D)->void:
+	camera=eye
 	assets.directory=ProjectSettings.globalize_path("res://../runtime/assets/space_effects")
 	available=assets.load_catalog()
 	if not available:return
+	global_transform=eye.global_transform
 
 func observe(state:Dictionary,eye:Camera3D)->void:
 	var next:=str(state.get("phase","idle"));var step:=int(state.get("iteration",-1))
@@ -22,10 +25,15 @@ func observe(state:Dictionary,eye:Camera3D)->void:
 	if next=="countdown" and audio!=null:audio.play_original(assets,original.countdown_sound,eye.global_position,2)
 	if next not in ["travel","arrival"]:return
 	var stage:Dictionary=original.enter if next=="travel" else original.leave
-	var pose:=eye.global_transform;pose.origin-=pose.basis.z*float(stage.offset)
+	var pose:=Transform3D(Basis.IDENTITY,Vector3(0,0,-float(stage.offset)))
 	if not str(stage.particle).is_empty():
-		var particles:=preload("res://space/original_particles.gd").new();add_child(particles);particles.global_transform=pose;particles.play(assets.catalog.particles.get(stage.particle,{}),assets)
+		var particles:=preload("res://space/original_particles.gd").new();add_child(particles);particles.transform=pose;particles.play(assets.catalog.particles.get(stage.particle,{}),assets)
 	# CEF camera shake is intentionally not applied to tracked head/hands.
 	if audio!=null:
 		for sound:String in assets.catalog.effects.get(stage.effect,{}).get("sounds",[]):audio.play_original(assets,sound,eye.global_position,2)
 	if audio!=null and not str(stage.sound).is_empty():audio.play_original(assets,stage.sound,eye.global_position,2)
+
+func _process(_delta:float)->void:
+	# Original HyperspaceIoWin attaches the effect to the camera. Follow the
+	# tracked centre-eye frame without changing HMD pose or either eye projection.
+	if is_instance_valid(camera):global_transform=camera.global_transform

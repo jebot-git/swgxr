@@ -130,3 +130,31 @@ The 60 Hz presentation regression preserves constant flight speed across 5 Hz
 native receipts. TLS reuse passed real HTTPClient/certificate verification tests.
 These checks address known stalls and correction spikes; they do not establish
 that all network rubberbanding or headset control issues are resolved.
+
+## Presentation follow-up (test.6)
+
+The private presentation archive adds original chair poses for all 20 race/sex
+combinations, ship CDF engine bindings, POB interior ambience, source environment
+entry music and original space-combat music. Eleven unresolved CDF references
+(including duplicate references) remain recorded in the audio conversion audit;
+no replacement media is supplied. Blank original music fields remain blank.
+Ground ambience is stopped while aboard and restored on return.
+
+Hyperspace follows the centre-eye pose, uses a shared billboard orientation for
+both eyes and respects original additive material flags. The desktop Vulkan
+capture verifies shader compilation and removes the opaque square found during
+review. This is not a live stereo/headset verification. Synthetic avatar tests
+check seated pelvis anchoring and bent legs for all 20 bodies while preserving
+head, controller and physics transforms.
+
+Native bazaar scope filtering supports this terminal, current planet, galaxy and
+searchable player vendors. Static NPC suppression now recognizes each original
+spawn's full appearance pool, including stationary citizens and GCW alternatives.
+Exact placement and alternate-template cell identity are still required; native
+visual readiness controls fallback suppression. The cross-planet synthetic suite
+passes 5,846 checks.
+
+The remote voice relay had been stopped during maintenance. It was restarted;
+starting the gateway now also pulls in the relay. Two isolated accounts passed
+39 live TLS/WSS/Opus checks without activating a microphone. Physical microphone
+and live headset tests remain suspended.

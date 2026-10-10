@@ -493,4 +493,12 @@ func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) 
 		if candidate>score:best=pose;score=candidate
 	if record.get("kind","") in ["starship","ship_crew","ship_control"] or record.get("pob",false):
 		best.origin.y=maxf(best.origin.y+.40,float(record.get("position",fallback_center).y)+1.65)
+	# A hologram is larger than the original glass. Keep its plane outside the
+	# entire casing (including projecting keyboards), not merely 55mm off glass.
+	if record.get("pick_geometry",{}).get("bounds") is AABB and record.get("pick_pose") is Transform3D:
+		var normal:=best.basis.z.normalized()
+		var bounds:AABB=record.pick_geometry.bounds
+		var front:=best.origin.dot(normal)
+		for index in range(8):front=maxf(front,(record.pick_pose*bounds.get_endpoint(index)).dot(normal)+.12)
+		best.origin+=normal*(front-best.origin.dot(normal))
 	return best

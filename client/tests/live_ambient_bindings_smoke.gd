@@ -61,6 +61,20 @@ func run()->void:
 	dealer_actor.cell_index=4;dealer_actor.template="object/mobile/unrelated.iff"
 	check(dealers.update([dealer_actor]).is_empty(),"Unrelated NPC cannot claim chassis dealer")
 	dealer_actor.template=Bindings.CHASSIS_VARIANTS[0]
+	# Every source pool is eligible, including stationary commoners and GCW variants.
+	var variant_count:=0
+	for planet:String in ["tatooine","corellia","dantooine","dathomir","endor","lok","naboo","rori","talus","yavin4"]:
+		var path:="res://../runtime/assets/ambient_npcs/placements.json" if planet=="tatooine" else "res://../runtime/assets/planets/"+planet+"/ambient/placements.json"
+		var manifest:Dictionary=JSON.parse_string(FileAccess.get_file_as_string(path))
+		for row:Dictionary in manifest.instances:
+			var alternatives:Array=row.get("source_templates",[]).filter(func(t):return t!=row.template)
+			if alternatives.is_empty():continue
+			var candidates:=Bindings.new();candidates.configure({"instances":[row]})
+			var actor:Dictionary={"id":"randomized","kind":"creature","template":alternatives[0],"position":row.source_world_xyz,"building_id":str(row.get("building_object_id","0")),"cell_index":int(str(row.get("cell_id","0:0")).get_slice(":",1))}
+			check(candidates.update([actor]).get(str(row.id))=="randomized",planet+" source variant claims authored slot "+str(row.id))
+			candidates.clear();actor.cell_index+=1
+			check(candidates.update([actor]).is_empty(),planet+" alternate variant cannot claim another cell "+str(row.id));variant_count+=1
+	check(variant_count>2000,"All ten planets exercise original random NPC pools")
 	var radar:=Radar.new();radar.configure(source)
 	var center:=Vector3(float(initial.position[0]),float(initial.position[1]),float(initial.position[2]))
 	check(radar.query(center,64).any(func(contact):return contact.id==placement_id),"Authored placement remains a radar contact before native ownership")

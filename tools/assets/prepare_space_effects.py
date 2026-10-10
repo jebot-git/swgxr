@@ -37,5 +37,8 @@ def prepare():
     dump(out/'assets.json',dict(schema_version=1,hyperspace=stages,nebula=nebula,
         effects=assets.effects,particles=assets.particles,sounds=assets.audio_importer.sounds,
         provenance={**assets.dependencies,**assets.audio_importer.dependencies},conversion_failures=assets.failures+assets.audio_importer.failures))
+    # Seat clips and ship audio share this original-media preparation stage.
+    from prepare_space_audio import prepare as prepare_audio
+    prepare_audio()
     print(json.dumps(dict(stages=stages,failures=assets.failures)))
 if __name__=='__main__':prepare()

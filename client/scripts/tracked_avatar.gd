@@ -209,14 +209,15 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 		return
 	if life_pose_locked:
 		reset_life_pose_anchor()
-	var riding: bool=is_instance_valid(body.get("vehicles")) and body.vehicles.seated()
+	var seat_provider:Node=body.get("space") if is_instance_valid(body.get("space")) and body.space.seated() else body.get("vehicles")
+	var riding: bool=is_instance_valid(seat_provider) and seat_provider.seated()
 	if riding:
 		context=context.duplicate();context["grounded"]=false
 	var previous_heading := heading
 	var forward := -head.basis.z
 	if Vector2(forward.x, forward.z).length() > 0.15:
 		heading = atan2(-forward.x, -forward.z)
-	if riding:heading=body.vehicles.seat_pose().basis.get_euler().y
+	if riding:heading=seat_provider.seat_pose().basis.get_euler().y
 	var yaw := Basis(Vector3.UP, heading)
 	if absf(angle_difference(previous_heading, heading)) > 0.25:
 		planted_feet.clear()
@@ -228,7 +229,7 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 			planted_feet.clear()
 			stance_solver.reset_smoothing()
 	if riding:
-		var mounted: Dictionary=body.vehicles.rider_pose(avatar.race_id)
+		var mounted: Dictionary=seat_provider.rider_pose(avatar.race_id)
 		if not mounted.is_empty():
 			skeleton.reset_bone_poses()
 			for track: Dictionary in mounted.tracks:
@@ -275,7 +276,7 @@ func update_tracking(delta: float, head: Transform3D, left: Variant, right: Vari
 		# The source rider root is the pelvis at the vehicle player hardpoint.
 		# Keep it seated while head/arms continue through bounded tracked IK.
 		var pelvis_local: Vector3=avatar.visual_root.transform*skeleton.get_bone_global_pose(root_index).origin
-		global_transform=Transform3D(yaw.scaled(Vector3.ONE*fit_scale),body.vehicles.seat_pose().origin-yaw*pelvis_local*fit_scale)
+		global_transform=Transform3D(yaw.scaled(Vector3.ONE*fit_scale),seat_provider.seat_pose().origin-yaw*pelvis_local*fit_scale)
 	# Keep inferred hips within leg reach without moving tracked eyes/shoulders.
 	# Source locomotion shifts pelvis independently; compensate at the waist,
 	# instead of accepting clamped IK endpoints that hover above contact ground.

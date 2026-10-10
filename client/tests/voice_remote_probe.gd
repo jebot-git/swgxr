@@ -72,9 +72,13 @@ func exercise() -> void:
 		if not check(connection.account==["nettest_one","nettest_two"][index] or connection.account.begins_with("voicetest_"),"Only dedicated existing test accounts permitted"):return
 		var roster:=await request(connection,"/characters")
 		if not check(roster.get("ok",false) and roster.get("characters",[]).size()>0,"Existing native character available; no creation"):return
-		var identity: Dictionary={"account":connection.account,"character_id":str(roster.characters[0].id),"position":[3511+index,5,-4927],"building_id":"0","cell_index":0}
+		var identity: Dictionary={"account":connection.account,"character_id":str(roster.characters[0].id)}
+		var entry:=await request(connection,"/enter",identity)
+		if not check(entry.get("ok",false) and entry.get("source_location") is Dictionary,"Probe uses current native spawn instead of moving its fixture"):return
+		for field in ["zone","position","building_id"]:identity[field]=entry.source_location[field]
+		identity.cell_index=int(entry.source_location.cell_index)
 		var ticket:=await request(connection,"/voice/session",identity)
-		if not check(ticket.get("ok",false) and ticket.get("protocol")=="swgxr-voice-v1","Authenticated Core3 voice ticket issued"):return
+		if not check(ticket.get("ok",false) and ticket.get("protocol")=="swgxr-voice-v1","Authenticated Core3 voice ticket issued: "+str(ticket.get("error",""))):return
 		var wire:=ProbeTransport.new();root.add_child(wire)
 		var peer: Dictionary={"connection":connection,"identity":identity,"wire":wire,"channel":"","failed":false,"grants":[],"roster":[]}
 		peers.append(peer)

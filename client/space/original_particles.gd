@@ -2,6 +2,7 @@ extends Node3D
 ## Bounded GPU playback for original one-shot space effects. Source curves and
 ## textures are retained; simulation/rendering stay in Godot's native GPU path.
 const Curves=preload("res://combat/source_effect.gd")
+static var additive_shader:Shader
 var remaining:=0.0
 var persistent:=false
 func curve_image(definition:Dictionary,channels:Array)->ImageTexture:
@@ -27,6 +28,10 @@ func play(source:Dictionary,assets:RefCounted,keep:=false)->void:
 		process.set_shader_parameter("speed_curve",curve_image(d,["speed_scale"]))
 		node.process_material=process
 		var draw:=ShaderMaterial.new();draw.shader=preload("res://space/original_particles_draw.gdshader")
+		if d.material.get("additive",false):
+			if additive_shader==null:
+				additive_shader=Shader.new();additive_shader.code=draw.shader.code.replace("render_mode unshaded", "render_mode blend_add,unshaded")
+			draw.shader=additive_shader
 		draw.set_shader_parameter("velocity_aligned",int(d.orientation)!=0)
 		draw.set_shader_parameter("original_texture",assets.texture(d.material.texture));draw.set_shader_parameter("sizes",curve_image(d,["length" if d.linked_size else "width","length","alpha"]))
 		var color_image:=Image.create(256,1,false,Image.FORMAT_RGBAF)

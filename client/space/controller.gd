@@ -25,6 +25,8 @@ var ground:Dictionary={}
 var station:="ground"
 var seat_origin:=Transform3D.IDENTITY
 var seat_eye_height:=0.0
+var seat_floor_offset:=0.0
+var seat_height_applied:=false
 var view_environment:Environment
 var previous_environment:Environment
 var terminal_geometry:Dictionary={}
@@ -44,6 +46,7 @@ var interaction_waiting:=false
 var station_labels:Dictionary={}
 var station_pointer:Node3D
 var hyperspace_effect:Node3D
+var space_audio:Node
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
@@ -56,6 +59,15 @@ func setup(host:Node,prefs:RefCounted)->void:
 	app.datapad.ui.ship_action_requested.connect(datapad_action)
 func aboard()->bool:return is_instance_valid(scene) and is_instance_valid(scene.stage) and not ground.is_empty()
 func seated()->bool:return aboard() and station in ["pilot","passenger","gunner"]
+func seat_pose()->Transform3D:
+	return Transform3D(scene.stage.global_basis,scene.world(ship.get("player_position",[0,0,0]))+Vector3.UP*.45)
+func rider_pose(race:String)->Dictionary:
+	return hyperspace_effect.assets.catalog.get("seat_poses",{}).get(race,{}) if is_instance_valid(hyperspace_effect) else {}
+func restore_seat_height()->void:
+	if not seat_height_applied:return
+	var body_pose:Transform3D=app.player.global_transform
+	app.xr_origin.global_position.y=body_pose.origin.y+seat_floor_offset
+	app.player.global_transform=body_pose;seat_height_applied=false
 func reset()->void:
 	fire_armed=false;lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
 	leave_scene();state={};ship={};revision=-1;sequence=0;walk_sequence=0;pending_mutations.clear();needs_reconcile=false;busy=false;age=100;poll=0;station="ground";inputs.reset()
@@ -158,6 +170,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	revision=maxi(revision,incoming_revision);state=value.duplicate(true);ship=next_ship.duplicate(true);age=0
 	sequence=maxi(sequence,int(ship.get("control_sequence",0)));walk_sequence=maxi(walk_sequence,int(ship.get("walk_sequence",0)))
 	var changed:=station!=next
+	if changed:restore_seat_height()
 	if aboard() and next!="ground" and scene.ship_id!=str(ship.get("id","")):leave_scene();changed=true
 	if next!="ground" and not aboard():
 		if not enter_scene(ship):notice(error);return false
@@ -166,6 +179,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	station=next
 	if aboard():
 		scene.observe(ship)
+		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]))
 		if is_instance_valid(hyperspace_effect):hyperspace_effect.observe(ship.get("hyperspace",{}),app.player.get_camera())
 		scene.update_nearby(state.get("nearby_ships",[]),ship,state.get("nearby_ships_busy",false))
 		if is_instance_valid(scene.combat_effects):scene.combat_effects.receive(state.get("combat_events",[]))
@@ -177,6 +191,11 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 				# Rotate the play-space origin once; tracked HMD/controller local poses stay untouched.
 				app.player.rotate_player(app.player.get_camera().global_rotation.y-scene.stage.global_rotation.y)
 				scene.place_player(app.player,ship.get("player_position",[0,0,0]),int(ship.get("cell_index",1)))
+				if not seat_height_applied:
+					seat_floor_offset=app.xr_origin.global_position.y-app.player.global_position.y
+					var body_pose:Transform3D=app.player.global_transform
+					app.xr_origin.global_position.y+=seat_pose().origin.y+.68-app.player.get_camera().global_position.y
+					app.player.global_transform=body_pose;seat_height_applied=true
 				seat_origin=app.xr_origin.global_transform;seat_eye_height=app.player.get_camera().global_position.y
 		app.player._update_locomotion()
 		update_crew()
@@ -186,7 +205,9 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 func enter_scene(value:Dictionary)->bool:
 	var created:=Scene.new();add_child(created);created.position=Vector3(0,10000,0)
 	if not created.build(str(value.get("id","")),str(value.get("template","")),str(value.get("zone","space_tatooine"))):error=created.error;created.queue_free();return false
-	ground={"stage":app.stage,"position":app.player.global_position,"origin":app.xr_origin.global_transform,"provider":app.player.ground_provider,"camera_far":app.player.get_camera().far,"hidden":[]}
+	ground={"stage":app.stage,"position":app.player.global_position,"origin":app.xr_origin.global_transform,"provider":app.player.ground_provider,"camera_far":app.player.get_camera().far,"hidden":[],"environment_active":false}
+	if is_instance_valid(app.environment_presentation):
+		ground.environment_active=app.environment_presentation.active;app.environment_presentation.set_active(false)
 	for key in ["stage","terrain","world_stream","ambient_npcs","environment_presentation","portal_visibility","housing","vehicles","gameplay_combat"]:
 		var node:Variant=app.get(key)
 		if is_instance_valid(node):
@@ -194,6 +215,7 @@ func enter_scene(value:Dictionary)->bool:
 			node.process_mode=Node.PROCESS_MODE_DISABLED
 			if node is Node3D:node.hide()
 	scene=created
+	space_audio=preload("res://space/audio.gd").new();scene.add_child(space_audio)
 	hyperspace_effect=preload("res://space/hyperspace.gd").new();scene.add_child(hyperspace_effect);hyperspace_effect.setup(app.player.get_camera())
 	scene.align_cockpit(app.player.get_camera().global_position.y-app.player.global_position.y)
 	app.stage=scene.stage;app.player.ground_provider=scene.stage;scene.stage.set_observer(app.player)
@@ -211,6 +233,7 @@ func enter_scene(value:Dictionary)->bool:
 	if is_instance_valid(app.datapad):app.datapad.set_open(false);app.datapad.ui.set_skill_forgetting_available(false,"Return to ground before forgetting skills.")
 	return true
 func leave_scene()->void:
+	restore_seat_height()
 	show_station_targets(false)
 	terminal_geometry.clear()
 	if is_instance_valid(station_pointer):station_pointer.hide()
@@ -221,6 +244,7 @@ func leave_scene()->void:
 		if is_instance_valid(row.node):
 			row.node.process_mode=row.process
 			if row.node is Node3D:row.node.visible=row.visible
+	if is_instance_valid(app.environment_presentation):app.environment_presentation.set_active(bool(ground.environment_active))
 	app.player.get_camera().environment=previous_environment
 	app.player.get_camera().far=float(ground.camera_far)
 	if is_instance_valid(app.portal_visibility):
@@ -453,6 +477,7 @@ func show_communications()->void:
 	rows.append({"id":"back","label":"Close communications","available":true})
 	notice(str(conversation.get("dialogue","Station communications")))
 	wheel.open(app.player.get_camera().global_transform,rows)
+	wheel.show_dialogue(str(conversation.get("dialogue","Station communications")))
 func station_target(pointer:Dictionary,hand_position:Vector3)->Dictionary:
 	var nearest:Dictionary={};var best:=INF
 	for candidate:Dictionary in ship.get("stations",[]):

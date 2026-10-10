@@ -1,6 +1,7 @@
 [Unit]
 Description=SWGXR authenticated TLS gateway
 Requires=swgxr-adapter.service
+Wants=swgxr-voice.service
 After=swgxr-adapter.service
 PartOf=swgxr.target swgxr-adapter.service
 

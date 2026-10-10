@@ -34,6 +34,10 @@ def command(action,data):
    value=data[field]
    if type(value) is not int or not 0<=value<=maximum:raise ValueError('Invalid bazaar '+field)
    out[field]=value
+ if 'search_scope' in data:
+  scope=data['search_scope']
+  if not isinstance(scope,str) or scope not in ('local','planet','galaxy','vendor'):raise ValueError('Invalid bazaar search scope')
+  out['search_scope']=scope
  if action in MUTATIONS:
   key=data.get('request_id','')
   if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',key):raise ValueError('Unique service request_id required.')

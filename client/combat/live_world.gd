@@ -90,8 +90,8 @@ func source_visual_records(snapshot_actors:Array)->Array:
 		if ambient_bindings.bindings.has(id):
 			var placement_id:=str(ambient_bindings.bindings[id])
 			var placement:Dictionary=ambient_bindings.placements[placement_id]
-			if str(placement.get("mobile",""))=="chassis_dealer":
-				projected.append(copy);continue # Native randomized dealer appearance owns this identity.
+			if str(placement.get("mobile",""))=="chassis_dealer" or placement.get("source_templates",[]).size()>1:
+				projected.append(copy);continue # Native randomized appearance owns this exact placement.
 			copy["source_placement_visual"]={"placement_id":placement_id,"appearance_id":str(placement.get("appearance_id",placement.template)),"catalog":str(ambient_source.catalog_path),"cell_id":str(placement.get("cell_id",""))}
 		projected.append(copy)
 	return projected
@@ -102,8 +102,8 @@ func synchronize_ambient(_snapshot_actors:Array)->void:
 	for id:String in ambient_bindings.bindings:
 		if not actors.has(id):continue # Retain already-presented known-dead/range tombstones.
 		var placement_id:=str(ambient_bindings.bindings[id]);var report:Dictionary=actors[id].report
-		var native_dealer:bool=str(ambient_bindings.placements[placement_id].get("mobile",""))=="chassis_dealer" and report.get("appearance_status","") in ["complete","partial"]
-		if native_dealer or (report.get("source_variant_ready",false) and str(report.get("source_placement_id",""))==placement_id):presented[placement_id]=id
+		var native_ready:bool=report.get("appearance_status","") in ["complete","partial"]
+		if native_ready or (report.get("source_variant_ready",false) and str(report.get("source_placement_id",""))==placement_id):presented[placement_id]=id
 		else:presented.erase(placement_id)
 	ambient_source.set_live_suppressed(presented)
 

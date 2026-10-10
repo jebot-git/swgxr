@@ -180,6 +180,9 @@ def main():
                         start = 2 if isinstance(row[1], str) else 1
                         name=row[0]; xyz=list(map(float,row[start:start+3]));heading=float(row[start+3]);cell=int(row[start+4]);mood=row[start+5] if len(row)>start+5 else ''
                     template,scale,label,choices,outfit_name,primary_name = mobile(name)
+                    binding_choices=set(choices)
+                    alternatives=(commoners+citizens if kind=='stationaryMobiles' else [row[1]] if kind=='gcwMobs' and isinstance(row[1],str) else [])
+                    for alternative in alternatives: binding_choices.update(mobile(alternative)[3])
                     try: outfit = resolve_outfit(outfit_name,name)
                     except (ValueError,SyntaxError,OSError) as error:
                         outfit = {'name':outfit_name,'variant_index':-1,'variant_count':0,'items':[],'resolution_error':str(error),'selection_policy':'unresolved source outfit; preserved placement, no substitute'}
@@ -195,7 +198,7 @@ def main():
                     entries.append({'id':identity,'mobile':name,'label':label,'template':template,'appearance_id':template+(('#outfit='+outfit['name']+':'+str(outfit['variant_index'])) if outfit else '')+(('#weapon='+primary_weapon['template']) if primary_weapon and primary_weapon['status']=='selected' else ''),'source_xyz':xyz,
                         'source_world_xyz':world,'source_heading_degrees':heading,'source_cell_id':str(cell),'cell_id':cell_key,'building_object_id':str(building),
                         'position':position,'quaternion':qmirror(q),'scale':scale,'mood':mood,'source_file':str(path.relative_to(ROOT)),'source_line':line,
-                        'core3_outfit':outfit,'source_primary_weapon':primary_weapon,'selection':{'kind':kind,'template_options':len(choices),'policy':'deterministic source variant; first GCW faction, not live server state'}})
+                        'core3_outfit':outfit,'source_primary_weapon':primary_weapon,'source_templates':sorted(binding_choices),'selection':{'kind':kind,'template_options':len(choices),'policy':'deterministic source variant; first GCW faction, not live server state'}})
                 except (ValueError,IndexError,TypeError) as error:
                     skipped.append({'source':str(path.relative_to(ROOT)),'line':line,'table':kind,'row':row,'reason':str(error)})
     args.out.mkdir(parents=True,exist_ok=True)

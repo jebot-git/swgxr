@@ -119,7 +119,13 @@ function Tests:{function}()
  local p=getSceneObject({ident});if p==nil or CreatureObject(p):getFirstName()~={literal(owner['name'])} then return "wrong_owner" end
  local terminal=getSceneObject({planet['terminal_id']})
  if terminal==nil or SceneObject(terminal):getZoneName()~={literal(planet['planet'])} or SceneObject(terminal):getTemplateObjectPath()~="object/tangible/terminal/terminal_bazaar.iff" then return "wrong_terminal" end
- SceneObject(p):switchZone({literal(planet['planet'])},SceneObject(terminal):getPositionX()+1,SceneObject(terminal):getPositionZ(),SceneObject(terminal):getPositionY(),0)
+ -- Lua scene wrappers share their bound object. Resolve coordinates first;
+ -- nested SceneObject(terminal) calls would retarget the outer player wrapper.
+ local x=SceneObject(terminal):getPositionX()+1
+ local z=SceneObject(terminal):getPositionZ()
+ local y=SceneObject(terminal):getPositionY()
+ SceneObject(p):switchZone({literal(planet['planet'])},x,z,y,0)
+ SceneObject(p):teleport(x,z,y,0)
  local inv=SceneObject(p):getSlottedObject("inventory");if inv==nil then return "missing_inventory" end
  local namespace={literal(TAG)};local rows={{{rows}}};local ids={{}}
  for _,row in ipairs(rows) do
@@ -231,6 +237,10 @@ def apply(manifest, native, ledger_path):
         session = native.request('/session/start', dict(base, **context))['session_id']
         try:
             native.request('/session/update', dict(base, session_id=session, ready=True, **context))
+            # Finish the old movement session before the trusted console warp;
+            # the new session must start from the resulting native destination.
+            native.request('/combat/session/stop', dict(base, session_id=session))
+            session = ''
             function, source = lua_prepare(manifest, planet, owner)
             with native.screenplay(function, source):
                 result = native.call(function)
@@ -241,11 +251,9 @@ def apply(manifest, native, ledger_path):
                 raise ValueError('Native stock identity response invalid')
             # The trusted console moved this dedicated owner. Re-enter at the
             # saved native location so movement budgets/readiness use that zone.
-            native.request('/combat/session/stop', dict(base, session_id=session))
-            session = ''
             entry = native.request('/enter', base)['source_location']
             if entry['zone'] != zone or entry['building_id'] != '0' or math.dist(entry['position'], planet['position']) > 8:
-                raise RuntimeError('Native stock owner did not arrive at its original bazaar')
+                raise RuntimeError('Native stock owner did not arrive at its original bazaar: '+zone+' '+str(entry))
             context = {k: entry[k] for k in ('position', 'zone', 'building_id', 'cell_index')}
             session = native.request('/session/start', dict(base, **context))['session_id']
             native.request('/session/update', dict(base, session_id=session, ready=True, **context))

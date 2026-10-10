@@ -114,6 +114,8 @@ func run()->void:
 	var launched:=authoritative.duplicate(true);launched.ship={"id":"123456789","station":"pilot","position":[100,200,300],"quaternion":[0,0,0,1],"player_position":[-.76,.93,21.14],"cell_index":1,"decorations":[],"stations":[],"commands":[]}
 	check(flight.observe(launched,12) and flight.seated(),"Owned native launch enters production original interior and pilot station")
 	check(absf(wrapf(full.player.get_camera().global_rotation.y,-PI,PI))<.001,"Seat entry turns play space to face original forward controls")
+	check(absf(full.player.get_camera().global_position.y-flight.seat_pose().origin.y-.68)<.003,"Pilot eye frame uses seated height above pelvis while retaining tracked local pose")
+	check(not flight.rider_pose("human_male").get("tracks",[]).is_empty(),"Ship provides original chair bone tracks to tracked avatar")
 	var hotas_frame:Transform3D=flight.hotas_pose()
 	check(absf((hotas_frame*Vector3(.28,.6,-.32)).y-(full.player.get_camera().global_position.y-.45))<.001,"Virtual HOTAS grip height is reachable relative to seated eyes")
 	check(not full.datapad.ui.professions.forgetting_available,"Forget is unavailable aboard while native learned skills remain intact")
@@ -121,6 +123,7 @@ func run()->void:
 	check(full.player.get_camera().transform.is_equal_approx(tracked_camera),"Pilot boarding preserves tracked camera's local transform")
 	var interior:=launched.duplicate(true);interior.ship.station="interior";interior.ship.player_position=[0,.4,20]
 	check(flight.observe(interior,13) and not flight.seated() and flight.aboard(),"Native leave permits original-floor POB locomotion")
+	check(not flight.seat_height_applied and absf(full.xr_origin.global_position.y-full.player.global_position.y-flight.seat_floor_offset)<.003,"Leaving pilot seat restores standing floor offset")
 	check(absf(full.player.global_position.y-10000.4)<.002,"Native bridge position is placed in isolated space frame")
 	full.gameplay_session=NativeSession.new();full.add_child(full.gameplay_session)
 	var pilot_station:Dictionary={"id":"pilot","cell_index":1,"position":[-.76,.43,21.14],"occupied_by":"0"}

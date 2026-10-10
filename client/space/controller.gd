@@ -43,6 +43,7 @@ var crew_poses:Array=[]
 var interaction_waiting:=false
 var station_labels:Dictionary={}
 var station_pointer:Node3D
+var hyperspace_effect:Node3D
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
@@ -165,6 +166,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	station=next
 	if aboard():
 		scene.observe(ship)
+		if is_instance_valid(hyperspace_effect):hyperspace_effect.observe(ship.get("hyperspace",{}),app.player.get_camera())
 		scene.update_nearby(state.get("nearby_ships",[]),ship,state.get("nearby_ships_busy",false))
 		if is_instance_valid(scene.combat_effects):scene.combat_effects.receive(state.get("combat_events",[]))
 		if changed and is_instance_valid(wheel):wheel.close()
@@ -192,6 +194,7 @@ func enter_scene(value:Dictionary)->bool:
 			node.process_mode=Node.PROCESS_MODE_DISABLED
 			if node is Node3D:node.hide()
 	scene=created
+	hyperspace_effect=preload("res://space/hyperspace.gd").new();scene.add_child(hyperspace_effect);hyperspace_effect.setup(app.player.get_camera())
 	scene.align_cockpit(app.player.get_camera().global_position.y-app.player.global_position.y)
 	app.stage=scene.stage;app.player.ground_provider=scene.stage;scene.stage.set_observer(app.player)
 	portal_view=preload("res://scripts/portal_visibility.gd").new();scene.add_child(portal_view);portal_view.configure(scene.stage,app.player.get_camera(),app.xr_spectator.camera if is_instance_valid(app.xr_spectator) and app.xr_spectator.enabled else null)
@@ -234,7 +237,7 @@ func refresh_datapad()->void:
 		var available:bool=str(row.id)==str(ship.get("id","")) and station=="pilot" if aboard() else bool(row.get("eligible",row.get("supported",true)))
 		var description:=str(row.get("reason",""))
 		if description.is_empty():description="Prepare departure at a starship terminal; shake hands to form your crew, then confirm Launch."
-		rows.append({"id":str(row.id),"category":"ships","type":"ship","name":str(row.get("name","Starship")),"template":row.get("template",""),"launched":row.get("launched",false),"description":description,"deletable":false,"action_label":("Return to ground" if available else "Return to ground first") if aboard() else "Prepare launch","available":available})
+		rows.append({"id":str(row.id),"category":"ships","type":"ship","name":str(row.get("name","Starship")),"template":row.get("template",""),"launched":row.get("launched",false),"description":description,"deletable":false,"action_label":("Contact station" if available else "Land at a station first") if aboard() else "Prepare launch","available":available})
 	var own:Dictionary=return_ship_record()
 	if not own.is_empty():
 		rows=rows.filter(func(row):return str(row.id)!=str(own.get("ship_id","")))
@@ -295,7 +298,8 @@ func launch_terminal()->String:
 	return ""
 func datapad_action(entry:Dictionary)->void:
 	if entry.get("temporary_return",false):request("return_ship");return
-	request("land" if aboard() else "crew_prepare",{} if aboard() else {"ship_id":str(entry.get("id",""))})
+	if aboard():command("communications")
+	else:request("crew_prepare",{"ship_id":str(entry.get("id",""))})
 func launch_stage()->Dictionary:
 	var value:Variant=state.get("launch_stage")
 	return value if value is Dictionary else {}
@@ -393,10 +397,25 @@ func command_rows()->Array:
 	var boarding:Dictionary=state.get("boarding",{})
 	if not boarding.get("incoming",[]).is_empty():rows.append({"id":"boarding_incoming","label":"Boarding requests · pilot consent","available":station=="pilot"})
 	if not return_ship_record().is_empty():rows.append({"id":"return_ship","label":"Return to your ship","available":true})
-	rows.append({"id":"land","label":"Return to ground","available":station=="pilot","reason":"The pilot controls landing."})
+	rows.append({"id":"communications","label":"Communications · request landing","available":station=="pilot","reason":"The pilot contacts the station."})
 	if seated() and ship.get("kind","pob")=="pob":rows.append({"id":"leave","label":"Leave station","available":true})
 	return rows
 func command(id:String)->void:
+	if id=="communications":
+		var rows:Array=[]
+		for target:Dictionary in state.get("nearby_ships",[]):
+			if target.get("station_comms",false):rows.append({"id":"comm:"+str(target.id),"label":str(target.get("name","Station"))+" · %.0f m"%float(target.get("distance_m",0)),"available":target.get("comm_in_range",false),"reason":"Approach the station to communicate."})
+		if rows.is_empty():rows.append({"id":"unavailable","label":"No station in range · consult sector map","available":false})
+		rows.append({"id":"back","label":"Back","available":true});wheel.open(app.player.get_camera().global_transform,rows);return
+	if id.begins_with("comm:") or id.begins_with("comm_option:"):
+		var detail:Dictionary={"station_id":id.trim_prefix("comm:")}
+		var action:="comm_begin"
+		if id.begins_with("comm_option:"):
+			var conversation:Dictionary=state.get("station_conversation",{})
+			detail={"station_id":str(conversation.get("npc_id","")),"screen_token":str(conversation.get("screen_token","")),"option":int(id.trim_prefix("comm_option:"))};action="comm_choose"
+		var result:=await request(action,detail)
+		if result.get("ok",false):show_communications()
+		return
 	if id=="navigation":
 		wheel.close();refresh_datapad();app.datapad.set_open(true);app.datapad.ui.show_map(true);return
 	if id.begins_with("station:"):take_station(id.trim_prefix("station:"));return
@@ -424,8 +443,16 @@ func command(id:String)->void:
 		rows.append({"id":"back","label":"Back","available":true})
 		wheel.open(app.player.get_camera().global_transform,rows);return
 	if id=="back":wheel.open(app.player.get_camera().global_transform,command_rows());return
-	if id in ["land","leave","return_ship"]:request(id)
+	if id in ["leave","return_ship"]:request(id)
 	else:request("command",{"command_id":id})
+func show_communications()->void:
+	var conversation:Dictionary=state.get("station_conversation",{})
+	var rows:Array=[]
+	for option:Dictionary in conversation.get("options",[]):
+		rows.append({"id":"comm:"+str(conversation.get("npc_id","")) if option.get("begin",false) else "comm_option:"+str(option.get("option",0)),"label":str(option.get("name","Reply")),"available":true})
+	rows.append({"id":"back","label":"Close communications","available":true})
+	notice(str(conversation.get("dialogue","Station communications")))
+	wheel.open(app.player.get_camera().global_transform,rows)
 func station_target(pointer:Dictionary,hand_position:Vector3)->Dictionary:
 	var nearest:Dictionary={};var best:=INF
 	for candidate:Dictionary in ship.get("stations",[]):
@@ -494,6 +521,9 @@ func _process(delta:float)->void:
 		return
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
+	if ship.get("hyperspacing",false):
+		var jump:Dictionary=ship.get("hyperspace",{})
+		readout.text+="\nHyperspace · "+str(jump.get("phase","calculating")).capitalize()+(" · %d"%int(jump.countdown) if int(jump.get("countdown",0))>0 else "")
 	if not ship.get("combat_excluded",true):
 		var hull:Dictionary=ship.get("hull",{});var shields:Dictionary=ship.get("shields",{});var capacitor:Dictionary=ship.get("capacitor",{})
 		readout.text+="\nHull %.0f / %.0f · Shields %.0f / %.0f · Capacitor %.0f"%[float(hull.get("current",0)),float(hull.get("maximum",0)),float(shields.get("front",0)),float(shields.get("rear",0)),float(capacitor.get("current",0))]
@@ -504,6 +534,7 @@ func _process(delta:float)->void:
 		if stars!=scene.exterior.sky:stars=scene.exterior.sky;view_environment.sky.sky_material=stars
 		stars.set_shader_parameter("ship_rotation",scene.visual_ship_pose.basis)
 	var output:=controls(delta) if seated() and station=="pilot" else inputs.neutral()
+	if seated() and station=="pilot":readout.text+="\nThrottle %d%% · Engine limit %.0f m/s"%[roundi(float(output.throttle)*100),float(ship.get("max_speed_mps",0))]
 	if seated():
 		app.xr_origin.global_transform=seat_origin;app.player.velocity=Vector3.ZERO
 		if not busy and poll<=0:

@@ -12,7 +12,7 @@ func run()->void:
 	scene.observe_motion(Transform3D(Basis(Vector3.UP,.5),Vector3(10,0,0)))
 	check(scene.visual_ship_pose.origin.is_zero_approx(),"New native receipt does not teleport the rendered exterior")
 	scene._process(scene.visual_duration*.5)
-	check(absf(scene.visual_ship_pose.origin.x-5)<.001,"Ship exterior interpolates continuously between native receipts")
+	check(scene.visual_ship_pose.origin.x>0 and scene.visual_ship_pose.origin.x<10,"Ship exterior interpolates continuously between native receipts")
 	check(scene.exterior.transform.is_equal_approx(scene.visual_ship_pose.affine_inverse()),"Station view uses interpolated inverse ship pose")
 	scene._process(10)
 	check(scene.visual_ship_pose.origin==Vector3(10,0,0),"Presentation stops at the latest native pose without extrapolating authority")
@@ -24,7 +24,17 @@ func run()->void:
 	scene._process(.4)
 	check(scene.visual_ship_pose.origin.x>20,"Presentation bridges brief late receipts with bounded native velocity")
 	scene._process(10)
-	check(absf(scene.visual_ship_pose.origin.x-23.5)<.001,"Extrapolation stops after 350ms and never drives the player")
+	check(absf(scene.visual_ship_pose.origin.x-27.5)<.001,"Extrapolation stops after 750ms and never drives the player")
+	# Every perfectly predicted receipt must preserve frame-to-frame velocity.
+	scene.visual_stamp=-1
+	scene.observe_motion(Transform3D.IDENTITY,Vector3(100,0,0))
+	var worst_error:=0.0
+	for frame in range(120):
+		if frame>0 and frame%12==0:scene.observe_motion(Transform3D(Basis.IDENTITY,Vector3(frame*100.0/60.0,0,0)),Vector3(100,0,0))
+		var previous:Vector3=scene.visual_ship_pose.origin
+		scene._process(1.0/60.0)
+		worst_error=maxf(worst_error,absf((scene.visual_ship_pose.origin-previous).x-100.0/60.0))
+	check(worst_error<.001,"Perfect 5Hz receipts preserve continuous 60Hz flight speed without packet braking")
 	var ui:=preload("res://scripts/xr_services.gd").new();root.add_child(ui)
 	var keyboard:=Transform3D(Basis.IDENTITY,Vector3(0,1.1,0))
 	var raised:Transform3D=ui.terminal_pose({"kind":"starship","position":Vector3.ZERO,"ui_anchors":[keyboard]},Vector3.ZERO,Vector3(0,1.7,1))

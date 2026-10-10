@@ -25,7 +25,7 @@ func sample(settings:RefCounted,tracked:bool,left:Transform3D,right:Transform3D,
 	if settings.mode=="motion_sticks":
 		stick_held=false;throttle_held=false
 		output.pitch=settings.axis(-right_stick.y,"pitch");output.roll=settings.axis(-right_stick.x,"roll");output.yaw=settings.axis(left_stick.x,"yaw")
-		throttle=clampf(throttle+settings.axis(-left_stick.y,"throttle")*clampf(delta,0,.1)*.5,0,1)
+		throttle=clampf(throttle+settings.axis(left_stick.y,"throttle")*clampf(delta,0,.1)*.5,0,1)
 		output.throttle=throttle;return output
 	var local_left:Transform3D=seat.affine_inverse()*left
 	var local_right:Transform3D=seat.affine_inverse()*right

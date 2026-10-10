@@ -562,6 +562,7 @@ func configure_backend_connection() -> bool:
 	args.account=remote_connection.account
 	return true
 
+var native_http=preload("res://scripts/persistent_http.gd").new()
 var native_api_queue:Array[int]=[]
 var native_api_ticket:=0
 var native_api_observations:Array=[]
@@ -591,7 +592,7 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 		body=body.duplicate(true)
 		body.position=current.position
 	var dispatched:=Time.get_ticks_msec()
-	var result:=await _api_dispatch(method,path,body)
+	var result:=await _api_dispatch(method,path,body,true)
 	var finished:=Time.get_ticks_msec()
 	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"movement_corrected":result.get("_movement_correction_consumed",false)})
 	while native_api_observations.size()>256:native_api_observations.pop_front()
@@ -602,7 +603,7 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	native_api_queue.erase(ticket)
 	return result
 
-func _api_dispatch(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
+func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persistent:=false) -> Dictionary:
 	if session_leaving and path!="/session/logout":return {"ok":false,"error":"Logging off; background request cancelled.","cancelled":true}
 	if world_ready and is_instance_valid(gameplay_session) and not gameplay_session.live and not gameplay_session.session_id.is_empty() and not session_leaving:
 		if path!="/session/start" and not path.begins_with("/combat/session") and not path.begins_with("/auth/"):
@@ -640,20 +641,22 @@ func _api_dispatch(method: HTTPClient.Method, path: String, body := {}) -> Dicti
 	if path == "/session/sync":request.timeout=2.0
 	add_child(request)
 	var headers := PackedStringArray(["Content-Type: application/json"])
+	var tls:TLSOptions=null
 	if remote_connection.configured:
 		var settings: Dictionary=remote_connection.apply_to(request,backend_url,path,body)
 		if not settings.get("ok",false):
 			request.queue_free()
 			return settings
-		headers=settings.headers
-	var error := request.request(backend_url + path, headers, method, JSON.stringify(body) if method != HTTPClient.METHOD_GET else "")
+		headers=settings.headers;tls=settings.tls
+	var serialized:=JSON.stringify(body) if method != HTTPClient.METHOD_GET else ""
+	var error := OK if persistent else request.request(backend_url + path, headers, method, serialized)
 	if error != OK:
 		request.queue_free()
 		return {"ok": false, "error": "Cannot request Core3 service: " + error_string(error)}
 	api_requests_in_flight += 1
 	var realtime:=path in ["/session/sync","/services/presence","/performance"]
 	if realtime:api_realtime_requests_in_flight+=1
-	var result: Array = await request.request_completed
+	var result: Array = await native_http.exchange(get_tree(),backend_url,path,method,headers,serialized,tls,request.timeout) if persistent else await request.request_completed
 	api_requests_in_flight -= 1
 	if realtime:api_realtime_requests_in_flight-=1
 	request.queue_free()

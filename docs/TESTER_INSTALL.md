@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.3), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.4), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
 
 ## Requirements
 
@@ -19,15 +19,15 @@ Older Linux distributions with glibc below 2.43 cannot run this particular build
 
 ## Get the matching SWG assets
 
-The client downloads contain no original SWG game data. Obtain **`test-runtime-data-mounts-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
+The client downloads contain no original SWG game data. Obtain **`test-runtime-data-navigation-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
 
-The matching ZIP is **5,173,667,157 bytes** (about 4.82 GiB). Its SHA-256 is:
+The matching ZIP is **5,180,517,743 bytes** (about 4.82 GiB). Its SHA-256 is:
 
 ```text
-bf49437ea97a5c388a9926646cfd25ad7b5e3bfb6cc294f575b68b53e760dbad
+ff66ab4da72495c39c65eb3ffbf36341a95e54aa8130b9019ac6e2c79573fdc1
 ```
 
-It contains **55,241 verified runtime files**, occupying about **9.87 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
+It contains **55,263 verified runtime files**, occupying about **9.87 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
 
 If you only have your own installation media, use the repository's [local asset preparation guide](https://github.com/jebot-git/swgxr/blob/main/tools/assets/README.md) with the test organizer to prepare the matching data. The documented source set uses original base-game, Jump to Lightspeed and Total Experience media to complete the pinned 51-file pre-CU archive allowlist. Base CDs alone supply only 30 of those archives. Extraction, activation, conversion and validation are a separate developer workflow; the packaged launcher only verifies and imports the completed data ZIP. Do not fetch replacement proprietary assets or publish the resulting bundle.
 
@@ -38,14 +38,14 @@ Download `CHECKSUMS.sha256` from the same release. It lists both client archives
 On Linux, from the download directory:
 
 ```sh
-sha256sum test-client-linux-20261010.tar.gz test-runtime-data-mounts-20261010.zip
+sha256sum test-client-linux-20261010.tar.gz test-runtime-data-navigation-20261010.zip
 ```
 
 Compare both values with `CHECKSUMS.sha256`. On Windows, use PowerShell:
 
 ```powershell
 Get-FileHash .\test-client-windows-20261010.zip -Algorithm SHA256
-Get-FileHash .\test-runtime-data-mounts-20261010.zip -Algorithm SHA256
+Get-FileHash .\test-runtime-data-navigation-20261010.zip -Algorithm SHA256
 ```
 
 Compare the values with the checksum file (letter case does not matter). If a hash differs, obtain a fresh copy before importing it. The launcher also checks every individual data file during installation.
@@ -59,7 +59,7 @@ Compare the values with the checksum file (letter case does not matter). If a ha
    cd test-client-linux-20261010
    ```
 
-2. Copy the **unextracted** `test-runtime-data-mounts-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
+2. Copy the **unextracted** `test-runtime-data-navigation-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
 3. Install and verify the data without starting the client:
 
    ```sh
@@ -77,7 +77,7 @@ For desktop regression or asset inspection, use `./play-desktop.sh`, which expli
 ## Windows installation
 
 1. Extract **all** of `test-client-windows-20261010.zip` into a short writable path such as `C:\SWGXR`. Open the extracted `test-client-windows-20261010` folder; do not run files from inside the ZIP.
-2. Copy the **unextracted** `test-runtime-data-mounts-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
+2. Copy the **unextracted** `test-runtime-data-navigation-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
 3. Run `import-data.cmd`. It verifies and installs the assets without starting the client. From PowerShell, use `.\import-data.cmd`.
 4. Configure your OpenXR runtime and connect the headset, then run `play-vr.cmd`.
 
@@ -90,7 +90,7 @@ After installation, the folder has this shape:
 ```text
 test-client-<platform>-20261010/
   data/
-    test-runtime-data-mounts-20261010.zip
+    test-runtime-data-navigation-20261010.zip
   runtime/
     assets/
   engine/
@@ -106,7 +106,7 @@ The importer creates the runtime directories and receipt. Do not manually unpack
 
 ## Upgrading an existing installation
 
-Extract the new client into a fresh folder, put only `test-runtime-data-mounts-20261010.zip` in its `data/` folder, and run its import command. Older runtime ZIPs lack the creature saddle and rein metadata; pre-JtL ZIPs also lack sectors and NPC hulls. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
+Extract the new client into a fresh folder, put only `test-runtime-data-navigation-20261010.zip` in its `data/` folder, and run its import command. Earlier runtime ZIPs lack the original hyperspace and nebula effects in this update. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
 
 ## Connect and create a character
 
@@ -123,7 +123,7 @@ Create a new account in the sign-in panel, then create/select a character. Invit
 - **GLIBC/GLIBCXX errors:** the Linux build requires the library versions listed above. This release does not provide an older-distribution build.
 - **OpenXR initialization failure:** confirm that your headset is connected and the intended OpenXR runtime is active. Desktop mode is only a separate inspection/regression option.
 
-Both executable/PCK packages passed headless native-loading and catalog preflight checks. The new 55,241-file runtime ZIP passed every entry SHA-256 and ZIP CRC check. Full imports passed with the packaged Linux importer and the bundled Windows Python under Wine. Both executables then loaded the imported ground data, 277 ship descriptors and native clothing without errors. Original-starport stairs and yacht doorway movement passed using the native controller with XR disabled or mocked tracking.
+Both executable/PCK packages passed headless native-loading and catalog preflight checks. The new 55,263-file runtime ZIP passed every entry SHA-256 and ZIP CRC check. Full imports passed with the packaged Linux importer and the bundled Windows Python under Wine. Both executables then loaded the imported ground data, 277 ship descriptors and native clothing without errors. Original-starport stairs and yacht doorway movement passed using the native controller with XR disabled or mocked tracking.
 
 All ten sectors were captured with desktop Forward+ Vulkan. Native Shipwright crafting/experimentation, pilot enlistment/first patrol, chassis redemption and component swapping passed live Core3 tests. See [JtL test status](JTL_TEST_STATUS.md) for combat-fixture boundaries and remaining source/presentation limitations. Native Windows Vulkan/OpenXR and live headset validation are separate; dummy-renderer and Wine checks do not validate a GPU or headset. Windows uses standard spatial audio fallback and includes TwoVoIP.
 
@@ -196,3 +196,8 @@ Space mining is deferred to a later stage.
 Creature mounts use the original saddle seat: touch the saddle and press trigger to board an owned, trained mount. Squeeze either grip or both to hold the reins, then use the left locomotion stick to move forward/backward and steer. Sideways stick input turns the creature; it cannot sidestep. Release both grips to stop driving. The existing jump button dismounts. Lost tracking, UI input capture, and a stale server connection suppress mount control.
 
 The mount update passed 82 mocked-tracking checks, eight live Core3 mount checks, and the chassis-dealer appearance matching regression. Headset tests are suspended until the organizer requests them; this update has no new headset validation.
+
+
+Flight readouts show throttle percentage and the native engine speed limit. In motion-stick mode, push the left stick forward to increase throttle and pull back to reduce it.
+
+While piloting, open **Communications · request landing**, approach the desired station within its original 1,000-metre conversation range and choose a spaceport. Core3 lands you on the selected planet at that spaceport’s original coordinates. The command wheel and datapad no longer offer a return-to-launch-port shortcut. Hyperspace uses native countdown/entry/arrival phases with original cockpit particles and sounds; install the matching navigation data archive for these effects.

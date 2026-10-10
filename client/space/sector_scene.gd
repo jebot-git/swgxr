@@ -8,6 +8,7 @@ var loader := Loader.new()
 var directory := ""
 var zone := ""
 var error := ""
+var distant:Node3D
 
 func texture(row: Dictionary) -> Texture2D:
 	var path := directory.path_join(str(row.get("path", "")))
@@ -46,6 +47,16 @@ func build(path: String) -> bool:
 			if node.multimesh==null:error="Invalid asteroid instances";node.free();return false
 			node.visibility_range_end=float(field.get("MaxViewableDistance",4000))
 			node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;add_child(node)
+	var nebulae:=preload("res://space/nebulae.gd").new();add_child(nebulae);nebulae.build(data.get("nebula",[]))
+	distant=Node3D.new();add_child(distant)
+	var resources=preload("res://combat/original_assets.gd").new();resources.directory=ProjectSettings.globalize_path("res://../runtime/assets/space_effects")
+	if resources.load_catalog():
+		for record:Dictionary in data.environment.get("distant",[]):
+			if not resources.catalog.particles.has(record.source):continue
+			var effect:=preload("res://space/original_particles.gd").new();distant.add_child(effect)
+			effect.position=loader.vec(record.position)
+			var angles:Array=record.angles;effect.basis=Basis(Vector3.UP,-deg_to_rad(angles[0]))*Basis(Vector3.RIGHT,-deg_to_rad(angles[1]))*Basis(Vector3.BACK,deg_to_rad(angles[2]))
+			effect.play(resources.catalog.particles[record.source],resources,true)
 	build_sky()
 	return true
 
@@ -86,17 +97,18 @@ func build_sky() -> void:
 	for i in range(8):
 		var planet:Dictionary=environment.planets[i] if i<environment.planets.size() else {}
 		var halo:Dictionary=planet.get("halo",{})
-		halo_rows.append(halo.get("textures",{}).get("MAIN",{}));halo_settings.append(Vector2(float(halo.get("scale",0)),float(planet.get("halo_roll",0))))
+		halo_rows.append(halo.get("textures",{}).get("MAIN",{}));halo_settings.append(Vector2(float(halo.get("scale",0)),deg_to_rad(float(planet.get("halo_roll",0)))))
 	sky.set_shader_parameter("halo_textures",texture_array(halo_rows));sky.set_shader_parameter("halo_settings",halo_settings)
-	var centers: Array[Vector4] = []; var rotations: Array[Basis] = []; var clouds: Array[Vector4] = []
+	var centers: Array[Vector4] = []; var rotations: Array[Basis] = []; var clouds: Array[Vector4] = []; var surfaces:Array[Vector4]=[]
 	for i in range(8):
-		centers.append(Vector4.ZERO); rotations.append(Basis.IDENTITY); clouds.append(Vector4.ZERO)
+		centers.append(Vector4.ZERO); rotations.append(Basis.IDENTITY); clouds.append(Vector4.ZERO);surfaces.append(Vector4(1,1,0,0))
 		if i >= environment.planets.size(): continue
 		var planet: Dictionary = environment.planets[i]; var surface: Dictionary = planet.surface
 		var p: Array = planet.position; centers[i] = Vector4(p[0],p[1],p[2],surface.radius)
 		var angles: Array = planet.angles
 		rotations[i] = (Basis(Vector3.UP,-deg_to_rad(angles[0]))*Basis(Vector3.RIGHT,-deg_to_rad(angles[1]))*Basis(Vector3.BACK,deg_to_rad(angles[2]))).inverse()
 		var textures: Dictionary = surface.textures
+		surfaces[i]=Vector4(1 if textures.has("MASK") else float(surface.uv_scales[0]),1 if textures.has("MASK") else float(surface.uv_scales[1]),deg_to_rad(float(surface.rotation_degrees))/TAU,0)
 		sky.set_shader_parameter("surface_"+str(i), texture(textures.get("MASK", textures.get("MAIN", {}))))
 		if planet.has("clouds"):
 			var layer: Dictionary = planet.clouds
@@ -104,9 +116,10 @@ func build_sky() -> void:
 			sky.set_shader_parameter("clouds_"+str(i), texture(layer.textures.get("MAIN", {})))
 	sky.set_shader_parameter("planet_count", mini(8, environment.planets.size()))
 	sky.set_shader_parameter("planets", centers); sky.set_shader_parameter("planet_rotations", rotations)
-	sky.set_shader_parameter("cloud_settings", clouds)
+	sky.set_shader_parameter("cloud_settings", clouds);sky.set_shader_parameter("surface_settings",surfaces)
 
 func observe(pose: Transform3D) -> void:
 	transform = pose.affine_inverse()
+	if is_instance_valid(distant):distant.position=pose.origin*(1.0-100.0/float(data.environment.width))
 	sky.set_shader_parameter("ship_rotation", pose.basis)
 	sky.set_shader_parameter("ship_position", pose.origin)

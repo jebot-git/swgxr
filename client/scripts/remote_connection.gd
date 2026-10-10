@@ -83,7 +83,7 @@ func apply_to(request: HTTPRequest, endpoint: String, path: String, body: Dictio
 	request.set_tls_options(TLSOptions.client(_certificate))
 	var headers:=PackedStringArray(["Content-Type: application/json"])
 	if path not in PUBLIC_AUTH: headers.append("Authorization: Bearer "+_token)
-	return {"ok":true,"headers":headers}
+	return {"ok":true,"headers":headers,"tls":TLSOptions.client(_certificate)}
 
 func clear_session() -> void:
 	authenticated=false;legacy_profile=false;expires_at=0;account="";_token=""

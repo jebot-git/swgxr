@@ -14,7 +14,7 @@ ACTIONS = ('status', 'launch', 'land', 'station', 'leave', 'control', 'walk',
            'decorate', 'recover', 'command', 'crew_prepare', 'crew_cancel',
            'crew_remove', 'crew_join', 'boarding_request', 'boarding_accept',
            'boarding_decline', 'return_ship', 'hyperspace', 'abort_hyperspace',
-           'terminal', 'terminal_recover')
+           'terminal', 'terminal_recover', 'comm_begin', 'comm_choose')
 SPACE_ZONES = tuple('space_'+name for name in ('corellia', 'dantooine', 'dathomir',
     'endor', 'lok', 'naboo', 'tatooine', 'yavin4', 'light1', 'heavy1'))
 COMMANDS = ('shield_front', 'shield_rear', 'shield_balance', 'power_engines', 'power_balanced',
@@ -90,6 +90,16 @@ def command(action, data):
         if data.get('station_id') not in ('pilot', 'passenger'):
             raise ValueError('Original yacht station required.')
         out['station_id'] = data['station_id']
+    if action in ('comm_begin', 'comm_choose'):
+        out['station_id'] = identifier(data.get('station_id'))
+        if action == 'comm_choose':
+            token = data.get('screen_token')
+            if not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}', token):
+                raise ValueError('Current station conversation required.')
+            out['screen_token'] = token
+            option = data.get('option')
+            if type(option) is not int or not 0 <= option < 64: raise ValueError('Station conversation option required.')
+            out['option'] = option
     if action == 'hyperspace':
         value = data.get('destination')
         if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9_]{1,64}', value):
@@ -132,6 +142,12 @@ def normalize_state(state):
             value=row.get(field,"")
             if value.startswith("@") and ":" in value:
                 table,key=value[1:].split(":",1);row[field]=display(table,key,key.replace("_"," ").title())
+    conversation = state.get("station_conversation", {})
+    if conversation:
+        try: from .services_protocol import label
+        except ImportError: from services_protocol import label
+        conversation["dialogue"] = label(conversation.get("dialogue", ""))
+        for option in conversation.get("options", []): option["name"] = label(option.get("name", ""))
     return state
 
 def snapshot(raw, oid):

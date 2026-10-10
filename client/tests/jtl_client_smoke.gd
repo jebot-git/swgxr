@@ -58,8 +58,12 @@ func run()->void:
 	controls.sample(settings,true,left,right,1,1,Vector2.ZERO,Vector2.ZERO,seat,.016)
 	check(not controls.stick_held,"Tracking recovery needs deliberate grip release")
 	settings.mode="motion_sticks"
-	var sticks:Dictionary=controls.sample(settings,true,left,right,0,0,Vector2(1,-1),Vector2(1,-1),seat,.1)
+	var sticks:Dictionary=controls.sample(settings,true,left,right,0,0,Vector2(1,1),Vector2(1,-1),seat,.1)
 	check(sticks.pitch==1 and sticks.roll==-1 and sticks.yaw==1 and sticks.throttle>0,"Motion controller axes map flight without moving avatar")
+	for i in range(120):controls.sample(settings,true,left,right,0,0,Vector2(0,1),Vector2.ZERO,seat,1.0/60)
+	check(controls.throttle>.99,"Forward OpenXR stick reaches full throttle in two seconds")
+	for i in range(120):controls.sample(settings,true,left,right,0,0,Vector2(0,-1),Vector2.ZERO,seat,1.0/60)
+	check(controls.throttle<.01,"Backward OpenXR stick brakes to zero throttle")
 	settings.mode="physical_hotas";settings.inverted.pitch=true
 	var hotas:Dictionary=controls.sample(settings,false,left,right,0,0,Vector2.ZERO,Vector2.ZERO,seat,.1,{"available":true,"pitch":.8,"yaw":.03,"roll":-1,"throttle":1})
 	check(hotas.pitch>0 and hotas.yaw==0 and hotas.roll==1 and hotas.throttle==1,"Physical HOTAS inversion, deadzone and absolute throttle work independently of grips")
@@ -151,7 +155,8 @@ func run()->void:
 	var copilot:=interior.duplicate(true);copilot.ship.station="passenger"
 	check(flight.observe(copilot,14) and not flight.wheel.opened,"Changing stations closes the prior seat's wheel")
 	check(flight.button("primary_click",full.player.dominant_hand) and flight.wheel.opened,"Seated copilot can open command wheel")
-	check(not flight.command_rows().filter(func(row):return row.id=="land")[0].available,"Copilot wheel preserves native pilot-only landing permission")
+	check(not flight.command_rows().filter(func(row):return row.id=="communications")[0].available,"Copilot wheel preserves native pilot-only station communications")
+	check(not flight.command_rows().any(func(row):return row.id=="land"),"Command wheel has no return-to-launch-port shortcut")
 	flight.observe(interior,14);flight.scene.place_player(full.player,[0,.4,10],1)
 	seat_calls=full.ship_calls.size();flight.command("station:pilot")
 	check(full.ship_calls.size()==seat_calls and flight.error=="Move closer to the seat.","Stale open menu rechecks reach at selection and reports why seat is unavailable")
@@ -181,9 +186,10 @@ func run()->void:
 	full.response={"ok":true,"source_kind":"core3_jtl","character_id":"123","state":authoritative,"mutation":{"success":true},"live_response":{"sequence":15}}
 	await flight.request("status")
 	check(full.ship_calls.back().path=="/jtl/status" and full.ship_calls.back().body.session_id=="owned-native-session" and full.gameplay_session.sequence==15,"REST ship action binds owned native session and consumes returned authority heartbeat")
-	full.response.live_response={"sequence":16,"snapshot":{"player":{"zone":"tatooine","position":[3500,5,-4800],"building_id":"0","cell_index":0}}}
-	await flight.request("land")
-	check(full.landings.size()==1 and full.landings[0].destination.position==[3500,5,-4800],"Landing loads the actual native ground destination rather than cached prelaunch pose")
+	flight.observe(launched,15)
+	full.response.live_response={"sequence":16,"snapshot":{"player":{"zone":"naboo","position":[-4860,6,4165],"building_id":"0","cell_index":0}}}
+	await flight.request("status")
+	check(full.landings.size()==1 and full.landings[0].destination.position==[-4860,6,4165] and full.landings[0].destination.zone=="naboo","Landing loads the actual native ground destination rather than cached prelaunch pose")
 	full.response={"ok":false,"error":"Connection lost"}
 	await flight.request("command",{"command_id":"shield_balance"})
 	var unconfirmed_id:String=full.ship_calls.back().body.request_id

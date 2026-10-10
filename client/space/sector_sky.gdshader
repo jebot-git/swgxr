@@ -19,6 +19,7 @@ uniform vec2 halo_settings[8];
 uniform int planet_count = 0;
 uniform vec4 planets[8];
 uniform mat3 planet_rotations[8];
+uniform vec4 surface_settings[8];
 uniform vec4 cloud_settings[8]; // radius, source UV scale, rotation radians/sec
 uniform vec3 ambient = vec3(0.2);
 uniform vec3 light_direction = vec3(0.0,1.0,0.0);
@@ -81,7 +82,7 @@ float intersection(vec3 ray, vec3 center, float radius) {
  return b-sqrt(h);
 }
 vec2 sphere_uv(vec3 normal) {
- return vec2(atan(normal.z,normal.x)/(2.0*PI)+.5,acos(clamp(normal.y,-1.0,1.0))/PI);
+ return vec2(1.0-atan(normal.x,-normal.z)/(2.0*PI),acos(clamp(normal.y,-1.0,1.0))/PI);
 }
 vec2 billboard_uv(vec3 ray, vec3 direction, float half_size, float roll) {
  vec3 forward=normalize(direction);
@@ -125,7 +126,8 @@ void sky() {
   vec3 normal=normalize(ray*t-center);
   vec3 local=planet_rotations[i]*normal;
   vec2 uv=sphere_uv(local);
-  vec3 albedo=surface_at(i,uv).rgb;
+  uv.x+=TIME*surface_settings[i].z;
+  vec3 albedo=surface_at(i,uv*surface_settings[i].xy).rgb;
   vec4 settings=cloud_settings[i];
   if(settings.x>0.0) {
    float ct=intersection(ray,center,settings.x);

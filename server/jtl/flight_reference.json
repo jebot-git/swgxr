@@ -50,6 +50,21 @@
       "path": "src/engine/client/library/clientTerrain/src/shared/object/CelestialObject.cpp",
       "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/object/CelestialObject.cpp",
       "sha256": "004af08ac38f733c0eb3d62ad0e3a9e824ac1fbae27fec97f8b9f4e5922f8831"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/core/HyperspaceIoWin.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/core/HyperspaceIoWin.cpp",
+      "sha256": "9feeb1b1903916688849585f8f15fe6aee3fe9bf8705c73459ae1dc1b074d22e"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/NebulaVisualQuad.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/NebulaVisualQuad.cpp",
+      "sha256": "1272f103f06ded0684b66f43bdc6af2f6ffb3fbcc3d5c93157b373fcc2fa8053"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/NebulaVisualQuadShaderGroup.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/NebulaVisualQuadShaderGroup.cpp",
+      "sha256": "c77463c80bccdd146b7065c618e38520c044e984502377d97a998d31f9963c0a"
     }
   ]
 }

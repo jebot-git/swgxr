@@ -60,6 +60,29 @@ class Tests(unittest.TestCase):
         try:
             conn.request(method,path,body,head);response=conn.getresponse();return response.status,response.read()
         finally:conn.close()
+    def test_godot_persistent_tls_ship_transport(self):
+        root=Path(__file__).resolve().parents[1]
+        run=subprocess.run(['godot','--headless','--xr-mode','off','--path',str(root/'client'),'--script','res://tests/persistent_http_smoke.gd','--','https://127.0.0.1:'+str(self.gateway.server_address[1]),str(self.cert)],capture_output=True,text=True,timeout=20)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+        self.assertIn('PERSISTENT_TLS_PASSED',run.stdout)
+        self.assertEqual(len(self.upstream.seen),3)
+
+    def test_ship_keepalive_reauthenticates_each_request(self):
+        conn=http.client.HTTPSConnection(*self.gateway.server_address,context=self.context,timeout=3)
+        headers={'Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'}
+        try:
+            conn.request('POST','/jtl/status',json.dumps({'character_id':'123'}),headers)
+            response=conn.getresponse();self.assertEqual(response.status,200);response.read()
+            self.assertEqual(response.getheader('Connection'),'keep-alive');socket_before=conn.sock
+            conn.request('POST','/jtl/status',json.dumps({'character_id':'123'}),headers)
+            response=conn.getresponse();self.assertEqual(response.status,200);response.read()
+            self.assertIs(conn.sock,socket_before)
+            headers['Authorization']='Bearer '+'C'*43
+            conn.request('POST','/jtl/status',json.dumps({'character_id':'123'}),headers)
+            response=conn.getresponse();self.assertEqual(response.status,401);response.read()
+            self.assertEqual(response.getheader('Connection'),'close')
+        finally:conn.close()
+
     def test_authentication(self):
         for token in (None,'C'*43,'short'):
             self.assertEqual(self.request(token=token)[0],401)

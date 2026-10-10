@@ -13,6 +13,7 @@ class SwgxrShipServices {
   auto d=s?c->getZoneServer()->getObject(s->getControlDeviceID()):nullptr;
   if(!s || s->getOwnerID()!=c->getObjectID() || !d || !d->isShipControlDevice() || !d->isASubChildOf(c) || s->isShipLaunched())throw std::runtime_error("owned_stored_ship_required");return s;
  }
+ static bool fixedComponents(ShipObject* s){return s->getObjectTemplate()->getFullTemplateString()=="object/ship/player/player_sorosuub_space_yacht.iff";}
 public:
  static bool dealer(SceneObject* npc){
   if(!npc || !npc->isAiAgent())return false;auto mobile=npc->asAiAgent()->getCreatureTemplate();if(!mobile)return false;
@@ -28,6 +29,7 @@ public:
  static void describeComponents(CreatureObject* c,const Json& request,Json& view){
   auto s=ship(c,request);Locker shipLock(s,c);auto install=dynamic_cast<const InstallShipComponentCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("installshipcomponent"));if(!install)throw std::runtime_error("native_ship_component_command_missing");
   view["kind"]="ship_outfit";view["ship_id"]=id(s);view["name"]=text(s->getDisplayedName());view["options"]=Json::array();view["mass"]=s->getChassisMass();view["maximum_mass"]=s->getChassisMaxMass();auto inventory=c->getInventory();
+  if(fixedComponents(s)){view["description"]="Luxury Yacht components are fixed and cannot be removed or replaced.";return;}
   for(int slot=0;slot<=Components::FIGHTERSLOTMAX;++slot){
    auto installed=s->getComponentObject(slot);std::string slotName=text(Components::shipComponentSlotToString(slot));
    if(installed){view["options"].push_back({{"name","Remove "+slotName+": "+text(installed->getDisplayedName())},{"operation","ship_component_remove"},{"slot",slot},{"slot_name",slotName},{"item_name",text(installed->getDisplayedName())},{"component_id",id(installed)}});continue;}
@@ -52,6 +54,7 @@ public:
   }else{
    if(!SwgxrJtl::starshipTerminal(terminal) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("native_starship_terminal_required");
    auto s=ship(c,request);Locker shipLock(s,c);if(action=="ship_manage")return;
+   if(fixedComponents(s))throw std::runtime_error("luxury_yacht_components_fixed");
    int slot=request.at("slot").get<int>();if(slot<0 || slot>Components::FIGHTERSLOTMAX)throw std::runtime_error("native_ship_slot_invalid");
    auto component=c->getZoneServer()->getObject(oid(request,"component_id"));if(!component)throw std::runtime_error("native_ship_component_missing");
    bool installing=action=="ship_component_install";auto old=s->getComponentObject(slot);

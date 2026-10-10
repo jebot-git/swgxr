@@ -18,8 +18,9 @@ Flight references the pinned original SWG client `ShipDynamicsModel` and
 controller sources, recorded with hashes in `server/jtl/flight_reference.json`.
 Native ship/component statistics supply speed, acceleration, angular rates and
 slide damping. Input is integrated at 50 ms intervals in three dimensions; stale
-controls stop after 1.5 seconds. The client blends confirmed ship poses and caps
-brief velocity extrapolation. Ground locomotion rules do not govern flight.
+controls stop after 1.5 seconds. The client smooths confirmed pose corrections and extrapolates native linear and
+angular velocity for at most 750 ms. Serialized native requests reuse verified
+TLS connections without automatic mutation retries. Ground locomotion rules do not govern flight.
 Primary fixed blasters use native projectile collision, capacitor drain, refire,
 damage attribution and loot. Missiles, countermeasures and gunner turrets are
 not yet exposed by the client. Bolt and hit visuals are simplified presentation,
@@ -46,7 +47,8 @@ dealer, select the crafted token, review the original fee and redeem it. Registe
 the resulting deed to obtain the native owned hull. Original pilot certification
 requirements still apply. At a starship terminal, open **Components**, choose an
 owned stored ship and install compatible inventory components. Remove an
-installed component before replacing it. Original starter/prototype components
+installed component before replacing it. Luxury Yacht components are fixed: the
+interface omits component changes and the native uninstall command rejects them. Original starter/prototype components
 are not automatically interchangeable with standard crafted hull components.
 
 ## Known asset and presentation limits
@@ -63,8 +65,14 @@ retained in the private catalogs. No replacement proprietary assets were fetched
 The original Dantooine asteroid-style spelling error and Endor malformed field
 vector are recorded by the converter. Other conversion errors remain failures.
 
-Nebula volumes, lightning and sound, distant particle appearances, and radial
-asteroid animation remain presentation gaps. Sector reconstruction is therefore
+Nebula gas quads now use original textures, field positions, radii and density
+rules; their deterministic random placement differs from the original client
+RNG. Distant particle appearances and hyperspace use bounded GPU playback of
+original particle data and textures. Planet UV orientation, moon tiling, surface
+rotation and halo angle units follow the original renderer. Nebula lightning and
+sound, exact planet detail-shader blending and radial asteroid animation remain
+presentation gaps. Hyperspace retains the tracked camera rather than applying
+the original third-person camera and camera shake. Sector reconstruction is therefore
 a limited test implementation, not complete original-client visual parity.
 Sky cube seams may be visible. The asset closure conservatively retains catalog
 alternatives and their dependencies, including those needed by these pending
@@ -90,3 +98,35 @@ All ten sector captures use desktop Forward+ Vulkan. Script, input and movement
 smoke tests use the dummy renderer with XR disabled. Neither validates a live
 headset or native Windows Vulkan/OpenXR rendering. Actual headset and physical
 microphone selection checks remain separate from these automated checks.
+
+Station communications use the native station conversation handlers, including
+original range checks, landing-port choices and repair fees. The selected port
+supplies both planet and coordinates; no client Tatooine fallback is used. The
+command wheel and datapad no longer expose the emergency return shortcut. Hyperspace phase
+receipts come from Core3's actual task; the client presents calculation, countdown,
+entry and arrival. Original cockpit particles and audio are converted from
+`scene/hyperspace.iff`. Headset tests remain suspended; desktop Vulkan captures
+and headless tests do not establish headset rendering or comfort.
+
+## Navigation update evidence
+
+The isolated native yacht reached its component limit of 47.04 m/s and travelled
+182.19 metres in 6.59 seconds. Losing input stopped it after the 1.5-second lease.
+The original Tatooine station conversation completed a Mos Eisley landing and
+stored the ship. A subsequent jump reached Naboo and reported calculation,
+orientation, countdown, travel, arrival and idle from the native task.
+
+The original-source comparison is pinned and hashed in
+`server/jtl/flight_reference.json`. `PlayerShipController` and
+`ShipDynamicsModel` inform three-dimensional flight; `SpaceEnvironment` and
+`PlanetAppearance` supply sector transforms, UVs, parallax and layer settings;
+`ClientNebula` supplies field population rules; and `HyperspaceIoWin` plus the
+supplied `scene/hyperspace.iff` define cockpit entry/exit presentation. Core3
+remains authoritative for component statistics, conversation landing and jump
+timing. Original nebula shader references distinguish additive gas from alpha
+clouds; treating both as alpha previously produced black quads.
+
+The 60 Hz presentation regression preserves constant flight speed across 5 Hz
+native receipts. TLS reuse passed real HTTPClient/certificate verification tests.
+These checks address known stalls and correction spikes; they do not establish
+that all network rubberbanding or headset control issues are resolved.

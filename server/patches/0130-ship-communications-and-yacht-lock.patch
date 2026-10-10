@@ -1,0 +1,154 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -5,6 +5,8 @@
+ #include "server/zone/objects/ship/transform/ShipObjectTransform.h"
+ #include "SwgxrSpaceEvents.h"
+ #include "SwgxrSpaceJournal.h"
++#include "SwgxrHyperspace.h"
++#include "SwgxrStationComms.h"
+ #include "SwgxrPublicAppearance.h"
+ #include "SwgxrJtlLifecycle.h"
+ #include "server/zone/managers/planet/PlanetTravelPoint.h"
+@@ -249,17 +251,17 @@
+    // native AI can hold that target while waiting for the player's ship.
+    bool held=target->isLockedByCurrentThread();if(!held && !target->tryWLock()){out["nearby_ships_busy"]=true;continue;}
+    struct UnlockTarget {ShipObject* ship;~UnlockTarget(){if(ship)ship->unlock();}} unlockTarget{held?nullptr:target};
+-   auto row=record(target);row["npc"]=target->isShipAiAgent();row["hostile"]=!yacht(s) && target->isAggressiveTo(s);row["speed_mps"]=target->getCurrentSpeed();row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
++   auto row=record(target);row["station_comms"]=target->isSpaceStation() && target->asShipAiAgent()->getConversationTemplate()!=0;row["comm_in_range"]=s->checkInConversationRange(target);row["npc"]=target->isShipAiAgent();row["hostile"]=!yacht(s) && target->isAggressiveTo(s);row["speed_mps"]=target->getCurrentSpeed();row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
+ 
+   auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->getCurrentSpeed();row["max_speed_mps"]=s->getActualMaxSpeed();row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["velocity"]=motionState.state.velocity;row["angular_velocity"]=motionState.state.angular;row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
+-  out["combat_events"]=SwgxrSpaceEvents::snapshot(s);row["capacitor"]={{"current",s->getCapacitorEnergy()},{"maximum",s->getCapacitorMaxEnergy()}};row["can_furnish"]=s->isPobShip() && s->asPobShip()->isOnAdminList(c);row["hyperspacing"]=s->isHyperspacing();row["hyperspace_delay"]=s->getHyperspaceDelay();row["hull"]={{"current",s->getChassisCurrentHealth()},{"maximum",s->getChassisMaxHealth()}};row["combat_excluded"]=yacht(s);row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
++  out["combat_events"]=SwgxrSpaceEvents::snapshot(s);row["capacitor"]={{"current",s->getCapacitorEnergy()},{"maximum",s->getCapacitorMaxEnergy()}};row["can_furnish"]=s->isPobShip() && s->asPobShip()->isOnAdminList(c);row["hyperspacing"]=s->isHyperspacing();row["hyperspace"]=SwgxrHyperspace::snapshot(s->getObjectID(),s->isHyperspacing());row["hyperspace_delay"]=s->getHyperspaceDelay();row["hull"]={{"current",s->getChassisCurrentHealth()},{"maximum",s->getChassisMaxHealth()}};row["combat_excluded"]=yacht(s);row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
+   for(int i=0;pob && i<pob->getTotalCellNumber();++i){auto cell=pob->getCell(i);if(!cell)continue;row["cells"].push_back({{"id",id(cell)},{"index",cell->getCellNumber()},{"name",std::string("cell_")+std::to_string(i)}});for(int n=0;n<cell->getContainerObjectsSize() && row["decorations"].size()<400;++n){auto item=cell->getContainerObject(n);if(!item || item->isCreatureObject() || s->containsChildObject(item))continue;auto itemRow=record(item);itemRow["name"]=std::string(item->getDisplayedName().toCharArray());itemRow["cell_index"]=cell->getCellNumber();row["decorations"].push_back(itemRow);}}
+   auto chair=s->getPilotChair().get();auto pilot=s->getPilot();row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(chair)},{"cell_index",1},{"position",Json::array({-.76,.43,21.14})},{"occupied_by",id(pilot)}}});if(s->isPobShip())row["stations"].push_back({{"id","passenger"},{"object_id",id(passenger(s))},{"cell_index",1},{"position",Json::array({.75,.43,21.15})},{"occupied_by",passengerOccupant(s,c)}});if(!s->isPobShip())row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(pilot)},{"cell_index",0},{"position",Json::array({0,0,0})},{"occupied_by",id(pilot)}}});row["commands"]=Json::array();
+   for(auto cmd:{"shield_front","shield_rear","shield_balance","power_engines","power_balanced"})row["commands"].push_back({{"id",cmd},{"label",cmd},{"available",aboard(c) && pilot==c},{"reason",pilot==c?"":"Pilot station required"}});
+   for(auto cmd:{"droidcommand_shieldadjustfrontone","droidcommand_shieldadjustrearone","droidcommand_engineoverloadone","droidcommand_enginenormalize"}){bool available=aboard(c) && pilot==c && s->isComponentFunctional(Components::DROID_INTERFACE) && s->getShipDroidID()!=0 && s->hasDroidCommand(String(cmd).hashCode());row["commands"].push_back({{"id",cmd},{"label",cmd},{"available",available},{"reason",available?"":"Installed interface, assigned droid and program required"}});}
+   row["interactions"]=Json::array();auto children=s->getChildObjects();for(int i=0;i<children->size();++i){auto object=children->get(i);auto name=object->getObjectTemplate()->getFullTemplateString();bool up=name=="object/tangible/terminal/terminal_elevator_up.iff",down=name=="object/tangible/terminal/terminal_elevator_down.iff",house=name=="object/tangible/terminal/terminal_pob_ship.iff";if(!up && !down && !house)continue;auto parent=object->getParent().get();if(!parent || !parent->isCellObject())continue;row["interactions"].push_back({{"id",id(object)},{"kind",house?"house":"ship_control"},{"template",std::string(name.toCharArray())},{"quaternion",quat(object)},{"command_id",house?"pob_terminal":up?"elevator_up":"elevator_down"},{"label",house?"Ship housing terminal":up?"Elevator up":"Elevator down"},{"cell_index",static_cast<CellObject*>(parent.get())->getCellNumber()},{"position",point(object)}});}
+   auto returnPosition=s->getSpaceLaunchLocation();out["return_location"]={{"zone",std::string(s->getSpaceLaunchZone().toCharArray())},{"position",Json::array({returnPosition.getX(),returnPosition.getZ(),returnPosition.getY()})},{"building_id","0"},{"cell_index",0},{"heading_radians",0}};
+-  out["ship"]=row;return out;
++  out["station_conversation"]=data(c,"station_conversation");out["ship"]=row;return out;
+  }
+  static Json finish(CreatureObject* c,const Json& request,Json receipts){auto key=request.at("request_id").get<std::string>();receipts.push_back({{"id",key},{"request",request}});while(receipts.size()>32)receipts.erase(receipts.begin());save(c,"receipts",receipts);c->updateToDatabaseAllObjects(false);return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"action",request.at("action")},{"request_id",key},{"jtl",snapshot(c)}};}
+  static Json run(CreatureObject* c,const Json& r){
+@@ -287,6 +289,8 @@
+    if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(!passengerSeated(c))requirePilot(c,s);auto cell=s->asPobShip()->getCell(0);if(!cell)throw std::runtime_error("jtl_bridge_unavailable");s->setCurrentSpeed(0);swgxr::jtl::stop(motion(s).state);c->clearSpaceStates();c->clearState(CreatureState::SITTINGONCHAIR);c->setPosture(CreaturePosture::UPRIGHT);c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station","");c->switchZone(s->getZone()->getZoneName(),0,.4,20,cell->getObjectID(),false,-1);c->getPlayerObject()->notifySceneReady();motion(s).walkers[c->getObjectID()]={now(),1.5,0};
+   }else if(action=="hyperspace" || action=="abort_hyperspace"){
+    requirePilot(c,s);std::string destination=r.value("destination",std::string());if(action=="hyperspace"){auto manager=ShipManager::instance();String pointName(destination.c_str());if(!manager->hyperspaceLocationExists(pointName) || !spaceZoneName(manager->getHyperspaceZone(pointName).toCharArray()))throw std::runtime_error("jtl_unknown_hyperspace_destination");}auto q=c->getZoneServer()->getObjectController()->getQueueCommand(action=="hyperspace"?"hyperspace":"aborthyperspace");if(!q || q->doQueueCommand(c,0,UnicodeString(String(destination.c_str())))!=QueueCommand::SUCCESS)throw std::runtime_error("jtl_native_hyperspace_rejected");s->setCurrentSpeed(0);eraseMotion(s);
++  }else if(action=="comm_begin" || action=="comm_choose"){
++   requirePilot(c,s);auto target=c->getZoneServer()->getObject(oid(r,"station_id"));save(c,"station_conversation",SwgxrStationComms::run(c,s,target,r));
+   }else if(action=="control"){
+    if(s->isHyperspacing())throw std::runtime_error("jtl_hyperspace_in_progress");
+    requirePilot(c,s);swgxr::jtl::Input input;input.throttle=r.at("throttle").get<double>();input.pitch=r.at("pitch").get<double>();input.yaw=r.at("yaw").get<double>();input.roll=r.at("roll").get<double>();input.sequence=r.at("sequence").get<uint64>();auto& m=motion(s);swgxr::jtl::validate(input);if(input.sequence<=m.state.sequence)throw std::runtime_error("jtl_stale_controls");double stamp=now();if(m.input.sequence)applyMotion(s,m,stamp);else m.state.stamp=stamp;m.input=input;m.primaryFire=r.value("primary_fire",false);m.received=stamp;m.state.sequence=input.sequence;if(!m.ticking){m.ticking=true;flightTick(s,m.generation);}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrShipServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrShipServices.h
+@@ -13,6 +13,7 @@
+   auto d=s?c->getZoneServer()->getObject(s->getControlDeviceID()):nullptr;
+   if(!s || s->getOwnerID()!=c->getObjectID() || !d || !d->isShipControlDevice() || !d->isASubChildOf(c) || s->isShipLaunched())throw std::runtime_error("owned_stored_ship_required");return s;
+  }
++ static bool fixedComponents(ShipObject* s){return s->getObjectTemplate()->getFullTemplateString()=="object/ship/player/player_sorosuub_space_yacht.iff";}
+ public:
+  static bool dealer(SceneObject* npc){
+   if(!npc || !npc->isAiAgent())return false;auto mobile=npc->asAiAgent()->getCreatureTemplate();if(!mobile)return false;
+@@ -28,6 +29,7 @@
+  static void describeComponents(CreatureObject* c,const Json& request,Json& view){
+   auto s=ship(c,request);Locker shipLock(s,c);auto install=dynamic_cast<const InstallShipComponentCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("installshipcomponent"));if(!install)throw std::runtime_error("native_ship_component_command_missing");
+   view["kind"]="ship_outfit";view["ship_id"]=id(s);view["name"]=text(s->getDisplayedName());view["options"]=Json::array();view["mass"]=s->getChassisMass();view["maximum_mass"]=s->getChassisMaxMass();auto inventory=c->getInventory();
++  if(fixedComponents(s)){view["description"]="Luxury Yacht components are fixed and cannot be removed or replaced.";return;}
+   for(int slot=0;slot<=Components::FIGHTERSLOTMAX;++slot){
+    auto installed=s->getComponentObject(slot);std::string slotName=text(Components::shipComponentSlotToString(slot));
+    if(installed){view["options"].push_back({{"name","Remove "+slotName+": "+text(installed->getDisplayedName())},{"operation","ship_component_remove"},{"slot",slot},{"slot_name",slotName},{"item_name",text(installed->getDisplayedName())},{"component_id",id(installed)}});continue;}
+@@ -52,6 +54,7 @@
+   }else{
+    if(!SwgxrJtl::starshipTerminal(terminal) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("native_starship_terminal_required");
+    auto s=ship(c,request);Locker shipLock(s,c);if(action=="ship_manage")return;
++   if(fixedComponents(s))throw std::runtime_error("luxury_yacht_components_fixed");
+    int slot=request.at("slot").get<int>();if(slot<0 || slot>Components::FIGHTERSLOTMAX)throw std::runtime_error("native_ship_slot_invalid");
+    auto component=c->getZoneServer()->getObject(oid(request,"component_id"));if(!component)throw std::runtime_error("native_ship_component_missing");
+    bool installing=action=="ship_component_install";auto old=s->getComponentObject(slot);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrStationComms.h
+@@ -0,0 +1,37 @@
++#pragma once
++#include "server/zone/objects/creature/conversation/LuaConversationObserver.h"
++#include "server/zone/objects/player/sessions/ConversationSession.h"
++// Original station conversation handlers own landing destinations and repairs.
++class SwgxrStationComms {
++ using Json=JSONSerializationType;
++ static std::string text(const String& s){return s.toCharArray();}
++ static std::string id(SceneObject* s){return std::to_string(s->getObjectID());}
++public:
++ static Json run(CreatureObject* c,ShipObject* ship,SceneObject* npc,const Json& request){
++  if(!npc || !npc->isSpaceStation() || npc->getZone()!=ship->getZone() || !ship->checkInConversationRange(npc))throw std::runtime_error("station_communications_out_of_range");
++  auto crc=npc->asShipAiAgent()->getConversationTemplate();
++  if(!crc)throw std::runtime_error("station_conversation_unavailable");
++  auto ghost=c->getPlayerObject();
++  Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
++  bool begin=request.at("action")=="comm_begin";int selected=-1;
++  if(begin){if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);session=new ConversationSession(npc);c->addActiveSession(SessionFacadeType::CONVERSATION,session);ghost->setConversatingObject(npc);}
++  else{
++   auto saved=ghost->getScreenPlayData("swgxr_station","view");auto view=saved.isEmpty()?Json::object():Json::parse(saved.toCharArray());
++   if(!session || session->getNPC().get()!=npc || view.value("npc_id",std::string())!=id(npc) || view.value("screen_token",std::string())!=request.value("screen_token",std::string()))throw std::runtime_error("station_conversation_changed");
++   auto screen=session->getLastConversationScreen();selected=request.at("option").get<int>();
++   if(!screen || selected<0 || selected>=screen->getOptionCount())throw std::runtime_error("station_conversation_option_unavailable");
++  }
++  Reference<LuaConversationObserver*> observer=new LuaConversationObserver(crc);
++  Reference<ConversationScreen*> screen=observer->getNextConversationScreen(c,selected,npc);
++  if(screen)screen=observer->runScreenHandlers(c,npc,selected,screen);
++  Json view={{"npc_id",id(npc)},{"screen_token",request.at("request_id")},{"options",Json::array()},{"dialogue","Conversation finished."}};
++  if(screen){
++   view["dialogue"]=text(screen->getDialogText()->getFullPath());view["screen_id"]=text(screen->getScreenID());
++   for(int i=0;i<screen->getOptionCount();++i)view["options"].push_back({{"name",text(screen->getOptionText(i))},{"option",i}});
++   screen->sendTo(c,npc);
++  }else{if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);}
++  if(view["options"].empty())view["options"].push_back({{"name","Speak again"},{"begin",true}});
++  ghost->setScreenPlayData("swgxr_station","view",String(view.dump().c_str()));c->updateToDatabaseAllObjects(false);
++  return view;
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHyperspace.h
+@@ -0,0 +1,14 @@
++#pragma once
++#include <mutex>
++#include <map>
++#include <chrono>
++// Presentation state comes from the native task, never a guessed client timer.
++class SwgxrHyperspace {
++ struct Phase {int iteration;double stamp;};
++ static std::map<uint64,Phase>& phases(){static std::map<uint64,Phase> value;return value;}
++ static std::mutex& mutex(){static std::mutex value;return value;}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++public:
++ static void set(uint64 id,int iteration){std::lock_guard<std::mutex> lock(mutex());double stamp=now();for(auto it=phases().begin();it!=phases().end();)if(stamp-it->second.stamp>120)it=phases().erase(it);else ++it;phases()[id]={iteration,stamp};}
++ static JSONSerializationType snapshot(uint64 id,bool active){std::lock_guard<std::mutex> lock(mutex());if(!active){phases().erase(id);return {{"phase","idle"}};}auto it=phases().find(id);if(it==phases().end())return {{"phase","calculating"}};int i=it->second.iteration;return {{"phase",i>=10?"arrival":i==9?"travel":i>=5?"countdown":i==4?"orienting":"calculating"},{"iteration",i},{"age_seconds",now()-it->second.stamp},{"countdown",i>=5 && i<=8?9-i:0}};}
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/UninstallShipComponentCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/UninstallShipComponentCommand.h
+@@ -50,6 +50,9 @@
+ 		if (ship->getOwner().get() != creature)
+ 			return GENERALERROR;
+ 
++		if (ship->getObjectTemplate()->getFullTemplateString() == "object/ship/player/player_sorosuub_space_yacht.iff")
++			return GENERALERROR;
++
+ 		Locker locker(ship, creature);
+ 
+ 		ship->uninstall(creature, slot, true);
+--- a/MMOCoreORB/src/server/zone/objects/ship/events/HyperspaceToLocationTask.h
++++ b/MMOCoreORB/src/server/zone/objects/ship/events/HyperspaceToLocationTask.h
+@@ -8,6 +8,7 @@
+ #include "server/zone/objects/creature/CreatureObject.h"
+ #include "server/zone/objects/ship/ShipObject.h"
+ #include "server/zone/ZoneClientSession.h"
++#include "server/zone/objects/creature/commands/SwgxrHyperspace.h"
+ 
+ 
+ //#define DEBUG_HYPERSPACE
+@@ -41,6 +42,7 @@
+ 		}
+ 
+ 		int currentIter = iteration++;
++		SwgxrHyperspace::set(shipObject->getObjectID(),currentIter);
+ 
+ 		// shipObject->info(true) << shipObject->getDisplayedName() << " HyperspaceToLocationTask - Iteration: " << currentIter << " Pilot: " << player->getDisplayedName();
+ 

@@ -96,14 +96,17 @@ class Gateway(http.server.BaseHTTPRequestHandler):
         self.send_bytes(status, body, retry_after=data.get('retry_after'))
 
     def send_bytes(self, status, body, retry_after=None, content_type='application/json; charset=utf-8'):
-        self.close_connection = True
+        # Keep only fully consumed successful authenticated requests alive. Error and
+        # unsupported framing paths always close the socket.
+        keepalive = 200 <= status < 300 and getattr(self, '_ship_keepalive', False)
+        self.close_connection = not keepalive
         self.send_response(status)
         self.send_header('Content-Type', content_type)
         self.send_header('Content-Length', str(len(body)))
         if retry_after is not None: self.send_header('Retry-After', str(int(retry_after)))
         self.send_header('Cache-Control', 'no-store')
         self.send_header('X-Content-Type-Options', 'nosniff')
-        self.send_header('Connection', 'close')
+        self.send_header('Connection', 'keep-alive' if keepalive else 'close')
         self.end_headers()
         self.wfile.write(body)
 
@@ -116,6 +119,7 @@ class Gateway(http.server.BaseHTTPRequestHandler):
     def proxy(self):
         try:
             self.close_connection = True
+            self._ship_keepalive = False
             if len(self.path) > 4096 or len(str(self.headers)) > 16384:
                 return self.reply(431, {'error':'Request headers too large'})
             if self.headers.get('Origin') or self.headers.get('Transfer-Encoding') or self.headers.get('Content-Encoding') or self.headers.get('Expect'):
@@ -173,6 +177,7 @@ class Gateway(http.server.BaseHTTPRequestHandler):
             else:
                 query['account'] = account
                 target = path.path + '?' + urlencode(query)
+            self._ship_keepalive = self.headers.get('Connection', '').lower() != 'close'
             # No user-controlled upstream, proxy headers, credentials, redirects or cookies.
             upstream = http.client.HTTPConnection(*self.server.upstream, timeout=60)
             upstream_deadline = None

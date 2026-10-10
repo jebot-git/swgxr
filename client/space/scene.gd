@@ -23,14 +23,23 @@ var visual_duration:=.1
 var visual_stamp:=-1
 var nearby_poses:Dictionary={}
 var visual_velocity:=Vector3.ZERO
+var visual_angular:=Vector3.ZERO
 var nearby_motion:Dictionary={}
 var combat_effects:Node3D
 func _process(delta:float)->void:
 	if visual_stamp<0:return
 	visual_age+=delta
-	visual_ship_pose=visual_from.interpolate_with(visual_target,minf(1.0,visual_age/visual_duration))
-	# Bounded presentation only; this pose never drives native flight or the rig.
-	visual_ship_pose.origin+=visual_velocity*clampf(visual_age-visual_duration,0,.35)
+	# Dead reckon from native velocity while smoothly removing receipt error.
+	# Interpolating toward a stationary receipt made every packet brake the view.
+	var horizon:=minf(visual_age,.75)
+	var predicted:=visual_target
+	predicted.origin+=visual_velocity*horizon
+	var rotation_step:=Basis(Vector3.UP,visual_angular.y*horizon)*Basis(Vector3.RIGHT,visual_angular.x*horizon)*Basis(Vector3.BACK,visual_angular.z*horizon)
+	predicted.basis=predicted.basis*rotation_step
+	var blend:=1.0-exp(-visual_age/.10)
+	var advanced_from:=visual_from;advanced_from.basis=advanced_from.basis*rotation_step
+	visual_ship_pose=advanced_from.interpolate_with(predicted,blend)
+	visual_ship_pose.origin=predicted.origin+(visual_from.origin-visual_target.origin)*(1.0-blend)
 	if is_instance_valid(combat_effects):combat_effects.advance(delta,visual_ship_pose)
 	if is_instance_valid(exterior):
 		exterior.transform=visual_ship_pose.affine_inverse()
@@ -41,15 +50,15 @@ func _process(delta:float)->void:
 			var pose:Transform3D=m.from.interpolate_with(m.target,minf(1.0,m.age/m.duration))
 			pose.origin+=m.velocity*clampf(m.age-m.duration,0,.35);nearby_poses[id]=pose
 		if nearby.has(id):nearby[id].transform=visual_ship_pose.affine_inverse()*nearby_poses[id]
-func observe_motion(pose:Transform3D,velocity:=Vector3.ZERO)->void:
+func observe_motion(pose:Transform3D,velocity:=Vector3.ZERO,angular:=Vector3.ZERO)->void:
 	# The action and shared player envelope can contain the same snapshot.
 	# Restarting twice shortened every blend to 50ms, then froze until the reply.
-	if visual_stamp>=0 and pose.is_equal_approx(visual_target) and velocity.is_equal_approx(visual_velocity):return
+	if visual_stamp>=0 and pose.is_equal_approx(visual_target) and velocity.is_equal_approx(visual_velocity) and angular.is_equal_approx(visual_angular):return
 	var now:=Time.get_ticks_msec()
 	if visual_stamp<0:visual_ship_pose=pose
 	visual_from=visual_ship_pose;visual_target=pose;visual_age=0
 	visual_duration=clampf((now-visual_stamp)/1000.0,.05,1.5) if visual_stamp>=0 else .1
-	visual_velocity=velocity
+	visual_velocity=velocity;visual_angular=angular
 	visual_stamp=now
 	_process(0)
 
@@ -113,7 +122,8 @@ func observe(ship:Dictionary)->void:
 		var p:Array=ship.position;var q:Array=ship.quaternion
 		var pose:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
 		var v:Array=ship.get("velocity",[])
-		observe_motion(pose,Vector3(v[0],v[1],-v[2]) if v.size()==3 else pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))))
+		var a:Array=ship.get("angular_velocity",[0,0,0])
+		observe_motion(pose,Vector3(v[0],v[1],-v[2]) if v.size()==3 else pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))),Vector3(-a[0],-a[1],a[2]))
 	var keep:Dictionary={}
 	for row:Dictionary in ship.get("decorations",[]):
 		var id:=str(row.get("id",""));keep[id]=true

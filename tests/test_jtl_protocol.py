@@ -62,6 +62,14 @@ class JtlProtocolTests(unittest.TestCase):
             self.assertTrue(sent['handshake_authorized'])
             self.assertTrue(sent['handshake_receipt_only'])
 
+    def test_station_communications_need_station_identity_without_ground_terminal(self):
+        raw = dict(request_id='station_0001',station_id='123')
+        self.assertEqual(protocol.command('comm_begin',raw)['station_id'],'123')
+        choice=dict(raw,screen_token='current_001',option=0)
+        self.assertEqual(protocol.command('comm_choose',choice)['option'],0)
+        for changed in ({'station_id':'0'}, {'screen_token':''}, {'option':True}, {'option':64}):
+            with self.assertRaises(ValueError):protocol.command('comm_choose',dict(choice,**changed))
+
     def test_house_placement_contract_and_original_cells(self):
         raw = dict(request_id='decorate_001',item_id='123',cell_index=1,
                    placement_position=[0,.4,20],local_quaternion=[0,0,0,1],suspended=False)

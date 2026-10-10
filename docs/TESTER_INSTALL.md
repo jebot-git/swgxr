@@ -173,5 +173,7 @@ this client update does not require a new assets archive.
 Physical crouching and prone movement resize the tracked collision capsule
 without shifting its foot position or accumulating a vertical world offset.
 Login also repairs a saved position up to two metres below an original floor,
-within the saved room and horizontal footprint, when the full capsule fits.
-Missing floors, other rooms and obstructed destinations remain loading errors.
+within the saved horizontal footprint, when the full capsule fits. If falling
+below a doorway left stale room membership, recovery may use its directly
+connected original room. Missing floors, unconnected rooms and obstructed
+destinations remain loading errors.

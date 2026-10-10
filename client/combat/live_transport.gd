@@ -62,6 +62,7 @@ func place(app: Node, destination: Dictionary) -> Dictionary:
 	if bool(app.xr_requested):
 		player.prepare_tracked_body()
 		if not app.ground_xr_spawn(): return {"ok":false,"error":"No safe original floor at the Core3 destination."}
+		cell=str(stage.current_cell.get("cell_id",""))
 	else:
 		var hit := KinematicCollision3D.new()
 		if not player.test_move(player.global_transform,Vector3.DOWN*8.0,hit,0.002) or hit.get_collision_count()==0 or hit.get_normal().dot(Vector3.UP)<cos(player.floor_max_angle): return {"ok":false,"error":"No safe original floor at the Core3 destination."}

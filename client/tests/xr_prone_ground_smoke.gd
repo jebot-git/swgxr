@@ -4,6 +4,7 @@ class Host extends "res://scripts/main.gd":
 	func _ready()->void:pass
 	func _process(_delta:float)->void:pass
 	func _physics_process(_delta:float)->void:pass
+	func prepare_destination_world(_destination:Dictionary)->Dictionary:return {"ok":true}
 var errors:Array[String]=[]
 var checks:=0
 func check(ok:bool,label:String)->void:
@@ -56,4 +57,21 @@ func run()->void:
 	body.apply_world_correction(Vector3.UP*100)
 	var unsupported:Vector3=body.global_position
 	check(not host.ground_xr_spawn() and body.global_position==unsupported,"Missing floor remains an error without an invented spawn")
+	# Captured native save: below foyer4, still assigned to connected foyer5
+	# after crawling beneath the doorway. The horizontal location is retained.
+	var sunk:=Vector3(-58.49243164,-.73257685,-9.025390625)
+	body.spawn_point=sunk;body.reset_spawn();head.position.y=1.65;body.prepare_tracked_body()
+	host.stage.seed_membership_at(body.global_position,"1106368:5")
+	await physics_frame;await physics_frame
+	var footprint:=Vector2(body.global_position.x,body.global_position.z)
+	check(host.ground_xr_spawn(),"Captured buried starport save resolves its connected original floor")
+	check(str(host.stage.current_cell.get("cell_id",""))=="1106368:4" and absf(body.global_position.y-.639423)<.025,"Stale room membership repairs through the original passable doorway")
+	check(Vector2(body.global_position.x,body.global_position.z).distance_to(footprint)<.001,"Room recovery never translates the saved horizontal footprint")
+	body.spawn_point=sunk;body.reset_spawn();host.stage.seed_membership_at(body.global_position,"1106368:1")
+	await physics_frame;await physics_frame
+	check(not host.ground_xr_spawn() and str(host.stage.current_cell.get("cell_id",""))=="1106368:1","Recovery cannot jump to an unconnected room")
+	host.xr_requested=true
+	var destination:Dictionary={"zone":"tatooine","position":[3560.491455078125,4.267423152923584,-4792.060546875],"building_id":"1106368","cell_index":5}
+	var placed:Dictionary=await host.medical_placement.place(host,destination)
+	check(placed.get("ok",false) and placed.get("cell_key","")=="1106368:4" and str(host.stage.current_cell.get("cell_id",""))=="1106368:4","Native-session placement preserves repaired room membership")
 	print(JSON.stringify({"passed":errors.is_empty(),"checks":checks,"errors":errors,"original_geometry":true,"tracking":"synthetic","live_xr":false}));host.queue_free();await process_frame;quit(0 if errors.is_empty() else 1)

@@ -1706,16 +1706,28 @@ func seed_spawn_membership() -> void:
 
 func ground_xr_spawn() -> bool:
 	if ground_xr_spawn_down():return true
-	# Repair a bounded below-floor save in its existing room/footprint. The
-	# original collision must provide support and a clear full capsule at the
-	# destination; never select a default spawn or search through another room.
+	# Repair a bounded below-floor save in its original horizontal footprint.
+	# Falling beneath a doorway can also leave stale room membership. Resolve
+	# that only through a directly connected, passable original portal.
 	var support:Dictionary=player._source_support(player.global_position,2.0,0.0)
-	if not support.get("valid",false):return false
 	var cell_id:=str(stage.current_cell.get("cell_id","")) if is_instance_valid(stage) else ""
-	if not support.get("terrain",false) and str(support.get("cell_id",""))!=cell_id:return false
+	if not support.get("valid",false) and not cell_id.is_empty():
+		var own_floor:Dictionary=stage.ground_support.sample_support(player.global_position,[cell_id],64,64,{})
+		if not own_floor.get("valid",false):
+			for portal:Dictionary in stage.definitions.get(cell_id,{}).get("portals",[]):
+				var neighbor:=str(portal.get("leads_to",""))
+				if not portal.get("passable",false) or neighbor.get_slice(":",0)!=cell_id.get_slice(":",0) or stage.definitions.get(neighbor,{}).get("is_exterior",true):continue
+				var found:Dictionary=stage.ground_support.sample_support(player.global_position,[neighbor],2,0,{})
+				if not found.get("valid",false):continue
+				var capsule:Dictionary=stage.ground_support.capsule_support(player.global_position,player.player_radius*XRServer.world_scale,[neighbor],2,0,found)
+				found.body_height=capsule.get("body_height",found.height)
+				if not support.get("valid",false) or float(found.body_height)<float(support.body_height):support=found
+	if not support.get("valid",false):return false
 	var rise:=float(support.body_height)-player.global_position.y
 	if rise<=0 or rise>2.0:return false
 	var offset:=Vector3.UP*(rise+.01)
+	var recovered_cell:=str(support.get("cell_id",cell_id))
+	if recovered_cell!=cell_id:stage.seed_membership_at(player.global_position,recovered_cell)
 	var query:=PhysicsShapeQueryParameters3D.new()
 	query.shape=player._collision_node.shape
 	query.transform=player._collision_node.global_transform
@@ -1723,8 +1735,11 @@ func ground_xr_spawn() -> bool:
 	query.collision_mask=player.collision_mask
 	query.exclude=[player.get_rid()]
 	query.margin=.001
-	if not player.get_world_3d().direct_space_state.intersect_shape(query,1).is_empty():return false
+	if not player.get_world_3d().direct_space_state.intersect_shape(query,1).is_empty():
+		if recovered_cell!=cell_id:stage.seed_membership_at(player.global_position,cell_id)
+		return false
 	player.apply_world_correction(offset)
+	if recovered_cell!=cell_id:stage.seed_membership_at(player.global_position,recovered_cell)
 	player.velocity=Vector3.ZERO;player.ground_control_velocity=Vector2.ZERO
 	player.spawn_point=player.global_position
 	return true

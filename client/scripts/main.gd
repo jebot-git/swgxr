@@ -2188,6 +2188,10 @@ func get_radar_contacts(center: Vector3, radius: float) -> Array[Dictionary]:
 	var contacts:=radar_contacts.query(center,radius)
 	if is_instance_valid(player) and player.feedback.spice.policy().hostile_illusion:
 		for contact:Dictionary in contacts:contact.relation="hostile"
+	if is_instance_valid(datapad) and is_instance_valid(datapad.ui) and is_instance_valid(services):
+		for entry:Dictionary in datapad.ui.entries:
+			if entry.get("category","")=="waypoints" and entry.get("active",false) and str(entry.get("planet",""))==datapad.ui.planet and entry.get("position") is Array:
+				contacts.append({"id":str(entry.id),"kind":"waypoint","position":services.world(entry.position)})
 	return contacts
 
 func datapad_source_position() -> Vector3:

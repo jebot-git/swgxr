@@ -204,7 +204,7 @@ class Native:
             with log.open() as handle:
                 handle.seek(offset)
                 text = handle.read()
-            match = re.search(re.escape(command)+r': result=([^\n]+)', text)
+            match = re.search(re.escape('runLuaFunction Tests:'+function.split(':',1)[0])+r': result=([^\n]+)', text)
             if match:
                 return match[1].strip().strip('[]')
             if 'Failed to runLuaFunction' in text or 'Exception in runLuaFunction' in text:

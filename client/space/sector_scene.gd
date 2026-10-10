@@ -157,3 +157,18 @@ func observe(pose: Transform3D) -> void:
 		if fraction>field.fraction or absf(fraction-field.fraction)>.25 or (fraction==0 and field.fraction!=0):
 			field.fraction=fraction
 			for group:Dictionary in field.nodes:group.node.multimesh.visible_instance_count=Asteroids.prefix_count(group.indices,int(fraction*field.count))
+
+func represents_station(row:Dictionary)->bool:
+	var template:=str(row.get("template","")).replace("/shared_","/")
+	if not "station" in template or not row.get("position") is Array or row.position.size()!=3:return false
+	var point:=Vector3(row.position[0],row.position[1],-row.position[2])
+	for instance:Dictionary in data.get("instances",[]):
+		if str(instance.get("source_template","")).replace("/shared_","/")==template and loader.vec(instance.position).distance_squared_to(point)<1.0:return true
+	return false
+
+func light_material(material:Material)->void:
+	if not material is ShaderMaterial or sky==null:return
+	material.set_shader_parameter("sector_lighting",true)
+	material.set_shader_parameter("sector_ambient",sky.get_shader_parameter("ambient"))
+	material.set_shader_parameter("sector_light_colors",sky.get_shader_parameter("light_colors"))
+	material.set_shader_parameter("sector_light_directions",sky.get_shader_parameter("light_directions"))

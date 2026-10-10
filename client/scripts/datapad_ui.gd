@@ -29,6 +29,8 @@ var harvesting_deeds:Array=[]
 var factory_blueprints:Array=[]
 var vendors: Array = []
 var owned_missions: Dictionary = {}
+var ground_missions:Array=[]
+var mission_snapshot:Array=[]
 var parcel_assets=preload("res://scripts/inventory_assets.gd").new()
 var parcel_previews:Dictionary={}
 var category := "waypoints"
@@ -159,9 +161,9 @@ func build_ui() -> void:
 	close_button=make_button("Close")
 	close_button.pressed.connect(func():close_requested.emit())
 	header.add_child(close_button)
-	var tabs := HBoxContainer.new()
+	var tabs := HFlowContainer.new()
 	column.add_child(tabs)
-	for descriptor in [["waypoints","Waypoints"],["data","Data"],["vehicles","Vehicles"],["ships","Ships"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
+	for descriptor in [["waypoints","Waypoints"],["missions","Missions"],["data","Data"],["vehicles","Vehicles"],["ships","Ships"],["pets","Pets"],["vendors","Vendors"],["poi","POI"],["schematics","Schematics"],["skills","Skills"]]:
 		var button := make_button(descriptor[1])
 		button.toggle_mode = true
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -304,15 +306,21 @@ func build_detail() -> void:
 	box.add_child(vehicle_button)
 
 func set_owned_missions(values:Array)->void:
-	var next:Dictionary={}
-	for mission in values:
-		if mission is Dictionary and str(mission.get("id","")).is_valid_int():next[str(mission.id)]=true
-	for parcel in mission_parcels:next[str(parcel.get("mission_id",""))]=true
-	owned_missions=next
-	if is_instance_valid(cancel_mission_button):
-		cancel_mission_button.visible=not cancellable_mission_id(selected_entry).is_empty()
-		cancel_mission_button.disabled=busy
-		delete_button.visible=not cancel_mission_button.visible
+	if values==mission_snapshot:return
+	mission_snapshot=values.duplicate(true)
+	owned_missions.clear();ground_missions.clear()
+	for value in values:
+		if not value is Dictionary or not str(value.get("id","")).is_valid_int():continue
+		var mission:Dictionary=value.duplicate(true)
+		owned_missions[str(mission.id)]=true
+		mission["mission_kind"]=mission.get("type","")
+		if not mission.get("waypoint",{}).is_empty():
+			mission.planet=mission.waypoint.planet;mission.position=mission.waypoint.position
+		mission.merge({"type":"ground_mission","category":"missions","server_driven":true},true)
+		ground_missions.append(mission)
+	for parcel in mission_parcels:owned_missions[str(parcel.get("mission_id",""))]=true
+	set_entries(entries)
+
 func cancellable_mission_id(entry:Dictionary)->String:
 	if entry.get("reference_only",false) or entry.get("static",false):return ""
 	var id:=str(entry.get("mission_id",entry.get("id","")))
@@ -349,7 +357,16 @@ func set_planet(value:String)->void:
 
 func set_entries(values: Array) -> void:
 	build_ui()
-	entries = values.filter(func(entry):return entry.get("type","") not in ["ship","space_mission","mission_parcel","bounty_mission","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
+	entries = values.filter(func(entry):return entry.get("type","") not in ["ground_mission","mission_waypoint","ship","space_mission","mission_parcel","bounty_mission","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
+	# Replace replicated MISO placeholders with owned native objective details.
+	entries=entries.filter(func(entry):return not owned_missions.has(str(entry.get("id",""))))
+	entries.append_array(ground_missions.duplicate(true))
+	for mission:Dictionary in ground_missions:
+		var waypoint:Dictionary=mission.get("waypoint",{})
+		if waypoint.is_empty():continue
+		waypoint=waypoint.duplicate(true)
+		waypoint.merge({"id":"mission:"+str(mission.id),"mission_id":str(mission.id),"type":"mission_waypoint","category":"waypoints","name":mission.get("name","Mission"),"server_driven":true},true)
+		entries.append(waypoint)
 	entries.append_array(ships.duplicate(true))
 	entries.append_array(space_missions.duplicate(true))
 	# PLAY baselines identify the control device; vehicle snapshots identify its
@@ -382,7 +399,10 @@ func set_entries(values: Array) -> void:
 	connection_status.text = "Character datapad"
 	map.waypoints = entries.filter(func(entry): return str(entry.get("category","")) == "waypoints" and str(entry.get("planet",planet)).to_lower() == planet)
 	map.queue_redraw()
+	var previous_id:=str(selected_entry.get("id",""))
 	select_category(category)
+	for i in range(filtered_entries.size()):
+		if str(filtered_entries[i].get("id",""))==previous_id:list.select(i);select_entry(i);break
 
 func set_skills(values: Array, complete := true) -> void:
 	build_ui()
@@ -457,7 +477,7 @@ func select_category(id: String) -> void:
 		return
 	list.visible = not map_visible
 	list_status.visible = not map_visible
-	filtered_entries = entries.filter(func(entry): return str(entry.get("category","data")) == id)
+	filtered_entries = entries.filter(func(entry): return str(entry.get("category","data")) == id or (id=="missions" and entry.get("type","") in ["space_mission","bounty_mission"]))
 	list.clear()
 	list.fixed_icon_size=Vector2i(64,48) if id in ["vehicles","data"] else Vector2i.ZERO
 	for entry in filtered_entries: list.add_item(str(entry.get("name","Unnamed entry")),vehicle_icon(entry) if id=="vehicles" else parcel_icon(entry) if entry.get("type","")=="mission_parcel" else null)
@@ -499,6 +519,9 @@ func select_entry(index: int) -> void:
 		# Viewing an existing entry is not a map click and must not silently
 		# change the position used by the New waypoint button.
 	if entry.has("active"): fields.append("Active" if entry.active else "Inactive")
+	if entry.get("type","") in ["ground_mission","space_mission","bounty_mission"]:
+		for key in ["mission_kind","target","status","progress","reward","difficulty"]:
+			if entry.has(key) and not str(entry[key]).is_empty():fields.append(key.replace("mission_kind","Mission type").capitalize()+"   "+str(entry[key])+(" credits" if key=="reward" else ""))
 	# Replication IDs, CRCs and template paths are diagnostics, not item stats.
 	var attributes: Dictionary = entry.get("attributes",{})
 	if attributes.get("kind","") == "learned_draft_schematic": fields.append("Learned crafting recipe")

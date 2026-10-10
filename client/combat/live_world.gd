@@ -690,7 +690,7 @@ func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
 	elif requested=="flurry_shot":interval=float(weapon.fire_interval_seconds)
 	elif not ability.is_empty():interval=float(ability.get("interval_seconds",interval))
 	if requested=="sniper_shot" and not bool(shot.get("two_hands",false)):return {}
-	var ammo_state:RefCounted=rig.weapons[rig.selected].state if (heavy or weapon.get("delivery","") in ["scatter","guided_bolt"] or requested in ["double_tap","disarming_shot","showdown","crippling_shot","wild_shot","charge_shot","suppression_fire","lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot","eye_shot","confusion_shot","fast_blast","underhand_shot","bleeding_shot"]) and rig.get("selected") is int and rig.selected>=0 else null
+	var ammo_state:RefCounted=rig.weapons[rig.selected].state if rig.get("selected") is int and rig.selected>=0 else null
 	var extra_ammo:=maxi(0,int(ability.get("ammo_cost",1))-1) if requested not in ["showdown","flurry_shot"] else 0
 	if extra_ammo>0 and (ammo_state==null or not ammo_state.reserve_rounds(extra_ammo)):return {}
 	next_launch_usec=now+int(interval*1000000)

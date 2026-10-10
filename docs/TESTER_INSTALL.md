@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.9), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.10), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
 
 ## Requirements
 
@@ -280,3 +280,25 @@ above the player's feet. Original geometry checks covered 28 starport/pad exteri
 placements across all ten ground planets, including Talus Imperial Outpost.
 Validation used synthetic movement, dummy-renderer smoke tests and desktop Vulkan
 terminal captures. Live headset testing remains suspended.
+
+## Missions and combat presentation (test.10)
+
+Test.10 uses the same private **test.9 data ZIP**; no new asset download is needed.
+The datapad's **Missions** tab shows owned objectives, descriptions, rewards,
+delivery phases and hunting kill counts. Native mission destinations appear on
+the planet map. Active waypoints appear on wrist radar, with distant destinations
+shown at its edge. Pickup changes a delivery waypoint to its recipient; cancelling
+or completing the mission removes its derived marker.
+
+A rejected CDEF or other ordinary ranged discharge restores its reserved shot
+capacity, including the last round's automatic recovery. Confirmed discharges
+remain spent even if the projectile misses. Nearby space ships use sector lighting;
+stations already represented by original sector geometry no longer draw a second
+overlapping hull. Desktop Vulkan validation confirmed mipmaps on all 78 textures
+loaded for the Tatooine sector. Headset validation remains suspended.
+
+The native damage audit found the existing CoreCU conversion on both minor and
+ordinary worrts. Minor worrts are level 5 with a converted weapon range of 16–26;
+ordinary worrts are level 6 with 17–29. An unarmoured 3,000-health test character
+took 21–32 health per landed minor-worrt hit. Net health loss after combat also
+reflects regeneration. This release does not change creature balance.

@@ -25,7 +25,10 @@ class RadarCanvas extends Control:
 		for contact: Dictionary in points:
 			var p: Vector2=contact.pixel
 			var color: Color=contact.color
-			if contact.kind=="mob":
+			if contact.kind=="waypoint":
+				draw_arc(p,5,0,TAU,16,color,2,true)
+				draw_line(p+Vector2(0,-8),p+Vector2(0,8),color,1,true)
+			elif contact.kind=="mob":
 				draw_colored_polygon(PackedVector2Array([p+Vector2(0,-4),p+Vector2(4,0),p+Vector2(0,4),p+Vector2(-4,0)]),color)
 			else: draw_circle(p,3.5,color)
 			if contact.height_sign!=0:
@@ -101,18 +104,19 @@ func refresh(center: Vector3, forward: Vector3, contacts: Array) -> void:
 		if not value is Dictionary or not value.get("position") is Vector3: continue
 		var delta: Vector3=value.position-center
 		var distance_squared:=Vector2(delta.x,delta.z).length_squared()
-		if not delta.is_finite() or distance_squared>RANGE_METERS*RANGE_METERS: continue
-		var contact: Dictionary={"id":str(value.get("id","")),"distance_squared":distance_squared,
-			"pixel":Vector2(128,128)+Vector2(delta.dot(right),-delta.dot(last_forward))*(104.0/RANGE_METERS),
-			"height_sign":signf(delta.y) if absf(delta.y)>3.0 else 0.0,
-			"color":COLORS.get(str(value.get("relation","neutral")),COLORS.neutral),"kind":str(value.get("kind","npc"))}
+		var waypoint:bool=value.get("kind","")=="waypoint"
+		if not delta.is_finite() or (not waypoint and distance_squared>RANGE_METERS*RANGE_METERS): continue
+		var contact: Dictionary={"id":str(value.get("id","")),"distance_squared":-1.0 if waypoint else distance_squared,
+			"pixel":Vector2(128,128)+(Vector2(delta.dot(right),-delta.dot(last_forward))*(104.0/RANGE_METERS)).limit_length(110),
+			"height_sign":signf(delta.y) if not waypoint and absf(delta.y)>3.0 else 0.0,
+			"color":Color("64eaff") if waypoint else COLORS.get(str(value.get("relation","neutral")),COLORS.neutral),"kind":str(value.get("kind","npc"))}
 		# Bound retained state even if a provider incorrectly returns too many.
 		if selected.size()<MAX_CONTACTS: selected.append(contact)
 		else:
 			var farthest:=0
 			for i in range(1,selected.size()):
 				if float(selected[i].distance_squared)>float(selected[farthest].distance_squared): farthest=i
-			if distance_squared<float(selected[farthest].distance_squared): selected[farthest]=contact
+			if float(contact.distance_squared)<float(selected[farthest].distance_squared): selected[farthest]=contact
 	last_contacts=selected
 	canvas.points=selected
 	canvas.heading_degrees=fposmod(rad_to_deg(atan2(last_forward.x,-last_forward.z)),360.0)

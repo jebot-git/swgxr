@@ -9,6 +9,7 @@ class Rounds extends Node:
 class Rig extends Node3D:
 	var authority_gate:Callable
 	var shot_authority:Callable
+	var commando_authority:Callable
 	var weapons:Array=[]
 	var unarmed:Dictionary={}
 	var haptics:Array=[]

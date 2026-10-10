@@ -14,6 +14,7 @@ var wear_per_shot := 0.05
 var clock := 0.0
 var next_shot := 0.0
 var reload_until := -1.0
+var empty_reload := false
 var burst_left := 0
 var trigger_down := false
 var armed := false
@@ -131,6 +132,7 @@ func cycle_mode() -> void:
 func reload() -> bool:
 	if is_melee() or profile.get("charge_limited",false): return false
 	if reload_until >= 0 or rounds == int(profile.capacity): return false
+	empty_reload = rounds == 0
 	reload_until = clock + float(profile.reload_seconds) / (profession("capacity_recovery_scale", 1) * float(armour_scales.get("recovery_scale", profile.get("armour_scales", {}).get("recovery_scale", 1))))
 	block()
 	return true
@@ -148,6 +150,8 @@ func refund_rounds(count:int)->void:
 	if not is_melee():
 		var limit:int=int(profile.get("charges",profile.capacity)) if profile.get("charge_limited",false) else int(profile.capacity)
 		rounds=mini(maxi(0,limit),rounds+maxi(0,count))
+		# A rejected last round must not leave an automatic empty-magazine reload.
+		if count>0 and rounds>0 and empty_reload:reload_until=-1;empty_reload=false
 
 func observe_native_charges(charges:int, session:String, revision:int, reserved:bool)->bool:
 	if not profile.get("charge_limited",false) or charges<0 or session.is_empty() or revision<0:return false

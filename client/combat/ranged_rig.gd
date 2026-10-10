@@ -684,6 +684,13 @@ func sample(delta: float, main_pose: Transform3D, support_pose: Transform3D, gri
 	update_visuals()
 
 func dispatch_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, profile: Dictionary, melee: bool) -> bool:
+	var accepted:=dispatch_reserved_shot(shot,pose,grip,profile,melee)
+	if not accepted and not melee and selected>=0:
+		weapons[selected].state.refund_rounds(1)
+		weapons[selected].state.condition_damage=maxf(0,weapons[selected].state.condition_damage-weapons[selected].state.wear_per_shot)
+	return accepted
+
+func dispatch_reserved_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, profile: Dictionary, melee: bool) -> bool:
 	var immutable: Dictionary=shot.duplicate(true)
 	immutable["item_id"]=str(profile.get("item_id",""))
 	if not melee:
@@ -700,7 +707,6 @@ func dispatch_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, profile: 
 	if shot_authority.is_valid():
 		var authorized: Variant=shot_authority.call(immutable,head.global_transform if melee else pose,grip)
 		if not authorized is Dictionary or authorized.is_empty():
-			if not melee and (profile.get("native_family","")=="commando" or profile.get("delivery","") in ["scatter","guided_bolt"] or immutable.get("ability_id","") in ["double_tap","disarming_shot","showdown","crippling_shot","wild_shot","charge_shot","suppression_fire","lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot","eye_shot","confusion_shot","fast_blast","underhand_shot","bleeding_shot"]) and selected>=0:weapons[selected].state.refund_rounds(1)
 			return false
 		immutable=authorized.duplicate(true)
 	if not melee and immutable.get("ability_id","") in ["showdown","flurry_shot"] and int(immutable.get("volley_index",0))==0:

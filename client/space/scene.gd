@@ -151,6 +151,9 @@ func update_nearby(rows:Array,ship:Dictionary,busy:=false)->void:
 	for row:Dictionary in rows.slice(0,32):
 		var id:=str(row.get("id",row.get("ship_id","")))
 		if id.is_empty() or id==ship_id or not row.get("position") is Array or not row.get("quaternion") is Array:continue
+		# Station contacts are authoritative interaction targets, but their original
+		# geometry already exists in the authored sector. A second hull z-fights.
+		if is_instance_valid(exterior) and exterior.represents_station(row):continue
 		var entry:Dictionary=catalog.get("templates",{}).get(str(row.get("template","")),{})
 		var descriptor:=str(entry.get("exterior_descriptor",entry.get("descriptor","") if entry.get("kind","pob")=="pob" else ""))
 		if descriptor.is_empty():continue
@@ -160,6 +163,9 @@ func update_nearby(rows:Array,ship:Dictionary,busy:=false)->void:
 			if node==null:continue
 			add_child(node);node.set_physics_process(false)
 			for body:Node in node.find_children("*","StaticBody3D",true,false):body.free()
+			if is_instance_valid(exterior):
+				for mesh:MeshInstance3D in node.find_children("*","MeshInstance3D",true,false):
+					for surface in range(mesh.mesh.get_surface_count()):exterior.light_material(mesh.get_active_material(surface))
 			nearby[id]=node
 		var point:Array=row.position;var rotation:Array=row.quaternion
 		var target:=Transform3D(Basis(Quaternion(-rotation[0],-rotation[1],rotation[2],rotation[3]).normalized()),Vector3(point[0],point[1],-point[2]))

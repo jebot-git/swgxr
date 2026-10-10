@@ -57,7 +57,7 @@ def install(destination, cache=None):
 
 
 def write_launchers(output):
-    for name, argument in (('play-vr.cmd', ''), ('play-desktop.cmd', '--desktop '), ('import-data.cmd', '--import-only ')):
+    for name, argument in (('play-vr.cmd', ''), ('play-desktop.cmd', '--desktop '), ('import-data.cmd', '--import-only '), ('launcher.cmd', '--launcher '), ('install-shortcuts.cmd', '--install-shortcuts '), ('updates.cmd', '--updates ')):
         script = ('@echo off\nsetlocal\ncd /d "%~dp0"\n'
                   'if not exist "%~dp0python\\python.exe" (\n'
                   '  echo Bundled Python is missing. Extract the complete Windows client ZIP again.\n'

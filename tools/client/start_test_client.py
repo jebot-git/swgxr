@@ -9,6 +9,10 @@ import subprocess
 import sys
 import zipfile
 try:
+    from . import test_client_launcher as launcher
+except ImportError:
+    import test_client_launcher as launcher
+try:
     from .tester_data import ensure_data
 except ImportError:
     from tester_data import ensure_data
@@ -18,8 +22,20 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--desktop',action='store_true',help='Explicit desktop regression mode; XR is disabled')
     parser.add_argument('--import-only',action='store_true')
+    parser.add_argument('--launcher',action='store_true')
+    parser.add_argument('--install-shortcuts',action='store_true')
+    parser.add_argument('--updates',action='store_true')
     args=parser.parse_args();root=Path(__file__).resolve().parent
     try:
+        if args.install_shortcuts:
+            launcher.install_shortcuts(root);return 0
+        if args.updates:
+            launcher.webbrowser.open(launcher.RELEASES);return 0
+        if args.launcher:
+            selected=launcher.menu(root)
+            if selected is None:return 0
+            args.desktop='--desktop' in selected
+            args.import_only='--import-only' in selected
         state=json.loads((root/'PACKAGE.json').read_text())
         if not state['runnable']: raise ValueError('This is a Windows build handoff, not a runnable client. Read BUILD-WINDOWS.txt.')
         minimum=state.get('linux_glibc_minimum')
@@ -37,7 +53,7 @@ def main():
         if args.desktop:command+=['--desktop']
         env=os.environ.copy();env.pop('OBS_VKCAPTURE',None);env.update(DISABLE_XR_APILAYER_NOVENDOR_OBSMirror='1',DISABLE_OBS_VKCAPTURE='1')
         return subprocess.run(command,cwd=root/state["working_directory"],env=env,check=False).returncode
-    except (ValueError,OSError,KeyError,zipfile.BadZipFile) as exc:
+    except (ValueError,OSError,KeyError,EOFError,subprocess.CalledProcessError,zipfile.BadZipFile) as exc:
         print('Cannot start SWGXR: '+str(exc),file=sys.stderr);return 2
 
 if __name__=='__main__':raise SystemExit(main())

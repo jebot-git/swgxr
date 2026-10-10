@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.7), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.8), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
 
 ## Requirements
 
@@ -19,12 +19,12 @@ Older Linux distributions with glibc below 2.43 cannot run this particular build
 
 ## Get the matching SWG assets
 
-The client downloads contain no original SWG game data. Obtain **`test-runtime-data-presentation-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
+The client downloads contain no original SWG game data. Obtain **`test-runtime-data-test8-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
 
 The matching ZIP is **5,186,866,430 bytes** (about 4.83 GiB). Its SHA-256 is:
 
 ```text
-c4d20fa3b37e2cf1b24b9ba21a6d8da3e7c7ed625c91a0c2f4a5c8efa583aae7
+ae4d739595ab78abfb4b79a818799cd5d3cb19bb061e2cf82134cd8264722055
 ```
 
 It contains **55,284 verified runtime files**, occupying about **9.90 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
@@ -38,14 +38,14 @@ Download `CHECKSUMS.sha256` from the same release. It lists both client archives
 On Linux, from the download directory:
 
 ```sh
-sha256sum test-client-linux-20261010.tar.gz test-runtime-data-presentation-20261010.zip
+sha256sum test-client-linux-20261010.tar.gz test-runtime-data-test8-20261010.zip
 ```
 
 Compare both values with `CHECKSUMS.sha256`. On Windows, use PowerShell:
 
 ```powershell
 Get-FileHash .\test-client-windows-20261010.zip -Algorithm SHA256
-Get-FileHash .\test-runtime-data-presentation-20261010.zip -Algorithm SHA256
+Get-FileHash .\test-runtime-data-test8-20261010.zip -Algorithm SHA256
 ```
 
 Compare the values with the checksum file (letter case does not matter). If a hash differs, obtain a fresh copy before importing it. The launcher also checks every individual data file during installation.
@@ -59,7 +59,7 @@ Compare the values with the checksum file (letter case does not matter). If a ha
    cd test-client-linux-20261010
    ```
 
-2. Copy the **unextracted** `test-runtime-data-presentation-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
+2. Copy the **unextracted** `test-runtime-data-test8-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
 3. Install and verify the data without starting the client:
 
    ```sh
@@ -77,7 +77,7 @@ For desktop regression or asset inspection, use `./play-desktop.sh`, which expli
 ## Windows installation
 
 1. Extract **all** of `test-client-windows-20261010.zip` into a short writable path such as `C:\SWGXR`. Open the extracted `test-client-windows-20261010` folder; do not run files from inside the ZIP.
-2. Copy the **unextracted** `test-runtime-data-presentation-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
+2. Copy the **unextracted** `test-runtime-data-test8-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
 3. Run `import-data.cmd`. It verifies and installs the assets without starting the client. From PowerShell, use `.\import-data.cmd`.
 4. Configure your OpenXR runtime and connect the headset, then run `play-vr.cmd`.
 
@@ -90,7 +90,7 @@ After installation, the folder has this shape:
 ```text
 test-client-<platform>-20261010/
   data/
-    test-runtime-data-presentation-20261010.zip
+    test-runtime-data-test8-20261010.zip
   runtime/
     assets/
   engine/
@@ -104,9 +104,24 @@ test-client-<platform>-20261010/
 
 The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate or upgrade, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. Keep the data ZIP in `data/` after installation; repeat starts use the verified install receipt.
 
+## Desktop launchers and updates (test.8)
+
+Run `./install-shortcuts.sh` on Linux or `install-shortcuts.cmd` on Windows.
+This creates **SWGXR**, **SWGXR VR**, **SWGXR Desktop**, and **SWGXR Updates**
+shortcuts on your desktop. Linux also receives application-menu entries. If your
+desktop asks, mark the shortcuts trusted / allow launching. Installation needs
+no administrator privileges and does not start the game.
+
+**SWGXR** opens a small terminal menu for VR, desktop mode, asset import, updates,
+and refreshing shortcuts. `launcher.sh` / `launcher.cmd` opens the same menu.
+**SWGXR Updates** opens the GitHub release downloads page in your browser; sign
+in with your authorized GitHub account. It does not automatically download or
+replace the client. Prereleases appear on this page too. The client does not
+store GitHub credentials. Original assets are still supplied separately.
+
 ## Upgrading an existing installation
 
-Extract the new client into a fresh folder, put only `test-runtime-data-presentation-20261010.zip` in its `data/` folder, and run its import command. Earlier runtime ZIPs lack the seated avatar poses, ship and sector audio, and NPC variant pools in this update. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
+Extract the new client into a fresh folder, put only `test-runtime-data-test8-20261010.zip` in its `data/` folder, and run its import command. Runtime ZIPs from before test.6 lack seated avatar poses, ship and sector audio, and NPC variant pools. The test.8 bundle retains those assets and the current runtime dependency closure. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Run the new folder's `install-shortcuts` script to retarget all four shortcuts to the new version. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
 
 ## Connect and create a character
 
@@ -127,7 +142,7 @@ Synthetic speech captured through a virtual Linux input passed the production RN
 - **GLIBC/GLIBCXX errors:** the Linux build requires the library versions listed above. This release does not provide an older-distribution build.
 - **OpenXR initialization failure:** confirm that your headset is connected and the intended OpenXR runtime is active. Desktop mode is only a separate inspection/regression option.
 
-Both executable/PCK packages passed headless native-loading and catalog preflight checks. The new 55,284-file runtime ZIP passed every entry SHA-256 and ZIP CRC check. Full imports passed with the packaged Linux importer and the bundled Windows Python under Wine. Both executables then loaded the imported ground data, 277 ship descriptors and native clothing without errors. Original-starport stairs and yacht doorway movement passed using the native controller with XR disabled or mocked tracking.
+Both executable/PCK packages passed headless native-loading and catalog preflight checks. The runtime ZIP is checked against every entry SHA-256 and ZIP CRC during packaging. Full imports passed with the packaged Linux importer and the bundled Windows Python under Wine. Both executables then loaded the imported ground data, 277 ship descriptors and native clothing without errors. Original-starport stairs and yacht doorway movement passed using the native controller with XR disabled or mocked tracking.
 
 All ten sectors were captured with desktop Forward+ Vulkan. Native Shipwright crafting/experimentation, pilot enlistment/first patrol, chassis redemption and component swapping passed live Core3 tests. See [JtL test status](JTL_TEST_STATUS.md) for combat-fixture boundaries and remaining source/presentation limitations. Native Windows Vulkan/OpenXR and live headset validation are separate; dummy-renderer and Wine checks do not validate a GPU or headset. Windows uses standard spatial audio fallback and includes TwoVoIP.
 
@@ -225,8 +240,8 @@ The command appears only when the pet has learned it; droids still need power.
 Walls, occupied hands and stale connections block the interaction.
 
 The sector update fixes skybox seams and improves original stars, nebulae,
-lighting and asteroid visibility. It uses the existing test.6 private runtime
-data archive; no new asset import is needed. Linux and Windows changes have
+lighting and asteroid visibility. Test.7 used the test.6 private runtime data archive. Test.8 repackages the current
+runtime dependency closure under the new asset filename above. Linux and Windows changes have
 synthetic/desktop validation only. Keep VR testing suspended until requested.
 
 The main menu now has **Settings → Audio**, **Controls** and **Graphics** pages.

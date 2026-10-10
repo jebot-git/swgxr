@@ -33,6 +33,7 @@ def main():
     args=parser.parse_args();root=Path(__file__).resolve().parent
     try:
         if args.export_character:
+            sys.path.insert(0,str(root/'engine'))
             from character_export.launcher import gui
             return gui(root)
         if args.launcher:

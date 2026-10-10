@@ -192,9 +192,9 @@ def package(output,target,origin,ca,allow_incomplete=False,release_version=None)
         shutil.copy2(engine_source.resolve(),engine/executable)
         shutil.copytree(ROOT/'runtime/releases/client-payload-20261008/engine/licenses',engine/'licenses')
         for source,name in [('test_client_launcher.py','test_client_launcher.py'),('update_test_client.py','update_test_client.py'),('tester_data.py','tester_data.py'),('start_test_client.py','start_client.py')]:shutil.copy2(ROOT/'tools/client'/source,output/name)
-        (output/'character_export').mkdir()
+        (output/'engine/character_export').mkdir()
         for name in ('export_character.py','vrm.py','launcher.py','README.md'):
-            shutil.copy2(ROOT/'tools/character_export'/name,output/'character_export'/name)
+            shutil.copy2(ROOT/'tools/character_export'/name,output/'engine/character_export'/name)
         shutil.copy2(ca,output/'server-ca.pem')
         (output/'server.json').write_text(json.dumps({'base_url':origin},indent=2)+'\n')
         (output/'data').mkdir();(output/'runtime').mkdir()
@@ -218,6 +218,9 @@ def package(output,target,origin,ca,allow_incomplete=False,release_version=None)
         (output/'START-HERE.txt').write_text('SWGXR test client — '+target+'\n\nRequires '+requirements+'\n1. Extract this client to a short, writable folder (Windows example: C:\\SWGXR).\n2. Put all five SWG The Total Experience ISO images in data/, or use Prepare game data in the launcher to select your installed game folder. Original assets are prepared locally; no private data ZIP is needed.\n3. Run '+('play-vr.cmd' if windows else './play-vr.sh')+' to enter VR. Use play-desktop for explicit desktop regression mode, or import-data to install data without launching.\n4. Run install-shortcuts'+('.cmd' if windows else '.sh')+' to add desktop icons. The SWGXR icon opens the desktop launcher; SWGXR Updates downloads and verifies the latest client, preserving assets and settings. Close the game before updating. No manual extraction is needed for subsequent updates.\nFirst preparation can take a while. Allow at least 40 GB free for sources, conversion and rollback data. Preparation resumes completed steps after interruption.\n\nCreate a new account in the sign-in panel. Existing accounts from the current realm are preserved.\nOnly the public server address and CA certificate are included. No account credentials are bundled. Original user-supplied SWG data stays on your computer and is never downloaded by the launcher.\nDo not move the client folder after importing data; extract a fresh client folder to relocate.\nScope: ten original ground planets and ten original JtL sectors, original hostile NPC encounters, pilot missions, Shipwright experimentation, hull redemption and components. The Luxury Yacht is excluded from combat. Space mining is deferred. See JTL_TEST_STATUS.md for missing media, incomplete upstream trainer paths and presentation limits. Forward+ Vulkan only.\n')
         for name in ('TESTER_INSTALL.md','JTL_TEST_STATUS.md','MEDIA_SCOPE.md','ORIGINAL_AUDIO.md'):
             shutil.copy2(ROOT/'docs'/name,output/name)
+        (output/'engine/docs').mkdir()
+        for name in ('MEDIA_SCOPE.md','ORIGINAL_AUDIO.md'):
+            shutil.copy2(ROOT/'docs'/name,output/'engine/docs'/name)
         # Linux editor needs its host libraries during Windows resource import.
         host_libraries=[]
         if windows:

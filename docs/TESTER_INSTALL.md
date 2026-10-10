@@ -32,9 +32,9 @@ Do not move an installation after preparation: some converted catalogs contain a
 
 Choose **Export character to VRM…** in the launcher after preparing game data. Close the game, enter your account and password, and choose **Load characters**. Select your character, re-enter the password, and choose an output `.vrm` filename. The exporter uses the bundled engine with XR disabled; it does not launch the game world. Sign-in credentials are not saved, and its temporary login session is revoked after each server read.
 
-**Export saved snapshot…** also accepts an offline full character response. The avatar includes current customization, hair and worn/held equipment, with a conversion report beside it. Existing files are preserved: choose a new filename. Exports inside the client folder belong under `runtime/character_exports`. Missing visible equipment fails explicitly. The output is VRM 1.0 without facial-expression presets or spring-bone simulation; verify it in your target avatar application. See `character_export/README.md` for format details.
+**Export saved snapshot…** also accepts an offline full character response. The avatar includes current customization, hair and worn/held equipment, with a conversion report beside it. Existing files are preserved: choose a new filename. Exports inside the client folder belong under `runtime/character_exports`. Missing visible equipment fails explicitly. The output is VRM 1.0 without facial-expression presets or spring-bone simulation; verify it in your target avatar application. See `engine/character_export/README.md` for format details.
 
-See [the media scope audit](MEDIA_SCOPE.md) for missing original references that affect content through Rage of the Wookiees, and for the distinction between absent files and converter limitations.
+The bundled `engine/docs/MEDIA_SCOPE.md` documents missing original references that affect content through Rage of the Wookiees and distinguishes absent files from converter limitations. The [same audit is available online](https://github.com/jebot-git/swgxr/blob/main/docs/MEDIA_SCOPE.md).
 
 ## Updates and shortcuts
 

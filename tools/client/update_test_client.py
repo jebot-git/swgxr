@@ -18,6 +18,7 @@ import zipfile
 REPOSITORY = 'jebot-git/swgxr'
 API = 'https://api.github.com/repos/' + REPOSITORY + '/releases?per_page=30'
 ROOT_FILES = {'PACKAGE.json', 'START-HERE.txt', 'TESTER_INSTALL.md', 'JTL_TEST_STATUS.md',
+              'MEDIA_SCOPE.md', 'ORIGINAL_AUDIO.md',
               'start_client.py', 'test_client_launcher.py', 'tester_data.py',
               'update_test_client.py', 'launcher_platform.py', 'play-vr.sh', 'play-desktop.sh',
               'import-data.sh', 'install-shortcuts.sh', 'updates.sh', 'launcher.sh',

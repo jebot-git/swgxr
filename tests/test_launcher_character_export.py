@@ -34,6 +34,12 @@ class CharacterExport(unittest.TestCase):
             for name in ('portable_character_export','character_exporter','avatar_export_materials'):
                 self.assertTrue(included(Path('tools')/(name+'.gd'),target))
             self.assertFalse(included(Path('tools/unrelated_diagnostic.gd'),target))
+    def test_exporter_uses_legacy_managed_update_directory(self):
+        # test.11 launchers already install all engine descendants on the first
+        # update. A new top-level directory would silently be skipped by them.
+        from tools.client.update_test_client import managed
+        for path in ('engine/character_export/launcher.py','engine/character_export/vrm.py','engine/docs/MEDIA_SCOPE.md'):
+            self.assertTrue(managed(path))
     def test_remote_plaintext_rejected_before_certificate_load(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'server.json').write_text(json.dumps({'base_url':'http://example.com'}))

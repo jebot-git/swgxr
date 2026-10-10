@@ -27,6 +27,8 @@ class Live extends Node:
 class Scenery extends Node3D:
 	var rows: Array=[]
 	var screen_requests:Array=[]
+	func terminal_pick_geometry(_record:Dictionary)->Dictionary:return {}
+	func screen_surfaces(_record:Dictionary)->Array:return []
 	func terminal_basis(_record:Dictionary)->Basis:return Basis.IDENTITY
 	func screen_offsets(record:Dictionary)->Array:
 		screen_requests.append(str(record.id));return [Transform3D(Basis.IDENTITY,Vector3(0,20,0))]
@@ -292,6 +294,28 @@ func run() -> void:
 	reply=host.response();reply.state.terminal=house_terminal;reply.mutation.arm={"arm_id":"house-arm-001","structure_id":"50","permission_list":"ENTRY","permission_action":"add"};host.next_response=reply
 	await coordinator.request("house_permission_arm",{"terminal_id":"55","permission_list":"ENTRY","permission_action":"add"})
 	check(ui.terminal.is_empty() and not ui.blocks_combat(),"Successful house permission selection releases terminal gate for the handshake")
+	coordinator.allowed=true;ui.set_allowed(true);ui.close_interface()
+	coordinator.busy=false;coordinator.state_age=0
+	coordinator.state.shuttles=[{"id":"600","position":[3500,5,-4800],"departure":"Mos Eisley","landed":true,"doors_open":true}]
+	coordinator.state.tickets=[{"id":"700","usable":true,"departure":"Mos Eisley"},{"id":"701","usable":true,"departure":"Theed"}]
+	host.player.global_position=Vector3.ZERO
+	var terminal_calls:=host.calls.size()
+	var ticket_offer:Dictionary=coordinator.open_terminal_tickets()
+	check(ticket_offer.get("ok",false) and ui.panel.rows.size()==1 and ui.panel.rows[0].id=="700","Terminal boarding selects owned usable tickets for the nearby native departure")
+	check(host.calls.size()==terminal_calls,"Selecting terminal boarding does not consume a ticket or teleport locally")
+	ui.close_interface();host.player.position=Vector3(30,0,0)
+	check(not coordinator.open_terminal_tickets().get("ok",true),"Terminal boarding retains Core3 25m range")
+	host.player.position=Vector3.ZERO;coordinator.state.shuttles[0].doors_open=false
+	check(not coordinator.open_terminal_tickets().get("ok",true),"Closed shuttle doors prevent terminal boarding")
+	coordinator.state.shuttles[0].doors_open=true;coordinator.state_age=3
+	check(not coordinator.open_terminal_tickets().get("ok",true) and coordinator.poll_clock==0,"Stale terminal boarding state requests a refresh")
+	coordinator.state_age=0;host.stage.current_cell={"building_object_id":"0","cell_id":"exterior"}
+	coordinator.state.shuttles[0].collector_id="native-collector"
+	coordinator.state.shuttles[0].collector_position=[3500,5,-4801]
+	var collectors:Array=coordinator.terminal_records().filter(func(row):return row.get("kind","")=="ticket_collector")
+	check(collectors.size()==1 and collectors[0].shuttle_id=="600","Native collector becomes an interactive boarding terminal")
+	terminal_calls=host.calls.size();ui.open_terminal(collectors[0]);await frames()
+	check(ui.terminal.get("kind","")=="boarding" and ui.panel.rows.size()==1 and host.calls.size()==terminal_calls,"Collector activation opens native ticket selection without unsupported terminal-open API call")
 	host.queue_free();await process_frame
 	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"backend":"async mocked Core3 envelopes","renderer":"headless dummy","tracking":"mocked; not live XR"}
 	var file:=FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/services-controller-smoke.json"),FileAccess.WRITE)

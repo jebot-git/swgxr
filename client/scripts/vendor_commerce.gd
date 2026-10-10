@@ -87,9 +87,7 @@ func anchor(row:Dictionary)->void:
 		for record:Dictionary in app.services.terminal_records():
 			if str(record.id)!=str(row.id):continue
 			var center:=position+forward*.6;center.y=eye.y-.10
-			root_ui.global_transform=app.services.ui.terminal_pose(record,center,eye)
-			# The sale board is taller than the browse surface, with knobs in front.
-			root_ui.global_position+=root_ui.global_basis.z*.06
+			root_ui.global_transform=app.services.ui.terminal_pose(record,center,eye,Vector2(.59,.66))
 			break
 	root_ui.show()
 	if is_instance_valid(app.services.ui):app.services.ui.set_allowed(false)
@@ -125,7 +123,7 @@ func add_slider(key:String,text:String,y:float,allowed:Array=[])->void:
 func build()->void:
 	for child in root_ui.get_children():child.queue_free()
 	controls.clear();action_buttons.clear();grabbed=-1;gripping=false;knob=null;preview=null
-	box(Vector3(0,0,-.018),Vector3(.59,.66,.008),Color(.015,.12,.17,.55))
+	box(Vector3(0,0,-.018),Vector3(.59,.66,.008),Color(.015,.12,.17,.97))
 	title=label("SELL · "+str(item.get("name","Item")) if mode=="sale" else "CUSTOMIZE · "+str(target.get("name","Vendor")),Vector3(0,.285,.01),25)
 	note=label("",Vector3(0,-.205,.01),18)
 	if mode=="sale":

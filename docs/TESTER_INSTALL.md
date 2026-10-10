@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.8), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.9), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
 
 ## Requirements
 
@@ -19,15 +19,15 @@ Older Linux distributions with glibc below 2.43 cannot run this particular build
 
 ## Get the matching SWG assets
 
-The client downloads contain no original SWG game data. Obtain **`test-runtime-data-test8-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
+The client downloads contain no original SWG game data. Obtain **`test-runtime-data-test9-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
 
-The matching ZIP is **5,186,866,430 bytes** (about 4.83 GiB). Its SHA-256 is:
+The matching ZIP is **5,187,073,127 bytes** (about 4.83 GiB). Its SHA-256 is:
 
 ```text
-ae4d739595ab78abfb4b79a818799cd5d3cb19bb061e2cf82134cd8264722055
+953b058b06dd3c57c73aa1e529e51853682c13fa7d89ca35d78b69097a49fc8b
 ```
 
-It contains **55,284 verified runtime files**, occupying about **9.90 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
+It contains **55,288 verified runtime files**, occupying about **9.90 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
 
 If you only have your own installation media, use the repository's [local asset preparation guide](https://github.com/jebot-git/swgxr/blob/main/tools/assets/README.md) with the test organizer to prepare the matching data. The documented source set uses original base-game, Jump to Lightspeed and Total Experience media to complete the pinned 51-file pre-CU archive allowlist. Base CDs alone supply only 30 of those archives. Extraction, activation, conversion and validation are a separate developer workflow; the packaged launcher only verifies and imports the completed data ZIP. Do not fetch replacement proprietary assets or publish the resulting bundle.
 
@@ -38,14 +38,14 @@ Download `CHECKSUMS.sha256` from the same release. It lists both client archives
 On Linux, from the download directory:
 
 ```sh
-sha256sum test-client-linux-20261010.tar.gz test-runtime-data-test8-20261010.zip
+sha256sum test-client-linux-20261010.tar.gz test-runtime-data-test9-20261010.zip
 ```
 
 Compare both values with `CHECKSUMS.sha256`. On Windows, use PowerShell:
 
 ```powershell
 Get-FileHash .\test-client-windows-20261010.zip -Algorithm SHA256
-Get-FileHash .\test-runtime-data-test8-20261010.zip -Algorithm SHA256
+Get-FileHash .\test-runtime-data-test9-20261010.zip -Algorithm SHA256
 ```
 
 Compare the values with the checksum file (letter case does not matter). If a hash differs, obtain a fresh copy before importing it. The launcher also checks every individual data file during installation.
@@ -59,7 +59,7 @@ Compare the values with the checksum file (letter case does not matter). If a ha
    cd test-client-linux-20261010
    ```
 
-2. Copy the **unextracted** `test-runtime-data-test8-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
+2. Copy the **unextracted** `test-runtime-data-test9-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
 3. Install and verify the data without starting the client:
 
    ```sh
@@ -77,7 +77,7 @@ For desktop regression or asset inspection, use `./play-desktop.sh`, which expli
 ## Windows installation
 
 1. Extract **all** of `test-client-windows-20261010.zip` into a short writable path such as `C:\SWGXR`. Open the extracted `test-client-windows-20261010` folder; do not run files from inside the ZIP.
-2. Copy the **unextracted** `test-runtime-data-test8-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
+2. Copy the **unextracted** `test-runtime-data-test9-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
 3. Run `import-data.cmd`. It verifies and installs the assets without starting the client. From PowerShell, use `.\import-data.cmd`.
 4. Configure your OpenXR runtime and connect the headset, then run `play-vr.cmd`.
 
@@ -90,7 +90,7 @@ After installation, the folder has this shape:
 ```text
 test-client-<platform>-20261010/
   data/
-    test-runtime-data-test8-20261010.zip
+    test-runtime-data-test9-20261010.zip
   runtime/
     assets/
   engine/
@@ -121,7 +121,7 @@ store GitHub credentials. Original assets are still supplied separately.
 
 ## Upgrading an existing installation
 
-Extract the new client into a fresh folder, put only `test-runtime-data-test8-20261010.zip` in its `data/` folder, and run its import command. Runtime ZIPs from before test.6 lack seated avatar poses, ship and sector audio, and NPC variant pools. The test.8 bundle retains those assets and the current runtime dependency closure. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Run the new folder's `install-shortcuts` script to retarget all four shortcuts to the new version. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
+Extract the new client into a fresh folder, put only `test-runtime-data-test9-20261010.zip` in its `data/` folder, and run its import command. Runtime ZIPs from before test.6 lack seated avatar poses, ship and sector audio, and NPC variant pools. The test.9 bundle retains those assets and adds original shuttle landing, takeoff, power-down and idle audio. Pre-mount ZIPs also lack saddle and rein metadata; pre-JtL ZIPs lack sectors and NPC hulls. Run the new folder's `install-shortcuts` script to retarget all four shortcuts to the new version. Preserve the old installation until the new one works. Do not mix ZIPs or overwrite an imported installation: its receipt belongs to its original archive and location.
 
 ## Connect and create a character
 
@@ -260,3 +260,23 @@ The wrist minimap now has a larger invisible touch area for opening the datapad:
 5 cm beyond each edge and 6 cm in front of or behind the display. Reveal the
 minimap with the existing offhand fist gesture, then bring the other fingertip
 near it. The visible minimap size and distant-ray behavior are unchanged.
+
+## Terminal and shuttle fixes (test.9)
+
+Banking, bazaar browsing and sale panels now fit inside the original terminal's
+visible glass, with its authored orientation. Shuttle landing, takeoff, idle and
+power-down sounds use the original client data and animation events; install the
+matching test.9 data ZIP to obtain the new samples.
+
+Buy a ticket at a travel terminal. Click the boarding terminal beside the pad,
+or choose **Use ticket / board shuttle** at a purchase terminal within boarding range.
+Select the owned ticket and confirm **Board shuttle** while the shuttle's doors
+are open. This supports elevated pads from the terminal within Core3's boarding
+range, without climbing onto the shuttle. Native ticket and schedule checks
+still apply. Walking through a shuttle's boarding doorway remains supported.
+
+Movement rejection recovery no longer selects a landing-pad roof several metres
+above the player's feet. Original geometry checks covered 28 starport/pad exterior
+placements across all ten ground planets, including Talus Imperial Outpost.
+Validation used synthetic movement, dummy-renderer smoke tests and desktop Vulkan
+terminal captures. Live headset testing remains suspended.

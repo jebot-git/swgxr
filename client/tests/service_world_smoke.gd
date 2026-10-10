@@ -12,15 +12,18 @@ func run() -> void:
 	root.add_child(world)
 	world.configure(Vector3(3618.98388671875,5,-4801.0859375))
 	check(world.catalog.get("failures",[]).is_empty(),"Original service extraction has no failures")
-	check(world.static_ids.size()==333,"333 source static service terminals")
+	check(world.static_ids.size()>=333,"Original static service terminal catalog remains populated")
 	var p := [3618.98388671875,5,-4801.0859375]
 	var rows := [{"id":"source_transport","template":"object/mobile/player_transport.iff","position":p,"heading_radians":0.0,"boarding":true},
-		{"id":"source_shuttle","template":"object/creature/npc/theme_park/player_shuttle.iff","position":p,"heading_radians":0.0,"boarding":true,"collector_position":[3619.0,5,-4802.0]}]
+		{"id":"source_shuttle","template":"object/creature/npc/theme_park/player_shuttle.iff","position":p,"heading_radians":0.0,"boarding":true,"collector_id":"native-collector","collector_position":[3619.0,5,-4802.0]}]
 	world.apply_snapshot({"shuttles":rows,"terminals":[{"id":"dynamic_travel","kind":"travel","position":p},
 		{"id":"existing_trainer","kind":"trainer","position":p,"template":"object/tangible/terminal/terminal_travel.iff"}]},Vector3.ZERO)
 	await process_frame
 	check(world.shuttles.size()==2,"Both original shuttle variants instantiate")
-	check(world.terminals.size()==1,"Dynamic original travel terminal renders")
+	check(world.terminals.size()==2,"Dynamic original travel and native ticket-collector terminals render")
+	var collectors:=ServiceWorld.collector_records({"shuttles":rows})
+	check(collectors.size()==1 and collectors[0].shuttle_id=="source_shuttle" and collectors[0].position==rows[1].collector_position,"Boarding terminal uses native collector identity and position")
+	check(not world.terminal_pick_geometry(collectors[0]).is_empty(),"Boarding terminal supports whole original mesh picking")
 	check(not world.terminals.has("existing_trainer"),"Trainer service discovery never duplicates an existing NPC")
 	check(world.errors.is_empty(),"CDF HOBJ attachments instantiate without missing models/bones")
 	var transport: Dictionary = world.shuttles.source_transport

@@ -47,7 +47,7 @@ def sources(binding):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--ensure', action='store_true'); args = parser.parse_args()
-    paths = [Path(__file__), ROOT/'tools/assets/prepare_environment.py', ROOT/'runtime/assets/vehicles/catalog.json',
+    paths = [Path(__file__), ROOT/'tools/assets/prepare_environment.py', ROOT/'runtime/assets/vehicles/catalog.json', ROOT/'runtime/assets/services/catalog.json',
              *sorted((ROOT/'runtime/asset_sources/active_tre').glob('*.tre'))]
     signature = hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
     target = OUT/'catalog.json'
@@ -73,6 +73,28 @@ def main():
             if source not in bindings: bindings[source] = sound_bindings(imp.read(source))
             templates[shared.replace('/shared_', '/')] = source
         except Exception as error: imp.failures.append({'source':shared,'error':str(error)})
+    # Original shuttle animation messages resolve through CDF CSND/CEFT PSND.
+    services = json.loads((ROOT/'runtime/assets/services/catalog.json').read_text())
+    for template, descriptor in services['races'].items():
+        source = descriptor['source_cdf']; tree = parse_iff(imp.read(source))
+        binding = sound_bindings(imp.read(source)); binding['kind'] = 'shuttle'
+        for node in tree.walk('CEFT'):
+            event, offset = cstring(node.data); effect, _ = cstring(node.data, offset)
+            sounds = [cstring(n.data)[0] for n in parse_iff(imp.read(effect)).walk('PSND')]
+            if sounds: binding['events'][event] = sounds[0]
+        binding['clips'] = {}
+        for phase, clip in descriptor['clips'].items():
+            messages = []
+            for node in parse_iff(imp.read(clip['source'])).walk('MESG'):
+                count = struct.unpack_from('<H', node.data)[0]
+                message, offset = cstring(node.data, 2)
+                assert len(node.data)-offset == count*2, 'Unsupported shuttle animation message frames'
+                event = message.rsplit('_', 1)[-1]
+                if event not in binding['events']: continue
+                for frame in struct.unpack_from('<'+'H'*count,node.data,offset):
+                    messages.append({'seconds':frame/clip['fps'],'event':event,'message':message})
+            binding['clips'][phase] = sorted(messages,key=lambda row:row['seconds'])
+        bindings[source] = binding; templates[template] = source
     for sound in sorted(set().union(*(sources(binding) for binding in bindings.values()))): imp.sound(sound)
     catalog = {'schema_version':1,'signature':signature,'templates':templates,'bindings':bindings,
                'sounds':imp.sounds,'provenance':imp.dependencies,'failures':imp.failures,

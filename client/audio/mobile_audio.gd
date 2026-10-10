@@ -61,7 +61,11 @@ func tick(delta:float)->void:
 	for emitter:Node3D in get_tree().get_nodes_in_group("swg_mobile_audio"):
 		if not emitter.audible() or binding(emitter.source_template).is_empty():emitter.events.clear();continue
 		var distance:float=mixer.camera.global_position.distance_to(emitter.global_position)
-		if distance>96:emitter.events.clear();continue
+		# Original shuttle land messages fire while the animated root is still
+		# approaching (about 500m away). Preserve the source audible range;
+		# applying the small vehicle/droid budget here silently drops the event.
+		var range_limit:=512.0 if binding(emitter.source_template).get("kind","")=="shuttle" else 96.0
+		if distance>range_limit:emitter.events.clear();continue
 		nearby.append({"emitter":emitter,"distance":distance})
 	nearby.sort_custom(func(a,b):return a.distance<b.distance)
 	var desired:Dictionary={}

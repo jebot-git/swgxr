@@ -185,6 +185,20 @@ func run() -> void:
 	ui.set_pending(false)
 	ui.sync_boarding_choices([])
 	check(ui.terminal.is_empty(),"No remaining usable tickets closes chooser")
+	ui.open_terminal({"id":"travel-test","kind":"travel","position":Vector3(0,0,-1)})
+	ui.set_pending(false)
+	ui.panel.click_at(Vector2(390,512))
+	check(requests.back().action=="travel_tickets","Travel terminal exposes explicit ticket boarding action")
+	ui.set_pending(false)
+	var terminal_board_pose:=ui.surface.global_transform
+	var terminal_board_origin:=ui.terminal_origin
+	var before_terminal_board:=requests.size()
+	ui.offer_boarding(shuttle,[held_tickets[0]],true)
+	check(ui.terminal.get("kind")=="boarding" and ui.panel.rows.size()==1 and requests.size()==before_terminal_board,"Terminal boarding presents single owned ticket without auto-consuming it")
+	check(ui.surface.global_transform==terminal_board_pose and ui.terminal_origin==terminal_board_origin,"Ticket selection remains attached to the terminal instead of moving to the head")
+	ui.panel.selected=0;ui.panel.confirm()
+	check(requests.back().action=="travel_board" and requests.back().payload.ticket_id=="700" and requests.back().payload.terminal_id=="600","Terminal confirmation uses native shuttle and owned ticket IDs")
+	ui.set_pending(false);ui.close_interface()
 	ui.terminal={"id":"test","kind":"bank"};ui.terminal_origin=Vector3.ZERO
 	ui.update_proximity(Vector3(6,0,0))
 	check(ui.terminal.is_empty(),"Walking away closes terminal or boarding chooser")

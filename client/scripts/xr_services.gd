@@ -181,6 +181,7 @@ func open_terminal(record: Dictionary) -> void:
 	sync_pointers();opened.emit()
 	set_pending(true)
 	if record.get("kind","") in ["contraband","bounty_informant","bounty_droid"]:set_pending(false);return
+	if record.get("kind","")=="ticket_collector":action_requested.emit("travel_tickets",{"terminal_id":str(record.id)});return
 	if record.get("kind","")=="delivery":action_requested.emit("delivery_open",{"npc_id":str(record.id),"mission_id":str(record.get("mission_id",""))})
 	else:action_requested.emit("open",{"terminal_id":str(record.id)})
 
@@ -271,25 +272,30 @@ func validate_payment_peer(peers: Array, player_position: Vector3) -> void:
 		break
 	close_interface()
 
-func offer_boarding(shuttle: Dictionary, available_tickets: Array) -> void:
+func offer_boarding(shuttle: Dictionary, available_tickets: Array, from_terminal := false) -> void:
 	if not allowed or pending or not bool(shuttle.get("landed",false)) or not bool(shuttle.get("doors_open",false)): return
 	var choices: Array=[]
 	for ticket: Dictionary in available_tickets:
 		if bool(ticket.get("usable",false)): choices.append(ticket)
 	if choices.is_empty(): return
 	var shuttle_id:=str(shuttle.get("id",""))
-	if shuttle_id.is_empty() or boarding_latch==shuttle_id: return
+	if shuttle_id.is_empty() or (boarding_latch==shuttle_id and not from_terminal): return
 	boarding_latch=shuttle_id
-	if choices.size()==1:
+	if choices.size()==1 and not from_terminal:
 		set_pending(true)
 		action_requested.emit("travel_board",{"terminal_id":shuttle_id,"ticket_id":str(choices[0].get("id",""))})
 		return
+	var previous_pose:=surface.global_transform
+	var previous_origin:=terminal_origin
 	close_interface()
 	terminal={"id":shuttle_id,"kind":"boarding","name":"SELECT SHUTTLE TICKET"}
 	tickets=choices
 	terminal_origin=body.global_position
 	var head: Transform3D=rig.get_node("XRCamera3D").global_transform
 	surface.global_transform=face_pose(head.origin-head.basis.z*0.6-Vector3.UP*0.12,head.origin)
+	if from_terminal:
+		surface.global_transform=previous_pose
+		terminal_origin=previous_origin
 	panel.selected=-1;panel.offset=0;panel.message="Choose the ticket for this journey."
 	panel.configure(terminal,wallet,tickets)
 	surface.visible=true;viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE
@@ -466,8 +472,7 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 			var alignment:=direction.normalized().dot(delta.normalized())
 			if distance>0.4 and (distance>3.0 or alignment<0.94): continue
 			if record.has("ui_anchors") and not record.ui_anchors.is_empty():
-				# ui_anchors are 55mm in front of physical glass. Testing the finger
-				# against that plane rejected real touch (55mm > old50mm tolerance).
+				# Pick the complete casing, including the keyboard and physical glass.
 				# Facing belongs to the viewer; a tracked finger may touch or slightly
 				# penetrate the glass without making the entire terminal a back face.
 				var physical:=anchor.origin-anchor.basis.z*.055
@@ -484,7 +489,15 @@ func sync_pointers() -> void:
 func _exit_tree() -> void:
 	preload("res://scripts/pointer_capture.gd").suspend(self,rig,false)
 
-func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) -> Transform3D:
+func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3, panel_size:Vector2=PANEL_METERS) -> Transform3D:
+	# Bank/bazaar interfaces belong on the largest original display. In
+	# particular, the bazaar's lower keyboard display must never win by distance.
+	if record.get("kind","") in ["bank","bazaar"] and not record.get("ui_displays",[]).is_empty():
+		var display:Dictionary=record.ui_displays[0]
+		var fit:float=minf(display.size.x/panel_size.x,display.size.y/panel_size.y)*.92
+		var fitted:Transform3D=display.pose
+		fitted.basis=fitted.basis.scaled(Vector3.ONE*fit)
+		return fitted
 	var best: Transform3D=face_pose(fallback_center,head)
 	var score:=-INF
 	for pose: Transform3D in record.get("ui_anchors",[]):
@@ -494,7 +507,7 @@ func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) 
 	if record.get("kind","") in ["starship","ship_crew","ship_control"] or record.get("pob",false):
 		best.origin.y=maxf(best.origin.y+.40,float(record.get("position",fallback_center).y)+1.65)
 	# A hologram is larger than the original glass. Keep its plane outside the
-	# entire casing (including projecting keyboards), not merely 55mm off glass.
+	# entire casing (including projecting keyboards), not merely offset from glass.
 	if record.get("pick_geometry",{}).get("bounds") is AABB and record.get("pick_pose") is Transform3D:
 		var normal:=best.basis.z.normalized()
 		var bounds:AABB=record.pick_geometry.bounds

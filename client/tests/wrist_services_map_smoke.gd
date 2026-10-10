@@ -69,7 +69,7 @@ func run() -> void:
 	check(ui.terminal_pose({"ui_anchors":[anchors[0]]},Vector3.ZERO,head+Vector3(.7,.4,.2)).is_equal_approx(fixed),"Terminal panel does not billboard toward moving head")
 	var map:=Map.new();root.add_child(map);map.size=Vector2(1100,650);map.load_service_references()
 	var trainer_source:Dictionary=Avatar.read_json(ProjectSettings.globalize_path("res://../runtime/assets/services/trainers.json"))
-	check(map.source_services.size()==scenery.catalog.static_terminals.size()+trainer_source.get("placements",[]).size(),"Map includes original global terminal/trainer placement references")
+	check(map.source_services.size()==scenery.catalog.static_terminals.filter(func(row):return str(row.get("kind","")) in map.SERVICE_KINDS).size()+trainer_source.get("placements",[]).size(),"Map includes original global terminal/trainer placement references")
 	var trainer_count:=map.source_services.filter(func(row):return row.type=="trainer").size()
 	check(trainer_count>=50,"Original basic-profession trainers appear as navigation POIs")
 	var original: Dictionary=map.source_services.filter(func(row):return row.type=="bank")[0]

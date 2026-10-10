@@ -15,8 +15,10 @@ var static_records: Dictionary = {}
 var screens: Dictionary = {}
 var models := InventoryAssets.new()
 var terminal_pick_cache:Dictionary={}
+var screen_surface_cache:Dictionary={}
 var observer := Vector3.ZERO
 var errors: Array = []
+var shuttle_audio:Dictionary={}
 var elapsed := 0.0
 var last_snapshot := -100.0
 
@@ -30,13 +32,14 @@ func configure(origin: Vector3, path := "") -> void:
 		static_ids[str(row.id)] = true;static_records[str(row.id)]=row
 	screens=Avatar.read_json(directory.path_join("screens.json")).get("templates",{})
 	models.configure()
+	shuttle_audio=Avatar.read_json("res://../runtime/assets/mobile_audio/catalog.json")
 
 func reset() -> void:
 	for entry in shuttles.values(): entry.actor.queue_free()
 	for entry in terminals.values(): entry.node.queue_free()
 	shuttles.clear()
 	terminals.clear()
-	static_ids.clear();static_records.clear();screens.clear();terminal_pick_cache.clear()
+	static_ids.clear();static_records.clear();screens.clear();terminal_pick_cache.clear();screen_surface_cache.clear()
 	errors.clear()
 	elapsed = 0.0
 	last_snapshot = -100.0
@@ -86,7 +89,9 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			actor.rigid_equipment = attached.items
 			errors.append_array(attached.failures)
 			if actor.animation_player != null: actor.animation_player.stop()
-			shuttles[id] = {"actor":actor,"source":descriptor,"complete":attached.failures.is_empty(),"row":{},"phase":"","time":0.0,"sample_clock":0.0,"door_local":Vector3.INF,"rate":1.0}
+			var emitter:=preload("res://audio/mobile_emitter.gd").new();actor.add_child(emitter)
+			var binding:Dictionary=shuttle_audio.get("bindings",{}).get(shuttle_audio.get("templates",{}).get(template,""),{})
+			shuttles[id] = {"audio":emitter,"audio_binding":binding,"audio_cursor":0.0,"actor":actor,"source":descriptor,"complete":attached.failures.is_empty(),"row":{},"phase":"","time":0.0,"sample_clock":0.0,"door_local":Vector3.INF,"rate":1.0}
 		var entry: Dictionary = shuttles[id]
 		entry.actor.position = local_position(p)
 		entry.actor.rotation.y = heading(row)
@@ -94,7 +99,8 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 		var phase := phase_for(row)
 		if phase == "loop_sky" and entry.phase == "loop_ground": phase = "take_off"
 		if phase == "loop_sky" and entry.phase == "take_off" and float(entry.time)<float(entry.source.clips.take_off.length): phase = "take_off"
-		if phase != entry.phase:
+		var phase_changed:bool=phase!=entry.phase
+		if phase_changed:
 			entry.phase = phase
 			entry.time = float(row.get("phase_elapsed_seconds", 0.0))
 			entry.rate = 1.0
@@ -104,6 +110,8 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			entry.rate = float(entry.source.clips.land.length)/float(row.landing_duration_seconds)
 			entry.time = float(row.get("phase_elapsed_seconds",0.0))*float(entry.rate)
 			entry.sample_clock = 1.0
+		if phase_changed:entry.audio_cursor=entry.time-.001
+		entry.audio.observe(template,0.0,phase in ["loop_ground","land","take_off"])
 		# Missing state means unavailable, never assume boarding on presence.
 		entry.actor.visible = not phase.is_empty()
 	for id in shuttles.keys():
@@ -111,7 +119,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			shuttles[id].actor.queue_free()
 			shuttles.erase(id)
 	keep.clear()
-	for row: Dictionary in snapshot.get("terminals", []):
+	for row: Dictionary in snapshot.get("terminals", [])+collector_records(snapshot):
 		# Trainers reuse the authored ambient/native NPC, never a terminal mesh.
 		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld"]: continue
 		var id := str(row.get("id", ""))
@@ -172,6 +180,11 @@ func advance(delta: float) -> void:
 		entry.sample_clock = 0.0
 		var clip: Dictionary = entry.source.clips.get(entry.phase,{})
 		sample(entry.actor.skeleton,clip,float(entry.time))
+		for event:Dictionary in entry.audio_binding.get("clips",{}).get(entry.phase,[]) if entry.phase in ["land","take_off"] else []:
+			if float(event.seconds)>float(entry.audio_cursor) and float(event.seconds)<=float(entry.time) and str(event.event) not in entry.audio.events:entry.audio.queue_event(str(event.event))
+		entry.audio_cursor=maxf(float(entry.audio_cursor),float(entry.time))
+		var bone:int=entry.actor.skeleton.find_bone("root")
+		if bone>=0:entry.audio.global_transform=entry.actor.skeleton.global_transform*entry.actor.skeleton.get_bone_global_pose(bone)
 
 func sample(skeleton: Skeleton3D, clip: Dictionary, seconds: float) -> void:
 	var duration := maxf(float(clip.get("length",0.1)),0.001)
@@ -201,6 +214,13 @@ func neighbors(keys: Array, time: float) -> Array:
 	var next := mini(lo+1,keys.size()-1)
 	var span := float(keys[next][0])-float(keys[lo][0])
 	return [keys[lo],keys[next],clampf((time-float(keys[lo][0]))/span,0.0,1.0) if span>0.000001 else 0.0]
+
+static func collector_records(snapshot:Dictionary)->Array:
+	var result:Array=[]
+	for shuttle:Dictionary in snapshot.get("shuttles",[]):
+		if str(shuttle.get("collector_id","")).is_empty() or not shuttle.get("collector_position") is Array:continue
+		result.append({"id":str(shuttle.collector_id),"kind":"ticket_collector","name":"SHUTTLE BOARDING TERMINAL","position":shuttle.collector_position,"template":"object/tangible/travel/ticket_collector/ticket_collector.iff","heading_radians":float(shuttle.get("collector_heading_radians",0)),"building_id":"0","cell_index":0,"shuttle_id":str(shuttle.id)})
+	return result
 
 func boarding_rows() -> Array:
 	var rows: Array = []
@@ -262,22 +282,46 @@ func terminal_basis(record: Dictionary) -> Basis:
 	if rotation.size()==4:return Basis(Quaternion(rotation[0],rotation[1],rotation[2],rotation[3])).orthonormalized()
 	return Basis(Vector3.UP,heading(record))
 
-func screen_offsets(record: Dictionary) -> Array:
+func terminal_template(record:Dictionary)->String:
 	var template:=str(record.get("template",""))
 	if template.is_empty():template=str(static_record(record).get("template",""))
-	var result: Array=[]
-	for screen: Dictionary in screens.get(template.replace("/shared_","/"),[]):
+	return template.replace("/shared_","/")
+
+func screen_surfaces(record:Dictionary)->Array:
+	var template:=terminal_template(record)
+	if screen_surface_cache.has(template):return screen_surface_cache[template]
+	var result:Array=[]
+	for screen:Dictionary in screens.get(template,[]):
 		var center:=vec(screen.get("center"));var normal:=vec(screen.get("normal")).normalized()
 		if not center.is_finite() or not normal.is_finite() or normal.length_squared()<.5:continue
 		var up:=Vector3.UP.slide(normal).normalized()
-		result.append(Transform3D(Basis(up.cross(normal).normalized(),up,normal),center+normal*.055))
+		var basis:=Basis(up.cross(normal).normalized(),up,normal)
+		var source:Dictionary=Avatar.read_json("res://../"+str(screen.get("source_path","")))
+		var low:=Vector2(INF,INF);var high:=Vector2(-INF,-INF)
+		for part:Dictionary in source.get("surfaces",[]):
+			if part.get("shader","")!=screen.get("shader",""):continue
+			var vertices:Array=part.get("vertices",[])
+			for index in range(0,vertices.size(),3):
+				var point:=Vector3(vertices[index],vertices[index+1],vertices[index+2])-center
+				if absf(point.dot(normal))>.008:continue
+				var planar:=Vector2(point.dot(basis.x),point.dot(basis.y))
+				low=low.min(planar);high=high.max(planar)
+		if not low.is_finite() or (high-low).x<.05 or (high-low).y<.05:continue
+		var mid:=(low+high)*.5
+		result.append({"pose":Transform3D(basis,center+basis.x*mid.x+basis.y*mid.y+normal*.012),"size":high-low,"area":float(screen.get("area",0))})
+	result.sort_custom(func(a,b):return a.area>b.area)
+	screen_surface_cache[template]=result
+	return result
+
+func screen_offsets(record: Dictionary) -> Array:
+	var result:Array=[]
+	for screen:Dictionary in screen_surfaces(record):result.append(screen.pose)
 	if result.is_empty():
-		# Unavailable screen data: fixed facade-relative presentation, never world-axis/billboard.
 		result.append(Transform3D(Basis(Vector3.LEFT,Vector3.UP,Vector3.FORWARD),Vector3(0,1.3,-.4)))
 	return result
 
 func terminal_pick_geometry(record:Dictionary)->Dictionary:
-	var template:=str(record.get("template",static_record(record).get("template","")))
+	var template:=terminal_template(record)
 	if terminal_pick_cache.has(template):return terminal_pick_cache[template]
 	var mesh:ArrayMesh=models.model(template)
 	if mesh==null:

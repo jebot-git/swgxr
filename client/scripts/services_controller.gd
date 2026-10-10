@@ -136,6 +136,8 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 	if (not allowed and action != "skill_forget" and not (action == "status" and skill_browser)) or app.datapad_character_id.is_empty():
 		if is_instance_valid(ui): ui.set_pending(false)
 		return {}
+	if action=="travel_tickets":
+		return open_terminal_tickets()
 	if action in ["travel_purchase","travel_board"]:
 		var ready:=travel_assets_ready(action,detail)
 		if not ready.get("ok",false):
@@ -302,7 +304,7 @@ func terminal_records(require_fresh: bool=true) -> Array:
 	var records: Array = []
 	if require_fresh and state_age > 8.0: return records
 	var identity := identity_payload()
-	for record: Dictionary in state.get("terminals",[])+state.get("delivery_contacts",[])+(bounty.contacts() if is_instance_valid(bounty) else []):
+	for record: Dictionary in state.get("terminals",[])+preload("res://scripts/service_world.gd").collector_records(state)+state.get("delivery_contacts",[])+(bounty.contacts() if is_instance_valid(bounty) else []):
 		if not record.get("position") is Array or record.position.size()!=3: continue
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
@@ -313,6 +315,9 @@ func terminal_records(require_fresh: bool=true) -> Array:
 			var object_pose:=Transform3D(basis,value.position)
 			value.pick_geometry=scenery.terminal_pick_geometry(record)
 			value.pick_pose=object_pose
+			value.ui_displays=[]
+			for screen:Dictionary in scenery.screen_surfaces(record):
+				value.ui_displays.append({"pose":object_pose*screen.pose,"size":screen.size,"area":screen.area})
 			value.ui_anchors=[]
 			for offset: Transform3D in scenery.screen_offsets(record):value.ui_anchors.append(object_pose*offset)
 		records.append(value)
@@ -498,7 +503,7 @@ func _process(delta: float) -> void:
 	if poll_clock <= 0 and not busy and not (is_instance_valid(ui) and ui.pointer_pressed) and (not app.has_method("try_background_poll") or app.try_background_poll("services")):
 		poll_clock=5.0
 		var detail: Dictionary={}
-		if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding","contraband","bounty_droid","bounty_informant"]: detail.terminal_id=str(ui.terminal.id)
+		if is_instance_valid(ui) and not ui.terminal.is_empty() and ui.terminal.get("kind","") not in ["payment","boarding","ticket_collector","contraband","bounty_droid","bounty_informant"]: detail.terminal_id=str(ui.terminal.id)
 		if is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor"]: detail.merge(ui.panel.browse_payload(),true)
 		if is_instance_valid(ui) and ui.terminal.get("kind","")=="delivery":
 			detail={"npc_id":str(ui.terminal.id),"mission_id":str(ui.terminal.get("mission_id",""))}
@@ -523,10 +528,33 @@ func _process(delta: float) -> void:
 				ui.update_boarding(value,tickets,previous_position,current)
 		previous_position=current; have_previous=true
 
+func open_terminal_tickets() -> Dictionary:
+	if not is_instance_valid(ui):return {"ok":false}
+	ui.set_pending(false)
+	var reason:="Wait for the shuttle to land and open its doors."
+	if state_age>=2.5:
+		reason="Refreshing shuttle status. Try again in a moment."
+		poll_clock=0
+	else:
+		for shuttle:Dictionary in state.get("shuttles",[]):
+			if not shuttle.get("position") is Array:continue
+			if ui.terminal.get("kind","")=="ticket_collector" and str(ui.terminal.get("shuttle_id",""))!=str(shuttle.get("id","")):continue
+			# Keep Core3's native boarding range; no local teleport or ticket consumption.
+			if (world(shuttle.position)-app.player.global_position).slide(Vector3.UP).length()>25.0:
+				reason="Use the shuttle boarding terminal beside the landing pad."
+				continue
+			if not shuttle.get("landed",false) or not shuttle.get("doors_open",false):continue
+			var choices:Array=shuttle.get("tickets",state.get("tickets",[])).filter(func(ticket):return bool(ticket.get("usable",false)) and str(ticket.get("departure",""))==str(shuttle.get("departure","")))
+			if choices.is_empty():reason="Buy a ticket for this departure first.";continue
+			ui.offer_boarding(shuttle,choices,true)
+			return {"ok":true}
+	ui.panel.message=reason;ui.panel.queue_redraw()
+	return {"ok":false,"error":reason}
+
 func services_poll_interval(snapshot: Dictionary) -> float:
 	if snapshot.get("bounty",{}).get("stage","") in ["probe_calling","searching","tracking"]:return 1.0
 	# Distant planetary shuttle state does not justify another native scene login.
-	if is_instance_valid(ui) and str(ui.terminal.get("kind","")) in ["travel","boarding"]:return 1.0
+	if is_instance_valid(ui) and str(ui.terminal.get("kind","")) in ["travel","boarding","ticket_collector"]:return 1.0
 	if is_instance_valid(app) and is_instance_valid(app.get("player")):
 		for shuttle in snapshot.get("shuttles",[]):
 			if not shuttle is Dictionary or not shuttle.get("position") is Array or shuttle.position.size()!=3:continue

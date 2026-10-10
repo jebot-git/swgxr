@@ -13,6 +13,7 @@ const BAZAAR_REFRESH=Rect2(228,488,148,52)
 const PAGE_PREVIOUS=Rect2(386,488,86,52)
 const PAGE_NEXT=Rect2(482,488,86,52)
 const CONFIRM_RECT=Rect2(590,488,250,52)
+const BOARDING_RECT=Rect2(228,488,340,52)
 const REFRESH_RECT=Rect2(20,488,190,52)
 const CLOSE_RECT=Rect2(808,12,40,40)
 var terminal: Dictionary={}
@@ -267,6 +268,8 @@ func category_back() -> void:
 func click_at(pixel: Vector2) -> void:
 	if pending: return
 	if CLOSE_RECT.has_point(pixel): close_requested.emit(); return
+	if terminal.get("kind","") in ["travel","ticket_collector"] and BOARDING_RECT.has_point(pixel):
+		action_requested.emit("travel_tickets",{"terminal_id":str(terminal.get("id",""))});return
 	if terminal.get("kind","")=="bazaar" and not bid_mode and SCOPE_RECT.has_point(pixel):
 		select_scope(int((pixel.x-SCOPE_RECT.position.x)/(SCOPE_RECT.size.x/4)));return
 	if terminal.get("kind","")=="travel" and travel_overview.RECT.has_point(pixel):
@@ -537,15 +540,19 @@ func _draw() -> void:
 				var state:="Learned" if bool(rows[index].get("learned",false)) else ("Train" if bool(rows[index].get("eligible",false)) else "Locked")
 				draw_string(FONT,Vector2(item_region.end.x-98,y+27),state,HORIZONTAL_ALIGNMENT_RIGHT,88,17,Color("8bddd2") if state=="Train" else Color("85a9b2"))
 			draw_string(FONT,Vector2(item_region.position.x+8,y+29),label_for(rows[index])+(" · pilot" if kind=="ship_crew" and str(rows[index].get("id",""))==str(terminal.get("pilot_id","")) else ""),HORIZONTAL_ALIGNMENT_LEFT,row_width,21,Color("d2f6ff"))
-		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
+		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"Wait for boarding, then use your ticket." if kind=="ticket_collector" else "No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
 			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
 		if kind not in ["ship_crew","travel","pilot_trainer"] and selected>=0 and selected<rows.size():
 			var row: Dictionary=rows[selected]
 			var detail:=detail_for(row)
 			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
-		if rows.size()>8 and kind!="bazaar": draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("9ac7da"))
-	if kind=="travel":travel_overview.draw(self,rows,selected,FONT)
+		if rows.size()>8 and kind not in ["bazaar","travel"]: draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("9ac7da"))
+	if kind=="travel":
+		travel_overview.draw(self,rows,selected,FONT)
+	if kind in ["travel","ticket_collector"]:
+		draw_style_box(Holo.button("disabled" if pending else "normal"),BOARDING_RECT)
+		draw_string(FONT,BOARDING_RECT.position+Vector2(10,33),"Use ticket / board shuttle",HORIZONTAL_ALIGNMENT_CENTER,320,19,Color("d2f6ff"))
 	if kind=="house_deposit":
 		draw_style_box(Holo.button(),REFRESH_RECT);draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back",HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if kind in ["bazaar","mission","travel","trainer","ship_crew","starship","ship_outfit"]:

@@ -32,7 +32,11 @@ static func apply(app:Node,snapshot:Dictionary)->bool:
 	# not have identical Y. Restore authoritative horizontal/cell position while
 	# retaining the original client's resident support selection for elevation.
 	if player.has_method("_source_support"):
-		var support:Dictionary=player._source_support(target,8,8)
+		# A rejection is a horizontal rollback, not permission to climb onto
+		# an overhead landing pad or roof. Search around the current feet with
+		# normal step tolerance; the old +/-8m query chose the highest storey.
+		var foot_probe:=Vector3(target.x,player.global_position.y,target.z)
+		var support:Dictionary=player._source_support(foot_probe,.35,.6)
 		if support.get("valid",false):target.y=float(support.get("body_height",support.height))
 	if player.has_method("apply_world_correction"):player.apply_world_correction(target-player.global_position)
 	else:player.global_position=target

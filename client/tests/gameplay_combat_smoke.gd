@@ -9,6 +9,7 @@ class Rounds extends Node:
 class Rig extends Node3D:
 	var authority_gate:Callable
 	var shot_authority:Callable
+	var aim_assist_candidates:Callable
 	var commando_authority:Callable
 	var weapons:Array=[]
 	var unarmed:Dictionary={}
@@ -19,6 +20,8 @@ class Rig extends Node3D:
 	func active_profile()->Dictionary:return weapons[0].state.profile if not weapons.is_empty() else {}
 	func close_ability_menu()->void:pass
 class Actor extends Node3D:
+	var session_id:="owned"
+	var snapshot_usec:=Time.get_ticks_usec()-300000
 	var record:Dictionary={"health":100.0,"kind":"creature","relation":"hostile","dead":false}
 	func is_targetable()->bool:return true
 class Entities extends Node:
@@ -80,6 +83,10 @@ func run()->void:
 	var sync:=Sync.new();app.add_child(sync);sync.entities=Entities.new();sync.add_child(sync.entities)
 	var actor:=Actor.new();sync.entities.add_child(actor);sync.entities.actors["201"]=actor
 	var bridge:=preload("res://multiplayer/gameplay_combat.gd").new();app.gameplay_combat=bridge;app.add_child(bridge);bridge.attach(app,rig,session,sync);bridge.set_process(false)
+	check(rig.aim_assist_candidates.call().size()==1 and rig.aim_assist_candidates.call()[0].age_seconds>=.3,"Aim assist reads native actor observation age")
+	actor.session_id="old"
+	check(rig.aim_assist_candidates.call().is_empty(),"Aim assist excludes prior session actors")
+	actor.session_id="owned"
 	check(bridge.is_ready() and rig.authority_gate.call(),"Normal gameplay session enables authenticated ranged authority without separate combat login")
 	check(rig.weapons[0].state.ability_state==null and rig.weapons[0].state.wear_per_shot==0 and rig.weapons[0].state.profile.abilities.is_empty(),"Native bridge disables local HAM/wear/ability prediction")
 	var shot:Dictionary={"item_id":"99","weapon_id":"pistol","sequence":1,"speed":100.0}

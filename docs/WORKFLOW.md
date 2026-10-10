@@ -1904,3 +1904,44 @@ full-build attempt and loopback HTTP attempt remain explicitly environment
 blocked. The stock package is
 `runtime/deploy/bazaar-onboarding/starter-stock.tar.gz`; its checksum and exact
 contents are recorded in `runtime/evidence/bazaar-onboarding/prepared.json`.
+
+
+## Unreleased aim assistance and combat timing — 10 October 2026
+
+Prepared locally for the next patch; the public release, remote server and
+Downloads client remain unchanged. Headset launches remain suspended.
+
+Controls now offers Off/Subtle ground-weapon aim assistance (Subtle default).
+At trigger time it can correct an ordinary bolt by at most 0.5 degrees toward a
+nearby visible hostile body silhouette. It uses the actual oriented collider,
+preserves existing direct hits, checks both sight lines against stage collision,
+and sends the same corrected direction to the visual projectile and native
+request. Movement spread is applied afterward. Tracked hands, weapon and camera
+are untouched. Hidden visuals, other cells, stale or foreign-session targets,
+pets, guided/scatter/heavy attacks and special abilities are excluded.
+Freshness fades assistance between 150 and 500 ms; network latency never widens
+the cone. Cached world observations carry age metadata and retain their original
+observation time while actors wait to instantiate.
+
+Native patch 0134 and the client reconcile ordinary firing cadence with bounded
+arrival jitter, avoiding an extra full cooldown after each reply. The server
+continues to enforce sustained rate and exactly-once shot costs. Unsent stale
+shots are refunded; uncertain transmitted shots are not retried. This first
+latency pass does not rewind moving targets, predict damage, or remove network
+round-trip time. See `server/SESSION_PROTOCOL.md` for limits and wire fields.
+
+Validation: full local Core3 build and patch-stack replay pass; 11 focused real
+Core3 checks with a disposable CDEF marksman pass, including duplicate costs,
+forged launch age, delayed arrivals and catch-up burst rejection. Synthetic
+client checks cover 0–1000 ms delayed receipts, callback/session freshness,
+cover, hidden visuals, shared bolt/request direction, settings persistence,
+capacity refunds and unchanged movement spread/special attacks. Dummy renderer
+checks do not establish GPU or headset behavior. Evidence is kept locally under
+`runtime/evidence/aim-latency-20261010/`.
+
+The companion field-guide tutorial is produced privately in
+`runtime/tutorial-20261010/`, reusing the earlier British narrator, cyan chapter
+cards and dry instructional tone. It covers everyday mechanics, all ten ground
+worlds and introductory JTL, with player-facing narration, subtitles, chapter
+markers and provenance. Fresh planet vistas use desktop Vulkan with XR off.
+No tutorial video or proprietary media is added to the public repository.

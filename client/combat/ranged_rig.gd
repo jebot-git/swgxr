@@ -3,6 +3,9 @@ extends Node3D
 const WeaponState = preload("res://combat/weapon_state.gd")
 const Projectiles = preload("res://combat/projectiles.gd")
 const HandInput = preload("res://scripts/tracked_hand_input.gd")
+var aim_assist=preload("res://combat/aim_assist.gd").new()
+var aim_assist_mode:="subtle"
+var aim_assist_candidates:Callable
 var movement_spread=preload("res://combat/movement_spread.gd").new()
 var spice_gunhand=preload("res://spice/gunhand.gd").new()
 var assets = preload("res://combat/original_assets.gd").new()
@@ -702,6 +705,12 @@ func dispatch_reserved_shot(shot: Dictionary, pose: Transform3D, grip: Vector3, 
 		pose.basis=Basis.looking_at(direction.normalized())
 	if is_instance_valid(squad_leader):immutable.merge(squad_leader.volley_intent(head.global_transform if melee else pose,float(shot.get("range",profile.get("core3",{}).get("maxRange",0))),str(immutable.get("target_id",""))))
 	if not melee:
+		if aim_assist_mode=="subtle" and aim_assist_candidates.is_valid():
+			var correction:Dictionary=aim_assist.correct(pose,profile,immutable,aim_assist_candidates.call(),target_abilities.query)
+			if not correction.is_empty():
+				pose=correction.pose
+				immutable["aim_assist_degrees"]=correction.degrees
+				immutable["aim_assist_target_id"]=correction.target_id
 		pose=movement_spread.apply(pose,profile)
 		immutable["movement_spread_degrees"]=movement_spread.degrees(profile)
 	if shot_authority.is_valid():

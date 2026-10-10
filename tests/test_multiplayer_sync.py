@@ -27,6 +27,16 @@ class SyncTests(unittest.TestCase):
         first=self.sync();first['world']['players'].clear();self.now+=.1
         self.assertIsNone(self.sync(sequence=2,world_revision=1)['world']);self.now+=.1
         self.assertEqual(len(self.sync(sequence=3,world_revision=-1)['world']['players']),2)
+    def test_cached_world_age_does_not_refresh_on_pose_poll(self):
+        self.assertEqual(self.sync()['world_age_ms'], 0)
+        self.now += .3
+        reply = self.sync(sequence=2, world_revision=1)
+        self.assertIsNone(reply['world'])
+        self.assertEqual(reply['world_age_ms'], 300)
+        self.hub.publish('test1', '1', 'session1', self.snapshot, 2)
+        self.now += .1
+        self.assertEqual(self.sync(sequence=3)['world_age_ms'], 100)
+
     def test_monotonic_sequence_rate_and_expiry(self):
         self.sync()
         with self.assertRaises(ValueError):self.sync(sequence=2)

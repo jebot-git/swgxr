@@ -11,6 +11,7 @@ var collider:CollisionShape3D
 var goal:=Transform3D.IDENTITY
 var speed:=0.0
 var last_snapshot_position:=Vector3.ZERO
+var snapshot_usec:=0
 var report:Dictionary={}
 var equipment:=NPCEquipment.new()
 var rigid_equipment:Array=[]
@@ -140,7 +141,7 @@ func visual_bounds()->AABB:
 func apply_record(value:Dictionary,pose:Transform3D,seconds:float,initial:=false)->void:
 	if not initial and is_instance_valid(mobile_sound) and not value.dead and float(value.health)<float(record.get("health",value.health)):
 		mobile_sound.queue_event("hitlight")
-	record=value.duplicate(true)
+	record=value.duplicate(true);snapshot_usec=Time.get_ticks_usec()
 	if carrier!=null:carrier.apply(int(record.get("posture",0)))
 	speed=last_snapshot_position.distance_to(pose.origin)/maxf(seconds,0.05) if not initial else 0.0
 	if is_instance_valid(mobile_sound):mobile_sound.observe(str(record.template),speed,not bool(record.dead))

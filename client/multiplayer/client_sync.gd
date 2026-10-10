@@ -149,7 +149,7 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 		for value:Dictionary in state.native_world.get("deployments",[]):
 			var deployment:=value.duplicate(true);deployment.position=world(value.position);deployments.append(deployment)
 		players.apply_deployments(deployments,owner_character,app.player.global_position)
-	if not app.live_combat_reserved:entities.accept(state.actors,owner_session,state.world_revision)
+	if not app.live_combat_reserved:entities.accept(state.actors,owner_session,state.world_revision,maxf(0,float(result.get("world_age_ms",INF)))/1000.0+maxf(0,float(result.get("_request_elapsed_seconds",0))))
 	if is_instance_valid(chatter):chatter.accept(result.get("npc_speech"))
 	return true
 func _process(delta:float)->void:

@@ -63,7 +63,7 @@ func configure(host:Node,combat_rig:Node3D,source_stage:Node3D,observer:Characte
 		if requested.is_absolute_path():status_path=requested
 	assets.configure();dead_assets.configure(ProjectSettings.globalize_path("res://../runtime/assets/corpses/catalog.json"))
 	actor_catalog=preload("res://scripts/planet_catalog.gd").context_path(host,"entities","res://../runtime/assets/combat_population/mos_eisley_easy/catalog.json")
-	rig.authority_gate=is_ready;rig.shot_authority=register_shot
+	rig.authority_gate=is_ready;rig.shot_authority=register_shot;rig.aim_assist_candidates=aim_assist_candidates
 	rig.rounds_sim.authoritative_contact.connect(contact)
 	for entry:Dictionary in rig.weapons:
 		saved_states.append({"state":entry.state,"profile":entry.state.profile.duplicate(true),"ability_state":entry.state.ability_state,"wear_per_shot":entry.state.wear_per_shot})
@@ -250,6 +250,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 		var pose:=Transform3D(Basis(Vector3.UP,-float(value.heading_radians)),world(value.position))
 		if is_instance_valid(stage):pose.basis=stage.global_basis*pose.basis
 		actors[id].apply_record(value,pose,seconds,recreate)
+		actors[id].snapshot_usec=Time.get_ticks_usec()-int(maxf(0,float(response.get("_request_elapsed_seconds",0)))*1000000)
 		# Keep native pet targeting/health/collision identity while the ride layer
 		# owns its visible body. Healing and pet commands must retain this actor.
 		if is_instance_valid(actors[id].visual):
@@ -647,6 +648,29 @@ func melee_receipt(id:String,mutation:Dictionary)->void:
 		if rig.has_method("action_haptic"):rig.action_haptic("hit",str(shots.get(id,{}).get("shot",{}).get("hand","")))
 	shots.erase(id)
 
+func aim_assist_candidates()->Array:
+	if not is_ready():return []
+	var candidates:Array=[]
+	var now:=Time.get_ticks_usec()
+	for actor:Node in actors.values():
+		if not is_instance_valid(actor) or actor.session_id!=session_id:continue
+		candidates.append({"actor":actor,"age_seconds":maxf(0,float(now-actor.snapshot_usec)/1000000.0) if actor.snapshot_usec>0 else INF})
+	return candidates
+
+func prepare_combat_request(request:Dictionary)->bool:
+	var id:=str(request.get("shot_id",""))
+	if request.get("kind","")!="fire" or not shots.has(id):return true
+	var shot:Dictionary=shots[id].shot
+	if not preload("res://combat/latency_policy.gd").ordinary(shot):return true
+	var launched:=int(shot.get("launched_usec",Time.get_ticks_usec()))
+	if float(Time.get_ticks_usec()-launched)/1000000.0>preload("res://combat/latency_policy.gd").MAX_UNSENT_SECONDS:
+		# This command has not entered the transport; refund it exactly once.
+		rejected_fire(id);shots.erase(id);rejected_shots+=1
+		last_error="Shot cancelled while waiting for the connection."
+		return false
+	request.payload["_client_launch_usec"]=launched
+	return true
+
 func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
 	if str(shot.get("kind",""))=="melee":return register_melee(shot,pose)
 	if not is_ready() or str(shot.get("item_id",""))!=str(weapon.item_id) or shots.size()>=MAX_SHOTS or queue.size()>=MAX_QUEUE:return {}
@@ -853,6 +877,7 @@ func pump()->void:
 	else:return
 	var id:=str(request.get("shot_id",""))
 	if request.kind=="impact" and (not shots.has(id) or not shots[id].accepted):return
+	if not prepare_combat_request(request):return
 	busy=true;var epoch:=generation
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/"+str(request.kind),request.payload)
 	if epoch!=generation:return
@@ -903,7 +928,7 @@ func combat_receipt(request:Dictionary,response:Dictionary)->void:
 			shots.erase(id)
 		elif request.kind=="fire" and shots.has(id):
 			shots[id].accepted=true
-			var discharge_recovery:=maxf(0,float(mutation.get("interval_seconds",0)))
+			var discharge_recovery:=preload("res://combat/latency_policy.gd").recovery(shots[id].shot,mutation,float(response.get("_request_elapsed_seconds",0)),Time.get_ticks_usec())
 			var discharge_state:Variant=shots[id].get("ammo_state")
 			if discharge_state!=null:discharge_state.next_shot=maxf(discharge_state.next_shot,discharge_state.clock+discharge_recovery)
 			next_launch_usec=maxi(next_launch_usec,Time.get_ticks_usec()+int(discharge_recovery*1000000))
@@ -982,7 +1007,7 @@ func _exit_tree()->void:
 	if is_instance_valid(ambient_source) and not ambient_source.is_queued_for_deletion():ambient_source.set_live_suppressed({})
 	for saved:Dictionary in saved_states:
 		if is_instance_valid(saved.state):saved.state.profile=saved.profile;saved.state.core=saved.profile.core3;saved.state.ability_state=saved.ability_state;saved.state.wear_per_shot=saved.wear_per_shot
-	if is_instance_valid(rig):rig.authority_gate=Callable();rig.shot_authority=Callable()
+	if is_instance_valid(rig):rig.authority_gate=Callable();rig.shot_authority=Callable();rig.aim_assist_candidates=Callable()
 
 func request_loadout(proposal:Dictionary)->Dictionary:
 	if busy or not live or not native_ready or elapsed_since_snapshot>=SESSION_TIMEOUT or not queue.is_empty():return {"success":false,"error":"Wait for the current Core3 action to finish."}

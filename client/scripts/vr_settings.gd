@@ -5,11 +5,13 @@ var turn_mode := "snap"
 var turn_speed_degrees := 90.0
 var standing_eye_height := 0.0
 var offhand := "left"
+var aim_assist := "subtle"
 
 func load_preferences() -> void:
 	var config := ConfigFile.new()
 	if config.load(path) != OK:
 		return
+	aim_assist = "off" if str(config.get_value("combat", "aim_assist", "subtle")) == "off" else "subtle"
 	set_turn_mode(str(config.get_value("locomotion", "turn_mode", "snap")))
 	set_turn_speed(float(config.get_value("locomotion", "turn_speed_degrees", 90.0)))
 	standing_eye_height = clampf(float(config.get_value("tracking", "standing_eye_height", 0.0)), 0.0, 2.5)
@@ -17,6 +19,7 @@ func load_preferences() -> void:
 
 func save_preferences() -> Error:
 	var config := ConfigFile.new()
+	config.set_value("combat", "aim_assist", aim_assist)
 	config.set_value("locomotion", "turn_mode", turn_mode)
 	config.set_value("locomotion", "turn_speed_degrees", turn_speed_degrees)
 	config.set_value("tracking", "standing_eye_height", standing_eye_height)

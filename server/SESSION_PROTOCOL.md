@@ -106,7 +106,10 @@ anchor. These are bounded presentation checks, not authoritative movement or
 anti-cheat validation. Native heartbeats and gameplay transactions remain required.
 
 The reply echoes owned identity/sequence, `world_revision`, `poses`, `events`,
-`event_sequence` and `pose_ttl_ms:750`. Passing the previously received
+`event_sequence`, `world_age_ms`, and `pose_ttl_ms:750`. `world_age_ms` is the
+age of the cached native snapshot at reply creation; pose-only polls do not
+refresh it. Aim assistance adds measured request time and elapsed local time,
+and disables itself if freshness metadata is absent. Passing the previously received
 `world_revision` suppresses an unchanged world payload (`world:null`). A full
 payload remains the native interest set; tracked data can never introduce another
 player ID. Only same-zone peers in the native visible cells are eligible. Native
@@ -133,3 +136,28 @@ Original avatar construction is cached for repeated appearances; first unique
 appearances can still cause a main-thread hitch. Initial peers warm behind the
 loading screen. No rendering or headset performance claim follows from protocol
 simulation alone.
+
+
+### Unreleased ordinary-bolt timing (10 October 2026)
+
+`POST /combat/session/fire` optionally carries finite, nonnegative
+`launch_age_seconds`, measured from local visual launch to actual request
+serialization. The adapter and native command clamp this to 0.250 seconds.
+It only dates the shot lifetime; it never grants firing-rate credit.
+
+Ordinary unguided bolts return `latency_compensated:true`,
+`accepted_launch_age_seconds`, `interval_seconds`, and
+`cooldown_remaining_seconds`. The last field is the earliest next same-weapon
+ordinary arrival after a bounded allowance of min(250 ms, half the interval).
+The native reservation advances from max(previous reservation, receipt time),
+so early arrivals repay their allowance and idle time cannot bank a burst.
+A prior special/melee shot or weapon switch cannot borrow this allowance.
+Older requests and special, heavy, guided and scatter attacks keep strict timing.
+
+The client retains its local launch cadence and reconciles the remaining native
+cooldown with at most 250 ms of measured request time. It does not restart the
+entire interval on receipt. Ordinary fire still waiting unsent after 750 ms is
+cancelled and its local capacity reservation refunded once. Unknown transmitted
+outcomes remain disarmed without automatic retries/refunds. Confirmed damage,
+HAM, ownership, range and projectile contacts retain their existing authority.
+This is firing-time compensation, not historical target-position rewind.

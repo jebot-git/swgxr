@@ -116,5 +116,34 @@ int main(int argc,char** argv){
  for(int failure=0;failure<4;++failure){reset();a.position={1,0,40};session={};NativeFireHarness::fire(&c,session,q,0);hit=impact();hit["hit_position"]={1,1,40};hit["projectile_age_seconds"]=.26;if(failure==0){hit["target_id"]="78";b.position=a.position;}if(failure==1){a.position.x=10;hit["hit_position"]={10,1,40};}if(failure==2)a.los=false;if(failure==3)hit["projectile_age_seconds"]=.01;rejects([&](){NativeFireHarness::fire(&c,session,hit,.3);});check(a.ham[0]==10000 && b.ham[0]==10000 && session.shots.at("shot").spent);}
  reset();weapon.damage=502;session={};q=request("fast_blast");q["target_id"]="77";out=NativeFireHarness::fire(&c,session,q,0);check(c.ham[3]==9860 && c.ham[6]==9930);out=NativeFireHarness::fire(&c,session,impact(),.2);check(out["damage"]==1524 && a.strikes==1);c.timers.clear();check(SwgxrBountyHunter::cooldown(&c,"fast_blast")>119);
  check(lightningDamage(276,592,50)==416 && lightningDamage(410,730,50)==600 && lightningDamage(10000,10000,50)==600);check(!corecu::pistoleer::regular("fast_blast"));
+ // Ordinary arrival compensation uses a native rate reservation, independent
+ // of client launch age. A rejected or replayed request never pays twice.
+ reset();weapon=Weapon();session={};q=request("");q["launch_age_seconds"]=.2;
+ out=NativeFireHarness::fire(&c,session,q,100);
+ check(out["latency_compensated"]==true && out["accepted_launch_age_seconds"]==.2);
+ check(std::abs(session.shots.at("shot").time-99.8)<1.e-8 && session.nextFire==102);
+ check(out["cooldown_remaining_seconds"]==1.75);
+ int launchPaid=c.paid;rejects([&]{NativeFireHarness::fire(&c,session,q,103);});check(c.paid==launchPaid && session.nextFire==102);
+ q["shot_id"]="timing_jitter_second";NativeFireHarness::fire(&c,session,q,101.8);check(session.nextFire==104);
+ q["shot_id"]="timing_jitter_third";NativeFireHarness::fire(&c,session,q,103.75);check(session.nextFire==106);
+ q["shot_id"]="timing_too_early";q["launch_age_seconds"]=999;launchPaid=c.paid;
+ rejects([&]{NativeFireHarness::fire(&c,session,q,105.5);});check(c.paid==launchPaid && session.nextFire==106);
+ out=NativeFireHarness::fire(&c,session,q,106);check(out["accepted_launch_age_seconds"]==.25 && session.nextFire==108);
+ // No credit after idling, no allowance on a first shot or weapon switch.
+ q["shot_id"]="timing_after_idle";NativeFireHarness::fire(&c,session,q,200);check(session.nextFire==202);
+ q["shot_id"]="timing_no_idle_burst";launchPaid=c.paid;rejects([&]{NativeFireHarness::fire(&c,session,q,200.1);});check(c.paid==launchPaid);
+ session={};session.nextFire=300;rejects([&]{NativeFireHarness::fire(&c,session,q,299.9);});
+ session.ordinaryCadence=true;session.ordinaryItem="different_weapon";rejects([&]{NativeFireHarness::fire(&c,session,q,299.9);});
+ // Legacy and special fire retain strict cadence; malformed ages fail free.
+ for(auto bad:std::vector<Json>{-.1,"0.2",true,nullptr}){session={};q["launch_age_seconds"]=bad;launchPaid=c.paid;rejects([&]{NativeFireHarness::fire(&c,session,q,400);});check(c.paid==launchPaid && session.shots.empty());}
+ reset();session={};q=request("");out=NativeFireHarness::fire(&c,session,q,500);check(!out.contains("latency_compensated") && !session.ordinaryCadence);
+ q["shot_id"]="timing_legacy_strict";q["launch_age_seconds"]=.1;rejects([&]{NativeFireHarness::fire(&c,session,q,501.9);});
+ for(auto path:{"object/weapon/ranged/pistol/pistol_scatter.iff","object/weapon/ranged/rifle/rifle_lightning.iff"}){reset();session={};weapon.templ.path=path;weapon.lightning=std::string(path).find("lightning")!=std::string::npos;q=request("");q["launch_age_seconds"]=.25;out=NativeFireHarness::fire(&c,session,q,600);check(!out.contains("latency_compensated") && !session.ordinaryCadence);q["shot_id"]="timing_profile_strict";rejects([&]{NativeFireHarness::fire(&c,session,q,601.9);});}
+ reset();weapon=Weapon();session={};q=request("last_ditch");q["launch_age_seconds"]=.25;out=NativeFireHarness::fire(&c,session,q,700);check(!out.contains("latency_compensated") && !session.ordinaryCadence);
+ q=request("");q["shot_id"]="timing_after_special";q["launch_age_seconds"]=.25;rejects([&]{NativeFireHarness::fire(&c,session,q,701.9);});
+ // A deterministic 100-shot jitter stream stays smooth. A forged fast stream
+ // cannot accumulate more than one bounded advance or exceed sustained rate.
+ double reserved=0;for(int i=0;i<100;++i){double receipt=800+i*2+(i%3)*.1;check(corecu::projectile::arrivalReady(receipt,reserved,2,i>0));reserved=corecu::projectile::reserveArrival(receipt,reserved,2);}
+ reserved=0;int accepted=0;for(int i=0;i<1000;++i){double receipt=1000+i*.01;if(corecu::projectile::arrivalReady(receipt,reserved,1,accepted>0)){++accepted;reserved=corecu::projectile::reserveArrival(receipt,reserved,1);}}check(accepted==11);
  std::cout<<checks<<" actual BH grant, gesture reservation, resource, control, cooldown, scatter, guidance and one-packet receipt cases passed (isolated engine dependencies)\n";
 }

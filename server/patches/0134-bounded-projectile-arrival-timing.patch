@@ -1,0 +1,175 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -39,7 +39,7 @@
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+  struct Shot {int damageType=0,armorPiercing=0;std::string item,ability,target,volley;double multiplier=1,nearRange=0,idealRange=0,nearModifier=0,idealModifier=0,farModifier=0;int firingPosture=0;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false,rifleman=false,scatter=false,lightning=false;std::string guidedTarget;double normalizedDamage=0;uint64 zone=0;};
+- struct Session {corecu::bountyhunter::Arm bountyArm;std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;std::map<std::string,corecu::pistoleer::Volley> volleys;uint64 lair=0;bool ready=false;Json transport=Json::object();};
++ struct Session {corecu::bountyhunter::Arm bountyArm;std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;std::map<std::string,corecu::pistoleer::Volley> volleys;uint64 lair=0;bool ready=false,ordinaryCadence=false;std::string ordinaryItem;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+  static Json vector(const Json& p,bool direction=false){if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_vector");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(direction?2:i==1?2048:8192))throw std::runtime_error("invalid_vector");return p;}
+@@ -266,7 +266,7 @@
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");if(SwgxrVehicles::seated(c))throw std::runtime_error("native_squad_leader_unavailable");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);double length=distance(direction,Json::array({0,0,0}));if(length<.9 || length>1.1 || distance(origin,position(c))>2.5)throw std::runtime_error("invalid_squad_leader_pose");
+    auto ability=request.at("ability_id").get<std::string>();if(ability=="volley_fire" && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_ability_not_equipped");
+-   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);auto out=ability=="volley_fire"?SwgxrVolleyFire::activate(c,request):SwgxrSquadLeader::run(c,request);s.nextFire=stamp+out.value("interval_seconds",1.);return out;
++   Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);auto out=ability=="volley_fire"?SwgxrVolleyFire::activate(c,request):SwgxrSquadLeader::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.value("interval_seconds",1.);return out;
+   }
+   // Heavy launch/impact dispatch is separate from ordinary bolt receipts. Native
+   // cones/beams select geometry; rockets retain physical client contacts.
+@@ -274,11 +274,11 @@
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_commando_unavailable");
+    if(verb!="impact" && stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(verb!="impact" && !SwgxrCombatLoadout::allows(c,request.value("ability_id",std::string())))throw std::runtime_error("native_ability_not_equipped");
+-   auto out=SwgxrCommando::run(c,request);if(verb!="impact")s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrCommando::run(c,request);if(verb!="impact"){s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();}return out;
+   }
+   if(verb=="bountyhunter"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");for(auto it=s.shots.begin();it!=s.shots.end();)if(stamp-it->second.time>8)it=s.shots.erase(it);else ++it;if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");if(SwgxrVehicles::seated(c))throw std::runtime_error("native_bountyhunter_unavailable");
+-   auto out=SwgxrBountyHunter::gesture(c,request);Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);if(request.at("ability_id")=="underhand_shot")s.bountyArm.set(request.at("item_id").get<std::string>(),stamp);s.nextFire=stamp+.25;return out;
++   auto out=SwgxrBountyHunter::gesture(c,request);Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);if(request.at("ability_id")=="underhand_shot")s.bountyArm.set(request.at("item_id").get<std::string>(),stamp);s.ordinaryCadence=false;s.nextFire=stamp+.25;return out;
+   }
+   if(verb=="rifleman"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -286,7 +286,7 @@
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_rifleman_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrRifleman::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrRifleman::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="carbineer"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -295,7 +295,7 @@
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_carbineer_unavailable");
+    if(request.value("ability_id",std::string())=="charge_blast" && !SwgxrCombatLoadout::allows(c,"charge_blast"))throw std::runtime_error("native_ability_not_equipped");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrCarbineer::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrCarbineer::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="pistoleer"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -303,7 +303,7 @@
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_pistoleer_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrPistoleer::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrPistoleer::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="pikeman" || (verb=="melee" && SwgxrPikeman::compatible(c) && SwgxrPikeman::learned(c,request.value("ability_id",std::string())))){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -313,7 +313,7 @@
+    auto ability=request.at("ability_id").get<std::string>();
+    if(!corecu::pikeman::ability(ability).gesture && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_pikeman_not_equipped");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrPikeman::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrPikeman::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="fencer"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -323,7 +323,7 @@
+    auto ability=request.at("ability_id").get<std::string>();
+    if(!corecu::fencer::ability(ability).gesture && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_fencer_not_equipped");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrFencer::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrFencer::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="swordsman"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -333,7 +333,7 @@
+    auto ability=request.at("ability_id").get<std::string>();
+    if(!corecu::swordsman::ability(ability).gesture && !SwgxrCombatLoadout::allows(c,ability))throw std::runtime_error("native_swordsman_not_equipped");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrSwordsman::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrSwordsman::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="tka"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -342,7 +342,7 @@
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_tka_unavailable");
+    if(request.value("ability_id",std::string())=="indomitable_focus" && !SwgxrCombatLoadout::allows(c,"indomitable_focus"))throw std::runtime_error("native_ultimate_not_equipped");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrTka::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrTka::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="brawler_buff"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -350,7 +350,7 @@
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_warcry_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrBrawler::buff(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrBrawler::buff(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="warcry"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -358,7 +358,7 @@
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_warcry_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrWarcry::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrWarcry::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="taunt"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -366,7 +366,7 @@
+    if(s.shots.size()>=128)throw std::runtime_error("shot_budget");if(stamp<s.nextFire)throw std::runtime_error("cadence");
+    if(SwgxrVehicles::seated(c))throw std::runtime_error("native_taunt_unavailable");
+    Shot receipt;receipt.time=stamp;receipt.spent=true;s.shots.emplace(shotID,receipt);
+-   auto out=SwgxrTaunt::run(c,request);s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
++   auto out=SwgxrTaunt::run(c,request);s.ordinaryCadence=false;s.nextFire=stamp+out.at("interval_seconds").get<double>();return out;
+   }
+   if(verb=="melee"){
+    if(s.shots.count(shotID))throw std::runtime_error("duplicate_shot");
+@@ -409,7 +409,7 @@
+     if(c->getHAM(3)<=40 || c->getHAM(6)<=20)throw std::runtime_error("insufficient_ham");
+     c->inflictDamage(c,3,40,false,true,false);c->inflictDamage(c,6,20,false,true,false);
+    }else{CreatureAttackData costs("",command,0);if(!CombatManager::instance()->applyProjectileLaunchCost(c,weapon,costs))throw std::runtime_error("insufficient_ham");}
+-   s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,command->getSpeedMultiplier());
++   s.ordinaryCadence=false;s.nextFire=stamp+CombatManager::instance()->calculateWeaponAttackSpeed(c,weapon,command->getSpeedMultiplier());
+    if(!ability.empty())c->addCooldown(String(("corecu_brawler_"+ability).c_str()),int(SwgxrBrawler::recovery(ability)*1000));
+    Shot receipt;receipt.time=stamp;receipt.spent=true;receipt.item=id(weapon);s.shots.emplace(shotID,receipt);
+    result["ham_cost_committed"]=true;result["hit"]=false;result["damage"]=0;result["target_id"]="";
+@@ -452,7 +452,10 @@
+      auto first=s.shots.find(volleyID);if(first==s.shots.end() || weapon->getMinDamage()!=first->second.minDamage || weapon->getMaxDamage()!=first->second.maxDamage || weapon->getDamageType()!=first->second.damageType || weapon->getArmorPiercing()!=first->second.armorPiercing)throw std::runtime_error("launch_weapon_changed");
+     }
+    }else if(request.contains("volley_index") || request.contains("volley_id"))throw std::runtime_error("unexpected_volley_fields");
+-   if(!volley && stamp<s.nextFire)throw std::runtime_error("cadence");
++   const bool compensated=request.contains("launch_age_seconds") && ability.empty() && !SwgxrBountyHunter::scatter(weapon) && !SwgxrBountyHunter::lightning(weapon) && !request.contains("guided_target_id");
++   double launchAge=0,recovery=rifleman?SwgxrRifleman::interval(c,ability):SwgxrPistoleer::interval(c,ability);
++   if(request.contains("launch_age_seconds")){if(!request.at("launch_age_seconds").is_number())throw std::runtime_error("invalid_launch_age");double age=request.at("launch_age_seconds").get<double>();if(!std::isfinite(age) || age<0)throw std::runtime_error("invalid_launch_age");if(compensated)launchAge=std::min(corecu::projectile::MaxLaunchAgeSeconds,age);}
++   if(!volley && !(compensated?corecu::projectile::arrivalReady(stamp,s.nextFire,recovery,s.ordinaryCadence && s.ordinaryItem==id(weapon)):stamp>=s.nextFire))throw std::runtime_error("cadence");
+    if(!volley && !ability.empty() && SwgxrSmuggler::cooldown(c,ability)>0)throw std::runtime_error("native_ability_cooldown");
+    if(!boundTarget.empty()){
+     if(ability.empty() && !corecu::volley::target(c->getObjectID()))throw std::runtime_error("target_requires_ability");
+@@ -484,9 +487,10 @@
+    }
+    s.bountyArm.clear();result["guided_target_id"]=guidedTarget;auto projectileProfile=SwgxrBountyHunter::projectileProfile(weapon);if(!projectileProfile.empty())result["projectile_profile"]=projectileProfile;
+    result["ability_id"]=ability;result["damage_multiplier"]=multiplier;result["ham_cost_committed"]=!volley;
+-   double recovery=rifleman?SwgxrRifleman::interval(c,ability):SwgxrPistoleer::interval(c,ability);s.nextFire=stamp+std::max(volleyAbility?corecu::pistoleer::VolleySpacing:0.,recovery);result["interval_seconds"]=volleyAbility && volleyIndex<2?corecu::pistoleer::VolleySpacing:recovery;
++   s.nextFire=compensated?corecu::projectile::reserveArrival(stamp,s.nextFire,recovery):stamp+std::max(volleyAbility?corecu::pistoleer::VolleySpacing:0.,recovery);s.ordinaryCadence=compensated;s.ordinaryItem=compensated?id(weapon):"";result["interval_seconds"]=volleyAbility && volleyIndex<2?corecu::pistoleer::VolleySpacing:recovery;
++   if(compensated){result["latency_compensated"]=true;result["accepted_launch_age_seconds"]=launchAge;result["cooldown_remaining_seconds"]=corecu::projectile::arrivalCooldown(stamp,s.nextFire,recovery);}
+    if(volleyAbility){if(!volley){corecu::pistoleer::Volley fresh;fresh.ability=ability;fresh.item=id(weapon);fresh.target=boundTarget;fresh.revision=revision;fresh.started=stamp;s.volleys.emplace(volleyID,fresh);volley=&s.volleys.at(volleyID);}volley->lastLaunch=stamp;volley->nextIndex=volleyIndex+1;volley->reservation=s.nextFire;result["volley_id"]=volleyID;result["volley_index"]=volleyIndex;}
+-   Shot shot;shot.scatter=SwgxrBountyHunter::scatter(weapon);shot.lightning=SwgxrBountyHunter::lightning(weapon);shot.guidedTarget=guidedTarget;shot.zone=c->getZone()->getObjectID();if(shot.lightning)shot.normalizedDamage=corecu::bountyhunter::lightningDamage(weapon->getMinDamage(),weapon->getMaxDamage(),SwgxrBountyHunter::branch(c,""));shot.rifleman=rifleman;shot.target=boundTarget;shot.ability=ability;shot.volley=volleyID;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp;shot.range=weapon->getMaxRange()*gripScale;shot.nearRange=weapon->getPointBlankRange()*gripScale;shot.idealRange=weapon->getIdealRange()*gripScale;shot.nearModifier=weapon->getPointBlankAccuracy();shot.idealModifier=weapon->getIdealAccuracy();shot.farModifier=weapon->getMaxRangeAccuracy();shot.firingPosture=pose=="prone"?2:pose=="crouched"?1:0;shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);return result;
++   Shot shot;shot.scatter=SwgxrBountyHunter::scatter(weapon);shot.lightning=SwgxrBountyHunter::lightning(weapon);shot.guidedTarget=guidedTarget;shot.zone=c->getZone()->getObjectID();if(shot.lightning)shot.normalizedDamage=corecu::bountyhunter::lightningDamage(weapon->getMinDamage(),weapon->getMaxDamage(),SwgxrBountyHunter::branch(c,""));shot.rifleman=rifleman;shot.target=boundTarget;shot.ability=ability;shot.volley=volleyID;shot.multiplier=multiplier;shot.item=id(weapon);shot.origin=origin;shot.direction=direction;shot.time=stamp-launchAge;shot.range=weapon->getMaxRange()*gripScale;shot.nearRange=weapon->getPointBlankRange()*gripScale;shot.idealRange=weapon->getIdealRange()*gripScale;shot.nearModifier=weapon->getPointBlankAccuracy();shot.idealModifier=weapon->getIdealAccuracy();shot.farModifier=weapon->getMaxRangeAccuracy();shot.firingPosture=pose=="prone"?2:pose=="crouched"?1:0;shot.damageType=weapon->getDamageType();shot.armorPiercing=weapon->getArmorPiercing();shot.minDamage=weapon->getMinDamage();shot.maxDamage=weapon->getMaxDamage();s.shots.emplace(shotID,shot);return result;
+   }
+   if(verb!="impact")throw std::runtime_error("unsupported_action");auto found=s.shots.find(shotID);if(found==s.shots.end() || found->second.spent)throw std::runtime_error("unknown_or_spent_shot");auto& shot=found->second;shot.spent=true;
+   if(stamp-shot.time>8)throw std::runtime_error("expired_shot");const bool guaranteed=corecu::volley::target(c->getObjectID())!=0;auto hit=vector(request.at("hit_position"));double age=request.value("projectile_age_seconds",-1.0);if(!std::isfinite(age) || age<0 || age>8)throw std::runtime_error("invalid_projectile_age");double travel=distance(shot.origin,hit);if(!guaranteed && (travel>shot.range+2 || travel>160*age+3))throw std::runtime_error("projectile_range_or_time");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/ProjectileContactPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ProjectileContactPolicy.h
+@@ -2,6 +2,14 @@
+ #include <algorithm>
+ #include <cmath>
+ namespace corecu { namespace projectile {
++// Ordinary bolts may borrow a small arrival-time window, never future rate.
++// Advancing from the previous reservation repays jitter on subsequent shots;
++// max(receipt, reservation) discards idle credit. Client age cannot alter it.
++constexpr double MaxLaunchAgeSeconds=.250;
++inline double arrivalAllowance(double interval){return std::min(MaxLaunchAgeSeconds,std::max(0.,interval*.5));}
++inline bool arrivalReady(double receipt,double next,double interval,bool consecutive){return receipt+(consecutive?arrivalAllowance(interval):0.)+1.e-9>=next;}
++inline double reserveArrival(double receipt,double next,double interval){return std::max(receipt,next)+interval;}
++inline double arrivalCooldown(double receipt,double next,double interval){return std::max(0.,next-receipt-arrivalAllowance(interval));}
+ inline double rangeScale(bool pistol,bool twoHands){return pistol?(twoHands?1.1:1.):(twoHands?1.:.3);}
+ inline double damageScale(double distance,double nearRange,double idealRange,double maxRange,double nearModifier,double idealModifier,double farModifier,int posture){
+  if(!std::isfinite(distance) || distance<0 || distance>maxRange)return 0;

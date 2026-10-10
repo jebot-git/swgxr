@@ -10,6 +10,7 @@ func _initialize()->void:call_deferred("run")
 func run()->void:
 	root.size=Vector2i(1440,900)
 	var app:=MenuApp.new();app.xr_requested=true
+	app.vr_settings.path="user://controls-settings-smoke.cfg";DirAccess.remove_absolute(app.vr_settings.path)
 	app.graphics_preferences.path="user://graphics-settings-smoke.cfg";DirAccess.remove_absolute(app.graphics_preferences.path)
 	root.add_child(app);app.set_process(false);app.set_physics_process(false);app.set_process_input(false);app.set_process_unhandled_input(false)
 	app.make_ui();app.login_presentation.set_process(false)
@@ -19,6 +20,14 @@ func run()->void:
 	var graphics=navigation.pages.Graphics.get_child(0).get_child(0)
 	var microphone=navigation.pages.Audio.find_child("MicrophoneDevice",true,false)
 	check(microphone!=null and navigation.pages.Controls.find_child("VRTurningSettings",true,false)!=null,"Audio and turning options live in their respective pages")
+	var aim_choice=navigation.pages.Controls.find_child("AimAssist",true,false)
+	check(aim_choice!=null and aim_choice.get_selected_id()==1,"Controls expose default Subtle aim assistance")
+	navigation.show_page("Controls");await process_frame
+	for index in [0,1]:
+		aim_choice.open_popup();aim_choice._choose(index)
+		var saved_controls=preload("res://scripts/vr_settings.gd").new();saved_controls.path=app.vr_settings.path;saved_controls.load_preferences()
+		check(saved_controls.aim_assist==("off" if index==0 else "subtle"),"Controls persist selected aim-assist option")
+	DirAccess.remove_absolute(app.vr_settings.path);navigation.show_page("")
 	app.xr_viewport=SubViewport.new();app.add_child(app.xr_viewport)
 	app.xr_spectator=preload("res://scripts/xr_spectator.gd").new();app.add_child(app.xr_spectator);app.xr_spectator.set_physics_process(false)
 	app.xr_spectator.viewport=SubViewport.new();app.xr_spectator.add_child(app.xr_spectator.viewport)

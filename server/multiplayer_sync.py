@@ -225,6 +225,7 @@ class MultiplayerSync:
                     'character_id': current['character_id'], 'session_id': current['session_id'],
                     'sequence': sequence, 'zone': current['zone'], 'world_revision': current['revision'],
                     'world': deepcopy(current['world']) if data.get('world_revision', -1) != current['revision'] else None,
+                    'world_age_ms': max(0, round((now-current['native_at'])*1000)),
                     'events': events[-64:], 'event_sequence': self.event_sequence,
                     'npc_speech': self._speech(current, now),
                     'poses': poses, 'pose_ttl_ms': round(self.POSE_TTL*1000)}

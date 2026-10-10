@@ -16,6 +16,7 @@ var session_id:=""
 var revision:=-1
 var last_snapshot_ms:=0
 var snapshot_seconds:=1.0
+var snapshot_usec:=0
 var ambient:Node
 var suppressed:Dictionary={}
 func setup(host:Node)->void:
@@ -26,10 +27,11 @@ func clear()->void:
 	for actor:Node in actors.values():actor.free()
 	actors.clear();desired.clear();bindings.clear();suppressed.clear();revision=-1
 	if is_instance_valid(ambient):ambient.set_live_suppressed({})
-func accept(rows:Array,owner:String,world_revision:int)->void:
+func accept(rows:Array,owner:String,world_revision:int,age_seconds:=INF)->void:
 	if revision==world_revision:return
 	snapshot_seconds=maxf(.1,(Time.get_ticks_msec()-last_snapshot_ms)/1000.0) if last_snapshot_ms>0 else 1.0
 	last_snapshot_ms=Time.get_ticks_msec();revision=world_revision;session_id=owner
+	snapshot_usec=Time.get_ticks_usec()-int(maxf(0,age_seconds)*1000000) if is_finite(age_seconds) else 0
 	bindings.update(rows);desired.clear()
 	for row:Dictionary in rows:
 		if not valid_actor(row):continue
@@ -50,6 +52,7 @@ func signature(row:Dictionary)->Array:
 func apply_actor(actor:Node3D,row:Dictionary,initial:bool)->void:
 	var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-float(row.heading_radians)),app.multiplayer_sync.world(row.position))
 	actor.apply_record(row,pose,snapshot_seconds,initial)
+	actor.snapshot_usec=snapshot_usec
 	floor_projection.apply(actor,row,app.get("terrain"),app.stage)
 	apply_cell_visibility(actor,row)
 func apply_cell_visibility(actor:Node3D,row:Dictionary)->void:

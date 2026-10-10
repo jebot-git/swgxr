@@ -7,7 +7,7 @@ var blocked_revision:=-1
 func attach(host:Node,combat_rig:Node3D,gameplay:Node,replication:Node)->void:
 	app=host;rig=combat_rig;session=gameplay;sync=replication;stage=app.stage;player=app.player
 	owner_account=app.datapad_account;owner_character=app.datapad_character_id
-	rig.authority_gate=is_ready;rig.shot_authority=register_shot
+	rig.authority_gate=is_ready;rig.shot_authority=register_shot;rig.aim_assist_candidates=aim_assist_candidates
 	rig.rounds_sim.authoritative_contact.connect(contact)
 	rig.close_ability_menu();rig.abilities.primed=false
 	refresh_authority()
@@ -56,6 +56,7 @@ func pump()->void:
 	var id:=str(request.get("shot_id",""))
 	if not shots.has(id) or Time.get_ticks_usec()>int(shots[id].expires_usec):shots.erase(id);return
 	if request.kind=="impact" and not shots[id].accepted:return
+	if not prepare_combat_request(request):return
 	busy=true
 	var epoch:=generation
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/"+str(request.kind),request.payload)
@@ -94,6 +95,7 @@ func _exit_tree()->void:
 		# Fail closed while a still-visible rig is being torn down.
 		rig.authority_gate=func():return false
 		rig.shot_authority=Callable()
+		rig.aim_assist_candidates=Callable()
 
 func apply_loadout_response(response:Dictionary)->bool:
 	if not is_instance_valid(session) or not session.accept_native_response(response):return false

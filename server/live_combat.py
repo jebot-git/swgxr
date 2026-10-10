@@ -253,6 +253,10 @@ class LiveCombatHub:
    revision=data['movement_revision']
    if type(revision) is not int or not 0<=revision<=2**53-1:raise ValueError('Invalid movement_revision.')
    command['movement_revision']=revision
+  if action=='fire' and 'launch_age_seconds' in data:
+   age=data['launch_age_seconds']
+   if type(age) not in (int,float) or not math.isfinite(age) or age<0:raise ValueError('Invalid launch_age_seconds.')
+   command['launch_age_seconds']=min(.250,age)
   if action=='inventory' and 'inventory_command'in data:command['inventory_command']=data['inventory_command']
   if action=='replication' and 'command'in data:command['command']=data['command']
   if action=='loadout':

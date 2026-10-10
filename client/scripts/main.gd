@@ -411,6 +411,14 @@ func make_ui() -> void:
 	if xr_requested:
 		controls_page.add_child(HSeparator.new())
 		make_vr_settings(controls_page)
+	var aim_row:=HBoxContainer.new();controls_page.add_child(aim_row)
+	add_label(aim_row,"Ground weapon aim assist",18,Color("c9fbff"))
+	var aim_choice:=preload("res://scripts/frontend_choice.gd").new();aim_choice.name="AimAssist";aim_choice.size_flags_horizontal=Control.SIZE_EXPAND_FILL;aim_row.add_child(aim_choice)
+	aim_choice.add_item("Off");aim_choice.add_item("Subtle");aim_choice.select(0 if vr_settings.aim_assist=="off" else 1)
+	aim_choice.item_selected.connect(func(index:int):
+		vr_settings.aim_assist="off" if index==0 else "subtle"
+		if is_instance_valid(combat_rig):combat_rig.aim_assist_mode=vr_settings.aim_assist
+		vr_settings.save_preferences())
 	var flight_panel:=preload("res://space/settings_panel.gd").new();controls_page.add_child(flight_panel);flight_panel.setup(flight_preferences)
 	var help := add_label(controls_page, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -657,6 +665,10 @@ func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persiste
 			request.queue_free()
 			return settings
 		headers=settings.headers;tls=settings.tls
+	if body is Dictionary and body.has("_client_launch_usec"):
+		body=body.duplicate(true)
+		if path=="/combat/session/fire":body["launch_age_seconds"]=preload("res://combat/latency_policy.gd").launch_age(int(body._client_launch_usec),Time.get_ticks_usec())
+		body.erase("_client_launch_usec")
 	var serialized:=JSON.stringify(body) if method != HTTPClient.METHOD_GET else ""
 	var error := OK if persistent else request.request(backend_url + path, headers, method, serialized)
 	if error != OK:
@@ -665,6 +677,7 @@ func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persiste
 	api_requests_in_flight += 1
 	var realtime:=path in ["/session/sync","/services/presence","/performance"]
 	if realtime:api_realtime_requests_in_flight+=1
+	var request_started_usec:=Time.get_ticks_usec()
 	var result: Array = await native_http.exchange(get_tree(),backend_url,path,method,headers,serialized,tls,request.timeout) if persistent else await request.request_completed
 	api_requests_in_flight -= 1
 	if realtime:api_realtime_requests_in_flight-=1
@@ -681,6 +694,7 @@ func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persiste
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	data["ok"] = int(result[1]) >= 200 and int(result[1]) < 300
 	data["http_status"] = int(result[1])
+	data["_request_elapsed_seconds"] = float(Time.get_ticks_usec()-request_started_usec)/1000000.0
 	if not data.ok and not data.has("error"):
 		data.error = "Service returned HTTP " + str(result[1])
 	if consume_movement_rejection(data):data["_movement_correction_consumed"]=true
@@ -2148,6 +2162,7 @@ func sync_inventory_equipment(force_statistics := false) -> void:
 			combat_rig=load("res://combat/ranged_rig.gd").new(); add_child(combat_rig)
 			if not combat_rig.configure(player.get_camera(),player,[],"right" if vr_settings.offhand=="left" else "left",xr_origin):
 				combat_rig.queue_free(); combat_rig=null; return
+			combat_rig.aim_assist_mode=vr_settings.aim_assist
 			combat_rig.datapad=datapad; combat_rig.inventory=inventory; combat_rig.tracked_avatar=tracked_avatar
 			combat_rig.interaction_blocker=corpse_interaction_blocks
 			if is_instance_valid(tracked_avatar): tracked_avatar.combat_rig=combat_rig
@@ -2337,6 +2352,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 	var unarmed_profile: Dictionary=snapshot.get("unarmed",{}) if args.has("combat-items") else catalog.get("unarmed",{})
 	if not unarmed_profile.is_empty(): combat_rig.configure_unarmed(unarmed_profile)
 	combat_rig.configure_player_combat(snapshot.get("player_combat", {}))
+	combat_rig.aim_assist_mode=vr_settings.aim_assist
 	combat_rig.datapad = datapad
 	combat_rig.inventory = inventory
 	combat_rig.interaction_blocker=corpse_interaction_blocks

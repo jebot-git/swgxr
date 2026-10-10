@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Fresh isolated VPS runtime bootstrap and supervised processes; never legacy init-db."""
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -194,6 +195,21 @@ def expected_mounts():
         '/workspace/vendor/Core3/MMOCoreORB/bin/scripts/managers/resource_manager.lua':REMOTE/'resource_manager.lua',
         '/workspace/vendor/Core3/MMOCoreORB/bin/databases':REMOTE/'databases',
         '/workspace/vendor/Core3/MMOCoreORB/bin/log':REMOTE/'logs'}
+
+
+def verify_mounted_configuration():
+    # Replacing a host file leaves a running container's file bind mount on the
+    # old inode. Validate what Core3 will actually read, not just the host copy.
+    for target, source in expected_mounts().items():
+        if not source.is_file():
+            continue
+        expected = hashlib.sha256(source.read_bytes()).hexdigest()
+        result = run(['podman', 'exec', CONTAINER, 'sha256sum', '--', target],
+                     stdout=subprocess.PIPE, text=True)
+        fields = result.stdout.split()
+        if not fields or fields[0] != expected:
+            raise RuntimeError('Stale container configuration mount: '+target+
+                               '. Gracefully stop Core3 and MariaDB, then restart the container before starting Core3.')
 
 
 def load_apparmor():
@@ -449,6 +465,7 @@ def main():
         require_bootstrap()
         capacity_status=configuration_status(REMOTE)
         if not capacity_status['passed']:raise RuntimeError(' '.join(capacity_status['issues']))
+        verify_mounted_configuration()
         catalogs = vehicle_catalog_status(ROOT)
         if not catalogs['passed']: raise RuntimeError('; '.join(catalogs['errors']))
         private_write(REMOTE/'core-start-requested',str(time.time_ns()))

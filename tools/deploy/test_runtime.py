@@ -1,5 +1,7 @@
 """Pure deployment preparation checks; no Podman, native process or host changes."""
 import importlib.util
+import hashlib
+import subprocess
 import json
 import tempfile
 import unittest
@@ -10,6 +12,18 @@ spec=importlib.util.spec_from_file_location('remote_runtime',Path(__file__).with
 runtime=importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
 
 class Tests(unittest.TestCase):
+    def test_file_bind_mount_drift_blocks_core_start(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'config.lua';source.write_text('ten original sectors')
+            target='/workspace/config.lua'
+            with patch.object(runtime,'expected_mounts',return_value={target:source}), patch.object(runtime,'run') as command:
+                command.return_value=subprocess.CompletedProcess([],0,hashlib.sha256(source.read_bytes()).hexdigest()+'  '+target)
+                runtime.verify_mounted_configuration()
+                command.return_value=subprocess.CompletedProcess([],0,'0'*64+'  '+target)
+                with self.assertRaisesRegex(RuntimeError,'Stale container configuration mount'):
+                    runtime.verify_mounted_configuration()
+                self.assertEqual(command.call_args.args[0],['podman','exec',runtime.CONTAINER,'sha256sum','--',target])
+
     def test_remote_profile(self):
         source=(runtime.BIN/'conf/config-local.lua').read_text()
         changed=runtime.render_config(source,'a'*64)

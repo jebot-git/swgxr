@@ -115,10 +115,34 @@ func run()->void:
 	var interior:=launched.duplicate(true);interior.ship.station="interior";interior.ship.player_position=[0,.4,20]
 	check(flight.observe(interior,13) and not flight.seated() and flight.aboard(),"Native leave permits original-floor POB locomotion")
 	check(absf(full.player.global_position.y-10000.4)<.002,"Native bridge position is placed in isolated space frame")
+	full.gameplay_session=NativeSession.new();full.add_child(full.gameplay_session)
+	var pilot_station:Dictionary={"id":"pilot","cell_index":1,"position":[-.76,.43,21.14],"occupied_by":"0"}
+	interior.ship.owner_id="123";interior.ship.stations=[pilot_station]
+	flight.observe(interior,13)
+	check(flight.command_rows()[0].id=="station:pilot" and flight.command_rows()[0].available,"Leaving pilot chair exposes reachable Take pilot seat command on the actual bridge")
+	var occupied:=pilot_station.duplicate(true);occupied.occupied_by="987"
+	check(not flight.station_option(occupied).available,"Another occupant cannot be displaced through pilot command")
+	flight.ship.owner_id="987";check(not flight.station_option(pilot_station).available,"Guest cannot take owner's pilot station");flight.ship.owner_id="123"
+	var wrong_room:=pilot_station.duplicate(true);wrong_room.cell_index=2
+	check(not flight.station_option(wrong_room).available,"Station in another native room remains unavailable")
+	var distant:=pilot_station.duplicate(true);distant.position=[0,.4,10]
+	check(not flight.station_option(distant).available,"Command cannot board a distant chair")
+	flight.busy=true
+	full.response={"ok":true,"source_kind":"core3_jtl","character_id":"123","state":launched,"mutation":{"success":true},"live_response":{"sequence":14}}
+	var seat_calls:=full.ship_calls.size()
+	flight.command("station:pilot")
+	check(flight.interaction_waiting and full.ship_calls.size()==seat_calls,"Deliberate reseat queues behind a walking update instead of being dropped")
+	await process_frame;flight.busy=false
+	await process_frame;await process_frame;await process_frame
+	check(full.ship_calls.size()==seat_calls+1 and full.ship_calls.back().path=="/jtl/station" and full.ship_calls.back().body.station_id=="pilot","Queued pilot-seat request is dispatched exactly once after heartbeat completes")
+	check(flight.seated() and flight.station=="pilot" and full.player.get_camera().transform.is_equal_approx(tracked_camera),"Native reseat acknowledgement restores controls without changing tracked HMD local pose")
+	check(not flight.command_rows().any(func(row):return str(row.id).begins_with("station:")),"Already seated player is offered Leave rather than another seat request")
+	flight.observe(interior,14);flight.scene.place_player(full.player,[0,.4,10],1)
+	seat_calls=full.ship_calls.size();flight.command("station:pilot")
+	check(full.ship_calls.size()==seat_calls and flight.error=="Move closer to the seat.","Stale open menu rechecks reach at selection and reports why seat is unavailable")
 	check(flight.observe(authoritative,14) and not flight.aboard() and full.stage==old_stage and old_stage.visible,"Native land restores exact prior ground stage and presentation")
 	check(full.datapad.ui.professions.forgetting_available,"Landing restores native skill eligibility presentation")
 	check(full.xr_origin.global_transform.is_equal_approx(old_origin) and full.player.get_camera().transform.is_equal_approx(tracked_camera),"Landing restores ground origin without changing tracked HMD pose")
-	full.gameplay_session=NativeSession.new();full.add_child(full.gameplay_session)
 	full.response={"ok":true,"source_kind":"core3_jtl","character_id":"123","state":authoritative,"mutation":{"success":true},"live_response":{"sequence":15}}
 	await flight.request("status")
 	check(full.ship_calls.back().path=="/jtl/status" and full.ship_calls.back().body.session_id=="owned-native-session" and full.gameplay_session.sequence==15,"REST ship action binds owned native session and consumes returned authority heartbeat")

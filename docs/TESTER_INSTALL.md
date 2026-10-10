@@ -144,3 +144,9 @@ Reconnection restores the location confirmed by Core3. A timed-out deed, purchas
 or other action is not automatically repeated: refresh inventory or service state
 before deciding whether to retry. Voice availability follows the native session;
 group and faction channels also require the corresponding membership.
+
+To return to the pilot seat after walking around the yacht, approach the seat on
+the bridge and click the dominant-hand stick to open ship commands. Choose
+**Take pilot seat** with the stick and confirm with the trigger. The ship owner
+can pilot; occupied seats and seats in another room remain unavailable. The
+offhand stick click leaves the current station.

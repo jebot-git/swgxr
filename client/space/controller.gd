@@ -296,8 +296,28 @@ func button(name:String,side:String)->bool:
 		wheel.close()
 		if seated() and ship.get("kind","pob")=="pob":request("leave")
 	return true
+func station_option(candidate:Dictionary)->Dictionary:
+	var id:=str(candidate.get("id",""))
+	var reason:=""
+	if not aboard() or seated() or ship.get("kind","pob")!="pob":reason="Leave your current station first."
+	elif id not in ["pilot","passenger"]:reason="Station unavailable."
+	elif id=="pilot" and str(ship.get("owner_id",""))!=app.datapad_character_id:reason="Only the ship owner can pilot."
+	elif str(candidate.get("occupied_by","")) not in ["","0",app.datapad_character_id]:reason="Station occupied."
+	elif int(candidate.get("cell_index",0))!=scene.cell_index():reason="Return to the bridge."
+	elif app.player.global_position.distance_to(scene.world(candidate.position))>2.75:reason="Move closer to the seat."
+	return {"id":"station:"+id,"label":"Take pilot seat" if id=="pilot" else "Take passenger seat","available":reason.is_empty(),"reason":reason}
+func take_station(id:String)->void:
+	for candidate:Dictionary in ship.get("stations",[]):
+		if str(candidate.get("id",""))!=id:continue
+		var option:=station_option(candidate)
+		if not option.available:notice(option.reason);return
+		# request() queues deliberate input behind an in-flight walk/flight update.
+		request("station",{"station_id":id});return
+	notice("Station unavailable. Refresh ship status and try again.")
 func command_rows()->Array:
 	var rows:Array=[]
+	if not seated() and ship.get("kind","pob")=="pob":
+		for candidate:Dictionary in ship.get("stations",[]):rows.append(station_option(candidate))
 	for group in ["shield","power","droid"]:
 		var available:bool=ship.get("commands",[]).any(func(row):return str(row.get("id","")).begins_with(group))
 		if available:rows.append({"id":"group_"+group,"label":{"shield":"Shield distribution","power":"Power distribution","droid":"Droid commands"}[group],"available":true})
@@ -309,6 +329,7 @@ func command_rows()->Array:
 	if seated() and ship.get("kind","pob")=="pob":rows.append({"id":"leave","label":"Leave station","available":true})
 	return rows
 func command(id:String)->void:
+	if id.begins_with("station:"):take_station(id.trim_prefix("station:"));return
 	if id in ["boarding_targets","boarding_incoming"]:
 		var rows:Array=[]
 		if id=="boarding_targets":
@@ -388,18 +409,18 @@ func interaction()->void:
 		if pressed and trigger_ready:trigger_ready=false;wheel.confirm()
 	elif not seated() and tracked:
 		for candidate:Dictionary in ship.get("stations",[]):
-			if str(candidate.get("occupied_by","")) not in ["","0",app.datapad_character_id]:continue
+			if not station_option(candidate).available:continue
 			var point:Vector3=scene.world(candidate.position)+Vector3(0,.7,0)
 			if main.global_position.distance_to(point)<.65:
 				readout.text=str(candidate.get("id", "Station")).capitalize()+" · Trigger to board"
-				if pressed and trigger_ready and not busy:trigger_ready=false;request("station",{"station_id":str(candidate.id)})
+				if pressed and trigger_ready:trigger_ready=false;take_station(str(candidate.id))
 				break
 	if not seated() and tracked and not wheel.opened:
 		for candidate:Dictionary in ship.get("interactions",[]):
 			if int(candidate.get("cell_index",0))!=scene.cell_index():continue
 			if main.global_position.distance_to(scene.world(candidate.position))>.35:continue
 			readout.text=str(candidate.get("label","Ship control"))+" · Trigger"
-			if pressed and trigger_ready and not busy:trigger_ready=false;request("command",{"command_id":str(candidate.command_id),"interaction_id":str(candidate.id)})
+			if pressed and trigger_ready:trigger_ready=false;request("command",{"command_id":str(candidate.command_id),"interaction_id":str(candidate.id)})
 			break
 	var grips:bool=tracked and left.get_float("grip")>.65 and right.get_float("grip")>.65
 	if not grips:recover_ready=true

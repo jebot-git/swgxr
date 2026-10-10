@@ -49,6 +49,7 @@ func run() -> void:
 	hud.pools = pools
 	hud.update_readout(Transform3D(Basis.IDENTITY, Vector3(0,1,-0.4)), Vector3(0,1.7,0), true)
 	check(hud.visible and hud.bars[0].blocker.visible and hud.bars[0].wounds.text == "−200", "Wrist hologram shows visible wound block")
+	check(hud.get_child(0).material_override.render_priority < hud.bars[0].fill.material_override.render_priority and hud.bars[0].fill.material_override.render_priority < hud.bars[0].wounds.render_priority, "HAM backing, bars and labels have stable transparent draw order")
 	check(hud.global_position.y > 1.10, "HAM readout clears the top of weapon wrist")
 	for roll in [0.0, PI/2, PI, -PI/2]:
 		for side in [-1.0, 1.0]:

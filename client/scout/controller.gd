@@ -145,7 +145,7 @@ func request(action: String, detail: Dictionary={}) -> Dictionary:
 		if body.combat_pools.ham.size()==9 and state.get("ham",[]).size()==9: body.combat_pools.ham=state.ham.duplicate()
 		sync_items();sync_camps();message="Searching…" if state.get("foraging",false) else ""
 	else:message=str(result.get("error","Scout action not confirmed"))
-	if is_instance_valid(ranger):ranger.observe(result)
+	if is_instance_valid(ranger) and (result.get("ok",false) or action not in ["status","ranger_status"]):ranger.observe(result)
 	return result
 func sync_items() -> void:
 	if not app.inventory_snapshot.get("source_kind","")=="core3_inventory":return

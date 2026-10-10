@@ -88,6 +88,9 @@ func request(action:String,extra:Dictionary={})->Dictionary:
 	if version!=generation or epoch!=app.datapad_epoch:return {}
 	busy=false;poll=3.0
 	if not observe(response):
+		# Passive discovery is not a placement attempt. Keep the last readout;
+		# connection loss is handled by the main reconnect screen.
+		if action=="status":return {"ok":false,"error":str(response.get("error","Housing status unavailable."))}
 		error=str(response.get("error","Core3 did not confirm housing operation. Refresh before retrying."))
 		transient_error_until=0
 		if bool(response.get("movement_rejected",false)) or error.begins_with("native_movement_"):

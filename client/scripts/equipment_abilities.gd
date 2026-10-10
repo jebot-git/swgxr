@@ -52,7 +52,7 @@ func toggle()->void:
 	if active:rebuild()
 	else:
 		if hologram.browsing:
-			hologram.labels[0].text="EQUIPPED ITEMS\n\nGrip an item to move it.\n\nRight stick click: combat abilities"
+			hologram.labels[0].text="EQUIPPED ITEMS\n\nGrip an item to move it.\n\nCombat abilities button below"
 			hologram.labels[1].text="SELECT EQUIPMENT\n\nItems remain equipped until Core3 confirms their return to inventory."
 		else:hologram.update_comparison(hologram.highlighted)
 func cancel_drag()->void:
@@ -113,7 +113,7 @@ func rebuild()->void:
 		var row:Dictionary=gestures[i]
 		tile(grid,Vector3(-.061+(i-page*2)*.122,-.161,.006),str(row.get("label",row.id)),"gesture",str(row.id))
 	label(grid,"%d/%d  •  STICK TO PAGE"%[page+1,page_count()],Vector3(0,-.208,.006),14)
-	hologram.labels[1].text="ABILITY LOADOUT\n\n"+("No learned abilities for this weapon family." if regular.is_empty() and ultimates.is_empty() and gestures.is_empty() else "Point at an ability for details.\n\nGrip and drag a combat ability to a slot above your head.\n\nClick an ultimate to select it.\n\nPoint at a gesture for its trigger. No slot needed.")+"\n\nRight stick click: equipment"
+	hologram.labels[1].text="ABILITY LOADOUT\n\n"+("No learned abilities for this weapon family." if regular.is_empty() and ultimates.is_empty() and gestures.is_empty() else "Point at an ability for details.\n\nGrip and drag a combat ability to a slot above your head.\n\nClick an ultimate to select it.\n\nPoint at a gesture for its trigger. No slot needed.")+"\n\nEquipment button below"
 func page_count()->int:
 	var regular:=0;var ultimate:=0;var gesture:=0
 	for row:Dictionary in context.get("ability_catalog",[]):
@@ -124,11 +124,11 @@ func page_count()->int:
 func scroll(direction:int)->void:
 	if not drag.is_empty() or pending:return
 	page=clampi(page+direction,0,page_count()-1);rebuild()
-func hit(pose:Transform3D)->Dictionary:
+func hit(pose:Transform3D,pointer:Dictionary={})->Dictionary:
 	var nearest:=INF;var found:Dictionary={}
 	for entry:Dictionary in tiles:
-		var node:Node3D=entry.node;var local:Vector3=node.to_local(pose.origin)
-		var direction:Vector3=node.global_basis.inverse()*(-pose.basis.z)
+		var node:Node3D=entry.node;var local:Vector3=node.to_local(pointer.get("ray_origin",pose.origin))
+		var direction:Vector3=node.global_basis.inverse()*Vector3(pointer.get("direction",-pose.basis.z))
 		var distance:=0.0
 		if absf(local.z)>.04:
 			if absf(direction.z)<.001:continue
@@ -155,10 +155,10 @@ func submit(value:Dictionary)->void:
 func finish(success:bool,message:String)->void:
 	pending=false
 	if active:rebuild();hologram.labels[1].text="Loadout equipped." if success else message
-func sample(pose:Transform3D,grip:float,trigger:float,tracked:bool)->void:
+func sample(pose:Transform3D,grip:float,trigger:float,tracked:bool,pointer:Dictionary={})->void:
 	if not active:return
 	if not tracked or pending:cancel_drag();grip_armed=false;trigger_armed=false;return
-	var pointed:=hit(pose)
+	var pointed:=hit(pose,pointer)
 	for entry:Dictionary in tiles:
 		entry.node.get_child(0).material_override.albedo_color=Color("247b94") if entry==pointed else Color("17665a") if entry.selected else Color("10344a")
 	if not pointed.is_empty():describe(str(pointed.id))

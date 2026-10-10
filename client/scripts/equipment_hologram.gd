@@ -24,6 +24,10 @@ var offhand := "left"
 var report: Dictionary = {}
 var browsing := false
 var equipment_targets: Dictionary = {}
+var mode_button: MeshInstance3D
+var mode_label: Label3D
+var mode_pointer: Node3D
+var mode_trigger_armed := false
 
 func configure(source: Node3D, current_equipment: Array) -> void:
 	source_avatar=source; equipment=current_equipment.duplicate(true)
@@ -45,7 +49,37 @@ func configure(source: Node3D, current_equipment: Array) -> void:
 	create_panel(0.38,-0.22,"HELD ITEM")
 	ability_editor=preload("res://scripts/equipment_abilities.gd").new();add_child(ability_editor);ability_editor.setup(self);ability_editor.observe(ability_context)
 	ability_editor.proposed.connect(func(value):loadout_proposed.emit(value))
+	mode_button=MeshInstance3D.new();add_child(mode_button)
+	var button_mesh:=QuadMesh.new();button_mesh.size=Vector2(.28,.065);mode_button.mesh=button_mesh
+	mode_button.position=Vector3(0,-.065,.015)
+	var button_material:=StandardMaterial3D.new();button_material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
+	button_material.albedo_color=Color("10344a");mode_button.material_override=button_material
+	mode_button.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mode_label=Label3D.new();mode_button.add_child(mode_label);mode_label.font=FONT
+	mode_label.font_size=24;mode_label.pixel_size=.0007;mode_label.position.z=.003
+	mode_label.text="Combat abilities";mode_label.outline_size=0
+	mode_pointer=preload("res://scripts/finger_pointer_visual.gd").new();add_child(mode_pointer)
+	mode_trigger_armed=false
 	visible=false; active=false
+
+func sample_mode_button(pointer:Dictionary,trigger:float,permitted:bool)->bool:
+	if not active or not permitted or pointer.is_empty():
+		mode_trigger_armed=false
+		if is_instance_valid(mode_pointer):mode_pointer.hide()
+		return false
+	mode_label.text="Equipment" if ability_editor.active else "Combat abilities"
+	var origin:Vector3=mode_button.to_local(pointer.get("ray_origin",pointer.get("tip",Vector3.ZERO)))
+	var direction:Vector3=mode_button.global_basis.inverse()*Vector3(pointer.direction)
+	var distance:float=-origin.z/direction.z if direction.z<-.001 and origin.z>=0 else -1.0
+	var point:=origin+direction*distance
+	var hovered:=distance>=0 and absf(point.x)<=.14 and absf(point.y)<=.0325
+	mode_button.material_override.albedo_color=Color("247b94") if hovered else Color("10344a")
+	mode_pointer.update_pointer(pointer.get("tip",Vector3.ZERO),{"world":mode_button.to_global(point)} if hovered else {})
+	if trigger<.3:mode_trigger_armed=true
+	elif trigger>=.55:
+		if mode_trigger_armed and hovered:ability_editor.toggle()
+		mode_trigger_armed=false
+	return hovered
 
 func freeze_nodes(node: Node) -> void:
 	node.process_mode=Node.PROCESS_MODE_DISABLED
@@ -125,7 +159,7 @@ func show_equipment(head: Transform3D) -> bool:
 		add_child(marker);marker.position=anchor
 		var id:=str(item.get("id",""));markers[id]=marker;equipment_targets[id]=item.duplicate(true)
 	labels[0].text="EQUIPPED ITEMS\n\nTouch a glowing item and squeeze grip.\n\nOpen your backpack with the other hand, then release the item inside it."
-	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory.\n\nRight stick click: combat abilities."
+	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory.\n\nUse Combat abilities below the hologram to equip skills."
 	return true
 
 func equipped_at(position:Vector3)->Dictionary:

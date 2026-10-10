@@ -57,6 +57,23 @@ class ServiceSessions(unittest.TestCase):
         self.assertIsNone(self.hub.active_for('one'))
         self.assertIsNotNone(self.hub.active_for('two'))
 
+    def test_uncertain_reply_keeps_owned_session_and_does_not_replay(self):
+        self.hub._exchange.side_effect = [
+            {'session_live': True, 'error_code': 'native_response_timeout'},
+            {'session_live': True, 'snapshot': {'player': {'id': '1'}}},
+        ]
+        active = self.hub.active_for('one')
+        identity = dict(character_id='1', session_id='session_one')
+        result = self.hub.request('one', 'vehicles', dict(identity, vehicles={'action': 'activate'}))
+        self.assertEqual(result['error_code'], 'native_response_timeout')
+        self.assertIs(self.hub.active_for('one'), active)
+        self.assertEqual(self.hub._exchange.call_count, 1)
+        active['process'].terminate.assert_not_called()
+        refreshed = self.hub.request('one', 'snapshot', identity)
+        self.assertTrue(refreshed['session_live'])
+        self.assertEqual([call.args[1]['action'] for call in self.hub._exchange.call_args_list], ['vehicles', 'snapshot'])
+        self.hub._exchange.side_effect = lambda active, command, **kw: {'session_live': True}
+
     def test_guard_is_per_account(self):
         self.hub.guard('third')
         with self.assertRaises(LiveConflict): self.hub.guard('one')

@@ -54,7 +54,7 @@ func run()->void:
 	await live.pump()
 	check(host.calls.back().payload.position==[4.0,0.0,2.0] and live.sequence==2 and live.is_ready(),"Rejected pose is discarded; next poll sends fresh tracked position and recovers")
 	var command:Dictionary={"shot_id":"shot","request_id":"unchanged","aim_position":[1,2,3]}
-	live.shots.shot={"accepted":false};live.queue.append({"kind":"fire","shot_id":"shot","payload":command.duplicate(true)});host.reply=gate
+	live.shots.shot={"accepted":false,"shot":{}};live.queue.append({"kind":"fire","shot_id":"shot","payload":command.duplicate(true)});host.reply=gate
 	await live.pump();check(live.queue.size()==1 and live.queue[0].payload==command and live.queue[0].unstarted_retries==1,"Unstarted command retries exact immutable receipt and semantic payload")
 	live.backend_retry_usec=0;host.reply=envelope.duplicate(true);host.reply.sequence=3;host.reply.mutation={"success":true,"shot_id":"shot"}
 	await live.pump();check(live.shots.shot.accepted and live.queue.is_empty() and host.calls.back().payload==command,"One successful exact retry acknowledges original fire once")

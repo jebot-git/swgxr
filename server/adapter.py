@@ -87,6 +87,13 @@ MAX_BODY = 16384
 class BackendError(Exception):
     pass
 
+class NativeReplyTimeout(Exception):
+    """The operation may have committed; preserve ownership, never replay it."""
+    def response(self):
+        return {'ok':False,'backend':'core3','error_code':'native_response_timeout',
+                'request_timeout':True,'session_live':True,'mutation_started':True,
+                'error':'Core3 reply timed out. The connection is retained; refresh before retrying the action.'}
+
 class NativeJtlRejected(Exception):
     """Preserve a rejected ship action's owned snapshot for remote transitions."""
     def __init__(self, response):
@@ -106,6 +113,7 @@ class NativeMovementRejected(Exception):
 def check_live_error(live):
     code=live.get('error_code')
     if not code:return
+    if code=='native_response_timeout':raise NativeReplyTimeout()
     if isinstance(code,str) and code.startswith('native_movement_'):
         raise NativeMovementRejected(live)
     raise ValueError(code)
@@ -755,6 +763,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.respond(404, {'error': 'Unknown endpoint.'})
         except BackendBusy as exc:self.respond(503,{'backend':'core3','error_code':'backend_busy','retry_after':1,'mutation_started':False,'error':str(exc)})
+        except NativeReplyTimeout as exc:self.respond(504,exc.response())
         except LiveConflict as exc: self.respond(409,{'backend':'core3','session_live':False,'error_code':'live_session_conflict','error':str(exc)})
         except NativeMovementRejected as exc:self.respond(400,exc.response())
         except ValueError as exc: self.respond(400, {'error': str(exc)})
@@ -863,6 +872,8 @@ class Handler(BaseHTTPRequestHandler):
                 else: self.respond(404, {'error': 'Unknown endpoint.'})
         except BackendBusy as exc:
             self.respond(503,{'backend':'core3','error_code':'backend_busy','retry_after':1,'mutation_started':False,'error':str(exc)})
+        except NativeReplyTimeout as exc:
+            self.respond(504,exc.response())
         except LiveConflict as exc:
             self.respond(409, {'backend':'core3','session_live':False,'error_code':'live_session_conflict','error':str(exc)})
         except NativeMovementRejected as exc:

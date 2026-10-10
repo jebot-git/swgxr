@@ -83,10 +83,12 @@ func run()->void:
 	check(not session.accept(foreign,true),"Explicit reconnect cannot accept another character")
 	session.live=false;app.response.session_id="native-reconnected"
 	check(await session.start() and session.session_id=="native-reconnected","Explicit reconnect accepts new same-character session after server loss")
-	app.response={"ok":false,"error_code":"backend_busy"};session.last_confirmed_ms=Time.get_ticks_msec()-20000
+	app.response={"ok":false,"error_code":"backend_busy"};session.last_confirmed_ms=Time.get_ticks_msec()
 	await session.update_pose()
 	check(session.live,"Transient busy response retains session without fabricating a new confirmation")
-	app.response={"ok":false,"error":"gone"};await session.update_pose()
+	var lost:Array=[];session.connection_lost.connect(func(message):lost.append(message))
+	app.response={"ok":false,"error_code":"backend_busy","error":"busy too long"};session.last_confirmed_ms=Time.get_ticks_msec()-20000;await session.update_pose()
+	check(lost.size()==1 and not str(lost[0]).is_empty(),"Lost session emits one reconnect notification")
 	check(not session.live and not app.asset_status.text.is_empty() and app.asset_status.text==session.last_error,"Persistent lost connection is visible")
 	session.reset();check(session.session_id.is_empty() and not session.live and not session.busy,"Logout reset fences outstanding identity")
 	var budget:=preload("res://scripts/native_poll_budget.gd").new();budget.interval_ms=1000

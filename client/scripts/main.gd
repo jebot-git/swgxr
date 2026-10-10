@@ -560,6 +560,9 @@ func configure_backend_connection() -> bool:
 
 func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if session_leaving and path!="/session/logout":return {"ok":false,"error":"Logging off; background request cancelled.","cancelled":true}
+	if world_ready and is_instance_valid(gameplay_session) and not gameplay_session.live and not gameplay_session.session_id.is_empty() and not session_leaving:
+		if path!="/session/start" and not path.begins_with("/combat/session") and not path.begins_with("/auth/"):
+			return {"ok":false,"session_unavailable":true,"error":"Gameplay connection lost. Use Reconnect in the menu."}
 	if body is Dictionary and str(body.get("character_id",""))==datapad_character_id and not datapad_character_id.is_empty():
 		body=body.duplicate(true);body.zone=active_planet
 		# Capture before any asynchronous request. Already queued commands retain
@@ -581,12 +584,14 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 		return {"ok":false,"error":"Inventory and character RPCs are suspended during the live ranged test."}
 	var request := HTTPRequest.new()
 	request.timeout = (30.0 if path.ends_with("/start") else 4.0) if path.begins_with("/combat/session") else 75.0
+	if is_instance_valid(gameplay_session) and gameplay_session.live and not path.ends_with("/start"):
+		request.timeout=15.0 # Bound service stalls below the native idle timeout.
 	for prefix in ["/gathering","/inventory","/services","/crafting","/vehicles","/jtl"]:
 		if path.begins_with(prefix):request.timeout=15.0;break
 	if path == "/services/presence": request.timeout = 2.0
 	if path == "/session/logout":request.timeout=30.0
 	if path == "/session/start":request.timeout=30.0
-	if path == "/session/update":request.timeout=8.0
+	if path == "/session/update":request.timeout=15.0 # Native receipt waits up to ten seconds.
 	if path == "/session/life":request.timeout=15.0
 	if path == "/session/sync":request.timeout=2.0
 	add_child(request)
@@ -658,7 +663,7 @@ func try_background_poll(family: String) -> bool:
 		occupied=occupied or live_combat.busy or live_combat.backend_retry_usec>Time.get_ticks_usec()
 		native_poll_budget.interval_ms=1000
 	elif is_instance_valid(gameplay_session):
-		if gameplay_session.busy or (gameplay_session.live and is_instance_valid(vehicles) and vehicles.seated()):return false
+		if not gameplay_session.live or gameplay_session.busy or (is_instance_valid(vehicles) and vehicles.seated()):return false
 		native_poll_budget.interval_ms=1000 if gameplay_session.live else 3000
 	return native_poll_budget.admit(family,Time.get_ticks_msec(),occupied)
 
@@ -676,9 +681,44 @@ func ensure_gameplay_session() -> bool:
 		gameplay_session.snapshot_applied.connect(apply_live_player)
 		gameplay_session.life_action_finished.connect(live_life_action_finished)
 		gameplay_session.transport_required.connect(handle_live_transport)
+		gameplay_session.connection_lost.connect(gameplay_connection_lost)
 	if not player.feedback.life_action_requested.is_connected(request_live_life_action):player.feedback.life_action_requested.connect(request_live_life_action)
 	player.feedback.local_prediction=false
 	return await gameplay_session.start()
+
+func gameplay_connection_lost(message: String) -> void:
+	if not world_ready or session_leaving:return
+	menu.show();player.active=false;player.velocity=Vector3.ZERO
+	if is_instance_valid(xr_menu):xr_menu.set_open(true)
+	if is_instance_valid(datapad):datapad.set_open(false)
+	if is_instance_valid(inventory):inventory.cancel_interaction()
+	if is_instance_valid(voice_chat):voice_chat.set_allowed(false)
+	resume_button.text="Reconnect"
+	status.text="Gameplay connection lost. Reconnect to continue.\n"+message
+	Input.mouse_mode=Input.MOUSE_MODE_VISIBLE
+	update_buttons()
+
+func reconnect_gameplay() -> void:
+	if loading_stage or session_leaving or gameplay_session.busy:return
+	loading_stage=true;world_ready=false;player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false)
+	loading_screen.begin("Reconnecting to Core3…")
+	if not await ensure_gameplay_session():
+		loading_stage=false;world_ready=true;loading_screen.finish()
+		gameplay_connection_lost(gameplay_session.last_error);return
+	# Resume only at the freshly confirmed native location. Never replay failed
+	# deeds, combat, purchases or other actions from the disconnected session.
+	datapad_epoch+=1
+	var placed:=true
+	if not gameplay_session.pending_transport.is_empty():
+		placed=await perform_live_transport(gameplay_session.pending_transport,true)
+	elif gameplay_session.player_state.get("space_active",false):
+		placed=is_instance_valid(space) and space.aboard()
+	else:
+		var result:Dictionary=await medical_placement.place(self,gameplay_session.player_state)
+		placed=result.get("ok",false)
+	if not placed:fail_loading("Core3 reconnected, but its confirmed location could not be loaded.");return
+	loading_stage=false;world_ready=true;player.set_physics_process(true)
+	resume_button.text="Resume exploration";loading_screen.finish();close_menu()
 
 func refresh_backend() -> void:
 	if not account_ready():
@@ -1098,6 +1138,8 @@ func dismiss_loading_error() -> bool:
 func close_menu() -> void:
 	if stage == null or loading_stage or not world_ready or session_leaving or not logout_payload.is_empty():
 		return
+	if is_instance_valid(gameplay_session) and not gameplay_session.live and not gameplay_session.session_id.is_empty():
+		reconnect_gameplay();return
 	menu.visible = false
 	player.active = not xr_diagnostic_active()
 	if xr_requested:
@@ -1130,6 +1172,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
 			if stage == null or not world_ready:
+				return
+			if is_instance_valid(gameplay_session) and not gameplay_session.live and not gameplay_session.session_id.is_empty():
+				gameplay_connection_lost(gameplay_session.last_error)
 				return
 			menu.visible = not menu.visible
 			player.active = not menu.visible and stage != null
@@ -1629,7 +1674,8 @@ func toggle_xr_menu() -> void:
 func sync_xr_activity() -> void:
 	if is_instance_valid(xr_menu):xr_menu.set_input_active(xr_focused)
 	if xr_requested and is_instance_valid(player):
-		player.active = not xr_diagnostic_active() and xr_focused and world_ready and not loading_stage and stage != null and not menu.visible and not creator.visible
+		var connected:bool=not is_instance_valid(gameplay_session) or gameplay_session.session_id.is_empty() or gameplay_session.live
+		player.active = connected and not xr_diagnostic_active() and xr_focused and world_ready and not loading_stage and stage != null and not menu.visible and not creator.visible
 
 func recenter_xr() -> void:
 	# Stage-space recenter changes yaw about the tracked head, never world position

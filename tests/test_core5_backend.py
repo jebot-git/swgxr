@@ -6,6 +6,16 @@ from server.crafting_protocol import crafting_snapshot
 from server.scout_protocol import command, snapshot
 
 class Core5BackendTests(unittest.TestCase):
+    def test_native_timeout_is_uncertain_and_keeps_connection(self):
+        with self.assertRaises(adapter.NativeReplyTimeout) as caught:
+            adapter.check_live_error({'error_code': 'native_response_timeout', 'session_live': True})
+        response = caught.exception.response()
+        self.assertTrue(response['session_live'])
+        self.assertTrue(response['request_timeout'])
+        self.assertTrue(response['mutation_started'])
+        self.assertFalse(response['ok'])
+        self.assertNotIn('confirmed_rejection', response)
+
     def test_crafting_original_labels_and_native_indices(self):
         raw={'variables':{'crafting':{'character_id':'1','state':{
             'source_kind':'core3_crafting','character_id':'1','tool_tabs':[1,64],

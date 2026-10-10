@@ -118,6 +118,9 @@ class LiveCombatHub:
      try:self._record(active,command,result)
      except OSError:pass # Diagnostic storage cannot invalidate an already committed action.
      resolved=self._resolve(result)
+     # An uncertain receipt has no new authoritative state. Preserve the last
+     # world/voice snapshot and keep the owned child available for a heartbeat.
+     if resolved.get('error_code')=='native_response_timeout':return resolved
      WORLD_SYNC.publish(active['account'],active['character_id'],active['id'],resolved.get('snapshot',{}),resolved.get('sequence',0),command=command,mutation=resolved.get('mutation',{}))
      try:VOICE_STATE.publish(active['account'],active['character_id'],resolved.get('snapshot',{}).get('player',{}),session_id=active['id'],live=True)
      except (OSError,ValueError):pass

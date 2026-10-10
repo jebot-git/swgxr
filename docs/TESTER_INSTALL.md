@@ -131,3 +131,15 @@ UI pointing uses the controller aim throughout the client. Finger bending does n
 move the cursor, and only a targeting dot is shown. Dropdowns open within the VR
 panel: trigger to select, hold trigger and drag to scroll, or use the pointing
 hand’s stick. Character-creation slider handles stay inside their scroll area.
+
+Open the equipment hologram and select **Combat abilities** directly below the
+character to equip skills. The same button returns to **Equipment**; right-stick
+click remains a shortcut. Point with controller aim and release then press the
+trigger to select the button.
+
+The client keeps its native gameplay session alive while idle or in the menu.
+If the connection is lost, movement pauses and the menu offers **Reconnect**.
+Reconnection restores the location confirmed by Core3. A timed-out deed, purchase,
+or other action is not automatically repeated: refresh inventory or service state
+before deciding whether to retry. Voice availability follows the native session;
+group and faction channels also require the corresponding membership.

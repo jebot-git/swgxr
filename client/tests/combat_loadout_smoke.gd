@@ -35,7 +35,17 @@ func run()->void:
 	check(str(report.get("error","")).is_empty(),"Original avatar loaded")
 	var hologram:=Hologram.new();world.add_child(hologram);hologram.configure(source,[]);hologram.set_ability_context(fixture());hologram.show_equipment(Transform3D.IDENTITY)
 	var ui:Node3D=hologram.ability_editor;ui.proposed.connect(func(value):proposals.append(value.duplicate(true)))
-	ui.toggle()
+	var button:Node3D=hologram.mode_button
+	var pointer:Dictionary={"ray_origin":button.global_position+button.global_basis.z*.3,"tip":button.global_position+button.global_basis.z*.3,"direction":-button.global_basis.z}
+	check(button.position.y<0 and hologram.mode_label.text=="Combat abilities","Direct skill-equipping button sits below the equipment hologram")
+	hologram.sample_mode_button(pointer,1,true)
+	check(not ui.active,"Held trigger cannot activate the new button on arrival")
+	hologram.sample_mode_button(pointer,0,true);hologram.sample_mode_button(pointer,1,true)
+	check(ui.active,"Release then trigger on direct button opens ability loadout")
+	hologram.sample_mode_button(pointer,1,true)
+	check(ui.active,"Held trigger does not toggle the editor repeatedly")
+	hologram.sample_mode_button(pointer,0,true);hologram.sample_mode_button(pointer,1,false)
+	check(ui.active,"Tracking or permission loss cannot activate the mode button")
 	check(ui.active and ui.tiles.filter(func(row):return row.kind=="slot").size()==4,"Exactly four combat slots above avatar")
 	check(ui.tiles.filter(func(row):return row.kind=="ability").size()==4 and ui.tiles.filter(func(row):return row.kind=="ultimate").size()==1,"Separate regular grid and ultimate row")
 	check(ui.lines.get_child_count()==1,"Only confirmed equipped slot draws anatomical connector")

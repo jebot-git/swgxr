@@ -464,7 +464,7 @@ func _process(delta: float) -> void:
 	var bag_pointer:XRController3D=controller_for("right" if bag_hand_side()=="left" else "left")
 	var hit:=find_hit(tool_pointer_pose(bag_pointer)) if is_open and tracked and not hologram.active else {}
 	var right:XRController3D=controller_for("right")
-	sample_ability_editor(right.is_button_pressed("primary_click"),main.global_transform,main.get_float("grip"),main.get_float("trigger"),tracked and allowed)
+	sample_ability_editor(right.is_button_pressed("primary_click"),main.global_transform,main.get_float("grip"),main.get_float("trigger"),tracked and allowed,tool_pointer_pose(main))
 	var slider_consumed:=slider_frame(hit,bag_pointer.global_transform,bag_pointer.get_float("grip"),bag_pointer.get_float("trigger"),tracked and not action_pending and held_item.is_empty())
 	update_gestures(tracked,camera.global_transform,off.global_transform,off.get_float("grip") if tracked and not vehicle_hand_busy(offhand) else 0,main.get_float("grip") if tracked and not vehicle_hand_busy("left" if offhand=="right" else "right") else 0,{} if slider_consumed or (not hit.is_empty() and preload("res://scripts/frontend_choice.gd").active(surfaces[int(hit.surface)].viewport)) else hit,main.global_transform)
 	if is_open:
@@ -753,13 +753,14 @@ func set_combat_loadout_context(value:Dictionary,callback:Callable)->void:
 	loadout_request=callback
 	if is_instance_valid(hologram):hologram.set_ability_context(value)
 
-func sample_ability_editor(click:bool,pose:Transform3D,grip:float,trigger:float,tracked:bool)->void:
+func sample_ability_editor(click:bool,pose:Transform3D,grip:float,trigger:float,tracked:bool,pointer:Dictionary={})->void:
 	var edge:=click and not ability_stick_down
 	ability_stick_down=click
 	if not is_instance_valid(hologram) or not hologram.active:return
 	if not is_instance_valid(hologram.ability_editor):return
+	var button_hovered:bool=hologram.sample_mode_button(pointer,trigger,tracked and not action_pending and equipment_drag.is_empty() and not hologram.ability_editor.pending and hologram.ability_editor.drag.is_empty())
 	if edge and tracked and not action_pending and equipment_drag.is_empty():hologram.ability_editor.toggle()
-	hologram.ability_editor.sample(pose,grip,trigger,tracked and not action_pending)
+	hologram.ability_editor.sample(pose,grip,trigger,tracked and not action_pending and not button_hovered,pointer)
 	if hologram.ability_editor.active:
 		held_trigger_armed=false;equipment_grip_armed=false;main_grip_armed=false;grip_armed=false
 

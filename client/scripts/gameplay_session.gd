@@ -3,6 +3,7 @@ extends Node
 signal snapshot_applied(player: Dictionary)
 signal life_action_finished(action: String, success: bool, message: String)
 signal transport_required(transport: Dictionary)
+signal connection_lost(message: String)
 var sequence:=-1
 var player_state: Dictionary={}
 var weapon_state: Dictionary={}
@@ -189,7 +190,7 @@ func update_pose() -> void:
 		# The API already adopted the owned rejection and moved the origin. Do
 		# not queue the rejected position again or perform a redundant discovery.
 		movement_corrected()
-	elif result.get("error_code","") not in ["backend_busy"]:
+	elif result.get("error_code","")!="backend_busy" or Time.get_ticks_msec()-last_confirmed_ms>15000:
 		# A boarding reply can be lost after Core3 has switched zones. Discover
 		# transport through the read-only native snapshot; never omit the zone
 		# fence from a pose update or resend an old source-world position.
@@ -201,3 +202,4 @@ func update_pose() -> void:
 		if Time.get_ticks_msec()-last_confirmed_ms<=15000:return
 		live=false
 		if is_instance_valid(app.asset_status):app.asset_status.text=last_error
+		connection_lost.emit(last_error)

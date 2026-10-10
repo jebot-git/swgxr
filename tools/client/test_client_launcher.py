@@ -160,6 +160,7 @@ class LauncherWindow:
         self.button(actions, 'Check & install updates', self.update).grid(row=0,column=0,sticky='ew',padx=(0,8))
         self.button(actions, 'Prepare game data…', self.import_assets).grid(row=0,column=1,sticky='ew',padx=(0,8))
         self.button(actions, 'Create shortcuts', lambda: self.start('shortcuts', ['--install-shortcuts'])).grid(row=0,column=2,sticky='ew')
+        self.button(actions, 'Export character to VRM…', lambda: self.start('export', ['--export-character'])).grid(row=1,column=0,columnspan=3,sticky='ew',pady=(8,0))
         self.status = tk.StringVar(value='Ready. Choose an action to begin.')
         tk.Label(main, textvariable=self.status, font=('Arial',11), bg=self.bg, fg=self.accent, anchor='w', wraplength=740, justify='left').pack(fill='x', pady=(6,8))
         self.progress = ttk.Progressbar(main, mode='indeterminate', style='Launcher.Horizontal.TProgressbar')
@@ -211,7 +212,7 @@ class LauncherWindow:
                 self.import_assets();return
         self.action = action
         self.status.set({'update':'Checking for client updates…','import':'Verifying and importing assets…',
-                         'shortcuts':'Creating desktop shortcuts…','game':'Client is starting / running. Close the game to return.'}[action])
+                         'shortcuts':'Creating desktop shortcuts…','export':'Character exporter is open. Close it to return.','game':'Client is starting / running. Close the game to return.'}[action])
         self.append('\n'+self.status.get()+'\n')
         for button in self.buttons:button.configure(state='disabled')
         self.progress.start(15)
@@ -244,7 +245,7 @@ class LauncherWindow:
                         self.status.set('Action failed. See the activity log below, then retry.')
                     else:
                         self.status.set({'update':'Update check complete. Your client is ready.', 'import':'Assets imported. Ready to play.',
-                                         'shortcuts':'Desktop shortcuts created.', 'game':'Client closed. Ready.'}[self.action])
+                                         'shortcuts':'Desktop shortcuts created.', 'export':'Character exporter closed.', 'game':'Client closed. Ready.'}[self.action])
                     self.refresh()
                     break
         self.timer = self.window.after(100,self.poll)

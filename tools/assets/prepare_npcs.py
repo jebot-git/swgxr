@@ -55,7 +55,11 @@ def main():
  imp=CharacterImporter(args.tre_dir,args.out);placement_bytes=args.placements.read_bytes();placements=json.loads(placement_bytes);templates={}
  if args.refresh_outfits:
   print(json.dumps(refresh_outfits(imp,placements,args.placements,placement_bytes),indent=2));return
- for instance in placements['instances']:templates.setdefault(instance['template'],set()).add(instance.get('mood','neutral'))
+ for instance in placements['instances']:
+  mood=instance.get('mood','neutral')
+  # Native placements may use numeric mood IDs. This converter resolves the
+  # named LAT selector only; numeric 0 means the default standing animation.
+  templates.setdefault(instance['template'],set()).add(mood if isinstance(mood,str) else 'neutral')
  if args.limit:templates=dict(list(templates.items())[:args.limit])
  previous=json.loads((args.out/'catalog.json').read_text()) if args.merge and (args.out/'catalog.json').exists() else None
  catalog={'schema_version':1,'races':{},'failures':imp.failures,'warnings':['Exact source NPC SAT/CDF definitions, not player-race stand-ins.','Placement selection is the supplied Core3 export; NPCs are visual noninteractive presentation.','Source root motion is not applied. Unsupported wearables/appearance references are reported.']};body_cache={};clothing_cache={}
@@ -129,7 +133,7 @@ def main():
   catalog['provenance']['core3_outfit_files_sha256']={**previous['provenance'].get('core3_outfit_files_sha256',{}),**catalog['provenance']['core3_outfit_files_sha256']}
   catalog['provenance']['previous_batches']=previous['provenance'].get('previous_batches',[])+[{k:previous['provenance'][k] for k in ('placement_manifest','placement_sha256')}]
   shared_requested={str(Path(t).parent/('shared_'+Path(t).name)) for t in templates}
-  catalog['failures']=[f for f in previous.get('failures',[]) if f.get('template') not in templates and f.get('resource') not in shared_requested and f.get('resource') not in body_cache]+catalog['failures']
+  catalog['failures']=[f for f in previous.get('failures',[]) if f.get('template') not in templates and f.get('resource') not in shared_requested and f.get('resource') not in body_cache and f.get('appearance_id') not in outfit_report['variants']]+catalog['failures']
   for k,v in previous.get('outfit_report',{}).get('variants',{}).items():catalog['outfit_report']['variants'].setdefault(k,v)
  catalog['statistics']={'outfit_variants':sum(bool(v['outfit']) for v in outfit_report['variants'].values()),'equipment_variants':len(outfit_report['variants']),'outfit_converted_items':outfit_report['converted_items'],'outfit_rigid_items':outfit_report['converted_rigid_items'],'unsupported_outfit_attachments':len(outfit_report['unsupported_attachments']),'outfit_conversion_failures':len(outfit_report['conversion_failures']),'requested_templates':len(templates),'exported_templates':sum('#outfit=' not in key and '#weapon=' not in key for key in catalog['races']),'exported_descriptors':len(catalog['races']),'unique_bodies':len(body_cache),'unique_wearables':len(clothing_cache),'failures':len(catalog['failures'])};imp.write('catalog.json',catalog);print(json.dumps(catalog['statistics'],indent=2),flush=True)
 if __name__=='__main__':main()

@@ -40,6 +40,11 @@ class GuiTests(unittest.TestCase):
         self.finish(0)
         self.app.buttons[0].invoke()
         self.assertEqual(self.calls[-1],[])
+    def test_export_opens_without_starting_game(self):
+        self.app.buttons[5].invoke()
+        self.assertEqual(self.calls,[['--export-character']])
+        self.finish(0)
+        self.assertIn('exporter closed',self.app.status.get())
     def test_import_picker_and_cancellation(self):
         with patch('tkinter.filedialog.askdirectory',return_value=''):
             self.app.import_assets();self.assertFalse(self.calls)

@@ -143,6 +143,9 @@ var loading_screen: Node
 var xr_bottleneck_suite: Node
 
 func _ready() -> void:
+	if OS.get_cmdline_user_args().has("--character-vrm-export"):
+		preload("res://tools/portable_character_export.gd").run.call_deferred(get_tree())
+		return
 	if not preload("res://scripts/render_policy.gd").current().supported:
 		get_tree().quit(2)
 		return

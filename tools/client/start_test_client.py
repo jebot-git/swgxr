@@ -29,8 +29,12 @@ def main():
     parser.add_argument('--asset-archive',type=Path,help='Import a supplied asset ZIP from this location')
     parser.add_argument('--install-shortcuts',action='store_true')
     parser.add_argument('--updates',action='store_true')
+    parser.add_argument('--export-character',action='store_true',help='Open the character-to-VRM exporter; does not launch VR')
     args=parser.parse_args();root=Path(__file__).resolve().parent
     try:
+        if args.export_character:
+            from character_export.launcher import gui
+            return gui(root)
         if args.launcher:
             return launcher.gui(root, update_on_open=args.updates)
         if args.install_shortcuts:

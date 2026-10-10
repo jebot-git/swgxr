@@ -1,11 +1,13 @@
 # Character → VRM extractor
 
-A separate command-line tool for exporting a player's native Core3 character,
+Available from **Export character to VRM…** in the portable launcher, or as a command-line tool for exporting a player's native Core3 character,
 current customization, hair, worn equipment and held weapon as one **VRM 1.0**
 avatar. It uses the locally prepared SWG assets and the existing Godot character
 loader. It does not start the normal game client or change the character's gear.
 
-## Requirements
+The launcher includes the exporter and its engine on Linux and Windows. Prepare game data first, close the game, load your character list, then select a character and export. The password is cleared after each request; re-enter it before exporting. Offline saved snapshots are also supported. No VR session is started.
+
+## Command-line requirements
 
 - A prepared SWGXR checkout, including the user's character/inventory assets under
   `runtime/assets` and the built client GDExtension. Use the project's normal setup

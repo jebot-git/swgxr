@@ -16,8 +16,13 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
-from vrm import ExportError, make_vrm
+try:
+    from .vrm import ExportError, make_vrm
+except ImportError:
+    from vrm import ExportError, make_vrm
 ROOT=Path(__file__).resolve().parents[2]
+if (Path(__file__).resolve().parents[1]/'PACKAGE.json').is_file():
+    ROOT=Path(__file__).resolve().parents[1]
 MAX_JSON=32*1024*1024
 
 class NoRedirect(HTTPRedirectHandler):
@@ -124,27 +129,31 @@ def publish(output:Path,data:bytes,metadata:dict,force:bool=False)->None:
     finally:
         for temp,_target in staged:temp.unlink(missing_ok=True)
 
-def export(snapshot:dict,output:Path,godot:str,author:str='',force:bool=False)->dict:
+def export(snapshot:dict,output:Path,godot:str,author:str='',force:bool=False,root:Path=ROOT)->dict:
+    root=Path(root).resolve()
     output=output.expanduser().resolve()
     if output.suffix.lower()!='.vrm':raise ExportError('Output filename must end in .vrm.')
-    try:relative=output.relative_to(ROOT)
+    try:relative=output.relative_to(root)
     except ValueError:relative=None
     if relative and relative.parts[0]!='runtime':raise ExportError('Within this repository, generated avatars must be saved under ignored runtime/.')
     report_path=output.with_suffix('.vrm.json')
     if not force and (output.exists() or report_path.exists()):raise ExportError('Output already exists; choose a new filename or use --force.')
     binary=shutil.which(godot)
     if not binary:raise ExportError('Godot not found; pass --godot /path/to/godot.')
-    if not (ROOT/'runtime/assets/characters/catalog.json').is_file():raise ExportError('Local SWG character assets are not prepared. Run the project asset setup first.')
+    if not (root/'runtime/assets/characters/catalog.json').is_file():raise ExportError('Local SWG character assets are not prepared. Use Prepare game data first.')
     output.parent.mkdir(parents=True,exist_ok=True)
-    work_root=ROOT/'runtime/character_exports';work_root.mkdir(parents=True,exist_ok=True)
+    work_root=root/'runtime/character_exports';work_root.mkdir(parents=True,exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.export-',dir=work_root) as work:
         work=Path(work);source=work/'character.json';glb=work/'character.glb';detail=work/'report.json'
         source.write_text(json.dumps(snapshot));source.chmod(0o600)
         print('Reconstructing character, baking materials and exporting the rig…',flush=True)
-        command=[binary,'--log-file',str(work/'godot.log'),'--headless','--xr-mode','off','--path',str(ROOT/'client'),'--script','res://tools/character_export.gd',
-                 '--','--snapshot',str(source),'--output',str(glb),'--report',str(detail)]
+        project=root/('engine' if (root/'engine/godot.pck').is_file() else 'client')
+        entry=(['--','--character-vrm-export'] if project.name=='engine' else
+               ['--path',str(project),'--script','res://tools/character_export.gd','--'])
+        command=[binary,'--log-file',str(work/'godot.log'),'--headless','--xr-mode','off','--audio-driver','Dummy',
+                 *entry,'--snapshot',str(source),'--output',str(glb),'--report',str(detail)]
         child_env=os.environ.copy();child_env.pop('SWGXR_EXPORT_TOKEN',None)
-        try:result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=600,env=child_env)
+        try:result=subprocess.run(command,cwd=project,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=600,env=child_env)
         except subprocess.TimeoutExpired:raise ExportError('Godot export exceeded 10 minutes; no avatar was written.') from None
         if result.returncode or not glb.is_file():
             error='; '.join(map(str,read_json(detail).get('errors',[]))) if detail.is_file() else ''
@@ -155,7 +164,7 @@ def export(snapshot:dict,output:Path,godot:str,author:str='',force:bool=False)->
         metadata={'format':'VRM 1.0','character_id':str(snapshot['character'].get('id','')),
                   'source':'offline snapshot' if snapshot.get('offline') else 'Core3 character snapshot',
                   'snapshot_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
-                  'source_catalog_sha256':{str(path.relative_to(ROOT)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [ROOT/'runtime/assets/characters/catalog.json',ROOT/'runtime/assets/inventory/catalog.json'] if path.is_file()},
+                  'source_catalog_sha256':{str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest() for path in [root/'runtime/assets/characters/catalog.json',root/'runtime/assets/inventory/catalog.json'] if path.is_file()},
                   'vrm_sha256':hashlib.sha256(data).hexdigest(),'validation':validation,'conversion':conversion,
                   'limitations':['No facial expression presets, automatic blink/lip sync or spring-bone simulation.'],
                   'validation_scope':'Structural checks and Godot export; target avatar application compatibility must be checked separately.'}
@@ -173,7 +182,8 @@ def main(argv=None)->int:
     parser.add_argument('--list',action='store_true',help='List account characters and exit')
     parser.add_argument('--output',type=Path,help='Output .vrm; defaults under runtime/character_exports')
     parser.add_argument('--author',default='',help='Optional avatar assembler credit; original asset credit is retained')
-    parser.add_argument('--godot',default='godot',help='Godot executable')
+    bundled=ROOT/'engine'/('godot.exe' if os.name=='nt' else 'godot')
+    parser.add_argument('--godot',default=str(bundled) if bundled.is_file() else 'godot',help='Godot executable')
     parser.add_argument('--force',action='store_true',help='Replace an existing output and report')
     args=parser.parse_args(argv)
     try:

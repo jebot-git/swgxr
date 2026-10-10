@@ -43,7 +43,7 @@ STEPS = [
  ('game_audio', ['tools/assets/prepare_game_audio.py']),
  ('login', ['tools/assets/prepare_login.py']),
  ('chatter', ['tools/assets/prepare_chatter.py']),
- ('gcw', ['tools/assets/prepare_gcw.py']),
+ ('gcw', ['tools/assets/prepare_gcw.py', '--prepare-previews', '--prepare-npcs']),
  ('dynamic_terrain', ['tools/assets/prepare_dynamic_terrain.py']),
  ('animation_messages', ['tools/assets/refresh_animation_messages.py']),
  ('materials', ['tools/assets/refresh_static_materials.py', '--ensure']),

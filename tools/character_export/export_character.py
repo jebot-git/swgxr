@@ -19,6 +19,9 @@ from urllib.request import Request, build_opener, HTTPRedirectHandler
 try:
     from .vrm import ExportError, make_vrm
 except ImportError:
+    # Embedded Windows Python deliberately omits the script directory from
+    # sys.path. Add only this trusted bundled helper directory for CLI use.
+    sys.path.insert(0,str(Path(__file__).resolve().parent))
     from vrm import ExportError, make_vrm
 ROOT=Path(__file__).resolve().parents[2]
 if (Path(__file__).resolve().parents[1]/'PACKAGE.json').is_file():

@@ -135,7 +135,8 @@ hand’s stick. Character-creation slider handles stay inside their scroll area.
 Open the equipment hologram and select **Combat abilities** directly below the
 character to equip skills. The same button returns to **Equipment**; right-stick
 click remains a shortcut. Point with controller aim and release then press the
-trigger to select the button.
+trigger to select the button. Walking 1.5 metres from where you opened the
+hologram closes it and cancels unfinished drags; crouching keeps it open.
 
 The client keeps its native gameplay session alive while idle or in the menu.
 If the connection is lost, movement pauses and the menu offers **Reconnect**.

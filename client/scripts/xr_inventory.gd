@@ -38,6 +38,8 @@ var current_equipment: Array = []
 var held_trigger_armed := false
 var held_status: Label3D
 var hologram_context_key := ""
+const EQUIPMENT_WALKAWAY_DISTANCE := 1.5
+var hologram_open_position := Vector3.INF
 var survey_ui: Control
 var survey_surface := -1
 var resource_surface := -1
@@ -461,6 +463,7 @@ func _process(delta: float) -> void:
 	var head_pose: XRPose=tracker.get_pose("default") if tracker!=null else null
 	var tracked:=head_pose!=null and head_pose.has_tracking_data and HandInput.controller_tracked(off) and HandInput.controller_tracked(main)
 	var camera: Camera3D=rig.get_node("XRCamera3D")
+	sample_equipment_distance(camera.global_position,head_pose!=null and head_pose.has_tracking_data)
 	var bag_pointer:XRController3D=controller_for("right" if bag_hand_side()=="left" else "left")
 	var hit:=find_hit(tool_pointer_pose(bag_pointer)) if is_open and tracked and not hologram.active else {}
 	var right:XRController3D=controller_for("right")
@@ -590,6 +593,7 @@ func show_equipment_hologram(head: Transform3D = Transform3D.IDENTITY) -> bool:
 	var display_item: Dictionary=held_item.duplicate(true)
 	display_item["tool_hip_displaced_ids"]=[str(hip_tool.get("id",""))] if not hip_tool.is_empty() else []
 	var shown: bool=hologram.show_item(display_item,head)
+	if shown:hologram_open_position=head.origin
 	if not shown: set_busy(false,str(hologram.report.get("error","Cannot display equipment.")))
 	cancel_press(); clear_hover(); dot.visible=false; stick_captured=false; apply_capture(); sync_presentation()
 	return shown
@@ -601,6 +605,7 @@ func browse_equipment(head:Transform3D)->bool:
 	hologram_context_key=equipment_context_key()
 	equipment_grip_armed=false
 	var shown:bool=hologram.show_equipment(head)
+	if shown:hologram_open_position=head.origin
 	sync_pointers();sync_presentation()
 	return shown
 
@@ -638,9 +643,22 @@ func update_equipment_drag(head:Transform3D,off_pose:Transform3D,main_pose:Trans
 	sync_pointers();sync_presentation()
 	return true
 
+func sample_equipment_distance(head_position:Vector3,head_tracked:bool)->void:
+	if not head_tracked or not hologram_open_position.is_finite():return
+	if not hologram.active and equipment_drag.is_empty():return
+	var offset:=head_position-hologram_open_position
+	offset.y=0 # Crouching and standing do not dismiss a world-anchored panel.
+	if offset.length()<=EQUIPMENT_WALKAWAY_DISTANCE:return
+	clear_equipment_drag()
+	# Consume a simultaneous grip release; dismissing UI must not drop a held item.
+	main_grip_armed=true;held_trigger_armed=false
+	cancel_press();clear_hover();dot.visible=false
+	close_equipment_hologram()
+
 func close_equipment_hologram() -> void:
 	if is_instance_valid(hologram): hologram.close()
-	sync_presentation()
+	hologram_open_position=Vector3.INF
+	stick_captured=false;apply_capture();sync_pointers();sync_presentation()
 
 func update_held_trigger(trigger: float, head: Transform3D) -> void:
 	if is_instance_valid(hologram.ability_editor) and hologram.ability_editor.active:return

@@ -169,3 +169,9 @@ At a starport travel terminal, select a destination to see its original planet
 map, marked arrival point and fare. You can also select a destination by its map
 marker. Press **Buy ticket** to purchase. Maps use the existing runtime assets;
 this client update does not require a new assets archive.
+
+Physical crouching and prone movement resize the tracked collision capsule
+without shifting its foot position or accumulating a vertical world offset.
+Login also repairs a saved position up to two metres below an original floor,
+within the saved room and horizontal footprint, when the full capsule fits.
+Missing floors, other rooms and obstructed destinations remain loading errors.

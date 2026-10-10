@@ -228,6 +228,12 @@ func _update_body_under_camera(delta: float) -> void:
 	if terrain_tracking: collision_mask &= ~2
 	super(delta)
 	collision_mask = saved_mask
+	# XR Tools positions the feet from eye height minus the current capsule
+	# height. Clamping a prone capsule, or easing its expansion while standing,
+	# makes that offset change independently of the floor. Never turn that
+	# tracking-only offset into vertical locomotion or carry it into XROrigin.
+	# Gravity, original floor support and the stair solver own vertical travel.
+	global_position.y = before.y
 	var world_cell:bool=not is_instance_valid(ground_provider) or int(ground_provider.collision_context(before).get("building_object_id",0))==0
 	if world_cell:
 		var clipped:Vector3=global_position-before

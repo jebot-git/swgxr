@@ -1705,6 +1705,31 @@ func seed_spawn_membership() -> void:
 	stage.seed_membership_at(Vector3(point.x, floor_y, point.z), str(candidate.cell_id))
 
 func ground_xr_spawn() -> bool:
+	if ground_xr_spawn_down():return true
+	# Repair a bounded below-floor save in its existing room/footprint. The
+	# original collision must provide support and a clear full capsule at the
+	# destination; never select a default spawn or search through another room.
+	var support:Dictionary=player._source_support(player.global_position,2.0,0.0)
+	if not support.get("valid",false):return false
+	var cell_id:=str(stage.current_cell.get("cell_id","")) if is_instance_valid(stage) else ""
+	if not support.get("terrain",false) and str(support.get("cell_id",""))!=cell_id:return false
+	var rise:=float(support.body_height)-player.global_position.y
+	if rise<=0 or rise>2.0:return false
+	var offset:=Vector3.UP*(rise+.01)
+	var query:=PhysicsShapeQueryParameters3D.new()
+	query.shape=player._collision_node.shape
+	query.transform=player._collision_node.global_transform
+	query.transform.origin+=offset
+	query.collision_mask=player.collision_mask
+	query.exclude=[player.get_rid()]
+	query.margin=.001
+	if not player.get_world_3d().direct_space_state.intersect_shape(query,1).is_empty():return false
+	player.apply_world_correction(offset)
+	player.velocity=Vector3.ZERO;player.ground_control_velocity=Vector2.ZERO
+	player.spawn_point=player.global_position
+	return true
+
+func ground_xr_spawn_down() -> bool:
 	# Terrain is a height field, including logical swimming support. A rounded
 	# capsule's contact on a steep hill must not impose a separate slope limit.
 	var source:Dictionary=player._source_support(player.global_position,0.1,8.0)

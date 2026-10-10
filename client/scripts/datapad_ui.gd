@@ -306,9 +306,13 @@ func build_detail() -> void:
 	box.add_child(vehicle_button)
 
 func set_owned_missions(values:Array)->void:
-	if values==mission_snapshot:return
+	var next_owned:Dictionary={}
+	for value in values:
+		if value is Dictionary and str(value.get("id","")).is_valid_int():next_owned[str(value.id)]=true
+	for parcel in mission_parcels:next_owned[str(parcel.get("mission_id",""))]=true
+	if values==mission_snapshot and next_owned==owned_missions:return
 	mission_snapshot=values.duplicate(true)
-	owned_missions.clear();ground_missions.clear()
+	owned_missions=next_owned;ground_missions.clear()
 	for value in values:
 		if not value is Dictionary or not str(value.get("id","")).is_valid_int():continue
 		var mission:Dictionary=value.duplicate(true)

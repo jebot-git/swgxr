@@ -117,7 +117,7 @@ func run()->void:
 	parcels.observe(app.receipt([craft],5))
 	check(parcels.parcels.is_empty(),"Stale pre-cancel reply cannot restore a held mission item")
 	var native_mission:Dictionary={"id":"403","category":"data","source":"core3_datapad_container","name":"Original mission"}
-	app.datapad.ui.set_entries([native_mission]);app.datapad.ui.set_owned_missions([{"id":"403"}]);app.datapad.ui.select_category("data")
+	app.datapad.ui.set_entries([native_mission]);app.datapad.ui.set_owned_missions([{"id":"403"}]);app.datapad.ui.select_category("missions")
 	check(app.datapad.ui.cancellable_mission_id(native_mission)=="403" and app.datapad.ui.cancel_mission_button.visible,"Original native mission entry can be cancelled before pickup using authoritative active mission ID")
 	check(app.datapad.ui.cancellable_mission_id({"id":"999","mission_id":"999"}).is_empty() and app.datapad.ui.cancellable_mission_id({"id":"403","reference_only":true}).is_empty(),"Unowned and reference-only entries cannot invoke mission cancellation")
 

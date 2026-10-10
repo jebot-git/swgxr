@@ -225,7 +225,7 @@ def prepare(tre, out, allow_missing_original_media=False):
     catalog['sectors'] = sectors
     catalog['sector_provenance'] = assets.dependencies
     catalog['sector_conversion_failures'] = list({json.dumps(row,sort_keys=True):row for row in assets.failures}.values())
-    catalog['sector_visual_limitations'] = ['Nebula volumes, lightning and sound are not yet rendered', 'Distant particle appearances and radial asteroid animation are not yet rendered']
+    catalog['sector_visual_limitations'] = ['Nebula lightning and proximity-driven radial asteroid debris are not yet rendered', 'Asteroid rotation dynamics and original planet detail shader stages remain incomplete', 'Stars retain source seeded directions and colours with a fixed angular cubemap footprint instead of two-pixel points', 'Nebula generation uses a deterministic client RNG rather than the source global random stream']
     dump(path, catalog)
     known = {'object/static/space/asteroid/shared_asteroid_molten_mammoth_0%d.iff'%i for i in (1,2)}
     if assets.failures and (not allow_missing_original_media or any(row.get('resource') not in known for row in assets.failures)):

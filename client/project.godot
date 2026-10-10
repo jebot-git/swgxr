@@ -58,6 +58,18 @@ shaders/enabled=true
 3d_physics/layer_23="XR UI"
 
 [shader_globals]
+swg_space_basis_x={
+"type": "vec3",
+"value": Vector3(1, 0, 0)
+}
+swg_space_basis_y={
+"type": "vec3",
+"value": Vector3(0, 1, 0)
+}
+swg_space_basis_z={
+"type": "vec3",
+"value": Vector3(0, 0, 1)
+}
 swg_portal_view_a={
 "type": "vec4",
 "value": Vector4(0, 0, 0, 0)

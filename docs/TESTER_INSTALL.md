@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.6), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.7), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
 
 ## Requirements
 
@@ -213,3 +213,35 @@ Bazaar browsing offers Local (this terminal), Planet, Galaxy and Vendor scopes. 
 The hyperspace planner displays the original jump-point name and station distances. Corellia and Talus share the original `space_corellia` sector: choose a Corellia station and then the intended Corellia spaceport to land there. “Talus Secta” is a Talus-side jump point. Station dialogue appears in the centre of the communications wheel.
 
 Pilot seats apply the original chair pose and a seated play-space height; head and controller tracking remain live. Hyperspace follows the tracked centre-eye frame. Original ship cabin/engine sounds and source-defined sector/combat music use the existing Ambience and Music volume controls. Empty original music bindings remain silent. Desktop Vulkan and synthetic checks cover these changes; live headset validation is suspended.
+
+
+## Sector and companion menu update (test.7)
+
+Point your empty offhand at a called, owned droid or creature pet and click that
+hand's joystick to open its command wheel. Select **Invite / remove from party**,
+then release and click the trigger to issue the command. Core3's trained Group
+command joins an ungrouped companion or removes an already grouped companion.
+The command appears only when the pet has learned it; droids still need power.
+Walls, occupied hands and stale connections block the interaction.
+
+The sector update fixes skybox seams and improves original stars, nebulae,
+lighting and asteroid visibility. It uses the existing test.6 private runtime
+data archive; no new asset import is needed. Linux and Windows changes have
+synthetic/desktop validation only. Keep VR testing suspended until requested.
+
+The main menu now has **Settings → Audio**, **Controls** and **Graphics** pages.
+Audio contains volume and microphone selection; Controls contains turning,
+standing-height calibration and flight controls. Graphics offers **MSAA: Off,
+2×, 4× or 8×**. Changes apply immediately to the headset, desktop and spectator
+world views and are saved for the next launch. Higher MSAA levels use more GPU
+power; the initial default remains Off. Use **‹ Settings** to return to the categories.
+
+Runtime mipmap generation now also covers original weapon/effect artwork,
+sun/moon textures and crafting previews. Ordinary RGB normal-map mipmaps are
+renormalized; packed normal-map channels retain their encoding. Curve lookup
+textures and nearest-sampled collision/portal masks deliberately remain unmipped.
+
+The wrist minimap now has a larger invisible touch area for opening the datapad:
+5 cm beyond each edge and 6 cm in front of or behind the display. Reveal the
+minimap with the existing offhand fist gesture, then bring the other fingertip
+near it. The visible minimap size and distant-ray behavior are unchanged.

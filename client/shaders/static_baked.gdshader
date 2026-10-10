@@ -5,6 +5,14 @@ global uniform vec4 swg_indoor_tint;
 global uniform vec4 swg_portal_view_a;
 global uniform vec4 swg_portal_view_b;
 global uniform sampler2D swg_portal_data;
+global uniform vec3 swg_space_basis_x;
+global uniform vec3 swg_space_basis_y;
+global uniform vec3 swg_space_basis_z;
+uniform bool sector_lighting=false;
+uniform vec3 sector_ambient=vec3(1.0);
+uniform vec3 sector_light_colors[4];
+uniform vec3 sector_light_directions[4];
+varying vec3 sector_normal;
 instance uniform float swg_indoor = 0.0;
 instance uniform float swg_portal_building = 0.0;
 varying vec3 world_vertex;
@@ -15,6 +23,8 @@ uniform bool use_vertex_color = false;
 uniform bool alpha_cutout = false;
 void vertex() {
  world_vertex = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+ sector_normal=NORMAL;
+ if(sector_lighting)sector_normal=mat3(swg_space_basis_x,swg_space_basis_y,swg_space_basis_z)*MODEL_NORMAL_MATRIX*NORMAL;
 }
 bool exterior_visible(vec3 camera) {
  bool second = distance(camera, swg_portal_view_b.xyz) < distance(camera, swg_portal_view_a.xyz);
@@ -53,4 +63,9 @@ void fragment() {
  if (alpha_cutout && surface.a < 0.5) discard;
  vec3 baked = use_vertex_color ? COLOR.rgb : vec3(1.0);
  ALBEDO = surface.rgb * baked * mix(swg_environment_tint.rgb, swg_indoor_tint.rgb, clamp(swg_indoor, 0.0, 1.0));
+ if(sector_lighting){
+  vec3 illumination=sector_ambient;
+  for(int i=0;i<4;i++)illumination+=sector_light_colors[i]*max(0.0,dot(normalize(sector_normal),sector_light_directions[i]));
+  ALBEDO=surface.rgb*baked*clamp(illumination,vec3(0.0),vec3(1.5));
+ }
 }

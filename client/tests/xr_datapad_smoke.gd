@@ -64,6 +64,11 @@ func run() -> void:
 	pad.update_activation(true,0.8,0.8,0.16)
 	check(not pad.is_open and pad.radar.active,"Sustained fist opens only the minimap")
 	check(not pad.touch_minimap({"tip":pad.radar.display.global_position+Vector3.BACK*.25,"direction":Vector3.FORWARD}),"A distant pointing ray cannot open the full datapad")
+	for offset:Vector3 in [Vector3(.11,0,0),Vector3(-.11,0,0),Vector3(0,.11,0),Vector3(0,-.11,0),Vector3(0,0,.05),Vector3(0,0,-.05)]:
+		check(pad.touch_minimap({"tip":pad.radar.display.global_transform*offset,"direction":-pad.radar.display.global_basis.z}) and pad.is_open,"Expanded minimap touch zone accepts nearby finger: "+str(offset))
+		pad.set_open(false)
+	for offset:Vector3 in [Vector3(.13,0,0),Vector3(0,.13,0),Vector3(0,0,.07)]:
+		check(not pad.touch_minimap({"tip":pad.radar.display.global_transform*offset,"direction":-pad.radar.display.global_basis.z}),"Expanded minimap touch zone remains bounded: "+str(offset))
 	check(pad.touch_minimap({"tip":pad.radar.display.global_position,"direction":Vector3.FORWARD}) and pad.is_open,"Touching the minimap opens full datapad")
 	check(not controllers[0].get_node("FunctionPointer").enabled and not controllers[1].get_node("FunctionPointer").enabled,"Default XR pointers suspended while datapad open")
 	var mount: Transform3D = pad.wrist_mount(controllers[0])

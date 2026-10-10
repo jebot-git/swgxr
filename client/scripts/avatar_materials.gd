@@ -16,7 +16,7 @@ static func value(values: Dictionary, descriptor: Dictionary) -> int:
 			return int(values[key])
 	return int(descriptor.get("default", 0))
 
-static func texture(path: String, directory: String) -> Texture2D:
+static func texture(path: String, directory: String, normal_rgb:=false) -> Texture2D:
 	if path.is_empty():
 		if neutral == null:
 			var img := Image.create(1, 1, false, Image.FORMAT_RGBA8)
@@ -24,13 +24,15 @@ static func texture(path: String, directory: String) -> Texture2D:
 			neutral = ImageTexture.create_from_image(img)
 		return neutral
 	var full_path := path if path.is_absolute_path() else directory.path_join(path)
-	if not textures.has(full_path):
+	var cache_key:=full_path+"#normal_rgb" if normal_rgb else full_path
+	if not textures.has(cache_key):
 		var img := Image.load_from_file(full_path)
 		if img == null:
 			return texture("", directory)
-		img.generate_mipmaps()
-		textures[full_path] = ImageTexture.create_from_image(img)
-	return textures[full_path]
+		# CNRM packs X in alpha and Y in green; only conventional NRML is normalized.
+		img.generate_mipmaps(normal_rgb)
+		textures[cache_key] = ImageTexture.create_from_image(img)
+	return textures[cache_key]
 
 static func color(descriptor: Dictionary, values: Dictionary) -> Color:
 	var colors: Array = descriptor.get("colors", [])
@@ -43,7 +45,7 @@ static func selected_texture(descriptor: Dictionary, values: Dictionary, directo
 	var options: Array = descriptor.get("textures", [])
 	if options.is_empty():
 		return texture("", directory)
-	return texture(str(options[clampi(value(values, descriptor), 0, options.size() - 1)]), directory)
+	return texture(str(options[clampi(value(values, descriptor), 0, options.size() - 1)]), directory,str(descriptor.get("tag",""))=="NRML")
 
 static func create(surface: Dictionary, directory: String) -> ShaderMaterial:
 	var material := ShaderMaterial.new()
@@ -63,7 +65,7 @@ static func apply(material: ShaderMaterial, values: Dictionary) -> void:
 		bindings.MAIN = surface.get("texture", "")
 	var maps: Dictionary = {}
 	for tag in bindings:
-		maps[tag] = texture(str(bindings[tag]), directory)
+		maps[tag] = texture(str(bindings[tag]), directory,tag=="NRML")
 	for selector in surface.get("texture_selectors", []):
 		maps[selector.tag] = selected_texture(selector, values, directory)
 	material.set_shader_parameter("main_texture", maps.get("MAIN", texture("", directory)))

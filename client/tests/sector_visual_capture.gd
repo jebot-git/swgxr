@@ -7,6 +7,10 @@ func run()->void:
 	var env:=Environment.new();env.background_mode=Environment.BG_SKY
 	camera.environment=env
 	var directory:="res://../runtime/evidence/ship-controls-20261010"
+	for argument:String in OS.get_cmdline_user_args():
+		if argument.begins_with("--evidence-dir="):directory=argument.trim_prefix("--evidence-dir=")
+		if argument.begins_with("--msaa="):root.msaa_3d=clampi(int(argument.trim_prefix("--msaa=")),0,3)
+	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(directory))
 	for zone in ["space_corellia","space_dantooine","space_dathomir","space_endor","space_lok","space_naboo","space_tatooine","space_yavin4","space_light1","space_heavy1"]:
 		var sector:=preload("res://space/sector_scene.gd").new();world.add_child(sector)
 		if not sector.build("res://../runtime/assets/jtl/"+zone+".json"):push_error(sector.error);quit(1);return

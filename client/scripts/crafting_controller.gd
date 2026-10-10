@@ -277,6 +277,7 @@ func rebuild() -> void:
 			if not icon.is_empty():
 				var image:=Image.load_from_file(ProjectSettings.globalize_path("res://../runtime/assets/crafting").path_join(str(icon.texture)))
 				if image!=null:
+					image.generate_mipmaps()
 					var sprite:=Sprite3D.new();sprite.texture=ImageTexture.create_from_image(image);sprite.pixel_size=0.06/image.get_width();sprite.position.z=0.04;cube.add_child(sprite)
 		update_slots()
 	else:

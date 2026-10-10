@@ -34,6 +34,7 @@ func run() -> void:
 	app.xr_initialized = true
 	app.xr_focused = true
 	app.vr_settings.path = "res://../runtime/evidence/menu-test-preferences.cfg"
+	app.graphics_preferences.path="res://../runtime/evidence/menu-test-graphics.cfg"
 	app.xr_origin = load("res://xr/player_rig.tscn").instantiate()
 	app.add_child(app.xr_origin)
 	app.player = app.xr_origin.get_node("PlayerBody")
@@ -50,6 +51,9 @@ func run() -> void:
 	app.tracked_avatar = calibration
 	app.world_ready = true
 	for frame in range(5): await process_frame
+	var navigation=app.ui_root.find_child("SettingsNavigation",true,false)
+	await click(navigation.buttons.Controls)
+	check(navigation.current=="Controls","3D pointer did not open Controls submenu")
 	var smooth: Button = app.ui_root.find_child("SmoothTurn",true,false)
 	var snap: Button = app.ui_root.find_child("SnapTurn",true,false)
 	var calibrate: Button = app.ui_root.find_child("CalibrateHeight",true,false)
@@ -60,6 +64,12 @@ func run() -> void:
 	check(app.vr_settings.turn_mode == "snap" and snap.button_pressed,"3D pointer did not activate snap turn")
 	await click(calibrate)
 	check(calibration.calls == 1 and absf(app.vr_settings.standing_eye_height-1.83)<0.001,"3D pointer did not calibrate standing height")
+	await click(navigation.back);await click(navigation.buttons.Graphics)
+	var msaa=app.ui_root.find_child("MSAA",true,false)
+	await click(msaa)
+	check(msaa.is_open(),"3D pointer did not open MSAA dropdown")
+	await click(msaa.rows.get_child(2))
+	check(app.graphics_preferences.msaa==Viewport.MSAA_4X and root.msaa_3d==Viewport.MSAA_4X,"3D pointer did not select and apply 4× MSAA")
 	var menu: PanelContainer = app.menu
 	check(menu.get_global_rect().end.y<=900.0,"Complete menu exceeds 900px surface height")
 	var report := {"test":"main_menu_xrtools_pointer","passed":errors.is_empty(),"hardware_tested":false,"errors":errors,"surface_size":str(app.xr_menu.screen.viewport_size),"menu_rect":str(menu.get_global_rect()),"calibration_calls":calibration.calls}

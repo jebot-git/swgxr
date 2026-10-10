@@ -10,6 +10,8 @@ signal delete_entry_requested(entry: Dictionary)
 const UI = preload("res://scripts/datapad_ui.gd")
 const HandInput = preload("res://scripts/tracked_hand_input.gd")
 const WristRadar = preload("res://scripts/wrist_radar.gd")
+const MINIMAP_TOUCH_MARGIN:=0.05
+const MINIMAP_TOUCH_DEPTH:=0.06
 var radar: Node3D
 var radar_contacts_provider: Callable
 var radar_eligible := false
@@ -293,7 +295,7 @@ func update_view_follow(head:Transform3D,delta:float)->void:
 
 func touch_minimap(finger:Dictionary)->bool:
 	if not allowed or not radar.active or finger.is_empty():return false
-	var hit:Dictionary=follower.point(radar.display.global_transform,Vector2.ONE*radar.DIAMETER_METERS,Vector2.ONE*radar.PIXELS,finger.tip,finger.direction,0.0,.018)
+	var hit:Dictionary=follower.point(radar.display.global_transform,Vector2.ONE*(radar.DIAMETER_METERS+MINIMAP_TOUCH_MARGIN*2),Vector2.ONE*radar.PIXELS,finger.tip,finger.direction,0.0,MINIMAP_TOUCH_DEPTH)
 	if not hit.get("valid",false) or not hit.get("touching",false):return false
 	set_open(true);return true
 

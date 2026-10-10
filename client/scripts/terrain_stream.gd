@@ -280,7 +280,7 @@ func _channel(textures: Array, tag: String, directory: String, fallback: Color) 
 		result.fill(fallback)
 	result.convert(Image.FORMAT_RGBA8)
 	result.resize(512,512,Image.INTERPOLATE_LANCZOS)
-	result.generate_mipmaps()
+	result.generate_mipmaps(tag=="NRML")
 	return result
 
 func _make_water(source: Dictionary, directory: String) -> void:

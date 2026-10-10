@@ -121,6 +121,29 @@ func run()->void:
 	check(not widget.state.aiming and vehicle.requests.size()==2,"Busy transport never queues delayed command")
 	app.inventory.offhand_occupied=true;check(not widget.hand_empty(),"Medical/tool ownership excludes pet controls")
 	app.inventory.offhand_occupied=false
+	widget.reset();companion.position=Vector3(-.2,0,-3)
+	var group:Dictionary={"id":"pet_15","command_id":15,"label":"Group","source_command":"group","requires_target":false,"range_m":64}
+	for kind:String in ["creature","droid"]:
+		pet.pet_kind=kind;pet.commands=[follow,group];widget.available_now=true
+		check(not widget.button("primary_click","right"),"Main-hand click stays independent for "+kind)
+		check(widget.button("primary_click","left") and widget.wheel.menu_open,"Joystick click opens aimed "+kind+" menu")
+		check(widget.wheel.entries[1].label=="Invite / remove from party","Party command clearly labels native membership toggle")
+		select_in_wheel(widget,1)
+		var sent:=vehicle.requests.size()
+		widget.frame(0,Vector2.ZERO,true,{});widget.frame(1,Vector2.ZERO,true,{})
+		check(vehicle.requests.size()==sent+1 and vehicle.requests.back().action=="pet_command" and vehicle.requests.back().detail.command_id==15 and vehicle.requests.back().detail.device_id=="20","Party invitation dispatches native trained command for "+kind)
+		widget.reset()
+	widget.available_now=true;pet.owned=false
+	check(not widget.button("primary_click","left"),"Cannot open another player's pet menu")
+	pet.owned=true;pet.commands=[follow]
+	check(widget.menu_entries(pet).size()==1,"Untrained group command is never invented by client")
+	wall=StaticBody3D.new();wall.collision_layer=1;collision=CollisionShape3D.new();collision.shape=shape;wall.add_child(collision);app.add_child(wall);wall.position=Vector3(0,1,-1.8)
+	await physics_frame
+	check(not widget.button("primary_click","left"),"Joystick pet targeting cannot cross a wall")
+	wall.free();await physics_frame
+	widget.available_now=false
+	check(not widget.button("primary_click","left"),"Stale or unavailable pet controls cannot open wheel")
+	companion.position=Vector3(0,0,-.4);pet.commands=[follow,attack]
 	var fixture:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/evidence/professions/fixture.json"))
 	var combat:=preload("res://combat/ranged_rig.gd").new();origin.add_child(combat);app.combat_rig=combat
 	check(combat.configure(vehicle.head,body,[fixture.weapons.pistol_cdef],"right",origin),"Actual original weapon rig remains configured alongside pets")

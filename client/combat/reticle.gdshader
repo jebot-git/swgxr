@@ -1,6 +1,6 @@
 shader_type spatial;
 render_mode unshaded, blend_mix, depth_draw_never, depth_test_disabled, cull_disabled, shadows_disabled;
-uniform sampler2D source_art : source_color, filter_linear;
+uniform sampler2D source_art : source_color, filter_linear_mipmap;
 void fragment() {
     vec4 original = texture(source_art, UV);
     float hollow = smoothstep(0.20, 0.25, length(UV - vec2(0.5)));

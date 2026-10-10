@@ -9,6 +9,8 @@ var directory := ""
 var zone := ""
 var error := ""
 var distant:Node3D
+var asteroid_fields:Array=[]
+const Asteroids=preload("res://space/asteroid_visibility.gd")
 
 func texture(row: Dictionary) -> Texture2D:
 	var path := directory.path_join(str(row.get("path", "")))
@@ -38,24 +40,31 @@ func build(path: String) -> bool:
 		node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF; add_child(node)
 	for field: Dictionary in data.get("asteroidfield", []):
 		var groups: Dictionary = {}
+		var indices:Dictionary={};var field_nodes:Array=[];var ordinal:=-1;var previous:Array=[]
 		for record: Dictionary in field.get("instances", []):
-			if not groups.has(record.mesh): groups[record.mesh]=[]
+			if record.position!=previous:ordinal+=1;previous=record.position
+			if not groups.has(record.mesh): groups[record.mesh]=[];indices[record.mesh]=PackedInt32Array()
 			groups[record.mesh].append(record)
+			indices[record.mesh].append(int(record.get("asteroid_index",ordinal)))
 		for key: String in groups:
 			var node:=MultiMeshInstance3D.new()
 			node.multimesh=loader.native_builder.create_instances(meshes[key],groups[key])
 			if node.multimesh==null:error="Invalid asteroid instances";node.free();return false
-			node.visibility_range_end=float(field.get("MaxViewableDistance",4000))
 			node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;add_child(node)
-	var nebulae:=preload("res://space/nebulae.gd").new();add_child(nebulae);nebulae.build(data.get("nebula",[]))
+			field_nodes.append({"node":node,"indices":indices[key]})
+		asteroid_fields.append({"source":field,"nodes":field_nodes,"count":ordinal+1,"fraction":-1.0})
+	var nebulae:=preload("res://space/nebulae.gd").new();add_child(nebulae);nebulae.build(data.get("nebula",[]),data.environment.get("lights",[]))
 	distant=Node3D.new();add_child(distant)
 	var resources=preload("res://combat/original_assets.gd").new();resources.directory=ProjectSettings.globalize_path("res://../runtime/assets/space_effects")
-	if resources.load_catalog():
-		for record:Dictionary in data.environment.get("distant",[]):
-			if not resources.catalog.particles.has(record.source):continue
-			var effect:=preload("res://space/original_particles.gd").new();distant.add_child(effect)
-			effect.position=loader.vec(record.position)
-			var angles:Array=record.angles;effect.basis=Basis(Vector3.UP,-deg_to_rad(angles[0]))*Basis(Vector3.RIGHT,-deg_to_rad(angles[1]))*Basis(Vector3.BACK,deg_to_rad(angles[2]))
+	var effects_available:bool=resources.load_catalog()
+	for record:Dictionary in data.environment.get("distant",[]):
+		var placement:=Node3D.new();distant.add_child(placement)
+		placement.position=loader.vec(record.position)
+		var angles:Array=record.angles;placement.basis=Basis(Vector3.UP,-deg_to_rad(angles[0]))*Basis(Vector3.RIGHT,-deg_to_rad(angles[1]))*Basis(Vector3.BACK,deg_to_rad(angles[2]))
+		for key:String in record.get("meshes",[]):
+			var node:=MeshInstance3D.new();node.mesh=meshes.get(key);node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;placement.add_child(node)
+		if effects_available and resources.catalog.particles.has(record.source):
+			var effect:=preload("res://space/original_particles.gd").new();placement.add_child(effect)
 			effect.play(resources.catalog.particles[record.source],resources,true)
 	build_sky()
 	return true
@@ -72,17 +81,33 @@ func texture_array(rows:Array) -> Texture2DArray:
 func build_sky() -> void:
 	sky = ShaderMaterial.new(); sky.shader = preload("res://space/sector_sky.gdshader")
 	var environment: Dictionary = data.environment
-	for face: String in environment.skybox.faces:
-		sky.set_shader_parameter("sky_"+face, texture(environment.skybox.faces[face]))
+	var faces:Array[Image]=[]
+	# Cubemap layer order is +X,-X,+Y,-Y,+Z,-Z in original SWG coordinates.
+	for face:String in ["right","left","top","bottom","front","back"]:
+		faces.append(texture(environment.skybox.faces[face]).get_image())
+	var face_size:=1
+	for face:Image in faces:face_size=maxi(face_size,maxi(face.get_width(),face.get_height()))
+	for face:Image in faces:
+		face.convert(Image.FORMAT_RGBA8)
+		if face.get_width()!=face_size or face.get_height()!=face_size:face.resize(face_size,face_size,Image.INTERPOLATE_LANCZOS)
+		face.generate_mipmaps()
+	var cube:=Cubemap.new();cube.create_from_images(faces)
+	sky.set_shader_parameter("sky_cube",cube)
 	sky.set_shader_parameter("sector_width", float(environment.width))
-	sky.set_shader_parameter("star_count", float(environment.get("stars", {}).get("count", 0)))
+	sky.set_shader_parameter("starfield",preload("res://space/starfield.gd").new().build(int(environment.get("stars",{}).get("count",0)),texture(environment.get("stars",{}).get("ramp",{}))))
 	var ambient: Array = environment.get("ambient", [1,.2,.2,.2])
 	sky.set_shader_parameter("ambient", Vector3(ambient[1],ambient[2],ambient[3]))
-	if not environment.get("lights", []).is_empty():
-		var light: Array = environment.lights[0].values
-		sky.set_shader_parameter("light_color", Vector3(light[1],light[2],light[3]))
-		sky.set_shader_parameter("light_direction", Vector3(-light[8],-light[9],light[10]).normalized())
-	sky.set_shader_parameter("star_ramp",texture(environment.get("stars",{}).get("ramp",{})))
+	var colors:Array[Vector3]=[];var directions:Array[Vector3]=[]
+	for i in range(4):
+		var light:Array=environment.lights[i].values if i<environment.get("lights",[]).size() else [1,0,0,0,1,0,0,0,0,-1,0]
+		colors.append(Vector3(light[1],light[2],light[3]));directions.append(Vector3(-light[8],-light[9],light[10]).normalized())
+	sky.set_shader_parameter("light_colors",colors);sky.set_shader_parameter("light_directions",directions)
+	for mesh:ArrayMesh in meshes.values():
+		for i in range(mesh.get_surface_count()):
+			var material:ShaderMaterial=mesh.surface_get_material(i)
+			material.set_shader_parameter("sector_lighting",true)
+			material.set_shader_parameter("sector_ambient",Vector3(ambient[1],ambient[2],ambient[3]))
+			material.set_shader_parameter("sector_light_colors",colors);material.set_shader_parameter("sector_light_directions",directions)
 	var celestial_rows:Array=[];var celestial_points:Array[Vector4]=[]
 	for celestial:Dictionary in environment.get("celestials",[]):
 		for layer:String in ["back","front"]:
@@ -123,3 +148,12 @@ func observe(pose: Transform3D) -> void:
 	if is_instance_valid(distant):distant.position=pose.origin*(1.0-100.0/float(data.environment.width))
 	sky.set_shader_parameter("ship_rotation", pose.basis)
 	sky.set_shader_parameter("ship_position", pose.origin)
+	sky.set_shader_parameter("view_origin",get_parent_node_3d().global_position)
+	RenderingServer.global_shader_parameter_set("swg_space_basis_x",pose.basis.x)
+	RenderingServer.global_shader_parameter_set("swg_space_basis_y",pose.basis.y)
+	RenderingServer.global_shader_parameter_set("swg_space_basis_z",pose.basis.z)
+	for field:Dictionary in asteroid_fields:
+		var fraction:=Asteroids.fraction(field.source,pose.origin)
+		if fraction>field.fraction or absf(fraction-field.fraction)>.25 or (fraction==0 and field.fraction!=0):
+			field.fraction=fraction
+			for group:Dictionary in field.nodes:group.node.multimesh.visible_instance_count=Asteroids.prefix_count(group.indices,int(fraction*field.count))

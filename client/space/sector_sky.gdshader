@@ -3,14 +3,10 @@ shader_type sky;
 // The source background parallax is 100 metres across the 16384 metre sector.
 uniform mat3 ship_rotation = mat3(1.0);
 uniform vec3 ship_position = vec3(0.0);
+uniform vec3 view_origin = vec3(0.0);
 uniform float sector_width = 16384.0;
-uniform sampler2D sky_front : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D sky_back : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D sky_left : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D sky_right : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D sky_top : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D sky_bottom : source_color, filter_linear_mipmap, repeat_disable;
-uniform sampler2D star_ramp : source_color, filter_linear, repeat_disable;
+uniform samplerCube sky_cube : source_color, filter_linear_mipmap;
+uniform samplerCube starfield : source_color, filter_linear_mipmap;
 uniform sampler2DArray celestial_textures : source_color, filter_linear_mipmap, repeat_disable;
 uniform vec4 celestial_points[40];
 uniform int celestial_count = 0;
@@ -22,9 +18,8 @@ uniform mat3 planet_rotations[8];
 uniform vec4 surface_settings[8];
 uniform vec4 cloud_settings[8]; // radius, source UV scale, rotation radians/sec
 uniform vec3 ambient = vec3(0.2);
-uniform vec3 light_direction = vec3(0.0,1.0,0.0);
-uniform vec3 light_color = vec3(0.8);
-uniform float star_count = 24000.0;
+uniform vec3 light_directions[4];
+uniform vec3 light_colors[4];
 uniform sampler2D surface_0 : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D clouds_0 : source_color, filter_linear_mipmap, repeat_enable;
 uniform sampler2D surface_1 : source_color, filter_linear_mipmap, repeat_enable;
@@ -64,17 +59,9 @@ vec4 clouds_at(int i, vec2 uv) {
  return vec4(0.0);
 }
 vec3 background(vec3 d) {
- vec3 a=abs(d); vec2 uv;
- if(a.x >= a.y && a.x >= a.z) {
-  uv=vec2(d.x>0.0 ? d.z : -d.z,-d.y)/a.x*.5+.5;
-  return d.x>0.0 ? texture(sky_right,uv).rgb : texture(sky_left,uv).rgb;
- }
- if(a.y >= a.z) {
-  uv=vec2(d.x,d.y>0.0 ? -d.z : d.z)/a.y*.5+.5;
-  return d.y>0.0 ? texture(sky_top,uv).rgb : texture(sky_bottom,uv).rgb;
- }
- uv=vec2(d.z<0.0 ? d.x : -d.x,-d.y)/a.z*.5+.5;
- return d.z<0.0 ? texture(sky_front,uv).rgb : texture(sky_back,uv).rgb;
+ // Mirror only the source Z coordinate. Cubemap filtering crosses face edges.
+ vec3 source_direction=vec3(d.x,d.y,-d.z);
+ return texture(sky_cube,source_direction).rgb+texture(starfield,source_direction).rgb;
 }
 float intersection(vec3 ray, vec3 center, float radius) {
  float b=dot(ray,center); float h=b*b-dot(center,center)+radius*radius;
@@ -97,9 +84,7 @@ vec2 billboard_uv(vec3 ray, vec3 direction, float half_size, float roll) {
 void sky() {
  vec3 ray=normalize(ship_rotation*EYEDIR);
  vec3 color=background(ray);
- vec3 cell=floor(ray*700.0);
- float hash=fract(sin(dot(cell,vec3(12.9898,78.233,37.719)))*43758.5453);
- color+=texture(star_ramp,vec2(fract(hash*271.17),.5)).rgb*step(1.0-star_count/16000000.0,hash);
+ vec3 observer=ship_position+ship_rotation*(POSITION-view_origin);
  for(int i=0;i<40;i++) {
   if(i>=celestial_count)break;
   vec2 uv=billboard_uv(ray,celestial_points[i].xyz,celestial_points[i].w,0.0);
@@ -109,7 +94,7 @@ void sky() {
  }
  for(int i=0;i<8;i++) {
   if(i>=planet_count)break;
-  vec3 center=planets[i].xyz-ship_position*(100.0/sector_width);
+  vec3 center=planets[i].xyz-observer*(100.0/sector_width);
   float edge=sqrt(max(.001,dot(center,center)-planets[i].w*planets[i].w));
   vec2 uv=billboard_uv(ray,center,planets[i].w/edge*halo_settings[i].x,halo_settings[i].y);
   if(all(greaterThanEqual(uv,vec2(0))) && all(lessThanEqual(uv,vec2(1)))) {
@@ -119,24 +104,28 @@ void sky() {
  float nearest=100000.0;
  for(int i=0;i<8;i++) {
   if(i>=planet_count)break;
-  vec3 center=planets[i].xyz-ship_position*(100.0/sector_width);
+  vec3 center=planets[i].xyz-observer*(100.0/sector_width);
   float t=intersection(ray,center,planets[i].w);
-  if(t<0.0 || t>=nearest)continue;
-  nearest=t;
-  vec3 normal=normalize(ray*t-center);
-  vec3 local=planet_rotations[i]*normal;
-  vec2 uv=sphere_uv(local);
-  uv.x+=TIME*surface_settings[i].z;
-  vec3 albedo=surface_at(i,uv*surface_settings[i].xy).rgb;
   vec4 settings=cloud_settings[i];
-  if(settings.x>0.0) {
-   float ct=intersection(ray,center,settings.x);
+  float ct=settings.x>0.0 ? intersection(ray,center,settings.x) : -1.0;
+  float depth=t>=0.0 ? t : ct;
+  if(depth<0.0 || depth>=nearest)continue;
+  nearest=depth;
+  vec3 normal=normalize(ray*depth-center);
+  vec3 illumination=ambient;
+  for(int l=0;l<4;l++)illumination+=light_colors[l]*max(0.0,dot(normal,light_directions[l]));
+  illumination=clamp(illumination,vec3(0.0),vec3(1.5));
+  if(t>=0.0){
+   vec2 uv=sphere_uv(planet_rotations[i]*normal);
+   uv.x+=TIME*surface_settings[i].z;
+   color=surface_at(i,uv*surface_settings[i].xy).rgb*illumination;
+  }
+  if(ct>=0.0){
    vec2 cuv=sphere_uv(planet_rotations[i]*normalize(ray*ct-center));
    cuv.x+=TIME*settings.w;
    vec4 clouds=clouds_at(i,cuv*settings.yz);
-   albedo=mix(albedo,clouds.rgb,clouds.a);
+   color=mix(color,clouds.rgb*illumination,clouds.a);
   }
-  color=albedo*clamp(ambient+light_color*max(0.0,dot(normal,light_direction)),vec3(0.0),vec3(1.5));
  }
  COLOR=color;
 }

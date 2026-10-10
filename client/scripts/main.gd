@@ -48,6 +48,7 @@ const XRMenu = preload("res://scripts/xr_menu.gd")
 const StartXR = preload("res://addons/godot-xr-tools/xr/start_xr.tscn")
 const VRSettings = preload("res://scripts/vr_settings.gd")
 var vr_settings = VRSettings.new()
+var graphics_preferences=preload("res://graphics/preferences.gd").new()
 var xr_viewport: SubViewport
 var xr_spectator: CanvasLayer
 var calibration_status: Label
@@ -166,6 +167,8 @@ func _ready() -> void:
 		get_tree().quit(2)
 		return
 	vr_settings.load_preferences()
+	graphics_preferences.load_preferences()
+	apply_graphics_settings()
 	flight_preferences.load_preferences()
 	if args.has("turn-mode"):
 		vr_settings.set_turn_mode(str(args["turn-mode"]))
@@ -382,14 +385,13 @@ func make_ui() -> void:
 	settings_panel.custom_minimum_size.x = 550
 	settings_panel.add_theme_stylebox_override("panel", preload("res://scripts/datapad_theme.gd").frame(18))
 	columns.add_child(settings_panel)
-	var settings := VBoxContainer.new()
-	settings.add_theme_constant_override("separation", 14)
-	var settings_scroll:=ScrollContainer.new();settings_scroll.size_flags_vertical=Control.SIZE_EXPAND_FILL;settings_panel.add_child(settings_scroll);settings_scroll.add_child(settings)
-	settings.size_flags_horizontal=Control.SIZE_EXPAND_FILL
-	add_label(settings, "VIEW & AUDIO", 16, Color("67dcea"))
+	var settings:=preload("res://scripts/settings_navigation.gd").new();settings_panel.add_child(settings)
+	var audio_page:VBoxContainer=settings.add_page("Audio")
+	var controls_page:VBoxContainer=settings.add_page("Controls")
+	var graphics_page:VBoxContainer=settings.add_page("Graphics")
 	for channel in ["Music", "Ambience"]:
 		var audio_row := HBoxContainer.new()
-		settings.add_child(audio_row)
+		audio_page.add_child(audio_row)
 		var caption := add_label(audio_row, channel, 18, Color("c9fbff"))
 		caption.custom_minimum_size.x = 100
 		var slider := HSlider.new()
@@ -403,29 +405,31 @@ func make_ui() -> void:
 		audio_row.add_child(slider)
 		slider.value_changed.connect(func(value):audio_preferences.set_volume(channel,value))
 	var microphone_settings := preload("res://audio/input_settings.gd").new()
-	settings.add_child(microphone_settings)
+	audio_page.add_child(microphone_settings)
 	microphone_settings.device_selected.connect(func(device: String):
 		if is_instance_valid(voice_chat): voice_chat.set_input_device(device))
 	if xr_requested:
-		settings.add_child(HSeparator.new())
-		make_vr_settings(settings)
-	var flight_panel:=preload("res://space/settings_panel.gd").new();settings.add_child(flight_panel);flight_panel.setup(flight_preferences)
-	var help := add_label(settings, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
+		controls_page.add_child(HSeparator.new())
+		make_vr_settings(controls_page)
+	var flight_panel:=preload("res://space/settings_panel.gd").new();controls_page.add_child(flight_panel);flight_panel.setup(flight_preferences)
+	var help := add_label(controls_page, "Left stick · Move\nRight stick · Turn    Menu button · Menu\nOffhand stick click · Jump / recover\nCrouch physically\nPalm-up offhand · Voice controls" if xr_requested else "WASD · Move    Mouse · Look\nShift · Run    Space · Jump\nEsc · Menu    R · Return to entry\nF12 · Voice controls    B · Push to talk", 18, Color("91bdcc"))
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	settings.add_child(spacer)
+	settings.home.add_child(spacer)
 	if args.has("combat-items"):
-		add_button(settings, "Refresh weapon statistics", refresh_weapon_statistics)
-	settings.add_child(HSeparator.new())
-	add_button(settings, "Offline asset viewer", func(): enter_stage(true))
+		add_button(settings.home, "Refresh weapon statistics", refresh_weapon_statistics)
+	settings.home.add_child(HSeparator.new())
+	add_button(settings.home, "Offline asset viewer", func(): enter_stage(true))
 	var asset_scroll := preload("res://scripts/frontend_scroll.gd").new()
 	asset_scroll.custom_minimum_size.y = 56
 	asset_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	settings.add_child(asset_scroll)
+	settings.home.add_child(asset_scroll)
 	asset_status = add_label(asset_scroll, "Explore your imported environments offline.", 16, Color("91bdcc"))
 	asset_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	asset_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var graphics_panel:=preload("res://graphics/settings_panel.gd").new();graphics_page.add_child(graphics_panel);graphics_panel.setup(graphics_preferences)
+	graphics_panel.changed.connect(apply_graphics_settings)
 	creator = CreationPanel.new()
 	creator.visible = false
 	ui.add_child(creator)
@@ -440,6 +444,11 @@ func make_ui() -> void:
 	if account_panel.visible: menu.hide()
 	if not remote_connection.configured: mode_label.text="SWG XR / LOCAL DEBUG · trusted loopback"
 	update_buttons()
+
+func apply_graphics_settings()->void:
+	var viewports:Array=[get_viewport(),xr_viewport]
+	if is_instance_valid(xr_spectator):viewports.append(xr_spectator.viewport)
+	graphics_preferences.apply(viewports)
 
 func make_vr_settings(box: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
@@ -1631,6 +1640,7 @@ func initialize_xr() -> bool:
 	xr_spectator = load("res://xr/spectator.tscn").instantiate()
 	add_child(xr_spectator)
 	xr_spectator.configure(xr_origin, player)
+	apply_graphics_settings()
 	xr_spectator.enabled = not args.has("no-spectator")
 	datapad = load("res://scripts/xr_datapad.gd").new()
 	add_child(datapad)
@@ -1707,6 +1717,7 @@ func prepare_xr_viewport() -> void:
 	xr_viewport.size = Vector2i(1440, 900)
 	xr_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
 	add_child(xr_viewport)
+	apply_graphics_settings()
 	xr_origin.reparent(xr_viewport, true)
 
 func toggle_xr_menu() -> void:

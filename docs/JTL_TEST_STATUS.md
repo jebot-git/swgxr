@@ -158,3 +158,41 @@ The remote voice relay had been stopped during maintenance. It was restarted;
 starting the gateway now also pulls in the relay. Two isolated accounts passed
 39 live TLS/WSS/Opus checks without activating a microphone. Physical microphone
 and live headset tests remain suspended.
+
+
+## Sector rendering audit (test.7)
+
+The original client reference paths, revision and SHA-256 hashes are recorded in
+`server/jtl/sector_rendering_reference.json`. The audit compared SpaceEnvironment,
+SkyBox6SidedAppearance, StarAppearance, PlanetAppearance, ClientAsteroidManager,
+AsteroidGenerationManager and the nebula generation/rendering sources against
+all ten converted sector manifests. Positions use original XYZ with a reflected
+Z axis in Godot. Stations and landmarks retain Core3 coordinates; authored terrain
+files supply background positions, sizes, orientations and lighting.
+
+Sky faces now use a hardware cubemap with filtering across adjacent faces. Small
+original bottom-face textures are expanded to the largest supplied face size;
+the original artwork is retained. Stars use the source count-seeded ran1 stream,
+first-row colour ramp and randomized alpha. Planet parallax includes the camera
+offset from the ship, preserving the source 100/sector-width background scale.
+Both authored parallel lights illuminate planets and static sector meshes; cloud
+shells also render beyond the solid planet silhouette.
+
+Asteroid visibility follows distance to the field edge and the original ordered
+prefix, including the source's removal hysteresis. Grouped meshes no longer
+vanish together based on their MultiMesh origin. Nebulae skip zero density, use
+90% of the authored generation radius, minimum quad spacing, four corner colours,
+source light darkening and paired X/Y-constrained facing quads with angular alpha
+fading. Distant mesh appearances are now instantiated as well as particles.
+
+This remains a translation into Godot rather than a complete port of SWG's
+renderer. Remaining differences include original planet detail shader stages,
+asteroid spin and proximity-driven radial debris, and nebula lightning. Stars use
+a fixed angular raster rather than two-pixel points; nebula random placement uses
+a deterministic client stream rather than SWG's global RNG. Mesh materials retain
+the converted diffuse/vertex-colour representation. The two missing molten
+mammoth asteroid templates remain missing source media, not replaced assets.
+
+Validation: 205 sector-rule checks with the dummy renderer and desktop Forward+
+Vulkan captures of all ten sectors. These checks do not validate headset stereo.
+VR launches remain suspended.

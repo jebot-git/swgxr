@@ -19,6 +19,7 @@ func texture(path: String) -> Texture2D:
 	if textures.has(path): return textures[path]
 	var img := Image.load_from_file(directory.path_join(path))
 	if img == null: return null
+	img.generate_mipmaps()
 	textures[path] = ImageTexture.create_from_image(img)
 	return textures[path]
 

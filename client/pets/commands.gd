@@ -38,9 +38,28 @@ func blocks_trigger(controller_side:String)->bool:
 	if is_instance_valid(host.get("creature_handler")) and host.creature_handler.claims:return true
 	return controller_side==side and (state.captured or (available_now and (wheel.menu_open or not state.selection.is_empty())))
 func button(name:String,controller_side:String)->bool:
-	if name=="primary_click" and controller_side==side and available_now and wheel.menu_open:
+	if name!="primary_click" or controller_side!=side or not available_now:return false
+	if wheel.menu_open:
 		wheel.close();menu_pet={};stick_latched=hand.get_vector2("primary").length()>=.25;body.pet_stick_side=side if stick_latched else "";return true
-	return false
+	if vehicles.busy:return false
+	var pet:=pointed_pet()
+	if pet.is_empty():return false
+	open_menu(pet)
+	return true
+func open_menu(pet:Dictionary)->void:
+	state.clear();menu_pet=pet.duplicate(true);stick_latched=true
+	wheel.open_on_hand(menu_entries(menu_pet),hand,head);state.captured=true
+	state.trigger_down=true;body.pet_stick_side=side;status=""
+func pointed_pet()->Dictionary:
+	var pose:=aim();var rows:Array=[];var obstruction:=INF
+	var hit:=get_world_3d().direct_space_state.intersect_ray(PhysicsRayQueryParameters3D.create(pose.origin,pose.origin-pose.basis.z*64,7))
+	if not hit.is_empty():obstruction=pose.origin.distance_to(hit.position)
+	for row:Dictionary in vehicles.state.get("pets",[]):
+		if not row.get("owned",false) or row.get("dead",false) or row.get("incapacitated",false):continue
+		var visual:=actor(str(row.id))
+		if not is_instance_valid(visual) or not visual.visible or not visual.is_targetable():continue
+		rows.append({"row":row,"position":visual.global_position,"bounds":[visual.global_transform*visual.visual_bounds()],"eligible":true})
+	return Targeting.first(pose,body.global_position,{"range_m":64},rows,obstruction).get("row",{})
 func actor(id:String)->Node3D:
 	var live:Variant=app.get("live_combat")
 	if is_instance_valid(live) and live.live:
@@ -104,6 +123,9 @@ func target_id()->String:
 	return str(found.get("id",""))
 func menu_entries(row:Dictionary)->Array:
 	var entries:Array=row.get("commands",[]).duplicate(true)
+	for entry:Dictionary in entries:
+		# Core3's trained petgroup command toggles membership for both pet kinds.
+		if int(entry.get("command_id",-1))==15:entry.label="Invite / remove from party"
 	for option:Dictionary in row.get("creature_handler",{}).get("train_commands",[]):
 		entries.append({"id":"ch_train:%d"%int(option.command_id),"command_id":int(option.command_id),"label":"Train "+str(option.label),"action":"ch_train_command","requires_target":false})
 	return entries
@@ -135,7 +157,7 @@ func frame(trigger:float,stick:Vector2,permitted:bool,nearby:Dictionary)->void:
 				proposal.request_id="pet-%d"%Time.get_ticks_usec();status="Command requested";vehicles.request(action,proposal)
 			elif state.aiming:status="Aim, then click trigger"
 		elif not nearby.is_empty():
-			menu_pet=nearby.duplicate(true);stick_latched=true;wheel.open_on_hand(menu_entries(menu_pet),hand,head);state.captured=true;status=""
+			open_menu(nearby)
 	if not wheel.menu_open and stick.length()<.25:stick_latched=false
 	body.pet_stick_side=side if wheel.menu_open or stick_latched else ""
 func _physics_process(_delta:float)->void:

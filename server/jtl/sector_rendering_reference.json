@@ -1,0 +1,75 @@
+{
+  "revision": "949451032647e45e42c3aaef3f41b132c8af36e3",
+  "files": [
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/ClientAsteroidManager.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/ClientAsteroidManager.cpp",
+      "sha256": "f33d262494101d7b24cb1ada1e2344f4b2e5e15720a7df2aacdb0b4be3ba2344"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/NebulaManagerClient.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/NebulaManagerClient.cpp",
+      "sha256": "12920f76cf5f8c6bb838e31d33745bf45778f87360dab4aba3a0794f3f79923e"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearanceTemplate.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearanceTemplate.cpp",
+      "sha256": "15d94dbf34512950627449be5c9a1362a76515306a05a73d72bdd7d403995a24"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/SkyBox6SidedAppearance.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/SkyBox6SidedAppearance.cpp",
+      "sha256": "ca6cb28f13a1e45174ce08801c7b91864b4ac1eab692aa1573c7b614ac6523bd"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/StarAppearance.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/StarAppearance.cpp",
+      "sha256": "af3699d30f598324708868d8655154a5efe9c4f441a2b87f10b6fe9e2ea1a9f7"
+    },
+    {
+      "path": "src/engine/shared/library/sharedTerrain/src/shared/appearance/SpaceTerrainAppearanceTemplate.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedTerrain/src/shared/appearance/SpaceTerrainAppearanceTemplate.cpp",
+      "sha256": "2efa14ffebed618ccf4138a785900afba2f14c4b68130ce9d7d7b6cb8bc8e3e1"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/NebulaShellShaderPrimitive.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/NebulaShellShaderPrimitive.cpp",
+      "sha256": "0f86704c878540100bc9330d0c8a4de753b6f3ef8e27e614c809fadfcb34b08b"
+    },
+    {
+      "path": "src/engine/shared/library/sharedMath/src/shared/WaveForm3D.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedMath/src/shared/WaveForm3D.cpp",
+      "sha256": "2d765b2bbae3fafef82b7295b27a8cb21a0264723d0cd75a480b39c2e0fc2e0a"
+    },
+    {
+      "path": "src/engine/shared/library/sharedObject/src/shared/dynamics/RotationDynamics.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedObject/src/shared/dynamics/RotationDynamics.cpp",
+      "sha256": "7f8dbbfe345762397d0bc7fcb15ca093eec1b2e6d52eaf8d801ca791c53c3b8f"
+    },
+    {
+      "path": "src/engine/shared/library/sharedRandom/src/shared/RandomGenerator.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedRandom/src/shared/RandomGenerator.cpp",
+      "sha256": "5b31a81c926cab7d9105aaf5db1925b0f6ee0355c4442a5b4450b6e6d42f8700"
+    },
+    {
+      "path": "src/engine/shared/library/sharedGame/src/shared/space/AsteroidGenerationManager.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedGame/src/shared/space/AsteroidGenerationManager.cpp",
+      "sha256": "c94223911d99439ff8a6a1970e2df90d62b085f36345d780596bf34c5f871c39"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/SpaceEnvironment.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/SpaceEnvironment.cpp",
+      "sha256": "4f57baff66b8c19a0e64e1aa88d96884c31fcce64567d849e5df1d9ffa8e063b"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/ClientNebula.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/ClientNebula.cpp",
+      "sha256": "6458c02d55af2169e0cfcb4cf3f528b806724948ba870afeea790d1122ad4313"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearance.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearance.cpp",
+      "sha256": "d5537deca20ea94da7c7871f240ed0aa433bb29ebb9b4a4d462e061a2f990af9"
+    }
+  ]
+}

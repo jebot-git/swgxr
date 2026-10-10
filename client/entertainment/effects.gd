@@ -17,6 +17,7 @@ class EffectResources extends RefCounted:
 		var image := Image.load_from_file(directory.path_join(path))
 		if image == null: return null
 		if textures.size() >= 16: textures.erase(textures.keys()[0])
+		image.generate_mipmaps()
 		var result := ImageTexture.create_from_image(image)
 		textures[path] = result
 		return result

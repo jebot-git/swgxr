@@ -81,6 +81,7 @@ func configure(path: String) -> bool:
 		if not textures.is_empty():
 			var image := Image.load_from_file(directory.path_join(textures[0].path))
 			if image != null:
+				image.generate_mipmaps()
 				sky_material.set_shader_parameter("sun_texture" if tag == "SUN " else "moon_texture",ImageTexture.create_from_image(image))
 	report.ready = true
 	report.audio_sources = manifest.get("sounds",{}).size()

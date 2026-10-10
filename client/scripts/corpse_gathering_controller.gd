@@ -100,6 +100,7 @@ func _process(delta: float) -> void:
 	if not is_instance_valid(app): return
 	if current_epoch!=app.datapad_epoch: reset()
 	if not app.world_ready or app.loading_stage: return
+	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	next_poll-=delta
-	if next_poll<=0 and not busy and not app.inventory_request_pending and not app.gathering.busy and not bag.action_pending:
+	if next_poll<=0 and not busy and not app.inventory_request_pending and not app.gathering.busy and not bag.action_pending and (not app.has_method("try_background_poll") or app.try_background_poll("corpses")):
 		refresh()

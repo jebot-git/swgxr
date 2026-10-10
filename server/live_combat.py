@@ -80,11 +80,14 @@ class LiveCombatHub:
   except OSError:pass
   active['options'].unlink(missing_ok=True)
   (active['folder']/'final.json').unlink(missing_ok=True)
- def _record(self,active,command,result):
+ def _record(self,active,command,result,elapsed=0):
   # Bounded local diagnostics; never retain credentials or entire actor snapshots.
   action=command.get('action','unknown');counts=active.setdefault('action_counts',{})
   counts[action]=counts.get(action,0)+1
-  if action not in ('start','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','life') and not result.get('error_code'):return
+  timings=active.setdefault('timings',deque(maxlen=128))
+  timings.append({'time_unix':time.time(),'action':action,'detail':command.get('jtl',command.get('service',{})).get('action',''),'elapsed_ms':round(elapsed*1000,2),'error_code':result.get('error_code',result.get('mutation',{}).get('error_code'))})
+  if action not in ('start','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','life') and not result.get('error_code'):
+   self._write_audit(active,counts);return
   mutation=result.get('mutation',{});snap=result.get('snapshot',{});player=snap.get('player',{})
   entry={'time_unix':time.time(),'action':action,'sequence':result.get('sequence'),
    'life_action':command.get('life_action'),'shot_id':command.get('shot_id'),'item_id':command.get('item_id'),'target_id':mutation.get('target_id',command.get('target_id')),'taunted':mutation.get('taunted'),
@@ -93,18 +96,21 @@ class LiveCombatHub:
    'ham_cost_committed':mutation.get('ham_cost_committed'),'ready':snap.get('ready'),
    'player_ham':player.get('ham'),'player_posture':player.get('posture')}
   events=active.setdefault('events',deque(maxlen=128));events.append(entry)
-  tmp=active['folder']/'audit.tmp';tmp.write_text(json.dumps({'capacity':128,'counts':counts,'events':list(events)},separators=(',',':')));tmp.chmod(0o600);tmp.replace(active['folder']/'audit.json')
+  self._write_audit(active,counts)
+ def _write_audit(self,active,counts):
+  tmp=active['folder']/'audit.tmp';tmp.write_text(json.dumps({'capacity':128,'counts':counts,'events':list(active.get('events',[])),'timings':list(active.get('timings',[]))},separators=(',',':')));tmp.chmod(0o600);tmp.replace(active['folder']/'audit.json')
  def _exchange(self,active,command,timeout=12):
   # Each native child has one file mailbox and one rate budget. Unrelated
   # capable children may overlap their network wait, never their own mailbox.
   with active.setdefault('ipc_gate',RequestGate()):
    return self._exchange_owned(active,command,timeout)
  def _exchange_owned(self,active,command,timeout=12):
-  # Core3 rejects >5 source commands/second without an attribute response.
-  # All requests for this account share the budget, including shots/contacts.
+  started=time.monotonic()
+  # The native XR envelope allows 20 Hz; stay below it with a shared
+  # 12.5 Hz account budget, including shots, contacts and service requests.
   delay=active.get("next_command_at",0)-time.monotonic()
   if delay>0:time.sleep(delay)
-  active["next_command_at"]=time.monotonic()+.275
+  active["next_command_at"]=time.monotonic()+.08
   request_id=secrets.token_hex(12);command=dict(command,request_id=request_id)
   folder=active['folder'];(folder/'response.json').unlink(missing_ok=True)
   temp=folder/'request.tmp';temp.write_text(json.dumps(command,separators=(',',':')));temp.chmod(0o600);temp.replace(folder/'request.json')
@@ -115,7 +121,7 @@ class LiveCombatHub:
     result=json.loads(response.read_text())
     if result.get('request_id')==request_id:
      response.unlink()
-     try:self._record(active,command,result)
+     try:self._record(active,command,result,time.monotonic()-started)
      except OSError:pass # Diagnostic storage cannot invalidate an already committed action.
      resolved=self._resolve(result)
      # An uncertain receipt has no new authoritative state. Preserve the last

@@ -38,7 +38,7 @@ func identity() -> Dictionary:
 		if key.contains(":"):
 			payload.building_id=str(cell.get("building_object_id","0"));payload.cell_index=int(key.get_slice(":",1))
 	if not session_id.is_empty():payload.session_id=session_id
-	return preload("res://combat/movement_reconciliation.gd").stamp_request(payload,player_state)
+	return payload # Stamp at dispatch after preceding native receipts are consumed.
 func accept(result: Dictionary, starting:=false) -> bool:
 	if not result.get("ok",false) or result.get("source_kind")!="core3_gameplay_session" or str(result.get("character_id",""))!=app.datapad_character_id or not result.get("session_live",false) or str(result.get("session_id","")).is_empty():
 		last_error=str(result.get("error","Core3 session was not confirmed."));return false
@@ -172,7 +172,7 @@ func guard_pose()->Dictionary:
 
 func update_pose() -> void:
 	var guard:=guard_pose()
-	busy=true;next_update=0.25 if driving() else .35 if guard.mode!="none" else 1.0
+	busy=true;next_update=0.15 if driving() else .2
 	var epoch:=generation
 	var payload:=identity()
 	var pose:=smuggler_pose();payload.smuggler_pose=pose;payload.guard_pose=guard

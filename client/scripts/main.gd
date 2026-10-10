@@ -558,7 +558,47 @@ func configure_backend_connection() -> bool:
 	args.account=remote_connection.account
 	return true
 
+var native_api_queue:Array[int]=[]
+var native_api_ticket:=0
+var native_api_observations:Array=[]
+var native_api_log_stamp:=0
 func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
+	# One authoritative request at a time per character. Presence/voice uses
+	# separate cached state and must not wait behind native transactions.
+	var native_call:=not path.begins_with("/auth/") and not path.begins_with("/voice/") and path not in ["/session/sync","/services/presence","/performance"]
+	if not native_call:return await _api_dispatch(method,path,body)
+	var enqueued:=Time.get_ticks_msec()
+	var epoch:=datapad_epoch;var ticket:=native_api_ticket;native_api_ticket+=1
+	native_api_queue.append(ticket)
+	var waited:=false;var deadline:=Time.get_ticks_msec()+15000
+	while native_api_queue[0]!=ticket:
+		waited=true
+		if epoch!=datapad_epoch or Time.get_ticks_msec()>deadline:
+			native_api_queue.erase(ticket)
+			return {"ok":false,"cancelled":true,"error":"Native request expired before dispatch; retry the action."}
+		await get_tree().process_frame
+	if waited and body is Dictionary and body.get("position") is Array and not path.begins_with("/jtl/") and not body.has("movement_revision") and world_ready:
+		# Refresh the locomotion envelope, retaining item/target/hand intent. A
+		# queued action cannot follow the player into a different room or zone.
+		var current:Dictionary=services.identity_payload()
+		if str(body.get("zone",active_planet))!=str(current.zone) or str(body.get("building_id","0"))!=str(current.building_id) or int(body.get("cell_index",0))!=int(current.cell_index):
+			native_api_queue.erase(ticket)
+			return {"ok":false,"cancelled":true,"error":"Room changed before the action could be sent. Try again in the current room."}
+		body=body.duplicate(true)
+		body.position=current.position
+	var dispatched:=Time.get_ticks_msec()
+	var result:=await _api_dispatch(method,path,body)
+	var finished:=Time.get_ticks_msec()
+	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"movement_corrected":result.get("_movement_correction_consumed",false)})
+	while native_api_observations.size()>256:native_api_observations.pop_front()
+	if args.has("runtime-profile") and finished-native_api_log_stamp>=1000:
+		native_api_log_stamp=finished
+		var file:=FileAccess.open(str(args["runtime-profile"]).path_join("network.json"),FileAccess.WRITE)
+		if file!=null:file.store_string(JSON.stringify({"capacity":256,"requests":native_api_observations}))
+	native_api_queue.erase(ticket)
+	return result
+
+func _api_dispatch(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if session_leaving and path!="/session/logout":return {"ok":false,"error":"Logging off; background request cancelled.","cancelled":true}
 	if world_ready and is_instance_valid(gameplay_session) and not gameplay_session.live and not gameplay_session.session_id.is_empty() and not session_leaving:
 		if path!="/session/start" and not path.begins_with("/combat/session") and not path.begins_with("/auth/"):
@@ -628,9 +668,18 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if not data.ok and not data.has("error"):
 		data.error = "Service returned HTTP " + str(result[1])
 	if consume_movement_rejection(data):data["_movement_correction_consumed"]=true
+	# Ship controller orders scene entry/landing before consuming its envelope.
+	elif data.ok and not path.begins_with("/jtl/"):consume_native_success(data)
 	if method==HTTPClient.METHOD_POST and haptic_character==datapad_character_id and revision==auth_revision:
 		action_haptics.receipt(xr_origin,xr_requested and xr_focused,path,body,data,haptic_hand)
 	return data
+
+func consume_native_success(data:Dictionary)->bool:
+	var live:Variant=data.get("live_response")
+	if not live is Dictionary or not live.get("ok",live.get("session_live",false)) or str(live.get("character_id",""))!=datapad_character_id:return false
+	if is_instance_valid(gameplay_session) and gameplay_session.live:return gameplay_session.accept_native_response(live)
+	if live_combat_reserved and is_instance_valid(live_combat) and live_combat.live:return live_combat.accept_response(live)
+	return false
 
 func consume_movement_rejection(data:Dictionary)->bool:
 	var original:Variant=data.get("live_response")
@@ -655,6 +704,7 @@ func native_requests_in_flight() -> int:
 	return maxi(0,api_requests_in_flight-api_realtime_requests_in_flight)
 
 func try_background_poll(family: String) -> bool:
+	if is_instance_valid(space) and space.aboard():return false
 	if is_instance_valid(gameplay_combat) and gameplay_combat.has_pending_commands():return false
 	if not world_ready or session_leaving or loading_stage or busy or menu.visible:return false
 	var occupied:bool=native_requests_in_flight()>0 or inventory_request_pending or datapad_request_pending

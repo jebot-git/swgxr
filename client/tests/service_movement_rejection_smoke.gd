@@ -58,6 +58,12 @@ func run()->void:
 	check(not app.consume_movement_rejection(ordinary),"Accepted movement is never reinterpreted as correction")
 	ordinary=reply.duplicate(true);ordinary.live_response.mutation.error_code="inventory_full"
 	check(not app.consume_movement_rejection(ordinary),"Unrelated service failure cannot bypass snapshot success validation")
+	var success:=reply.duplicate(true);success.ok=true;success.live_response.erase("ok");success.live_response.erase("error_code");success.live_response.mutation={"success":true};success.live_response.sequence=3
+	success.live_response.snapshot.player.locomotion={"movement_revision":91}
+	check(app.consume_native_success(success),"Any successful service envelope advances owned authority, even without optional ok field")
+	check(session.sequence==3 and session.player_state.locomotion.movement_revision==91 and not session.player_state.has("movement_rejected"),"Housing/service success does not leave a stale movement revision or apply a correction")
+	var stamped:Dictionary=preload("res://combat/movement_reconciliation.gd").stamp_request({"position":[2,0,3]},session.player_state)
+	check(stamped.movement_revision==91,"Next movement uses revision produced by successful housing/service request")
 	endpoint.server.stop();endpoint.queue_free();app.queue_free();await process_frame
 	var report:Dictionary={"checks":checks,"errors":errors,"transport":"loopback HTTP, mocked Core3" if listening else "direct production API response consumer, mocked Core3","renderer":"dummy","headset_validated":false}
 	FileAccess.open("res://../runtime/evidence/service-movement-rejection-client.json",FileAccess.WRITE).store_string(JSON.stringify(report));print(JSON.stringify(report));quit(0 if errors.is_empty() else 1)

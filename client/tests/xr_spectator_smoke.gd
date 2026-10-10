@@ -30,6 +30,11 @@ func run() -> void:
 	mirror.set_physics_process(false)
 	var pose := head.global_transform
 	mirror.update_camera(1.0)
+	var space_environment:=Environment.new();space_environment.background_mode=Environment.BG_SKY
+	head.environment=space_environment;mirror.update_camera(1.0)
+	assert(mirror.camera.environment==space_environment)
+	head.environment=null;mirror.update_camera(1.0)
+	assert(mirror.camera.environment==null)
 	assert(xr.get_camera_3d()==head and mirror.viewport.get_camera_3d()==mirror.camera)
 	assert(not mirror.viewport.use_xr and mirror.viewport.world_3d==xr.world_3d)
 	assert(mirror.camera.cull_mask==3 and head.cull_mask==1)

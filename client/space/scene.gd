@@ -22,18 +22,25 @@ var visual_age:=0.0
 var visual_duration:=.1
 var visual_stamp:=-1
 var nearby_poses:Dictionary={}
+var visual_velocity:=Vector3.ZERO
 func _process(delta:float)->void:
 	if visual_stamp<0:return
-	visual_age=minf(visual_duration,visual_age+delta)
-	visual_ship_pose=visual_from.interpolate_with(visual_target,visual_age/visual_duration)
+	visual_age+=delta
+	visual_ship_pose=visual_from.interpolate_with(visual_target,minf(1.0,visual_age/visual_duration))
+	# Bounded presentation only; this pose never drives native flight or the rig.
+	visual_ship_pose.origin+=visual_velocity*clampf(visual_age-visual_duration,0,.35)
 	if is_instance_valid(exterior):exterior.transform=visual_ship_pose.affine_inverse()
 	for id in nearby_poses:
 		if nearby.has(id):nearby[id].transform=visual_ship_pose.affine_inverse()*nearby_poses[id]
-func observe_motion(pose:Transform3D)->void:
+func observe_motion(pose:Transform3D,velocity:=Vector3.ZERO)->void:
+	# The action and shared player envelope can contain the same snapshot.
+	# Restarting twice shortened every blend to 50ms, then froze until the reply.
+	if visual_stamp>=0 and pose.is_equal_approx(visual_target) and velocity.is_equal_approx(visual_velocity):return
 	var now:=Time.get_ticks_msec()
 	if visual_stamp<0:visual_ship_pose=pose
 	visual_from=visual_ship_pose;visual_target=pose;visual_age=0
-	visual_duration=clampf((now-visual_stamp)/1000.0,.05,.3) if visual_stamp>=0 else .1
+	visual_duration=clampf((now-visual_stamp)/1000.0,.05,1.5) if visual_stamp>=0 else .1
+	visual_velocity=velocity
 	visual_stamp=now
 	_process(0)
 
@@ -88,7 +95,7 @@ func observe(ship:Dictionary)->void:
 	if is_instance_valid(exterior) and ship.get("position") is Array and ship.get("quaternion") is Array:
 		var p:Array=ship.position;var q:Array=ship.quaternion
 		var pose:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
-		observe_motion(pose)
+		observe_motion(pose,pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))))
 	var keep:Dictionary={}
 	for row:Dictionary in ship.get("decorations",[]):
 		var id:=str(row.get("id",""));keep[id]=true

@@ -1,5 +1,5 @@
---- a/src/server/zone/objects/creature/commands/SwgxrJtl.h
-+++ b/src/server/zone/objects/creature/commands/SwgxrJtl.h
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
 @@ -77,11 +77,21 @@
    }
    persist(c,s);
@@ -23,8 +23,8 @@
    auto& m=motion(s).walkers[c->getObjectID()];auto sequence=r.at("sequence").get<uint64>();if(!sequence || sequence<=m.sequence)throw std::runtime_error("jtl_stale_walk");m.sequence=sequence;double stamp=now(),credit=m.credit;swgxr::jtl::Vec from{{c->getPositionX(),c->getPositionZ(),c->getPositionY()}};bool accepted=swgxr::jtl::walkBudget(from,p,stamp-m.stamp,credit);m.stamp=stamp;m.credit=credit;if(!accepted)throw std::runtime_error("jtl_walk_speed_rejected");
    Locker cellLock(cell,c);if(cell!=old && !cell->transferObject(c,-1,true))throw std::runtime_error("jtl_cell_transfer_rejected");c->initializePosition(p[0],p[1],p[2]);c->updateZoneWithParent(cell,true);
   }
---- a/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
-+++ b/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
+--- a/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/planet/PlanetManagerImplementation.cpp
 @@ -1683,7 +1683,7 @@
   auto out=JSONSerializationType::array();auto points=planetTravelPointList->swgxrSnapshot();
   for(int i=0;i<points.size();++i){auto p=points.get(i);if(p==nullptr || !p->isIncomingAllowed())continue;

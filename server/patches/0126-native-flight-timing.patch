@@ -1,0 +1,116 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/JtlPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/JtlPolicy.h
+@@ -14,13 +14,14 @@
+ inline Quat axis(int i,double angle){Quat q{{0,0,0,std::cos(angle/2)}};q[i]=std::sin(angle/2);return q;}
+ struct Input {double throttle=0,pitch=0,yaw=0,roll=0;uint64_t sequence=0;};
+ struct State {Vec position{{0,0,0}};Quat orientation{{0,0,0,1}};double speed=0,stamp=0;uint64_t sequence=0;};
++constexpr double CONTROL_LEASE_SECONDS=1.5;
+ inline void validate(const Input& i){for(double v:{i.throttle,i.pitch,i.yaw,i.roll})if(!std::isfinite(v) || std::abs(v)>1)throw std::runtime_error("jtl_invalid_controls");if(i.throttle<0 || i.sequence==0)throw std::runtime_error("jtl_invalid_controls");}
+ // Control packets supply inputs, never pose, velocity, elapsed time or ship stats.
+-// No catch-up after lost connection: the next packet advances at most 200 ms.
+-inline State step(State s,const Input& i,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
+- validate(i);if(i.sequence<=s.sequence)throw std::runtime_error("jtl_stale_controls");
++// Advance held controls on the native clock, independently of HTTP arrivals.
++inline State integrate(State s,const Input& i,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
++ validate(i);
+  if(!std::isfinite(now) || now<s.stamp)throw std::runtime_error("jtl_invalid_clock");
+- double dt=clamp(now-s.stamp,0,.2);s.stamp=now;s.sequence=i.sequence;
++ double dt=clamp(now-s.stamp,0,.05);s.stamp=now;
+  double desired=clamp(maxSpeed,0,100)*i.throttle,delta=clamp(acceleration,1,30)*dt;
+  s.speed+=clamp(desired-s.speed,-delta,delta);
+  const double rad=3.141592653589793/180;
+@@ -29,7 +30,18 @@
+  for(int k=0;k<3;++k){s.position[k]+=forward[k]*s.speed*dt;if(std::abs(s.position[k])>7000){s.position[k]=clamp(s.position[k],-7000,7000);s.speed=0;}}
+  return s;
+ }
++inline State advance(State s,const Input& held,double received,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
++ if(!std::isfinite(now) || now<s.stamp)throw std::runtime_error("jtl_invalid_clock");
++ double end=std::min(now,received+CONTROL_LEASE_SECONDS);
++ while(s.stamp+1e-8<end)s=integrate(s,held,std::min(end,s.stamp+.05),maxSpeed,acceleration,pitchRate,yawRate,rollRate);
++ if(now>=received+CONTROL_LEASE_SECONDS)s.speed=0;
++ s.stamp=now;return s;
++}
++inline State step(State s,const Input& i,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
++ validate(i);if(i.sequence<=s.sequence)throw std::runtime_error("jtl_stale_controls");
++ s=advance(s,i,s.stamp,now,maxSpeed,acceleration,pitchRate,yawRate,rollRate);s.sequence=i.sequence;return s;
++}
+ // Transfer existing shield energy, conserving charge and respecting each bank.
+ inline std::array<double,2> shields(double front,double rear,double maxFront,double maxRear,double ratio){double total=std::max(0.,front)+std::max(0.,rear);double f=clamp(total*clamp(ratio,0,1),std::max(0.,total-maxRear),std::min(total,maxFront));return {{f,total-f}};}
+-inline bool walkBudget(const Vec& from,const Vec& to,double elapsed,double& credit){if(!std::isfinite(elapsed) || elapsed<0)return false;credit=std::min(1.5,credit+std::min(elapsed,.5)*3.);Vec d{};for(int k=0;k<3;++k){if(!std::isfinite(to[k]) || std::abs(to[k])>64)return false;d[k]=to[k]-from[k];}double distance=length(d);if(distance>credit+.0001)return false;credit-=distance;return true;}
++inline bool walkBudget(const Vec& from,const Vec& to,double elapsed,double& credit,double maxSpeed=3.){if(!std::isfinite(elapsed) || elapsed<0)return false;double rate=clamp(maxSpeed,0,10)*1.1;credit=std::min(rate*2+.25,credit+std::min(elapsed,2.)*rate);Vec d{};for(int k=0;k<3;++k){if(!std::isfinite(to[k]) || std::abs(to[k])>64)return false;d[k]=to[k]-from[k];}double distance=length(d);if(distance>credit+.0001)return false;credit-=distance;return true;}
+ }}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -29,7 +29,7 @@
+ class SwgxrJtl {
+  using Json=JSONSerializationType;
+  struct Walk {double stamp=0,credit=1.5;uint64 sequence=0;};
+- struct Motion {swgxr::jtl::State state;std::map<uint64,Walk> walkers;std::string power="balanced";};
++ struct Motion {swgxr::jtl::State state;swgxr::jtl::Input input;double received=0,generation=0;bool ticking=false;std::map<uint64,Walk> walkers;std::string power="balanced";};
+  static std::map<uint64,Motion>& motions(){static std::map<uint64,Motion> value;return value;}
+  static Mutex& motionMutex(){static Mutex value;return value;}
+  static void eraseMotion(ShipObject* s){Locker guard(&motionMutex(),s);motions().erase(s->getObjectID());}
+@@ -51,7 +51,21 @@
+  static ShipControlDevice* device(CreatureObject* c,ShipObject* s){auto d=c->getZoneServer()->getObject(s->getControlDeviceID());if(!d || !d->isShipControlDevice() || !d->isASubChildOf(c))throw std::runtime_error("jtl_owned_control_device_required");return static_cast<ShipControlDevice*>(d.get());}
+  static void persist(CreatureObject* c,ShipObject* s){s->updateToDatabaseAllObjects(false);c->updateToDatabaseAllObjects(false);}
+  static CellObject* interior(CreatureObject* c,ShipObject* s){auto p=c->getParent().get();if(c->getRootParent()!=s || !p || !p->isCellObject())throw std::runtime_error("jtl_leave_station_first");return static_cast<CellObject*>(p.get());}
+- static Motion& motion(ShipObject* ship){Locker guard(&motionMutex(),ship);auto found=motions().find(ship->getObjectID());if(found==motions().end()){Motion m;m.state.position={{ship->getPositionX(),ship->getPositionZ(),ship->getPositionY()}};auto q=ship->getDirection();m.state.orientation={{q->getX(),q->getY(),q->getZ(),q->getW()}};m.state.stamp=now();found=motions().emplace(ship->getObjectID(),m).first;}return found->second;}
++ static Motion& motion(ShipObject* ship){Locker guard(&motionMutex(),ship);auto found=motions().find(ship->getObjectID());if(found==motions().end()){Motion m;m.state.position={{ship->getPositionX(),ship->getPositionZ(),ship->getPositionY()}};auto q=ship->getDirection();m.state.orientation={{q->getX(),q->getY(),q->getZ(),q->getW()}};m.state.stamp=now();m.generation=m.state.stamp;found=motions().emplace(ship->getObjectID(),m).first;}return found->second;}
++ static void applyMotion(ShipObject* s,Motion& m,double stamp){
++  m.state=swgxr::jtl::advance(m.state,m.input,m.received,stamp,s->getActualMaxSpeed(),s->getActualAccelerationRate(),s->getActualPitchRate(),s->getActualYawRate(),s->getActualRollRate());
++  auto& state=m.state;s->setCurrentSpeed(state.speed);s->setPosition(state.position[0],state.position[1],state.position[2]);Quaternion q(state.orientation[3],state.orientation[0],state.orientation[1],state.orientation[2]);s->setDirection(q);s->setRotationMatrix(q);s->updateZone(false,true);s->incrementMovementCounter();
++ }
++ static void flightTick(ManagedWeakReference<ShipObject*> weak,double generation){
++  Core::getTaskManager()->scheduleTask([weak,generation]() mutable {
++   auto s=weak.get();if(!s)return;Locker lock(s);
++   Motion* m=nullptr;{Locker guard(&motionMutex(),s);auto it=motions().find(s->getObjectID());if(it==motions().end() || it->second.generation!=generation)return;m=&it->second;}
++   if(!s->isShipLaunched() || !s->getPilot()){m->state.speed=0;s->setCurrentSpeed(0);m->ticking=false;return;}
++   double stamp=now();applyMotion(s,*m,stamp);
++   if(stamp>=m->received+swgxr::jtl::CONTROL_LEASE_SECONDS){m->ticking=false;return;}
++   flightTick(weak,generation);
++  },"SwgxrJtlFlight",50);
++ }
+  static void requirePilot(CreatureObject* c,ShipObject* s){if(!s || s->getOwnerID()!=c->getObjectID() || current(c)!=s || s->getPilot()!=c || !c->isPilotingShip())throw std::runtime_error("jtl_pilot_required");}
+  static void command(CreatureObject* c,ShipObject* s,const Json& request){
+   const auto cmd=request.at("command_id").get<std::string>();
+@@ -92,7 +106,7 @@
+   auto layout=s->getObjectTemplate()->getPortalLayout();if(cell!=old){auto prop=layout?layout->getCellProperty(old->getCellNumber()):nullptr;if(!prop || !prop->hasConnectedCell(index))throw std::runtime_error("jtl_unconnected_cell");}
+   UniqueReference<Vector<float>*> floors(CollisionManager::getCellFloorCollision(p[0],p[2],cell));double error=1000;if(floors)for(int i=0;i<floors->size();++i)error=std::min(error,std::abs(double(floors->get(i))-p[1]));if(error>.3)throw std::runtime_error("jtl_floor_mismatch");
+   Vector3 dest(p[0],p[2],p[1]);if(!walkClear(c,s,dest))throw std::runtime_error("jtl_walk_obstructed");
+-  auto& m=motion(s).walkers[c->getObjectID()];auto sequence=r.at("sequence").get<uint64>();if(!sequence || sequence<=m.sequence)throw std::runtime_error("jtl_stale_walk");m.sequence=sequence;double stamp=now(),credit=m.credit;swgxr::jtl::Vec from{{c->getPositionX(),c->getPositionZ(),c->getPositionY()}};bool accepted=swgxr::jtl::walkBudget(from,p,stamp-m.stamp,credit);m.stamp=stamp;m.credit=credit;if(!accepted)throw std::runtime_error("jtl_walk_speed_rejected");
++  auto& m=motion(s).walkers[c->getObjectID()];auto sequence=r.at("sequence").get<uint64>();if(!sequence || sequence<=m.sequence)throw std::runtime_error("jtl_stale_walk");m.sequence=sequence;double stamp=now(),credit=m.credit;swgxr::jtl::Vec from{{c->getPositionX(),c->getPositionZ(),c->getPositionY()}};bool accepted=swgxr::jtl::walkBudget(from,p,stamp-m.stamp,credit,c->getRunSpeed()*c->getSpeedMultiplierMod());m.stamp=stamp;m.credit=credit;if(!accepted)throw std::runtime_error("jtl_walk_speed_rejected");
+   Locker cellLock(cell,c);if(cell!=old && !cell->transferObject(c,-1,true))throw std::runtime_error("jtl_cell_transfer_rejected");c->initializePosition(p[0],p[1],p[2]);c->updateZoneWithParent(cell,true);
+  }
+  static void furnish(CreatureObject* c,ShipObject* s,const Json& r,bool recover){
+@@ -190,7 +204,7 @@
+   auto s=current(c);if(!s){try{s=owned(c,Json::object());}catch(const std::exception&){return out;}}Locker lock(s,c);Motion offline;auto& motionState=s->isShipLaunched()?motion(s):offline;
+   if(aboard(c)){SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(s->getPositionX(),s->getPositionZ(),s->getPositionY(),2048,&objects,true);std::vector<ShipObject*> nearby;for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o!=s && o->isShipObject() && supported(o->asShipObject()))nearby.push_back(o->asShipObject());}std::sort(nearby.begin(),nearby.end(),[&](ShipObject* a,ShipObject* b){return s->getPosition().squaredDistanceTo(a->getPosition())<s->getPosition().squaredDistanceTo(b->getPosition());});out["nearby_ships_truncated"]=nearby.size()>32;for(auto target:nearby){if(out["nearby_ships"].size()>=32)break;Locker targetLock(target,c);auto row=record(target);row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
+ 
+-  auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->isShipLaunched() && now()-motionState.state.stamp>.5?0:s->getCurrentSpeed();row["max_speed_mps"]=std::min(100.f,s->getActualMaxSpeed());row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;if(s->isShipLaunched() && now()-motionState.state.stamp>.5){s->setCurrentSpeed(0);motionState.state.speed=0;}row["cell_id"]=id(cell);row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
++  auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->getCurrentSpeed();row["max_speed_mps"]=std::min(100.f,s->getActualMaxSpeed());row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
+   row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
+   for(int i=0;pob && i<pob->getTotalCellNumber();++i){auto cell=pob->getCell(i);if(!cell)continue;row["cells"].push_back({{"id",id(cell)},{"index",cell->getCellNumber()},{"name",std::string("cell_")+std::to_string(i)}});for(int n=0;n<cell->getContainerObjectsSize() && row["decorations"].size()<400;++n){auto item=cell->getContainerObject(n);if(!item || item->isCreatureObject() || s->containsChildObject(item))continue;auto itemRow=record(item);itemRow["cell_index"]=cell->getCellNumber();row["decorations"].push_back(itemRow);}}
+   auto chair=s->getPilotChair().get();auto pilot=s->getPilot();row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(chair)},{"cell_index",1},{"position",Json::array({-.76,.43,21.14})},{"occupied_by",id(pilot)}}});if(s->isPobShip())row["stations"].push_back({{"id","passenger"},{"object_id",id(passenger(s))},{"cell_index",1},{"position",Json::array({.75,.43,21.15})},{"occupied_by",passengerOccupant(s,c)}});if(!s->isPobShip())row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(pilot)},{"cell_index",0},{"position",Json::array({0,0,0})},{"occupied_by",id(pilot)}}});row["commands"]=Json::array();
+@@ -225,7 +239,7 @@
+   }else if(action=="leave"){
+    if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(!passengerSeated(c))requirePilot(c,s);auto cell=s->asPobShip()->getCell(0);if(!cell)throw std::runtime_error("jtl_bridge_unavailable");s->setCurrentSpeed(0);motion(s).state.speed=0;c->clearSpaceStates();c->clearState(CreatureState::SITTINGONCHAIR);c->setPosture(CreaturePosture::UPRIGHT);c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station","");c->switchZone("space_tatooine",0,.4,20,cell->getObjectID(),false,-1);c->getPlayerObject()->notifySceneReady();motion(s).walkers[c->getObjectID()]={now(),1.5,0};
+   }else if(action=="control"){
+-   requirePilot(c,s);swgxr::jtl::Input input;input.throttle=r.at("throttle").get<double>();input.pitch=r.at("pitch").get<double>();input.yaw=r.at("yaw").get<double>();input.roll=r.at("roll").get<double>();input.sequence=r.at("sequence").get<uint64>();auto& m=motion(s);auto state=swgxr::jtl::step(m.state,input,now(),s->getActualMaxSpeed(),s->getActualAccelerationRate(),s->getActualPitchRate(),s->getActualYawRate(),s->getActualRollRate());m.state=state;s->setCurrentSpeed(state.speed);s->setPosition(state.position[0],state.position[1],state.position[2]);Quaternion q(state.orientation[3],state.orientation[0],state.orientation[1],state.orientation[2]);s->setDirection(q);s->setRotationMatrix(q);s->updateZone(false,true);s->incrementMovementCounter();
++   requirePilot(c,s);swgxr::jtl::Input input;input.throttle=r.at("throttle").get<double>();input.pitch=r.at("pitch").get<double>();input.yaw=r.at("yaw").get<double>();input.roll=r.at("roll").get<double>();input.sequence=r.at("sequence").get<uint64>();auto& m=motion(s);swgxr::jtl::validate(input);if(input.sequence<=m.state.sequence)throw std::runtime_error("jtl_stale_controls");double stamp=now();if(m.input.sequence)applyMotion(s,m,stamp);else m.state.stamp=stamp;m.input=input;m.received=stamp;m.state.sequence=input.sequence;if(!m.ticking){m.ticking=true;flightTick(s,m.generation);}
+   }else if(action=="walk")walk(c,s,r);
+   else if(action=="decorate" || action=="recover")furnish(c,s,r,action=="recover");
+   else if(action=="command")command(c,s,r);
+--- a/MMOCoreORB/src/server/zone/packets/object/CommandQueueEnqueue.cpp
++++ b/MMOCoreORB/src/server/zone/packets/object/CommandQueueEnqueue.cpp
+@@ -35,7 +35,10 @@
+ 	int commandCount = client->getCommandCount();
+ 	uint64 miliDifference = commandCooldown->miliDifference();
+ 
+-	if (commandCount >= 5 && miliDifference < 1000) {
++	const bool xrEnvelope = actionCRC == STRING_HASHCODE("getattributesbatch") && arguments.toString().beginsWith("swgxr_livecombat_v1 ");
++	// The native handler still verifies the owned session and every action.
++	// Continuous XR controls share a bounded 20 Hz envelope budget.
++	if (commandCount >= (xrEnvelope ? 20 : 5) && miliDifference < 1000) {
+ 		player->clearQueueAction(actionCount);
+ 
+ 		player->debug() << "command spam detected";

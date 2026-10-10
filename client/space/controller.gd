@@ -484,8 +484,21 @@ func interaction()->void:
 		recover_ready=false
 		for id in scene.decorations:
 			var node:MeshInstance3D=scene.decorations[id]
+			var row:Dictionary=node.get_meta("native",{})
+			if int(row.get("cell_index",0))!=scene.cell_index():continue
 			if node.mesh.get_aabb().grow(.1).has_point(node.to_local(left.global_position)) and node.mesh.get_aabb().grow(.1).has_point(node.to_local(right.global_position)):
-				request("recover",{"item_id":id,"left_hand":scene.source(left.global_position),"right_hand":scene.source(right.global_position)});break
+				recover_item({"item_id":id,"left_hand":scene.source(left.global_position),"right_hand":scene.source(right.global_position)},scene.cell_index());break
+func recover_item(payload:Dictionary,cell:int)->void:
+	if seated():notice("Leave your seat before recovering items.");return
+	var version:int=app.datapad_epoch
+	app.inventory.begin_mutation("Recovering item…")
+	var walked:=await request("walk",{},true)
+	if version!=app.datapad_epoch:return
+	if not walked.get("ok",false) or int(ship.get("cell_index",0))!=cell:
+		app.inventory.set_busy(false,"Room not confirmed. Touch the item again to retry.");return
+	var result:=await request("recover",payload)
+	if version!=app.datapad_epoch:return
+	app.inventory.set_busy(false,"Item returned to inventory." if result.get("ok",false) else str(result.get("error","Recovery not confirmed. Check inventory before retrying.")))
 func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	if not aboard():return false
 	if seated():app.inventory.finish_item_action(false,"Leave your seat before placing items.");return true

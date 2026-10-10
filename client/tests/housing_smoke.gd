@@ -100,6 +100,16 @@ func run()->void:
 	controller.held_changed({})
 	check(controller.error.is_empty(),"Changing held item clears stale placement errors")
 	host.response=successful_response
+	controller.scenery.apply({"structures":[house],"items":[furniture]})
+	host.response.state.inventory.items=[{"id":"200","template":furniture.template}]
+	await controller.recover_item({"item_id":"200","left_hand":[22,2,10],"right_hand":[22,2,10]})
+	check(host.calls[-1].path=="/services/house_recover" and not controller.scenery.items.has("200"),"Confirmed recovery removes the original house decoration")
+	check(host.inventory_snapshot.items[0].id=="200" and not bag.action_pending,"Recovered item appears in native inventory and pending interaction clears")
+	host.response={"ok":false,"error":"Furniture out of reach"}
+	controller.scenery.apply({"structures":[house],"items":[furniture]})
+	await controller.recover_item({"item_id":"200","left_hand":[99,2,10],"right_hand":[22,2,10]})
+	check(controller.scenery.items.has("200") and not bag.action_pending,"Rejected recovery retains decoration and clears pending interaction")
+	host.response=successful_response
 	var old:Dictionary=controller.state.duplicate(true);var forged:=host.response.duplicate(true);forged.character_id="99"
 	check(not controller.observe(forged) and controller.state==old,"Foreign character state rejected")
 	host.change_epoch=true;await controller.request("status");check(controller.state==old,"Previous character reply cannot replace housing state");host.change_epoch=false;controller.reset()

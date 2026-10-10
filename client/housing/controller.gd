@@ -147,7 +147,7 @@ func finish_drop(extra:Dictionary)->void:
 	bag.finish_item_action(result.get("ok",false) and result.get("mutation",{}).get("success",false))
 	if not result.get("ok",false):scenery.fall.erase(str(extra.item_id))
 func recover(left:XRController3D,right:XRController3D)->void:
-	if not bag.held_item.is_empty() or bag.is_open:return
+	if not bag.held_item.is_empty() or bag.is_open or bag.action_pending:return
 	for row:Dictionary in state.get("structures",[]):
 		if (row.get("harvester",false) or row.get("factory",false)) and str(row.owner_id)==app.datapad_character_id and scenery.touches_structure(str(row.id),left.global_position) and scenery.touches_structure(str(row.id),right.global_position):
 			if row.get("factory",false):recover_factory(row,left.global_position,right.global_position)
@@ -157,9 +157,17 @@ func recover(left:XRController3D,right:XRController3D)->void:
 	for node:MeshInstance3D in scenery.items.values():
 		var row:Dictionary=node.get_meta("native",{})
 		if not row.get("recoverable",false):continue
+		var cell:Dictionary=app.stage.current_cell
+		if str(row.get("building_id",""))!=str(cell.get("building_object_id","")) or int(row.get("cell_index",0))!=int(str(cell.get("cell_id","")).get_slice(":",1)):continue
 		var bounds:AABB=node.mesh.get_aabb().grow(.10)
 		if bounds.has_point(node.to_local(left.global_position)) and bounds.has_point(node.to_local(right.global_position)) and left.global_position.distance_to(node.global_position)<=1 and right.global_position.distance_to(node.global_position)<=1:
-			request("recover",{"item_id":str(row.id),"left_hand":app.services.source(left.global_position),"right_hand":app.services.source(right.global_position)});return
+			recover_item({"item_id":str(row.id),"left_hand":app.services.source(left.global_position),"right_hand":app.services.source(right.global_position)});return
+func recover_item(payload:Dictionary)->void:
+	var epoch:int=app.datapad_epoch
+	bag.begin_mutation("Recovering item…")
+	var result:=await request("recover",payload)
+	if epoch!=app.datapad_epoch:return
+	bag.set_busy(false,"Item returned to inventory." if result.get("ok",false) and result.get("mutation",{}).get("success",false) else str(result.get("error","Recovery not confirmed. Check inventory before retrying.")))
 func expire_transient_error(now:int)->void:
 	if transient_error_until>0 and now>=transient_error_until:
 		error="";transient_error_until=0

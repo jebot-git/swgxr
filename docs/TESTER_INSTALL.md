@@ -177,3 +177,5 @@ within the saved horizontal footprint, when the full capsule fits. If falling
 below a doorway left stale room membership, recovery may use its directly
 connected original room. Missing floors, unconnected rooms and obstructed
 destinations remain loading errors.
+
+To recover a placed item in a house or ship, leave your seat, put away held items, close inventory, touch the item with both hands and squeeze both grips. Stay in the same room while the request completes. A confirmed recovery returns the item to inventory; it does not put it directly in your hand. If confirmation is lost, check inventory before trying again. Fixed house and ship fixtures cannot be recovered.

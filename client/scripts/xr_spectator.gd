@@ -75,6 +75,8 @@ func _physics_process(delta: float) -> void:
 		update_camera(delta)
 
 func update_camera(delta: float) -> void:
+	# Camera-local space/ground environments must agree in both viewports.
+	camera.environment=head.environment
 	var forward := -head.global_basis.z
 	forward.y = 0
 	if forward.length_squared() < 0.01:

@@ -74,8 +74,33 @@ func _enter_tree():
  if main_script == null:
   push_error("Packaged main script did not load")
   ok = false
- print("SWGXR_PACKAGE_PREFLIGHT=",JSON.stringify({"passed":ok,"native_classes":classes,"external_catalogue":planets is Dictionary,"ship_descriptors":ship_descriptors,"renderer":"dummy","xr":false}))
+ var apparel = check_apparel()
+ ok = ok and apparel.passed
+ print("SWGXR_PACKAGE_PREFLIGHT=",JSON.stringify({"apparel":apparel,"passed":ok,"native_classes":classes,"external_catalogue":planets is Dictionary,"ship_descriptors":ship_descriptors,"renderer":"dummy","xr":false}))
  get_tree().quit(0 if ok else 2)
+
+func check_apparel() -> Dictionary:
+ var result = {"passed":true,"cases":[]}
+ var avatar = load("res://scripts/avatar.gd").new()
+ add_child(avatar)
+ # Cover starter catalogue paths and prepared inventory-variant paths in the
+ # actual export template; source/editor runs do not reproduce path resolution.
+ for race in ["rodian_male", "human_male"]:
+  var configured = avatar.configure(race,{},[])
+  var equipment = []
+  for item in avatar.race.get("profession_outfits",{}).get("combat_marksman",[]):
+   equipment.append({"id":str(equipment.size()),"template":item.get("template",""),"shared_template":item.get("shared_template",item.get("template",""))})
+  var skeleton = avatar.skeleton
+  avatar.set_tracking_mode(true)
+  var refreshed = avatar.refresh_equipment(equipment)
+  var visible = 0
+  for mesh in avatar.meshes:
+   if mesh.visible and mesh.get_meta("scope","")=="equipment": visible += 1
+  var passed = str(configured.get("error","")).is_empty() and equipment.size()>0 and refreshed.get("complete",false) and refreshed.get("skinned_items",0)==equipment.size() and visible>0 and avatar.skeleton==skeleton and avatar.catalog_directory.is_absolute_path()
+  result.cases.append({"race":race,"passed":passed,"refresh":refreshed,"visible_meshes":visible})
+  result.passed = result.passed and passed
+ avatar.free()
+ return result
 '''
 
 

@@ -57,9 +57,19 @@ static func read_json(path: String) -> Dictionary:
 	var parsed = JSON.parse_string(FileAccess.get_file_as_string(path))
 	return parsed if parsed is Dictionary else {}
 
+static func asset_path(path: String) -> String:
+	var resolved := ProjectSettings.globalize_path(path)
+	# Export templates have no project directory: globalize_path can leave
+	# sibling data paths relative. Anchor them before composing model paths,
+	# otherwise get_model prefixes the catalogue directory a second time.
+	if not resolved.is_absolute_path():
+		resolved = OS.get_executable_path().get_base_dir().path_join(resolved)
+	return resolved.simplify_path()
+
 func load_catalog(path := "") -> Dictionary:
 	if path.is_empty():
-		path = ProjectSettings.globalize_path("res://../runtime/assets/characters/catalog.json")
+		path = "res://../runtime/assets/characters/catalog.json"
+	path = asset_path(path)
 	catalog_directory = path.get_base_dir()
 	if not catalog_cache.has(path):
 		catalog_cache[path] = read_json(path)
@@ -183,7 +193,7 @@ func equipment_selection(equipment: Array) -> Dictionary:
 	var result := {"parts":[],"rigid":[],"failures":[]}
 	var known: Array = race.get("default_outfit", []).duplicate()
 	for items in race.get("profession_outfits", {}).values(): known.append_array(items)
-	var directory := ProjectSettings.globalize_path("res://../runtime/assets/inventory")
+	var directory := asset_path("res://../runtime/assets/inventory")
 	var inventory_catalog := read_json(directory.path_join("catalog.json"))
 	var variants: Dictionary = inventory_catalog.get("equipment",{}).get(race_id,{})
 	for value in equipment:
@@ -240,6 +250,9 @@ func equipment_selection(equipment: Array) -> Dictionary:
 			result.rigid.append({"id":str(item.get("id","")),"template":template,"shared_template":shared,"bone":bone,"model":path,"directory":material_directory,"local_transform":local_transform,"local_transform_layout":"row_major_3x4","source_arrangement":selected.get("source_arrangement",""),"attachment_provenance":attachment_provenance})
 			continue
 		var model := get_model(path)
+		if model.is_empty():
+			result.failures.append({"id":str(item.get("id","")),"template":template,"error":"Missing imported equipped model: "+path})
+			continue
 		var bones: Array=model.get("bones",[])
 		var compatible := not model.is_empty() and bones.size()==skeleton.get_bone_count()
 		if compatible:

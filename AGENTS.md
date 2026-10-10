@@ -14,6 +14,8 @@ Agree on scene manifest and backend API before implementing consumers. Send inte
 
 ## Live test deployment scope
 
+- User direction (2026-10-10, mount controls): creature/trained mounts use either or both grips to hold reins, the locomotion stick for forward/reverse and steering, no sidestep, and the existing jump button to dismount. Headset tests and VR relaunches are suspended until explicitly prompted; continue headless and isolated backend validation.
+
 - User direction (2026-10-10, sector reconstruction): reconstruct all ten original JtL sectors with original NPC traffic and events, including hostile encounters on the test realm. Reference original SWG client sources for ship navigation, controls and physics; verify native Shipwright crafting, experimentation and Core3 space loot. Enable pilot trainers through existing mission structure, defer space mining to a later stage, and make component swapping and chassis-dealer hull redemption functional. The Luxury Yacht remains excluded from combat; validate combat using ships produced through native crafting. Add sector maps, a hyperspace planner, whole-mesh terminal activation, POB terminal item recovery, and a saved microphone selector. The user has authorized patching the closed Downloads client and relaunching it afterwards with connected diagnostics.
 
 - User direction (2026-10-10): delete existing player accounts and characters on the current remote server, deploy the test server, build/package Linux and Windows clients, and prepare separate private asset archives for testers. This authorizes the prepared bounded JtL test deployment on `87.106.27.237`; keep the client-launch approval requirement and the 05:00 UTC restart.

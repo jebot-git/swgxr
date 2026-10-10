@@ -6,11 +6,22 @@ using namespace godot;
 void SwgVehicleControls::_bind_methods(){
  ClassDB::bind_method(D_METHOD("smooth_pose","target","delta","snap"),&SwgVehicleControls::smooth_pose,DEFVAL(false));
  ClassDB::bind_method(D_METHOD("reset"),&SwgVehicleControls::reset);
+ ClassDB::bind_method(D_METHOD("sample_reins","mount","left","right","left_grip","right_grip","left_available","right_available","tracked","joystick"),&SwgVehicleControls::sample_reins);
  ClassDB::bind_method(D_METHOD("sample","kind","vehicle","left","right","left_handle","right_handle","left_grip","right_grip","left_available","right_available","tracked","joystick"),&SwgVehicleControls::sample,DEFVAL(0.0));
  ClassDB::bind_static_method("SwgVehicleControls",D_METHOD("advance","speed","throttle","steer","maximum","reverse","acceleration","turn_rate","delta"),&SwgVehicleControls::advance);
 }
 void SwgVehicleControls::reset(){for(auto& h:hands)h=Grip();wheel_angle=throttle_offset=twist_angle=0;reference_angle=reference_offset=reference_twist=0;reference_ready=false;}
 static double axis(double value,double dead,double limit){if(!std::isfinite(value)||std::abs(value)<=dead)return 0;return std::copysign(std::clamp((std::abs(value)-dead)/(limit-dead),0.0,1.0),value);}
+Dictionary SwgVehicleControls::sample_reins(const Transform3D& mount,const Transform3D& left,const Transform3D& right,double lg,double rg,bool la,bool ra,bool tracked,const Vector2& joystick){
+ // Share vehicle grip hysteresis and tracking suspension. Rein pose never
+ // contributes to locomotion: the locomotion stick supplies speed and yaw.
+ auto result=sample("reins",mount,left,right,Vector3(-.2,0,0),Vector3(.2,0,0),lg,rg,la,ra,tracked);
+ bool held=result["held"];bool valid=held && joystick.is_finite();
+ result["throttle"]=valid?axis(joystick.y,.15,1):0;
+ result["steer"]=valid?axis(joystick.x,.15,1):0;
+ result["wheel_angle"]=0.0;result["throttle_offset"]=0.0;
+ return result;
+}
 Dictionary SwgVehicleControls::sample(const String& kind,const Transform3D& vehicle,const Transform3D& left,const Transform3D& right,const Vector3& lh,const Vector3& rh,double lg,double rg,bool la,bool ra,bool tracked,double joystick){
  (void)joystick; // Kept in the ABI for old callers; physical controls own input.
  Dictionary result;bool membership_changed=false;int count=0;
@@ -36,7 +47,7 @@ Dictionary SwgVehicleControls::sample(const String& kind,const Transform3D& vehi
   // controller is held. The other hand's reference is rebased at the same time.
   for(int i=0;i<2;++i)hands[i].reference=poses[i];
   reference_angle=wheel_angle;reference_offset=throttle_offset;reference_twist=twist_angle;reference_ready=true;
- }else{
+ }else if(kind!="reins"){
   const bool bike=kind=="bike";Vector3 pivot=(lh+rh)*.5;
   Basis rotation(bike?Vector3(0,1,0):Vector3(0,0,1),reference_angle);
   Vector3 a,b;double depth=0,twist=0;

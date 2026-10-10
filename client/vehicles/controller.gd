@@ -11,6 +11,7 @@ var head: Camera3D
 var left: XRController3D
 var right: XRController3D
 var assets:=Assets.new()
+var mounts:=Assets.new()
 var controls:=SwgVehicleControls.new()
 var ground_motion:=SwgXRStepSolver.new()
 var yokes:=preload("res://vehicles/yoke_visual.gd").new()
@@ -36,6 +37,7 @@ var pending_device:=""
 var last_category:=""
 func setup(host: Node,inventory: Node3D)->void:
 	app=host;body=inventory.body;origin=inventory.rig;head=origin.get_node("XRCamera3D");left=origin.get_node("LeftHand");right=origin.get_node("RightHand")
+	mounts.configure(ProjectSettings.globalize_path("res://../runtime/assets/mounts/catalog.json"))
 	body.vehicles=self;assets.configure(ProjectSettings.globalize_path("res://../runtime/assets/vehicles/catalog.json"))
 	process_physics_priority=-120;process_priority=-120
 	hint=Label3D.new();hint.font=load("res://resources/fonts/Jupiteroid-Regular.ttf");hint.font_size=24;hint.pixel_size=.0015;hint.modulate=Color(.5,.9,1,.8);hint.outline_size=5;add_child(hint);hint.visible=false
@@ -47,6 +49,7 @@ func seated()->bool:return not seat.is_empty()
 func yoke_transform()->Transform3D:
 	var v:Dictionary=vehicles.get(str(seat.get("vehicle_id","")),{})
 	if v.is_empty():return Transform3D.IDENTITY
+	if str(v.record.kind)=="creature_mount":return Transform3D.IDENTITY
 	var handles:Array=v.record.controls
 	var pivot:Vector3=(Vector3(handles[0][0],handles[0][1],handles[0][2])+Vector3(handles[1][0],handles[1][1],handles[1][2]))*.5
 	var axis:=Vector3.UP if str(v.record.kind)=="bike" else Vector3.BACK
@@ -135,29 +138,41 @@ func recall_vehicle(entry:Dictionary)->void:
 func observe(value: Dictionary)->void:
 	if value.get("source_kind","")!="core3_vehicles" or str(value.get("character_id",""))!=app.datapad_character_id:return
 	var entries_changed: bool=state.get("datapad",[])!=value.get("datapad",[])
+	var snapshot_age:=age
 	state=value;age=0
 	var seen: Dictionary={}
 	for record: Dictionary in value.get("vehicles",[]):
 		var id:=str(record.id);seen[id]=true
 		if not vehicles.has(id):
-			var mesh:=assets.model(str(record.template))
-			if mesh==null:status="Original vehicle art unavailable";continue
+			var creature:bool=str(record.kind)=="creature_mount"
+			var descriptor:Dictionary=(mounts if creature else assets).descriptor(str(record.template))
+			var visual:Node3D;var aabb:AABB;var yoke:MeshInstance3D
+			if creature:
+				if descriptor.is_empty():status="Original mount saddle data unavailable";continue
+				visual=preload("res://vehicles/mount_visual.gd").new();add_child(visual)
+				if not visual.configure(record,descriptor):visual.queue_free();status="Original mount art unavailable";continue
+				var lo:Array=record.get("bounds_min",descriptor.bounds_min);var hi:Array=record.get("bounds_max",descriptor.bounds_max)
+				aabb=AABB(Vector3(lo[0],lo[1],lo[2]),Vector3(hi[0]-lo[0],hi[1]-lo[1],hi[2]-lo[2]))
+			else:
+				var mesh:=assets.model(str(record.template))
+				if mesh==null:status="Original vehicle art unavailable";continue
+				visual=MeshInstance3D.new();visual.mesh=mesh;add_child(visual);aabb=mesh.get_aabb()
+				var parts:Dictionary=yokes.meshes(str(record.template),mesh,descriptor)
+				if not parts.is_empty():
+					visual.mesh=parts.body;yoke=MeshInstance3D.new();yoke.mesh=parts.yoke;visual.add_child(yoke)
 			var node:=CharacterBody3D.new();node.collision_layer=32;node.collision_mask=7;add_child(node)
-			var visual:=MeshInstance3D.new();visual.mesh=mesh;add_child(visual)
-			var descriptor:Dictionary=assets.descriptor(str(record.template))
-			var parts:Dictionary=yokes.meshes(str(record.template),mesh,descriptor)
-			var yoke:MeshInstance3D
-			if not parts.is_empty():
-				visual.mesh=parts.body;yoke=MeshInstance3D.new();yoke.mesh=parts.yoke;visual.add_child(yoke)
-			var collision:=CollisionShape3D.new();var shape:=BoxShape3D.new();var aabb:=mesh.get_aabb();shape.size=aabb.size;collision.shape=shape;collision.position=aabb.get_center();node.add_child(collision)
+			var collision:=CollisionShape3D.new();var shape:=BoxShape3D.new();shape.size=aabb.size;collision.shape=shape;collision.position=aabb.get_center();node.add_child(collision)
 			var sound:=preload("res://audio/mobile_emitter.gd").new();visual.add_child(sound)
 			vehicles[id]={"sound":sound,"node":node,"view":visual,"smoother":SwgVehicleControls.new(),"record":record,"pose":Transform3D.IDENTITY,"fresh":true,"speed":float(record.speed),"descriptor":descriptor,"yoke":yoke}
 		var v: Dictionary=vehicles[id];v.record=record
+		if str(record.kind)=="creature_mount" and not v.fresh and not (seated() and str(seat.get("vehicle_id",""))==id):
+			# Unridden pets still follow native AI; animate their observed movement.
+			v.speed=v.pose.origin.distance_to(world(record.position))/maxf(snapshot_age,.05)
 		v.pose=Transform3D(Basis(Vector3.UP,-float(record.heading_radians)),world(record.position))
 		if is_instance_valid(app.stage):v.pose.basis=app.stage.global_basis*v.pose.basis
 		if v.fresh:
 			v.node.global_transform=v.pose;v.view.global_transform=v.smoother.smooth_pose(v.pose,0,true);v.fresh=false
-		if not seated() or str(seat.get("vehicle_id",""))!=id:v.speed=float(record.speed)
+		if str(record.kind)!="creature_mount" and (not seated() or str(seat.get("vehicle_id",""))!=id):v.speed=float(record.speed)
 	for id: String in vehicles.keys():
 		if not seen.has(id):vehicles[id].node.queue_free();vehicles[id].view.queue_free();vehicles.erase(id)
 	var next: Dictionary=value.get("seat",{})
@@ -238,8 +253,12 @@ func _physics_process(delta: float)->void:
 		if v.is_empty():unseat();return
 		if str(seat.id)=="driver":
 			var handles: Array=v.record.controls
-			var drive_allowed:bool=body.active and not body.feedback.combat_blocked() and not bool(v.record.get("disabled",false))
-			input=controls.sample(str(v.record.kind),v.view.global_transform,left.global_transform,right.global_transform,Vector3(handles[0][0],handles[0][1],handles[0][2]),Vector3(handles[1][0],handles[1][1],handles[1][2]),left.get_float("grip") if lt else NAN,right.get_float("grip") if rt else NAN,available("left") and drive_allowed,available("right") and drive_allowed,tracking,0.0)
+			var drive_allowed:bool=body.active and age<4 and not body.feedback.combat_blocked() and not bool(v.record.get("disabled",false))
+			if str(v.record.kind)=="creature_mount":
+				var stick:Vector2=left.get_vector2("primary") if lt and not body.interface_move_captured and body.combat_stick_side!="left" and body.medical_stick_side!="left" and body.pet_stick_side!="left" and body.fishing_stick_side!="left" else Vector2.ZERO
+				input=controls.sample_reins(v.view.global_transform,left.global_transform,right.global_transform,left.get_float("grip") if lt else NAN,right.get_float("grip") if rt else NAN,available("left") and drive_allowed,available("right") and drive_allowed,tracking,stick)
+			else:
+				input=controls.sample(str(v.record.kind),v.view.global_transform,left.global_transform,right.global_transform,Vector3(handles[0][0],handles[0][1],handles[0][2]),Vector3(handles[1][0],handles[1][1],handles[1][2]),left.get_float("grip") if lt else NAN,right.get_float("grip") if rt else NAN,available("left") and drive_allowed,available("right") and drive_allowed,tracking,0.0)
 		else:controls.reset();input={"held":false,"throttle":0.0,"steer":0.0,"left_held":false,"right_held":false}
 		touching={}
 	else:
@@ -288,6 +307,7 @@ func _process(delta: float)->void:
 	for v: Dictionary in vehicles.values():
 		if native_session()==null:v.node.global_transform=v.node.global_transform.interpolate_with(v.pose,1-exp(-delta*14))
 		v.view.global_transform=v.smoother.smooth_pose(v.node.global_transform,delta)
+		if str(v.record.kind)=="creature_mount":v.view.advance(delta,float(v.speed),input if seated() and str(seat.vehicle_id)==str(v.record.id) else {})
 		if is_instance_valid(v.get("sound")):
 			var wear:float=1.0-float(v.record.get("condition",1))/maxf(1,float(v.record.get("max_condition",1)))
 			v.sound.observe(str(v.record.template),float(v.speed),age<=8,wear)
@@ -322,6 +342,7 @@ func interaction(lt: bool,rt: bool)->void:
 	if not grips_released:return
 	grips_released=false
 	for v: Dictionary in vehicles.values():
+		if str(v.record.kind)=="creature_mount":continue # Pet recall has native ownership/contact checks.
 		if not v.record.owned or absf(float(v.record.speed))>.1:continue
 		if v.record.seats.any(func(s):return not str(s.occupant_id).is_empty()):continue
 		var d: Dictionary=assets.descriptor(str(v.record.template));var lo:=Vector3(d.bounds_min[0],d.bounds_min[1],d.bounds_min[2]);var hi:=Vector3(d.bounds_max[0],d.bounds_max[1],d.bounds_max[2]);var box:=AABB(lo,hi-lo).grow(.1)
@@ -332,5 +353,5 @@ func rider_pose(race: String)->Dictionary:
 	if not seated() or not vehicles.has(str(seat.vehicle_id)):return {}
 	var record: Dictionary=vehicles[str(seat.vehicle_id)].record
 	for s: Dictionary in record.seats:
-		if str(s.id)==str(seat.id):return assets.catalog.get("rider_poses",{}).get(race,{}).get(str(s.rider_pose),{})
+		if str(s.id)==str(seat.id):return (mounts if str(record.kind)=="creature_mount" else assets).catalog.get("rider_poses",{}).get(race,{}).get(str(s.rider_pose),{})
 	return {}

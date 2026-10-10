@@ -3,6 +3,8 @@ extends RefCounted
 ## Basic trainer alternatives require original variant membership and native cell.
 ## Bound native IDs persist for this session, including known-dead tombstones.
 const MATCH_DISTANCE := 0.25
+# Original Core3 scripts/mobile/space/chassis_dealer.lua template pool.
+const CHASSIS_VARIANTS := ["object/mobile/space_chassis_broker_01.iff","object/mobile/space_chassis_broker_02.iff","object/mobile/space_chassis_broker_03.iff","object/mobile/space_chassis_broker_04.iff","object/mobile/space_chassis_broker_05.iff"]
 var by_template:Dictionary={}
 var placements:Dictionary={}
 var bindings:Dictionary={}
@@ -25,9 +27,11 @@ func configure(manifest:Dictionary,trainer_audit:Dictionary={})->void:
 		var trainer:Dictionary=trainer_audit.get("trainers",{}).get(str(entry.get("mobile","")),{})
 		var basic_trainer:bool=not trainer.is_empty() and id in trainer.get("placement_ids",[]) and template in trainer.get("templates",[])
 		if basic_trainer:variants=trainer.templates
+		var chassis_dealer:bool=str(entry.get("mobile",""))=="chassis_dealer" and template in CHASSIS_VARIANTS
+		if chassis_dealer:variants=CHASSIS_VARIANTS
 		for variant:String in variants:
 			if not by_template.has(variant):by_template[variant]=[]
-			by_template[variant].append({"id":id,"position":position,"trainer":basic_trainer,
+			by_template[variant].append({"id":id,"position":position,"trainer":basic_trainer or chassis_dealer,
 				"building_id":str(entry.get("building_object_id","0")),"cell_index":int(str(entry.get("cell_id","0:0")).get_slice(":",1))})
 func update(actors:Array)->Dictionary:
 	var candidates:Array=[]

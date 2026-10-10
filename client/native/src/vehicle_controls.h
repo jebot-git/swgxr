@@ -14,6 +14,7 @@ class SwgVehicleControls : public RefCounted {
 protected:static void _bind_methods();
 public:
  void reset();
+ Dictionary sample_reins(const Transform3D &mount,const Transform3D &left,const Transform3D &right,double left_grip,double right_grip,bool left_available,bool right_available,bool tracked,const Vector2 &joystick);
  Transform3D smooth_pose(const Transform3D &target,double delta,bool snap=false);
  Dictionary sample(const String &kind,const Transform3D &vehicle,const Transform3D &left,const Transform3D &right,const Vector3 &left_handle,const Vector3 &right_handle,double left_grip,double right_grip,bool left_available,bool right_available,bool tracked,double joystick=0);
  static Dictionary advance(double speed,double throttle,double steer,double maximum,double reverse,double acceleration,double turn_rate,double delta);

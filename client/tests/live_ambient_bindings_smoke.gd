@@ -52,6 +52,15 @@ func run()->void:
 	check(trainer_binding.update([trainer_actor]).is_empty(),"Trainer variant still requires exact source placement")
 	trainer_actor.position=trainer_row.source_world_xyz;trainer_actor.template=trainer_audit.trainers.trainer_scout.templates[0]
 	check(trainer_binding.update([trainer_actor]).is_empty(),"Different trainer profession cannot claim colocated source placement")
+	var dealer:Dictionary=source.manifest.instances.filter(func(entry):return entry.get("mobile","")=="chassis_dealer" and str(entry.get("source_cell_id",""))=="1106372")[0]
+	var dealer_actor:Dictionary={"id":"native-dealer","kind":"creature","template":Bindings.CHASSIS_VARIANTS[0],"position":dealer.source_world_xyz.duplicate(),"building_id":dealer.building_object_id,"cell_index":4}
+	var dealers:=Bindings.new();dealers.configure({"instances":[dealer]})
+	check(dealers.update([dealer_actor]).size()==1,"Randomized original chassis dealer variant claims exact Mos Eisley placement")
+	dealers.clear();dealer_actor.cell_index=3
+	check(dealers.update([dealer_actor]).is_empty(),"Other cell cannot claim chassis dealer")
+	dealer_actor.cell_index=4;dealer_actor.template="object/mobile/unrelated.iff"
+	check(dealers.update([dealer_actor]).is_empty(),"Unrelated NPC cannot claim chassis dealer")
+	dealer_actor.template=Bindings.CHASSIS_VARIANTS[0]
 	var radar:=Radar.new();radar.configure(source)
 	var center:=Vector3(float(initial.position[0]),float(initial.position[1]),float(initial.position[2]))
 	check(radar.query(center,64).any(func(contact):return contact.id==placement_id),"Authored placement remains a radar contact before native ownership")
@@ -61,6 +70,15 @@ func run()->void:
 		var projection:=SourceProjection.new();live.add_child(projection);projection.report={"source_variant_ready":true,"source_placement_id":binding.bindings[id]};live.actors[id]=projection
 	live.synchronize_ambient(saved.snapshot.actors)
 	check(source.live_suppressed.size()==4 and not radar.query(center,64).any(func(contact):return contact.id==placement_id),"Exact native ownership suppresses only matched local radar entries")
+	var dealer_projection:Array=live.source_visual_records([dealer_actor])
+	check(not dealer_projection[0].has("source_placement_visual"),"Dealer retains native randomized art instead of static variant")
+	var dealer_view:=SourceProjection.new();live.add_child(dealer_view);dealer_view.report={"appearance_status":"complete"};live.actors[dealer_actor.id]=dealer_view
+	live.synchronize_ambient([dealer_actor])
+	check(source.live_suppressed.get(str(dealer.id))==dealer_actor.id,"Ready native dealer suppresses the overlapping authored dealer")
+	dealer_view.report.appearance_status="partial";live.synchronize_ambient([dealer_actor])
+	check(source.live_suppressed.get(str(dealer.id))==dealer_actor.id,"Partial native dealer body still has exclusive visual ownership")
+	dealer_view.report.appearance_status="unavailable";live.synchronize_ambient([dealer_actor])
+	check(not source.live_suppressed.has(str(dealer.id)),"Unavailable native body retains authored fallback")
 	var contact:=Contact.new();root.add_child(contact);contact.value={"id":native_id,"position":center,"kind":"mob","alive":true};contact.add_to_group("swg_radar_contacts")
 	check(radar.query(center,64).any(func(item):return item.id==native_id),"Authoritative live radar identity remains visible")
 	contact.value.alive=false

@@ -24,6 +24,7 @@ STEPS = [
  ('factories', ['tools/assets/prepare_factories.py']),
  ('vehicles', ['tools/vehicles/prepare_assets.py']),
  ('planets', ['tools/assets/prepare_planets.py']),
+ ('population_sources', ['tools/server/export_combat_population.py']),
  ('pets', ['tools/pets/prepare_bounds.py', '--ensure']),
  ('mounts', ['tools/vehicles/prepare_mounts.py']),
  ('jtl', ['tools/assets/prepare_jtl.py']),

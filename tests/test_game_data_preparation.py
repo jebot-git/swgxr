@@ -14,6 +14,7 @@ class GameDataPreparationTests(unittest.TestCase):
         order=[name for name,_ in STEPS]
         self.assertLess(order.index('planets'),order.index('pets'))
         self.assertLess(order.index('pets'),order.index('mounts'))
+        self.assertLess(order.index('population_sources'),order.index('pets'))
         self.assertLess(order.index('combat_assets'),order.index('mobile_audio'))
         self.assertLess(order.index('space_effects'),order.index('space_audio'))
 

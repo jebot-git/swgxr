@@ -1,0 +1,33 @@
+--- a/MMOCoreORB/src/server/zone/objects/intangible/tasks/StoreShipTask.h
++++ b/MMOCoreORB/src/server/zone/objects/intangible/tasks/StoreShipTask.h
+@@ -68,6 +68,15 @@
+ 			removeDroid(ship, player);
+ 		}
+ 
++		// Station conversations and travel commands supply the destination to this
++		// task. removeAllPlayersFromShip reads it from the ship, not this task.
++		if (zoneName.isEmpty() || zoneServer->getZone(zoneName) == nullptr) {
++			error() << "StoreShipTask -- Landing destination zone is unavailable: " << zoneName;
++			return;
++		}
++		ship->setSpaceLaunchZone(zoneName);
++		ship->setSpaceLaunchLocation(coordinates);
++
+ 		// Make sure no players remain in the ship
+ 		ship->removeAllPlayersFromShip();
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -243,6 +243,12 @@
+   if(!ship || !yacht(ship))throw std::runtime_error("jtl_native_yacht_creation_failed");ship->setShipName("Luxury Yacht");persist(c,ship);account->setSwgxrYachtShip(ship->getObjectID());ObjectManager::instance()->updatePersistentObject(account);
+  }
+  static Json snapshot(CreatureObject* c){
++  // Original station storage runs asynchronously, outside our explicit store().
++  // Rebase ground movement once at its confirmed native arrival, including crew.
++  if(!aboard(c) && SwgxrPlanets::supportedName(zone(c)) && !data(c,"aboard_ship").empty()){
++   SwgxrMovement::begin(c);c->clearState(CreatureState::SITTINGONCHAIR);c->setPosture(CreaturePosture::UPRIGHT);
++   c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station","");save(c,"aboard_ship",Json::object());save(c,"parked_ship",Json::object());
++  }
+   Json out={{"enabled",enabled()},{"scope","original_sectors"},{"space_active",aboard(c)},{"ships",Json::array()},{"ship",Json::object()},{"launch_stage",Json::object()},{"boarding",Json::object()},{"nearby_ships",Json::array()}};if(!enabled())return out;
+   SwgxrSpaceJournal::snapshot(c,out);out["launch_stage"]=stage(c);out["boarding"]=boardingState(c);auto pad=c->getDatapad();if(pad)for(int i=0;i<pad->getContainerObjectsSize();++i){auto d=pad->getContainerObject(i);if(!d || !d->isShipControlDevice())continue;auto controlled=static_cast<ShipControlDevice*>(d.get())->getControlledObject();if(!controlled || !controlled->isShipObject())continue;auto own=controlled->asShipObject();if(own->getOwnerID()!=c->getObjectID())continue;out["ships"].push_back({{"id",id(own)},{"device_id",id(d)},{"template",std::string(own->getObjectTemplate()->getFullTemplateString().toCharArray())},{"name",std::string(own->getDisplayedName().toCharArray())},{"owner_id",id(c)},{"launched",own->isShipLaunched()},{"supported",supported(own)},{"eligible",supported(own) && own->canBePilotedBy(c) && !own->isShipLaunched()},{"reason",!supported(own)?"Original ship assets are not enabled":!own->canBePilotedBy(c)?"Original pilot certification required":own->isShipLaunched()?"Ship already launched":""}});}
+   auto s=current(c);if(!s){try{s=owned(c,Json::object());}catch(const std::exception&){return out;}}Locker lock(s,c);if(s->isHyperspacing())eraseMotion(s);Motion offline;auto& motionState=s->isShipLaunched()?motion(s):offline;

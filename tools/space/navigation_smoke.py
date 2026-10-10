@@ -52,7 +52,7 @@ function Tests:swgxrNavigationFixture(mode)
  if mode=="terminal" then
   local t=getSceneObject(1279066)
   local x=SceneObject(t):getPositionX();local z=SceneObject(t):getPositionZ();local y=SceneObject(t):getPositionY();local cell=SceneObject(t):getParentID()
-  CreatureObject(p):forcePeace();SceneObject(p):teleport(x,z,y+1,cell)
+  CreatureObject(p):forcePeace();SceneObject(p):switchZone("tatooine",x,z,y+1,cell)
   return "ready:"..SceneObject(p):getParentID()
 
  end
@@ -115,9 +115,14 @@ end
   for expected in ['permission to land','theed','(land)']:
    choice=next(x for x in conversation['options'] if expected in x['name'].lower())
    state=act('comm_choose',station_id=station,screen_token=conversation['screen_token'],option=choice['option'])['state'];conversation=state['station_conversation'];samples.append({'naboo_conversation':conversation})
-  time.sleep(4);state=act('status')['state'];samples.append({'naboo_landing':player})
+  time.sleep(4);state=act('status')['state'];deadline=time.monotonic()+8
+  while state.get('space_active',True) and time.monotonic()<deadline:
+   time.sleep(.25);state=act('status')['state']
+  samples.append({'naboo_landing':{key:player.get(key) for key in ['zone','position','building_id','cell_index']}})
   check(not state.get('space_active',True) and player.get('zone')=='naboo' and math.dist(player['position'],[-4860,6,4165])<10,'Naboo station lands at selected Theed coordinates, not Tatooine launch port')
   launched=False
+  landed=call('/session/update',{'zone':player['zone'],'position':player['position'],'building_id':player['building_id'],'cell_index':player['cell_index'],'ready':True})
+  check(landed.get('ok',True) and player.get('zone')=='naboo','Ground movement accepts authoritative Theed arrival after station storage')
   report['passed']=True
  except Exception as e:report['error']=str(e);raise
  finally:

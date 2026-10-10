@@ -464,8 +464,11 @@ def services_request(account, oid, action, data):
         out['presence']=SERVICES_PRESENCE.register(account,oid,out['state']['player'])
         if action=='house_permission_arm' and out.get('mutation',{}).get('success') and out['mutation'].get('arm'):
             SERVICES_PRESENCE.arm_house_permission(account,oid,out['mutation']['arm'])
-        try:VOICE_STATE.publish(account,oid,out['state']['player'],session_id=active['id'] if active else '',live=bool(active))
-        except (OSError,ValueError):pass
+        # The owned hub already published the complete native player snapshot.
+        # Housing/service projections can omit membership and must not revoke it.
+        if not active:
+            try:VOICE_STATE.publish(account,oid,out['state']['player'],session_id='',live=False)
+            except (OSError,ValueError):pass
         return out
     finally:
         if temporary_recipient:LIVE_COMBAT.close(temporary_recipient)

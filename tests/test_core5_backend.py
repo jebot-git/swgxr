@@ -1,11 +1,31 @@
 import copy
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch, Mock
 from server import adapter
 from server.crafting_protocol import crafting_snapshot
 from server.scout_protocol import command, snapshot
 
 class Core5BackendTests(unittest.TestCase):
+    def test_housing_projection_keeps_owned_native_voice_grant(self):
+        from server.voice_protocol import NativeVoiceState
+        with tempfile.TemporaryDirectory() as folder:
+            cache=NativeVoiceState(Path(folder)/'voice.json')
+            player={'position':[1,2,3],'zone':'tatooine','voice':{'zone_id':'90','group_id':'0','faction':'neutral'}}
+            live=Mock();live.active_for.return_value={'id':'owned'}
+            def reply(*args,**kwargs):
+                cache.publish('owner','1',player,session_id='owned',live=True)
+                return {'session_live':True,'mutation':{}}
+            live.request.side_effect=reply
+            projection={'state':{'player':{'position':[1,2,3],'zone':'tatooine'}}}
+            with patch.object(adapter,'LIVE_COMBAT',live),patch.object(adapter,'VOICE_STATE',cache), \
+                    patch.object(adapter,'services_command',return_value={'action':'house_status'}), \
+                    patch.object(adapter,'services_snapshot',return_value=projection), \
+                    patch.object(adapter.SERVICES_PRESENCE,'register',return_value={}):
+                adapter.services_request('owner','1','house_status',{})
+            self.assertEqual(cache.owned('owner','1','owned')['zone_id'],'90')
+
     def test_native_timeout_is_uncertain_and_keeps_connection(self):
         with self.assertRaises(adapter.NativeReplyTimeout) as caught:
             adapter.check_live_error({'error_code': 'native_response_timeout', 'session_live': True})

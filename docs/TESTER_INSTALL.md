@@ -1,6 +1,6 @@
 # Install the SWGXR test client — 2026.10.10
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.4), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.5), then install the matching private SWG data ZIP. The repository and release are private; testers need repository access to download the clients.
 
 ## Requirements
 
@@ -83,7 +83,7 @@ For desktop regression or asset inspection, use `./play-desktop.sh`, which expli
 
 Use `play-desktop.cmd` only for desktop regression or asset inspection. Keep the included `python/` folder with the client. If the launcher reports that bundled Python is missing, extract the complete client ZIP again.
 
-The refreshed Windows download retains the filename `test-client-windows-20261010.zip`; verify it against the updated release checksum. Older copies that call `py -3` require a fresh download. Extract the updated package into a fresh folder and import the new matching JtL runtime data ZIP. This update requires both the new client and the new data.
+The refreshed Windows download retains the filename `test-client-windows-20261010.zip`; verify it against the updated release checksum. Older copies that call `py -3` require a fresh download. Extract the updated package into a fresh folder and import the new matching JtL runtime data ZIP. Upgrades from pre-navigation releases require both the new client and the navigation data. The microphone fix in test.5 reuses the same navigation data as test.4.
 
 After installation, the folder has this shape:
 
@@ -115,6 +115,10 @@ The package includes the server address **`https://87.106.27.237:18443`** and it
 Create a new account in the sign-in panel, then create/select a character. Invitations are not required on this test realm. Accounts created after the initial test-realm reset are preserved by this update. Your account's first character receives an original Luxury Yacht when entering its gameplay session; use an original starship terminal for crew preparation and launch. Ground scope is the ten original planets. Space includes the ten original JtL sectors and original hostile encounters; the Luxury Yacht remains excluded from combat. See [JtL test scope and limitations](JTL_TEST_STATUS.md). The realm restarts daily at **05:00 UTC**.
 
 ## Troubleshooting and test status
+
+Test.5 fixes microphone activation being disabled in the client project. Voice still starts muted; select your microphone in Settings, join an available voice channel, and select push-to-talk or voice activation. Failed activation can retry, and its message clears after capture succeeds. If opening still fails, check the selected device and operating-system microphone permissions.
+
+Synthetic speech captured through a virtual Linux input passed the production RNNoise/Opus path, startup mute, push-to-talk and shutdown checks. Voice controller, codec, context, channel routing and microphone preference regressions passed. Physical headset microphones and native Windows microphone capture have not been tested in this update; headset tests remain suspended.
 
 - **“Place exactly one supplied SWGXR data ZIP…”:** put the matching ZIP in the extracted client's `data/` folder and remove extra ZIPs from that folder.
 - **SHA-256/manifest errors:** use a complete matching data ZIP; do not edit its files or manifest.

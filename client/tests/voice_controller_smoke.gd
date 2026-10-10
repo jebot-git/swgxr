@@ -5,10 +5,12 @@ class MockCodec extends Node:
 	var level:=0.0
 	var capture:=false
 	var capture_enabled:=false
+	var fail_capture:=false
+	var status:="Synthetic microphone open failure"
 	var transmitting:=false
 	var received:=0
 	var cleared:=0
-	func set_capture_enabled(value: bool) -> void:capture=value;capture_enabled=value
+	func set_capture_enabled(value: bool) -> void:capture=value and not fail_capture;capture_enabled=capture
 	func set_transmitting(value: bool) -> void:transmitting=value
 	func clear_speakers() -> void:cleared+=1
 	func push_frame(_id,_seq,_payload,_spatial,_position) -> void:received+=1
@@ -67,6 +69,10 @@ func run() -> void:
 	check(voice.active_channel=="planet" and voice.pending_channel.is_empty(),"Server tune acknowledgment selects planetary channel")
 	voice.set_mic_mode("ptt");voice._process(.02)
 	check(codec.capture and not codec.transmitting,"PTT requires explicit hold after selecting its mode")
+	codec.fail_capture=true;voice._process(.02)
+	check(voice.get_state().error==codec.status,"Capture failure is visible")
+	codec.fail_capture=false;voice._process(.02)
+	check(voice.get_state().error.is_empty() and codec.capture_enabled,"Recovered capture clears its stale failure without reconnecting")
 	voice.set_ptt(true);voice._process(.02)
 	check(codec.transmitting,"PTT hold transmits")
 	voice.set_ptt(false);voice._process(.02)

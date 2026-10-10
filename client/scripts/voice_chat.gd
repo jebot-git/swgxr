@@ -29,6 +29,7 @@ var transmitting := false
 var granted_channels: Array[String]=[]
 var reasons: Dictionary={}
 var error := "Enter the galaxy to connect voice."
+var capture_error := ""
 var pending_channel := ""
 var tune_deadline := 0.0
 var level := 0.0
@@ -110,7 +111,7 @@ func set_input_device(device: String) -> void:
 func get_state() -> Dictionary:
 	return {"granted_channels":granted_channels.duplicate(),"reasons":reasons.duplicate(),
 		"active_channel":active_channel,"desired_channel":desired_channel,"channel_confirmed":_channel_ready(),"pending_channel":pending_channel,"mic_mode":mic_mode,
-		"transmitting":transmitting,"connected":connected,"error":error,"level":level,
+		"transmitting":transmitting,"connected":connected,"error":capture_error if not capture_error.is_empty() else error,"level":level,
 		"allowed":allowed,"scope":voice_scope,"zone":expected_zone,"ship_id":expected_ship,"context_confirmed":context_confirmed,"peers":peers.duplicate(),"codec_available":codec!=null and bool(codec.get("available"))}
 
 func _emit() -> void:status_changed.emit(get_state())
@@ -132,8 +133,7 @@ func _process(delta: float) -> void:
 		var capture:=allowed and _channel_ready() and mic_mode!="muted"
 		codec.set_capture_enabled(capture)
 		capture=capture and bool(codec.get("capture_enabled"))
-		if allowed and _channel_ready() and mic_mode!="muted" and not capture:
-			error=str(codec.get("status"))
+		capture_error=str(codec.get("status")) if allowed and _channel_ready() and mic_mode!="muted" and not capture else ""
 		level=float(codec.get("level")) if capture else 0.0
 		voice_hold=0.25 if capture and level>=0.018 else maxf(0,voice_hold-delta)
 		transmitting=capture and (ptt if mic_mode=="ptt" else voice_hold>0)
@@ -287,6 +287,7 @@ func _disconnected(message: String) -> void:
 	_emit()
 
 func _reset() -> void:
+	capture_error=""
 	generation+=1;connection_revision+=1;connected=false;busy=false;presence_busy=false;needs_presence=false;pending_channel=""
 	relay_context.clear();context_confirmed=false;context_deadline=0;expected_zone="";expected_ship="0";voice_scope="planet"
 	granted_channels.clear();reasons.clear();peers.clear();ptt=false;voice_hold=0;transmitting=false

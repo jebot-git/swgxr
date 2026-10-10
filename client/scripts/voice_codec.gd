@@ -61,6 +61,8 @@ func set_capture_enabled(enabled: bool) -> void:
 		return
 	var error := AudioServer.set_input_device_active(true)
 	if error != OK:
+		# Some drivers mark input active before opening it; reset before retry.
+		AudioServer.set_input_device_active(false)
 		status = "Microphone could not be activated: " + error_string(error)
 		return
 	_input_rate = int(AudioServer.get_input_mix_rate())

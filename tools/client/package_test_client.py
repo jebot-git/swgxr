@@ -46,7 +46,8 @@ def included(relative,target):
 PREFLIGHT = '''extends Node
 func _enter_tree():
  if not OS.get_cmdline_user_args().has("--package-preflight"): return
- var ok = true
+ var ok = bool(ProjectSettings.get_setting("audio/driver/enable_input",false))
+ if not ok: push_error("Packaged voice capture is disabled")
  var classes = ["SwgFirstPersonController", "SwgMeshBuilder", "SwgCombatCollision", "SwgVehicleControls"]
  for name in classes:
   if not ClassDB.class_exists(name):

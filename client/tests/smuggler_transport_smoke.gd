@@ -24,7 +24,7 @@ class Host extends Node:
 	func api(method:HTTPClient.Method,path:String,payload:Dictionary={})->Dictionary:
 		calls.append({"path":path,"payload":payload.duplicate(true)})
 		await get_tree().process_frame
-		if method==HTTPClient.METHOD_POST and reject:return {"ok":false,"error_code":"native_feign_rejected","error":"Core3 rejected the pose intent"}
+		if method==HTTPClient.METHOD_POST and reject:return {"ok":false,"error_code":"native_feign_rejected","error":"CoreCU rejected the pose intent"}
 		return envelope("core3_live_combat" if method==HTTPClient.METHOD_GET else "core3_gameplay_session")
 var checks:=0
 var errors:Array=[]

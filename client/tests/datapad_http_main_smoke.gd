@@ -26,7 +26,7 @@ func run() -> void:
 	await app.refresh_datapad()
 	var ui=app.datapad.ui
 	var initial: Array=ui.entries.duplicate(true)
-	check(not ui.waypoint_button.disabled and not app.datapad_request_pending,"Core3 refresh did not restore controls")
+	check(not ui.waypoint_button.disabled and not app.datapad_request_pending,"CoreCU refresh did not restore controls")
 	check(initial.any(func(row):return row.get("template","")=="object/intangible/pet/shared_nhelper_droid.iff"),"Authoritative starter helper droid missing")
 	check(initial.filter(func(row):return row.category=="schematics").size()==30,"Artisan learned recipes missing")
 	var label := "Godot main " + str(Time.get_ticks_usec())
@@ -38,7 +38,7 @@ func run() -> void:
 		check(typeof(waypoint.id)==TYPE_STRING,"64-bit waypoint identifier lost string representation")
 		check(Vector3(waypoint.position[0],waypoint.position[1],waypoint.position[2]).distance_to(source)<0.002,"Waypoint coordinate roundtrip changed positions")
 	await app.refresh_datapad()
-	check(ui.entries.any(func(row):return row.get("id","")==waypoint.get("id","!")),"Fresh main refresh lost Core3 waypoint")
+	check(ui.entries.any(func(row):return row.get("id","")==waypoint.get("id","!")),"Fresh main refresh lost CoreCU waypoint")
 	if not waypoint.is_empty():
 		check(waypoint.get("deletable",false),"Personal waypoint deletion permission missing")
 		await app.delete_datapad_entry(waypoint)

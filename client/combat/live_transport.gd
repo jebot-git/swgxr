@@ -21,7 +21,7 @@ func source_cell(destination: Dictionary) -> String:
 	return "" if str(destination.get("building_id", "0")) == "0" else "%s:%d" % [str(destination.building_id), int(destination.cell_index)]
 
 func place(app: Node, destination: Dictionary) -> Dictionary:
-	if not destination_valid(destination): return {"ok":false,"error":"Core3 returned an unsupported destination."}
+	if not destination_valid(destination): return {"ok":false,"error":"CoreCU returned an unsupported destination."}
 	generation += 1
 	var epoch := generation
 	if app.has_method("prepare_destination_world"):
@@ -61,11 +61,11 @@ func place(app: Node, destination: Dictionary) -> Dictionary:
 	# above the medical room. Sweep the real player capsule onto that floor.
 	if bool(app.xr_requested):
 		player.prepare_tracked_body()
-		if not app.ground_xr_spawn(): return {"ok":false,"error":"No safe original floor at the Core3 destination."}
+		if not app.ground_xr_spawn(): return {"ok":false,"error":"No safe original floor at the CoreCU destination."}
 		cell=str(stage.current_cell.get("cell_id",""))
 	else:
 		var hit := KinematicCollision3D.new()
-		if not player.test_move(player.global_transform,Vector3.DOWN*8.0,hit,0.002) or hit.get_collision_count()==0 or hit.get_normal().dot(Vector3.UP)<cos(player.floor_max_angle): return {"ok":false,"error":"No safe original floor at the Core3 destination."}
+		if not player.test_move(player.global_transform,Vector3.DOWN*8.0,hit,0.002) or hit.get_collision_count()==0 or hit.get_normal().dot(Vector3.UP)<cos(player.floor_max_angle): return {"ok":false,"error":"No safe original floor at the CoreCU destination."}
 		player.global_position += hit.get_travel()
 	stage.seed_membership_at(player.global_position,cell if not cell.is_empty() else "exterior")
 	player.spawn_point = player.global_position

@@ -13,8 +13,10 @@ func physics_movement(delta: float, player: XRToolsPlayerBody, disabled: bool) -
 	age+=delta
 	player.source_movement_active=false
 	var profile:Dictionary=player.feedback.locomotion
-	if disabled or (is_instance_valid(player.vehicles) and player.vehicles.seated()):
+	if disabled or player.feedback.combat_blocked() or (is_instance_valid(player.vehicles) and player.vehicles.seated()):
 		source_speed=0;source_direction=Vector2.ZERO
+		player.source_movement_velocity=Vector2.ZERO
+		player.ground_control_velocity=Vector2.ZERO
 		if disabled and not profile.is_empty():
 			player.source_movement_active=true;player.source_movement_velocity=Vector2.ZERO
 		return false

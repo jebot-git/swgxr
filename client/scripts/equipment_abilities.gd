@@ -53,7 +53,7 @@ func toggle()->void:
 	else:
 		if hologram.browsing:
 			hologram.labels[0].text="EQUIPPED ITEMS\n\nGrip an item to move it.\n\nCombat abilities button below"
-			hologram.labels[1].text="SELECT EQUIPMENT\n\nItems remain equipped until Core3 confirms their return to inventory."
+			hologram.labels[1].text="SELECT EQUIPMENT\n\nItems remain equipped until CoreCU confirms their return to inventory."
 		else:hologram.update_comparison(hologram.highlighted)
 func cancel_drag()->void:
 	drag={}
@@ -151,7 +151,7 @@ func describe(id:String)->void:
 func submit(value:Dictionary)->void:
 	if pending or value.is_empty() or value==context.get("ability_loadout",{}):return
 	value["revision"]=int(value.get("revision",-1))
-	pending=true;hologram.labels[1].text="Saving loadout in Core3…";proposed.emit({"item_id":str(context.get("item_id","")),"loadout":value})
+	pending=true;hologram.labels[1].text="Saving loadout in CoreCU…";proposed.emit({"item_id":str(context.get("item_id","")),"loadout":value})
 func finish(success:bool,message:String)->void:
 	pending=false
 	if active:rebuild();hologram.labels[1].text="Loadout equipped." if success else message

@@ -50,7 +50,7 @@ func is_ready()->bool:
 	return is_instance_valid(session) and not app.session_leaving and app.world_ready and super.is_ready()
 func pump()->void:
 	if busy or not live or queue.is_empty() or session.busy:return
-	if session.authority_expired():fail("Core3 authority expired; queued combat gestures discarded.");return
+	if session.authority_expired():fail("CoreCU authority expired; queued combat gestures discarded.");return
 	if app.has_method("native_requests_in_flight") and app.native_requests_in_flight()>0:return
 	var request:Dictionary=queue.pop_front()
 	var id:=str(request.get("shot_id",""))
@@ -87,7 +87,7 @@ func _process(_delta:float)->void:
 	for id in shots.keys():
 		if Time.get_ticks_usec()>int(shots[id].expires_usec):shots.erase(id)
 	if elapsed_since_snapshot>=SESSION_TIMEOUT:
-		fail("Core3 authority expired; queued combat gestures discarded.");return
+		fail("CoreCU authority expired; queued combat gestures discarded.");return
 	pump()
 func _exit_tree()->void:
 	if is_instance_valid(rig):

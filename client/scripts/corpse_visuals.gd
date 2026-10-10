@@ -121,7 +121,7 @@ func clear() -> void:
 	for id: String in visuals.keys(): release_visual(id)
 	states.clear(); failures.clear(); last_error=""
 func statistics() -> Dictionary:
-	return {"confirmed_corpses":states.size(),"visible_models":visuals.size(),"max_visible":MAX_VISIBLE,"render_distance":DISPLAY_DISTANCE,"failures":failures.duplicate(true),"last_error":last_error,"pose_policy":"Frozen original incapacitated ANS frame, source skeleton and skin weights","source":"Core3 corpse query; no local reward authority"}
+	return {"confirmed_corpses":states.size(),"visible_models":visuals.size(),"max_visible":MAX_VISIBLE,"render_distance":DISPLAY_DISTANCE,"failures":failures.duplicate(true),"last_error":last_error,"pose_policy":"Frozen original incapacitated ANS frame, source skeleton and skin weights","source":"CoreCU corpse query; no local reward authority"}
 func _physics_process(delta: float) -> void:
 	refresh_time+=delta
 	if refresh_time>=0.25: refresh_time=0.0; sync_visuals()

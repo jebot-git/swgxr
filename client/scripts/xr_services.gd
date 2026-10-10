@@ -153,7 +153,7 @@ func apply_response(response: Dictionary, resolve_pending: bool=true) -> void:
 			panel.terminal=terminal.duplicate(true)
 			if upkeep:panel.terminal.kind="house_deposit"
 	panel.message=str(mutation.get("message",mutation.get("error",mutation.get("error_code",""))))
-	if mutation.has("success") and bool(mutation.success) and panel.message.is_empty(): panel.message="Confirmed by Core3"
+	if mutation.has("success") and bool(mutation.success) and panel.message.is_empty(): panel.message="Confirmed by CoreCU"
 	panel.queue_redraw()
 
 func request_action(action: String, payload: Dictionary) -> void:
@@ -178,7 +178,7 @@ func open_terminal(record: Dictionary) -> void:
 	center.y=clampf(head.y-0.18,terminal_origin.y+0.85,terminal_origin.y+1.65)
 	if record.get("ui_position") is Vector3: center=record.ui_position
 	surface.global_transform=terminal_pose(record,center,head)
-	panel.selected=-1;panel.offset=0;panel.message="Connecting to Core3…"
+	panel.selected=-1;panel.offset=0;panel.message="Connecting to CoreCU…"
 	panel.configure(terminal,wallet,tickets)
 	surface.visible=true;viewport.render_target_update_mode=SubViewport.UPDATE_WHEN_VISIBLE
 	trigger_armed=false

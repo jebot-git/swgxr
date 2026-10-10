@@ -9,7 +9,12 @@ var visual:Node3D
 var label:Label3D
 var collider:CollisionShape3D
 var goal:=Transform3D.IDENTITY
+var motion:=SwgSnapshotMotion.new()
 var speed:=0.0
+var motion_counter:=-1
+var motion_epoch:=-1
+var motion_sequence:=-1
+var motion_received_ms:=0
 var last_snapshot_position:=Vector3.ZERO
 var snapshot_usec:=0
 var report:Dictionary={}
@@ -19,6 +24,8 @@ var carrier:RefCounted
 var presentation_floor_offset:=Vector3.ZERO
 var presentation_floor_height:=0.0
 var mobile_sound:Node3D
+var combat_event_epoch:=-1
+var combat_event_sequence:=-1
 
 func original_catalog(template:String,primary:String)->String:
 	# Match the complete source appearance ID. Never substitute a same-race body
@@ -102,8 +109,14 @@ func configure(value:Dictionary,session:String,assets:RefCounted,dead_assets:Ref
 		report["carrier_animation_ready"]=carrier.configure(visual)
 		carrier.apply(int(record.get("posture",0)))
 		report["carrier_phase_policy"]="Original loops on first snapshot; original transitions on observed posture change."
-	if bool(record.get("droid",false)) and source_visual.is_empty():
+	if record.kind=="creature":
 		mobile_sound=preload("res://audio/mobile_emitter.gd").new();add_child(mobile_sound)
+		mobile_sound.ambient_allowed=source_visual.is_empty() # Placed NPC ambience already belongs to the environment.
+		if visual is Avatar:
+			mobile_sound.animation_driven=visual.animation_events_available and not record.get("droid",false)
+			visual.original_animation_event.connect(func(event:String):
+				if is_instance_valid(mobile_sound) and not record.dead:
+					if event!="footstep" or mobile_sound.animation_driven:mobile_sound.queue_event(event))
 	var bounds:=visual_bounds()
 	collider=CollisionShape3D.new();var box:=BoxShape3D.new();box.size=bounds.size.max(Vector3.ONE*0.05);collider.shape=box;collider.position=bounds.get_center();add_child(collider)
 	collision_layer=0 if record.dead or carrier!=null else 8
@@ -138,17 +151,45 @@ func visual_bounds()->AABB:
 		if is_instance_valid(item.instance):bounds=bounds.merge(global_transform.affine_inverse()*item.instance.global_transform*item.instance.get_aabb())
 	return bounds
 
-func apply_record(value:Dictionary,pose:Transform3D,seconds:float,initial:=false)->void:
-	if not initial and is_instance_valid(mobile_sound) and not value.dead and float(value.health)<float(record.get("health",value.health)):
-		mobile_sound.queue_event("hitlight")
+func apply_record(value:Dictionary,pose:Transform3D,seconds:float,initial:=false,sample_time:float=-1.0)->void:
+	if not initial and is_instance_valid(mobile_sound):
+		if bool(value.dead) and not bool(record.get("dead",false)):
+			mobile_sound.queue_event("hitheavy");mobile_sound.queue_event("hitground")
+		elif not value.dead and float(value.health)<float(record.get("health",value.health)):
+			mobile_sound.queue_event("hitlight")
+	var relocated:=not record.is_empty() and (str(record.get("cell_id","0"))!=str(value.get("cell_id","0")) or str(record.get("zone",""))!=str(value.get("zone","")))
+	# Large source warps and cell transfers reset history; a delayed running
+	# creature crossing the old 8m threshold must still travel continuously.
+	relocated=relocated or (not initial and last_snapshot_position.distance_to(pose.origin)>maxf(32,seconds*40))
 	record=value.duplicate(true);snapshot_usec=Time.get_ticks_usec()
 	if carrier!=null:carrier.apply(int(record.get("posture",0)))
 	speed=last_snapshot_position.distance_to(pose.origin)/maxf(seconds,0.05) if not initial else 0.0
 	if is_instance_valid(mobile_sound):mobile_sound.observe(str(record.template),speed,not bool(record.dead))
-	last_snapshot_position=pose.origin;goal=pose
-	if initial or global_position.distance_to(goal.origin)>8:global_transform=goal
+	var stamp:=sample_time if sample_time>=0 else Time.get_ticks_usec()/1000000.0
+	var counter:=int(value.get("movement_counter",-1))
+	var stopped:=bool(value.get("dead",false)) or bool(value.get("incapacitated",false))
+	# Health updates must not rewind a newer native movement goal. Equal counters
+	# also preserve the next-step endpoint: Core3 broadcasts it ahead of its body.
+	var fresh:=motion_counter<0 or counter<0 or ((counter-motion_counter)&0xffffffff)>0 and ((counter-motion_counter)&0xffffffff)<0x80000000
+	if initial or relocated or stopped or fresh or Time.get_ticks_msec()-motion_received_ms>2000:
+		last_snapshot_position=pose.origin;goal=pose;motion_counter=counter
+		motion.push_goal(goal,stamp,float(value.get("walk_speed",2.5)),float(value.get("run_speed",7)),float(value.get("movement_speed",0)),initial or relocated or stopped)
+		if initial or relocated or stopped:global_transform=goal
 	collision_layer=8 if is_targetable() else 0
 	refresh_label()
+
+func apply_motion(value:Dictionary,pose:Transform3D,epoch:int)->bool:
+	if bool(record.get("dead",false)) or bool(record.get("incapacitated",false)) or str(value.get("cell_id","0"))!=str(record.get("cell_id","0")):return false
+	var counter:=int(value.get("movement_counter",-1))
+	var sequence:=int(value.get("sequence",-1))
+	if epoch==motion_epoch and sequence<=motion_sequence:return false
+	if counter<0 or (motion_counter>=0 and ((counter-motion_counter)&0xffffffff)>=0x80000000):return false
+	motion_epoch=epoch;motion_sequence=sequence;motion_counter=counter;motion_received_ms=Time.get_ticks_msec()
+	goal=pose;last_snapshot_position=pose.origin
+	motion.push_goal(pose,Time.get_ticks_usec()/1000000.0,float(record.get("walk_speed",2.5)),float(record.get("run_speed",7)),float(value.get("movement_speed",0)))
+	# Move the StaticBody, appearance and contact identity together in _process.
+	# This receipt does not refresh health/ability snapshot_usec.
+	return true
 
 func set_presentation_floor_offset(height:float)->void:
 	var change:=height-presentation_floor_height
@@ -162,7 +203,7 @@ func set_presentation_floor_offset(height:float)->void:
 func refresh_label()->void:
 	if label==null:return
 	label.modulate=Color("ff2020") if label.get_meta("spice_hostile_illusion",false) else preload("res://scripts/entity_relationship.gd").color(record)
-	label.text=str(record.get("name","Core3 entity"))+"\n"+("Dead · Core3 confirmed" if record.dead else "%d / %d"%[int(record.health),int(record.max_health)])
+	label.text=str(record.get("name","CoreCU entity"))+"\n"+("Dead · CoreCU confirmed" if record.dead else "%d / %d"%[int(record.health),int(record.max_health)])
 
 	if report.get("appearance_status","")=="partial":label.text+="\nSome original components unavailable"
 	elif report.get("appearance_status","")=="unavailable":label.text+="\nOriginal appearance unavailable · cannot target"
@@ -174,8 +215,29 @@ func get_radar_contact()->Dictionary:
 	return {"id":str(record.id),"position":global_position,"kind":"mob","relation":str(record.get("relation","neutral")),"alive":not bool(record.dead),"radar_visible":record.kind=="creature"}
 
 func _process(delta:float)->void:
-	global_transform=global_transform.interpolate_with(goal,1.0-exp(-delta*14.0))
+	global_transform=motion.advance(Time.get_ticks_usec()/1000000.0,delta)
+	speed=motion.get_velocity().length()
 	if carrier==null and is_instance_valid(visual) and visual.has_method("update_motion") and not record.dead:visual.update_motion(delta,speed,{"grounded":true,"velocity":Vector3(0,0,-speed)})
 
 func _exit_tree()->void:
 	equipment.release(rigid_equipment)
+
+func apply_combat_event(event:Dictionary,epoch:int)->void:
+	if epoch<combat_event_epoch or (epoch==combat_event_epoch and int(event.get("sequence",-1))<=combat_event_sequence):return
+	combat_event_epoch=epoch;combat_event_sequence=int(event.get("sequence",-1))
+	if bool(record.get("dead",false)) or bool(record.get("incapacitated",false)) or not is_instance_valid(mobile_sound):return
+	if event.get("event","")!="attack":return
+	mobile_sound.queue_event("attacklight")
+	var weapon:=str(event.get("weapon_template",""))
+	if not weapon.is_empty():mobile_sound.queue_event("weapon:"+weapon)
+
+func finish_death_audio()->void:
+	# The living mesh is replaced by the original corpse. Let its bounded audio
+	# tail survive that replacement at the last rendered position.
+	if bool(record.get("dead",false)) or not is_instance_valid(mobile_sound):return
+	var tail:Node3D=mobile_sound;mobile_sound=null
+	tail.reparent(get_parent(),true)
+	tail.observe(str(record.template),0,false)
+	tail.queue_event("hitheavy");tail.queue_event("hitground")
+	get_tree().create_timer(8).timeout.connect(func():
+		if is_instance_valid(tail):tail.queue_free())

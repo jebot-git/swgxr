@@ -70,7 +70,7 @@ func run() -> void:
 	app.reply={"ok":true,"source_kind":"core3_inventory_equip","mutation":{"success":true},"inventory":equipped}
 	await app.equip_inventory_item(item,1)
 	check(app.inventory.held_item.is_empty() and app.inventory_snapshot.equipment.size()==1,"Confirmed equip clears hand and adopts authoritative current equipment")
-	check(app.calls[-1].payload.arrangement==1,"Selected original arrangement reaches Core3 unchanged")
+	check(app.calls[-1].payload.arrangement==1,"Selected original arrangement reaches CoreCU unchanged")
 	app.combat_rig=load("res://combat/ranged_rig.gd").new(); app.add_child(app.combat_rig)
 	app.combat_rig.abilities.character_id="fixture"
 	app.combat_rig.abilities.ham=[80.0,100.0,100.0,100.0,100.0,100.0,70.0,100.0,100.0]

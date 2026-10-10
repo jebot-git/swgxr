@@ -19,10 +19,13 @@ var priming:=false
 ## Epoch microseconds fit exactly below JSON's 2^53 bound until year 2255.
 var request_sequence:=int(Time.get_unix_time_from_system()*1000000.0)
 var clock:=0.0
+var next_poll_ms:=0
 var confirmed_ms:=0
 var last_error:=""
 var requests:=0
 var accepted:=0
+var request_ms:=0.0
+var world_age_ms:=0.0
 func setup(host:Node)->void:
 	app=host
 	players=preload("res://multiplayer/remote_players.gd").new();app.add_child(players);players.configure()
@@ -123,8 +126,10 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 	if str(result.get("zone",zone))!=zone or (result.get("world") is Dictionary and str(result.world.get("zone",zone))!=zone):last_error="Discarded multiplayer world from previous planet.";return false
 	if not state.accept(result,owner_character,owner_session,sent_sequence):last_error=state.error;return false
 	accepted+=1;confirmed_ms=Time.get_ticks_msec();last_error=""
+	request_ms=maxf(0,float(result.get("_request_elapsed_seconds",0)))*1000
+	world_age_ms=maxf(0,float(result.get("world_age_ms",0)))
 	var status:Variant=app.get("asset_status")
-	if is_instance_valid(status) and str(status.text).begins_with("Multiplayer world sync interrupted:"):status.text="Persistent Core3 session · multiplayer world sync restored."
+	if is_instance_valid(status) and str(status.text).begins_with("Multiplayer world sync interrupted:"):status.text="Persistent CoreCU session · multiplayer world sync restored."
 	var cell:Dictionary=app.stage.current_cell
 	var cell_id:=str(cell.get("native_cell_id",cell.get("cell_id","0")))
 	# The manager normalizes source cell IDs; the player membership below uses
@@ -150,8 +155,20 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 			var deployment:=value.duplicate(true);deployment.position=world(value.position);deployments.append(deployment)
 		players.apply_deployments(deployments,owner_character,app.player.global_position)
 	if not app.live_combat_reserved:entities.accept(state.actors,owner_session,state.world_revision,maxf(0,float(result.get("world_age_ms",INF)))/1000.0+maxf(0,float(result.get("_request_elapsed_seconds",0))))
+	var projection:Variant=app.get("live_combat") if app.live_combat_reserved else entities
+	if is_instance_valid(projection):apply_motion(result.get("motion",{}),projection.actors)
 	if is_instance_valid(chatter):chatter.accept(result.get("npc_speech"))
 	return true
+func apply_motion(envelope:Dictionary,actors:Dictionary)->void:
+	if envelope.get("source_kind","")!="core3_motion_v1":return
+	for row:Dictionary in envelope.get("actors",[]):
+		var id:=str(row.get("id",""))
+		if not actors.has(id) or not State.finite_point(row.get("position")):continue
+		var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-float(row.heading_radians)),world(row.position))
+		actors[id].apply_motion(row,pose,int(envelope.get("epoch",0)))
+	for event:Dictionary in envelope.get("events",[]):
+		var id:=str(event.get("id",""))
+		if actors.has(id):actors[id].apply_combat_event(event,int(envelope.get("epoch",0)))
 func _process(delta:float)->void:
 	if not is_instance_valid(app):return
 	if is_instance_valid(app.get("space")) and app.space.aboard():
@@ -172,17 +189,17 @@ func _process(delta:float)->void:
 		if is_instance_valid(chatter):chatter.clear()
 		var status:Variant=app.get("asset_status")
 		if is_instance_valid(status):status.text="Multiplayer world sync interrupted: "+last_error
-	if not busy and clock<=0:poll()
+	if not busy and clock<=0 and Time.get_ticks_msec()>=next_poll_ms:poll()
 func poll()->void:
 	busy=true;clock=INTERVAL;request_sequence+=1;requests+=1
 	var epoch:=generation
 	var sequence:=request_sequence
 	var result:Dictionary=await app.api(HTTPClient.METHOD_POST,"/session/sync",identity())
 	if epoch!=generation:return
-	busy=false
+	busy=false;next_poll_ms=Time.get_ticks_msec()+50
 	if not apply_response(result,sequence):clock=maxf(clock,.3)
 func statistics()->Dictionary:
-	return {"requests":requests,"accepted":accepted,"busy":busy,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"native_players":state.players.size(),"native_actors":state.actors.size(),"last_error":last_error,"snapshot_age_ms":Time.get_ticks_msec()-confirmed_ms if confirmed_ms>0 else -1,"visuals":players.report.duplicate(true) if is_instance_valid(players) else {},"npc_speech":chatter.statistics() if is_instance_valid(chatter) else {}}
+	return {"request_ms":request_ms,"server_world_age_ms":world_age_ms,"requests":requests,"accepted":accepted,"busy":busy,"world_revision":state.world_revision,"event_sequence":state.event_sequence,"native_players":state.players.size(),"native_actors":state.actors.size(),"last_error":last_error,"snapshot_age_ms":Time.get_ticks_msec()-confirmed_ms if confirmed_ms>0 else -1,"visuals":players.report.duplicate(true) if is_instance_valid(players) else {},"npc_speech":chatter.statistics() if is_instance_valid(chatter) else {}}
 func _exit_tree()->void:
 	if is_instance_valid(players):players.queue_free()
 	if is_instance_valid(entities):entities.queue_free()

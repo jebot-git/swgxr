@@ -26,6 +26,6 @@ func set_resource(value: Dictionary) -> void:
 		var label:=str(attribute.get("label",attribute.get("name","")))
 		if not attribute.has("label"):label=label.get_slice(":",label.get_slice_count(":")-1).replace("_"," ").capitalize()
 		lines.append(label+": "+str(attribute.get("value","")))
-	statistics.text="\n".join(lines) if not lines.is_empty() else "No resource attributes returned by Core3."
+	statistics.text="\n".join(lines) if not lines.is_empty() else "No resource attributes returned by CoreCU."
 func scroll(stick: Vector2, delta: float) -> void:
 	statistics.get_v_scroll_bar().value-=stick.y*delta*500

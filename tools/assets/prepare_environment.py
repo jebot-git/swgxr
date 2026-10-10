@@ -15,7 +15,10 @@ class EnvironmentImporter:
  def __init__(self,tre,out):
   self.t=TreSet(tre);self.out=out;self.dependencies={};self.sounds={};self.images={};self.failures=[];self.templates={};out.mkdir(parents=True,exist_ok=True)
  def read(self,path):
-  path=path.replace('\\','/').lower();raw=self.t.read(path);self.dependencies[path]={'archive':self.t.entries[path][0].name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()};return raw
+  path=path.replace('\\','/').lower()
+  if '/sys.client/built/' in path:path=path.split('/sys.client/built/',1)[1]
+  if path.startswith('sound/') and not path.endswith('.snd') and path+'.snd' in self.t.entries:path+='.snd'
+  raw=self.t.read(path);self.dependencies[path]={'archive':self.t.entries[path][0].name,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()};return raw
  def image(self,path):
   if path in self.images:return self.images[path]
   raw=self.read(path);im=Image.open(io.BytesIO(raw)).convert('RGBA');relative='textures/'+hashlib.sha256(raw).hexdigest()[:24]+'.png';dest=self.out/relative;dest.parent.mkdir(exist_ok=True)
@@ -89,7 +92,7 @@ def main():
   interior_soundscapes[row['PobName']+':'+row['Cell Name']]=entry
  nodes=snapshot(imp,args.planet);layout_nodes=expand_layouts(imp,nodes);nodes.extend(layout_nodes);origin=origin_for(args.planet);emitters=[]
  for node in nodes:
-  if not node['template'].startswith(('object/soundobject/','object/building/')):continue
+  if not node['template'].startswith('object/') or node['template'].startswith('object/mobile/'):continue
   try:
    cdf=imp.properties(node['template']).get('clientDataFile','')
    if not cdf:continue

@@ -27,11 +27,20 @@ func run()->void:
 	body.menu_requested.connect(func():menus+=1)
 	await frames(8)
 	var body_y:float=body.global_position.y;var raw_head:=camera.transform;var raw_right:Transform3D=origin.get_node("RightHand").transform
+	body.feedback.observe({"character_id":"life-fixture","posture":0,"locomotion":preload("res://tests/source_locomotion_smoke.gd").profile()})
+	left.set_input("primary",Vector2(0,1))
+	await frames(20)
+	check(body.velocity.length()>.1,"Player is locomoting before native incapacitation")
+	var stopped_at:Vector3=body.global_position
+	var origin_stopped:Vector3=origin.global_position
 	left.set_input("primary_click",true)
 	body.feedback.observe({"character_id":"life-fixture","posture":13})
 	await frames(8)
 	check(body.feedback.life_fade_alpha>.2 and origin.get_node("XRCamera3D/Fade").layers==1,"Forced viewpoint transition uses visible XR fade without hiding raw tracking")
 	await frames(67)
+	check(body.global_position.distance_to(stopped_at)<.001 and Vector2(origin.global_position.x,origin.global_position.z).distance_to(Vector2(origin_stopped.x,origin_stopped.z))<.001,"Incapacitation immediately anchors body and viewpoint despite held locomotion")
+	check(body.velocity==Vector3.ZERO and body.source_movement_velocity==Vector2.ZERO,"Life lock clears stored movement velocities")
+	left.set_input("primary",Vector2.ZERO)
 	check(actions.is_empty(),"Jump already held at incapacitation cannot request recovery")
 	check(body.feedback.life_locked and body.feedback.observed_posture==13,"Only native snapshot enters life lock")
 	check(absf(camera.global_position.y-body_y-.28)<.06,"Forced viewpoint settles near original ground pose")

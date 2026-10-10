@@ -134,7 +134,7 @@ func world(point:Array)->Vector3:
 	return stage.to_global(local) if is_instance_valid(stage) else local
 
 func start(position:Vector3,heading_radians:float)->bool:
-	reset("Connecting to live Core3 combat…")
+	reset("Connecting to live CoreCU combat…")
 	owner_account=str(app.datapad_account);owner_character=str(app.datapad_character_id)
 	var epoch:=generation;busy=true
 	var payload:=owner();payload.erase("session_id");payload.merge({"position":source(position),"heading_radians":heading_radians})
@@ -143,17 +143,17 @@ func start(position:Vector3,heading_radians:float)->bool:
 	if epoch!=generation:return false
 	busy=false
 	if not accept_response(response,true):fail(str(response.get("error",last_error)));return false
-	state_changed.emit(true,"LIVE CORE3 COMBAT TEST")
+	state_changed.emit(true,"LIVE CORECU COMBAT TEST")
 	print("SWG_LIVE_COMBAT "+JSON.stringify({"connected":true,"native_ready":native_ready,"actors":actors.size(),"sequence":sequence,"item_id":weapon.get("item_id",""),"certified":weapon.get("certified",false)}))
 	write_status(true)
 	return true
 
 func stop()->void:
 	var payload:=owner();var had_session:=not session_id.is_empty()
-	reset("Live Core3 session stopped.")
+	reset("Live CoreCU session stopped.")
 	if had_session:await app.api(HTTPClient.METHOD_POST,"/combat/session/stop",payload)
 
-func reset(reason:="Live Core3 session unavailable.")->void:
+func reset(reason:="Live CoreCU session unavailable.")->void:
 	cancel_showdown()
 	life_action_pending="";pending_transport={};notified_transport_id=""
 	generation+=1;live=false;native_ready=false;busy=false;session_id="";sequence=-1;weapon={};player_state={};queue.clear();shots.clear();next_launch_usec=0;backend_retry_usec=0
@@ -168,7 +168,7 @@ func reset(reason:="Live Core3 session unavailable.")->void:
 func fail(reason:String)->void:
 	print("SWG_LIVE_COMBAT "+JSON.stringify({"connected":false,"reason":reason,"actors":actors.size(),"sequence":sequence}))
 	var payload:=owner();var had_session:=not session_id.is_empty()
-	reset(reason if not reason.is_empty() else "Live Core3 response unavailable; combat disarmed.")
+	reset(reason if not reason.is_empty() else "Live CoreCU response unavailable; combat disarmed.")
 	write_status(true)
 	if had_session:call_deferred("release_failed_session",payload)
 
@@ -204,16 +204,16 @@ func valid_player(value:Dictionary)->bool:
 
 func accept_response(response:Dictionary,initial:=false)->bool:
 	if not bool(response.get("ok",response.get("session_live",false))) or response.get("backend","")!="core3" or response.get("source_kind","")!="core3_live_combat" or str(response.get("character_id",""))!=owner_character or not bool(response.get("session_live",false)):
-		last_error=str(response.get("error","Core3 session was lost."));return false
+		last_error=str(response.get("error","CoreCU session was lost."));return false
 	var incoming:=str(response.get("session_id",""));var revision:=int(response.get("sequence",-1))
-	if revision<0 or incoming.is_empty() or (not initial and incoming!=session_id) or revision<sequence:last_error="Stale or mismatched live Core3 snapshot.";return false
+	if revision<0 or incoming.is_empty() or (not initial and incoming!=session_id) or revision<sequence:last_error="Stale or mismatched live CoreCU snapshot.";return false
 	var snapshot:Dictionary=response.get("snapshot",{})
 	var ship_player:Dictionary=snapshot.get("player",{}) if snapshot.get("player") is Dictionary else {}
 	var ship_state:Variant=ship_player.get("jtl",snapshot.get("jtl",{}))
 	var space_active:bool=ship_player.get("space_active",false) and ship_state is Dictionary and ship_state.get("scope","") in ["noncombat_yacht","noncombat_navigation"] and ship_state.get("enabled",false) and ship_state.get("ship") is Dictionary and str(ship_state.ship.get("station","")) in ["pilot","passenger","gunner","interior"]
 	if space_active and snapshot.get("weapon")==null:
 		snapshot=snapshot.duplicate(false);snapshot.weapon={}
-	if not snapshot.get("ready") is bool or not snapshot.get("full",false) or snapshot.get("truncated",false) or not snapshot.get("actors") is Array or snapshot.actors.size()>MAX_ACTORS or not snapshot.get("player") is Dictionary or not snapshot.get("weapon") is Dictionary:last_error="Incomplete live Core3 snapshot.";return false
+	if not snapshot.get("ready") is bool or not snapshot.get("full",false) or snapshot.get("truncated",false) or not snapshot.get("actors") is Array or snapshot.actors.size()>MAX_ACTORS or not snapshot.get("player") is Dictionary or not snapshot.get("weapon") is Dictionary:last_error="Incomplete live CoreCU snapshot.";return false
 	if not snapshot.get("transport",{}) is Dictionary:
 		last_error="Invalid authoritative medical transport.";return false
 	var transport: Dictionary = snapshot.get("transport",{})
@@ -228,7 +228,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 		last_error="Native equipped weapon has no matching owned client profile.";return false
 	var seen:Dictionary={}
 	for value in snapshot.actors:
-		if not value is Dictionary or not valid_actor(value) or seen.has(str(value.get("id",""))):last_error="Malformed live Core3 actor snapshot.";return false
+		if not value is Dictionary or not valid_actor(value) or seen.has(str(value.get("id",""))):last_error="Malformed live CoreCU actor snapshot.";return false
 		seen[str(value.id)]=true
 	if not valid_player(snapshot.player):last_error="Incomplete or invalid authoritative player HAM/posture.";return false
 	var seconds:=maxf(elapsed_since_snapshot,POLL_INTERVAL)
@@ -242,6 +242,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 			seen.erase(str(value.id));continue
 		var id:=str(value.id);var recreate:bool=not actors.has(id) or bool(actors[id].record.dead)!=bool(value.dead) or str(actors[id].record.template)!=str(value.template) or float(actors[id].record.get("scale",1))!=float(value.get("scale",1)) or actors[id].record.get("customization",{})!=value.get("customization",{}) or actors[id].record.get("source_placement_visual",{})!=value.get("source_placement_visual",{})
 		if recreate:
+			if actors.has(id) and value.dead:actors[id].finish_death_audio()
 			if actors.has(id):actors[id].collision_layer=0;actors[id].visible=false;actors[id].queue_free();actors.erase(id)
 			var actor:=Actor.new();add_child(actor)
 			actor.catalog_candidates=app.planet_assets.get("entity_catalogs",[]) if app.get("planet_assets") is Dictionary else []
@@ -894,7 +895,7 @@ func pump()->void:
 		else:
 			var retries:=int(request.get("unstarted_retries",0))+1
 			if retries>MAX_UNSTARTED_RETRIES or queue.size()>=MAX_QUEUE:
-				fail("Core3 remained busy; the unstarted command could not be completed.");return
+				fail("CoreCU remained busy; the unstarted command could not be completed.");return
 			request["unstarted_retries"]=retries
 			queue.push_front(request)
 		return
@@ -917,7 +918,7 @@ func combat_receipt(request:Dictionary,response:Dictionary)->void:
 		var mutation:Dictionary=response.get("mutation",{})
 		if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
 			if request.kind in ["fire","melee","swordsman","fencer","pikeman","pistoleer","carbineer","rifleman","bountyhunter","commando","squadleader"]:rejected_fire(id)
-			rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","Core3 rejected the shot.")));return
+			rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","CoreCU rejected the shot.")));return
 		if mutation.get("volley_consumed",false):
 			if is_instance_valid(rig.get("squad_leader")):rig.squad_leader.consumed(str(request.payload.get("volley_mark_id","")))
 			confirmed_contacts+=1
@@ -970,7 +971,7 @@ func _process(delta:float)->void:
 		if queue.any(func(request):return request.payload.has("transport_ack")):pump()
 		return
 	elapsed_since_snapshot+=delta;poll_clock+=delta
-	if elapsed_since_snapshot>SESSION_TIMEOUT:fail("Live Core3 updates timed out; combat disarmed.");return
+	if elapsed_since_snapshot>SESSION_TIMEOUT:fail("Live CoreCU updates timed out; combat disarmed.");return
 	for id:String in shots.keys():
 		if Time.get_ticks_usec()>int(shots[id].expires_usec):shots.erase(id)
 	if is_instance_valid(app):pump()
@@ -1010,14 +1011,14 @@ func _exit_tree()->void:
 	if is_instance_valid(rig):rig.authority_gate=Callable();rig.shot_authority=Callable();rig.aim_assist_candidates=Callable()
 
 func request_loadout(proposal:Dictionary)->Dictionary:
-	if busy or not live or not native_ready or elapsed_since_snapshot>=SESSION_TIMEOUT or not queue.is_empty():return {"success":false,"error":"Wait for the current Core3 action to finish."}
+	if busy or not live or not native_ready or elapsed_since_snapshot>=SESSION_TIMEOUT or not queue.is_empty():return {"success":false,"error":"Wait for the current CoreCU action to finish."}
 	if str(proposal.get("item_id",""))!=str(weapon.get("item_id","")):return {"success":false,"error":"Equipped weapon changed; select again."}
 	var payload:=owner();payload.merge(proposal,true)
 	var epoch:=generation;busy=true
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/loadout",payload)
 	busy=false
 	if epoch!=generation:return {"success":false,"error":"Character session changed."}
-	if not apply_loadout_response(response):return {"success":false,"error":str(response.get("error",response.get("error_code","Core3 loadout response unavailable.")))}
+	if not apply_loadout_response(response):return {"success":false,"error":str(response.get("error",response.get("error_code","CoreCU loadout response unavailable.")))}
 	return {"success":bool(response.get("mutation",{}).get("success",false)),"error":str(response.get("mutation",{}).get("error_code","Loadout not saved."))}
 
 func apply_loadout_response(response:Dictionary)->bool:

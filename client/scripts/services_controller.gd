@@ -173,7 +173,7 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 	if action in ["delivery_pickup","delivery_complete"] and bool(response.get("mutation",{}).get("success",false)):
 		if is_instance_valid(ui):ui.close_interface()
 		if is_instance_valid(app.datapad):
-			var notice:="Mission parcel added to Data. Grip and pull it out; present it to the recipient and press trigger." if action=="delivery_pickup" else "Parcel handed over. Core3 is completing the mission."
+			var notice:="Mission parcel added to Data. Grip and pull it out; present it to the recipient and press trigger." if action=="delivery_pickup" else "Parcel handed over. CoreCU is completing the mission."
 			if action=="delivery_pickup" and state.get("terminal",{}).get("mission_kind","")=="crafting":notice="Mission recipe and components received. Craft the commissioned item; it will appear in Data when ready."
 			app.datapad.ui.set_status(notice)
 	if action in ["trainer_train", "skill_forget"] and bool(response.get("mutation",{}).get("success",false)):
@@ -211,7 +211,7 @@ func travel_assets_ready(action:String,detail:Dictionary)->Dictionary:
 
 func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	if not response.get("ok",false) or response.get("source_kind","") != "core3_services" or str(response.get("character_id","")) != str(app.datapad_character_id):
-		last_error = str(response.get("error", "Core3 did not confirm this interaction. Refresh before retrying."))
+		last_error = str(response.get("error", "CoreCU did not confirm this interaction. Refresh before retrying."))
 		return false
 	var incoming: Variant = response.get("state")
 	if not incoming is Dictionary or str(incoming.get("character_id","")) != str(app.datapad_character_id):
@@ -491,6 +491,8 @@ func use_crafting_tool(tool_id: String) -> void:
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(app): return
+	if is_instance_valid(ui) and is_instance_valid(ui.panel) and ui.terminal.get("kind","")=="mission":
+		ui.panel.player_position=app.datapad_source_position();ui.panel.player_planet=app.active_planet;ui.panel.queue_redraw()
 	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	if epoch != app.datapad_epoch: reset()
 	update_party_notice(delta)

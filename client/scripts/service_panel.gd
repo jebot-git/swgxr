@@ -16,6 +16,8 @@ const CONFIRM_RECT=Rect2(590,488,250,52)
 const BOARDING_RECT=Rect2(228,488,340,52)
 const REFRESH_RECT=Rect2(20,488,190,52)
 const CLOSE_RECT=Rect2(808,12,40,40)
+var player_position:=Vector3.INF
+var player_planet:=""
 var terminal: Dictionary={}
 var wallet: Dictionary={"cash":0,"bank":0}
 var rows: Array=[]
@@ -326,7 +328,7 @@ func trainer_blocked_reason(row: Dictionary) -> String:
 	if bool(row.get("learned",false)): return "Already learned."
 	if bool(row.get("eligible",false)): return ""
 	var reason:=str(row.get("blocked_reason","")).strip_edges()
-	return reason if not reason.is_empty() else "Core3 has not confirmed eligibility for this skill."
+	return reason if not reason.is_empty() else "CoreCU has not confirmed eligibility for this skill."
 
 func trainer_skill_name(identifier: String) -> String:
 	for skill: Dictionary in rows:
@@ -449,6 +451,8 @@ func detail_for(row: Dictionary) -> String:
 	elif terminal.get("kind","")=="house":detail+="Items: %d / %d\nUpkeep: %d credits\nRate: %.1f credits/hour\n\n"%[int(terminal.get("item_count",0)),int(terminal.get("item_limit",0)),int(terminal.get("maintenance",0)),float(terminal.get("maintenance_rate",0))]
 	if terminal.get("kind","")=="mission":
 		detail+="Type: "+str(row.get("type","mission")).capitalize()+"\n"
+		var distance:=preload("res://scripts/mission_distance.gd").text(row,player_position,player_planet)
+		if not distance.is_empty():detail+=distance+"\n"
 		if not str(row.get("target","")).is_empty(): detail+="Target: "+str(row.target)+"\n"
 		if row.get("type","")=="bounty":
 			detail+="PvE only\n"
@@ -540,7 +544,7 @@ func _draw() -> void:
 				var state:="Learned" if bool(rows[index].get("learned",false)) else ("Train" if bool(rows[index].get("eligible",false)) else "Locked")
 				draw_string(FONT,Vector2(item_region.end.x-98,y+27),state,HORIZONTAL_ALIGNMENT_RIGHT,88,17,Color("8bddd2") if state=="Train" else Color("85a9b2"))
 			draw_string(FONT,Vector2(item_region.position.x+8,y+29),label_for(rows[index])+(" · pilot" if kind=="ship_crew" and str(rows[index].get("id",""))==str(terminal.get("pilot_id","")) else ""),HORIZONTAL_ALIGNMENT_LEFT,row_width,21,Color("d2f6ff"))
-		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"Wait for boarding, then use your ticket." if kind=="ticket_collector" else "No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
+		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"Wait for boarding, then use your ticket." if kind=="ticket_collector" else "No entries returned by CoreCU." if kind!="crafting" else "No compatible owned crafting tools returned by CoreCU.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
 			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
 		if kind not in ["ship_crew","travel","pilot_trainer"] and selected>=0 and selected<rows.size():
@@ -589,5 +593,5 @@ func _draw() -> void:
 			if bool(rows[selected].get("retrieve_eligible",false)): button="Retrieve item"
 			elif bool(rows[selected].get("auction",false)): button="Place bid"
 	draw_style_box(Holo.button("disabled" if confirmation_disabled else "hover"),CONFIRM_RECT)
-	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for Core3…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
+	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for CoreCU…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
 	draw_string(FONT,Vector2(30,590),message,HORIZONTAL_ALIGNMENT_LEFT,814,18,Color("9ac7da"))

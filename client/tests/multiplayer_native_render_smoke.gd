@@ -33,7 +33,7 @@ func run() -> void:
 		if not is_instance_valid(second.skeleton): failures.append("Cache eviction freed a live player's skeleton")
 		second.free()
 	cache.clear()
-	var result := {"passed":failures.is_empty(), "failures":failures, "native_evidence_sha256":FileAccess.get_sha256(file), "native_player_id":native_row.id, "native_source_position":original_position, "presentation_origin":"Translated to zero for isolated renderer check", "source_appearance":native_row.get("appearance", {}), "visual_report":peer.avatar.report if peer.avatar != null else peer.report, "validation":"Actual local Core3 payload replayed through original source avatar renderer under dummy rendering; no live-headset or GPU claim"}
+	var result := {"passed":failures.is_empty(), "failures":failures, "native_evidence_sha256":FileAccess.get_sha256(file), "native_player_id":native_row.id, "native_source_position":original_position, "presentation_origin":"Translated to zero for isolated renderer check", "source_appearance":native_row.get("appearance", {}), "visual_report":peer.avatar.report if peer.avatar != null else peer.report, "validation":"Actual local CoreCU payload replayed through original source avatar renderer under dummy rendering; no live-headset or GPU claim"}
 	FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/multiplayer-native-render.json"), FileAccess.WRITE).store_string(JSON.stringify(result, "  "))
 	print(JSON.stringify({"passed":failures.is_empty(),"failures":failures,"native_player_id":native_row.id,"equipment_report":peer.avatar.report.get("equipment_complete", false) if peer.avatar != null else false}))
 	peer.queue_free(); await process_frame; quit(0 if failures.is_empty() else 1)

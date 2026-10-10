@@ -42,7 +42,7 @@ func run() -> void:
 		var snapshot: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(path))
 		for item in snapshot.get("weapons",[]):
 			var live := State.new()
-			check(live.configure(item,item.core3.certificationsRequired if item.certified else [],item.condition),"Real Core3 item rejected")
+			check(live.configure(item,item.core3.certificationsRequired if item.certified else [],item.condition),"Real CoreCU item rejected")
 			if live.is_melee():
 				check(live.profile.power==item.power and live.profile.stance_recovery==item.stance_recovery and live.rounds==0,"Server melee stats replaced by defaults")
 			else:

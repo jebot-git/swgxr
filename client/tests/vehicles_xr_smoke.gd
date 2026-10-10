@@ -98,10 +98,20 @@ func run()->void:
 	check(maximum_pelvis_error<.002,"Avatar pelvis remains on original seat hardpoint")
 	check(maximum_body_error<.0001,"Rider remains locked to seat despite stick locomotion")
 	check(camera.transform.basis.is_equal_approx(initial_head.basis),"Driving preserves HMD local orientation")
+	var vehicle:Dictionary=controller_node.vehicles.car
+	var slope_up:=Vector3(.15,1,.3).normalized()
+	vehicle.view.global_basis=SwgVehicleControls.ground_basis(vehicle.view.global_basis,slope_up)
+	var raw_slope_head:=camera.transform
+	var raw_slope_hand:Transform3D=rig.get_node("LeftHand").transform
+	controller_node.seat_step()
+	check(rig.global_basis.y.distance_to(slope_up)<.0001 and body.global_basis.y.distance_to(slope_up)<.0001,"Sloped vehicle carries viewpoint and rider in the same ground frame")
+	check(camera.transform.is_equal_approx(raw_slope_head) and rig.get_node("LeftHand").transform.is_equal_approx(raw_slope_hand),"Slope attachment preserves raw head and hand tracking")
+	check((controller_node.seat_pose().affine_inverse()*camera.global_transform).origin.distance_to(eye_in_seat.origin+Vector3(sin(clock)*.03,0,0))<.0001,"Slope attachment keeps eye clearance fixed relative to original seat")
 	var before_exit:=camera.transform
 	snapshot.seat={};snapshot["forced_exit"]={"revision":1,"reason":"incapacitated","position":[4,0,20]}
 	controller_node.observe(snapshot)
 	check(not controller_node.seated() and body.global_position.distance_to(Vector3(4,0,-20))<.00001,"Forced ejection releases seat at authoritative supported exit")
+	check(rig.global_basis.y.is_equal_approx(Vector3.UP) and body.global_basis.y.is_equal_approx(Vector3.UP),"Dismount restores upright locomotion after tilted ride")
 	check(camera.transform.is_equal_approx(before_exit),"Forced ejection preserves local head tracking")
 	var exited: Transform3D=rig.global_transform;controller_node.observe(snapshot)
 	check(rig.global_transform.is_equal_approx(exited),"Repeated ejection snapshot cannot move view twice")

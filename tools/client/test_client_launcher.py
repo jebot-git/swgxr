@@ -110,9 +110,11 @@ def installed_summary(root):
     version = read('UPDATE_RECEIPT.json').get('version') or package.get('release_version')
     if not version:
         version = 'Build ' + package.get('source_commit', 'unknown')[:8]
+    prepared = read('GAME_DATA_RECEIPT.json')
     receipt = read('ASSET_RESTORE_RECEIPT.json')
     assets = (receipt.get('workspace') == root.resolve().as_posix()
               and (root/'runtime/assets').is_dir() and (root/'ASSET_MANIFEST.json').is_file())
+    assets=assets or (prepared.get('ready') and prepared.get('workspace')==root.resolve().as_posix() and (root/'runtime/assets').is_dir())
     return version, bool(assets), read('server.json').get('base_url', 'Not configured')
 
 
@@ -156,7 +158,7 @@ class LauncherWindow:
         actions.pack(fill='x', pady=(18,12))
         for column in range(3): actions.columnconfigure(column, weight=1)
         self.button(actions, 'Check & install updates', self.update).grid(row=0,column=0,sticky='ew',padx=(0,8))
-        self.button(actions, 'Import asset ZIP…', self.import_assets).grid(row=0,column=1,sticky='ew',padx=(0,8))
+        self.button(actions, 'Prepare game data…', self.import_assets).grid(row=0,column=1,sticky='ew',padx=(0,8))
         self.button(actions, 'Create shortcuts', lambda: self.start('shortcuts', ['--install-shortcuts'])).grid(row=0,column=2,sticky='ew')
         self.status = tk.StringVar(value='Ready. Choose an action to begin.')
         tk.Label(main, textvariable=self.status, font=('Arial',11), bg=self.bg, fg=self.accent, anchor='w', wraplength=740, justify='left').pack(fill='x', pady=(6,8))
@@ -192,7 +194,7 @@ class LauncherWindow:
     def refresh(self):
         version, assets, server = installed_summary(self.root)
         self.version_text.set('Installed  ·  '+version)
-        self.assets_text.set('Assets  ·  '+('Installed' if assets else 'Import the supplied asset ZIP before playing'))
+        self.assets_text.set('Assets  ·  '+('Installed' if assets else 'Prepare from your SWG installation or five TTE discs'))
         self.server_text.set('Server  ·  '+server)
 
     def append(self, text):
@@ -203,6 +205,10 @@ class LauncherWindow:
 
     def start(self, action, arguments):
         if self.task is not None:return
+        if action=='game' and (self.root/'engine/data-preparation/recipe.json').is_file() and not (self.root/'runtime/original-game/sources.json').is_file():
+            images=[p for p in (self.root/'data').glob('*') if p.suffix.lower()=='.iso']
+            if len(images)!=5:
+                self.import_assets();return
         self.action = action
         self.status.set({'update':'Checking for client updates…','import':'Verifying and importing assets…',
                          'shortcuts':'Creating desktop shortcuts…','game':'Client is starting / running. Close the game to return.'}[action])
@@ -217,8 +223,11 @@ class LauncherWindow:
     def import_assets(self):
         from tkinter import filedialog
         if self.task is not None:return
-        archive = filedialog.askopenfilename(parent=self.window,title='Select the supplied SWGXR asset ZIP',filetypes=[('SWGXR asset archive','*.zip')])
-        if archive:self.start('import',['--import-only','--asset-archive',archive])
+        images=[p for p in (self.root/'data').glob('*') if p.suffix.lower()=='.iso']
+        if len(images)==5:
+            self.start('import',['--import-only','--prepare-game-data']);return
+        installation=filedialog.askdirectory(parent=self.window,title='Select your SWG The Total Experience installation (or put all five ISOs in data/)')
+        if installation:self.start('import',['--import-only','--prepare-game-data','--game-installation',installation])
 
     def poll(self):
         import queue

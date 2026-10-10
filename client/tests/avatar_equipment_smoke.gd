@@ -70,9 +70,9 @@ func run() -> void:
 	var fixture:=Avatar.read_json(ProjectSettings.globalize_path("res://../runtime/evidence/equipment-fixture-snapshot.json"))
 	if fixture.get("backend","")=="core3" and fixture.get("race","")=="human_male":
 		live_fixture=avatar.refresh_equipment(fixture.get("equipment",[]))
-		check(live_fixture.ok and live_fixture.complete,"Actual disposable Core3 equipment did not render: "+str(live_fixture))
-		check(int(live_fixture.skinned_items)+int(live_fixture.rigid_items)==fixture.get("equipment",[]).size(),"Actual Core3 worn objects were omitted")
-		check(avatar.skeleton==skeleton and skeleton.get_bone_pose(neck).is_equal_approx(pose),"Actual Core3 clothing refresh disturbed tracking")
+		check(live_fixture.ok and live_fixture.complete,"Actual disposable CoreCU equipment did not render: "+str(live_fixture))
+		check(int(live_fixture.skinned_items)+int(live_fixture.rigid_items)==fixture.get("equipment",[]).size(),"Actual CoreCU worn objects were omitted")
+		check(avatar.skeleton==skeleton and skeleton.get_bone_pose(neck).is_equal_approx(pose),"Actual CoreCU clothing refresh disturbed tracking")
 	var report:={"ok":errors.is_empty(),"renderer":"dummy; no GPU or live XR validation","refresh":result,"removed":removed,"unsupported":unsupported,"actual_core3_fixture":live_fixture,"source_race":"human_male","preserved_skeleton_id":skeleton.get_instance_id(),"errors":errors}
 	var file:=FileAccess.open("res://../runtime/evidence/avatar-equipment-smoke.json",FileAccess.WRITE)
 	if file: file.store_string(JSON.stringify(report,"  ")+"\n")

@@ -35,7 +35,7 @@ func run() -> void:
 	host.player.global_position=terminal+Vector3(0,0,1);head.global_position=terminal+Vector3(0,1.2,0.85);head.look_at(terminal+Vector3(0,1.0,0))
 	scout.update_camp_ui()
 	var environment:=WorldEnvironment.new();var settings:=Environment.new();settings.background_mode=Environment.BG_COLOR;settings.background_color=Color("101b27");environment.environment=settings;host.add_child(environment)
-	var caption:=Label.new();caption.text="Original Core3 camp and terminal · desktop Vulkan · mocked tracking";caption.position=Vector2(20,20);host.add_child(caption)
+	var caption:=Label.new();caption.text="Original CoreCU camp and terminal · desktop Vulkan · mocked tracking";caption.position=Vector2(20,20);host.add_child(caption)
 	for i in range(8):await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png("res://../runtime/evidence/scout-camp-vulkan.png")

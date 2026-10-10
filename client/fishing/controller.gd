@@ -54,7 +54,7 @@ func pose()->Transform3D:return bag.item_hand_pose(bag.held_controller(),bag.hel
 func request(action:String,extra:Dictionary={},rod_id:String="")->Dictionary:
 	if busy or app.datapad_character_id.is_empty():return {}
 	var session:=preload("res://scripts/native_session_identity.gd").id(app)
-	if session.is_empty():last_error="Fishing needs a connected Core3 session";return {}
+	if session.is_empty():last_error="Fishing needs a connected CoreCU session";return {}
 	busy=true;var epoch:int=app.datapad_epoch;var version:=generation
 	var id:=rod_id if not rod_id.is_empty() else str(rod.get("id",""))
 	var data:Dictionary={"account":app.datapad_account,"character_id":app.datapad_character_id,"rod_id":id,"live_session_id":session,"position":source(body.global_position),"request_id":"fish-%d-%d"%[Time.get_unix_time_from_system()*1000000,Time.get_ticks_usec()]}

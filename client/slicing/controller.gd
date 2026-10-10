@@ -122,7 +122,7 @@ func target_at(point:Vector3)->Dictionary:
 			var local:Vector3=record.body.to_local(point)
 			if not record.source_bounds.grow(.055).has_point(local):continue
 			var d:float=point.distance_to(record.body.global_position)
-			if d<distance:selected={"id":id,"kind":"item","position":record.body.global_position,"name":str(item.get("name","Item")),"eligible":bool(item.get("sliceable",false)),"reason":str(item.get("slice_block_reason","Core3 has not confirmed that this item can be sliced"))};distance=d
+			if d<distance:selected={"id":id,"kind":"item","position":record.body.global_position,"name":str(item.get("name","Item")),"eligible":bool(item.get("sliceable",false)),"reason":str(item.get("slice_block_reason","CoreCU has not confirmed that this item can be sliced"))};distance=d
 	if is_instance_valid(app.services):
 		for record:Dictionary in app.services.terminal_records():
 			if record.get("kind","")!="mission":continue
@@ -151,7 +151,7 @@ func begin(target:Dictionary,point:Vector3,head:Transform3D)->void:
 func request(action:String,extra:Dictionary={})->Dictionary:
 	if busy or not is_instance_valid(app.services) or app.datapad_character_id.is_empty():return {}
 	var native_id:=preload("res://scripts/native_session_identity.gd").id(app)
-	if native_id.is_empty():error="Slicing needs a connected Core3 session";return {}
+	if native_id.is_empty():error="Slicing needs a connected CoreCU session";return {}
 	busy=true
 	var version:=generation;var character_epoch:int=app.datapad_epoch
 	var payload:Dictionary=app.services.identity_payload();payload.merge(extra,true)
@@ -166,14 +166,14 @@ func request(action:String,extra:Dictionary={})->Dictionary:
 	if response.get("ok",false) and response.get("source_kind","")=="core3_services" and str(response.get("character_id",""))==app.datapad_character_id:
 		if app.services.accept_response(response,false):
 			# Normal service observer handles revision/ownership fencing.
-			if not response.get("state",{}).has("slicing"):error="Core3 omitted slicing state";uncertain=true
+			if not response.get("state",{}).has("slicing"):error="CoreCU omitted slicing state";uncertain=true
 			elif action=="status" and active() and submitted and board.complete():
 				# Active status after an uncertain completion means no outcome yet.
 				# Retry the same receipt so transport loss cannot cost a solved board.
 				submitted=false
 		else:error=app.services.last_error;uncertain=true
 	else:
-		error=str(response.get("error","Slicing response uncertain; checking Core3"));uncertain=true
+		error=str(response.get("error","Slicing response uncertain; checking CoreCU"));uncertain=true
 	var mutation:Dictionary=response.get("mutation",{})
 	if action=="complete" and response.get("source_kind","")=="core3_services" and str(response.get("character_id",""))==app.datapad_character_id and str(response.get("state",{}).get("slicing",{}).get("attempt_id",""))==str(state.get("attempt_id","")) and mutation.get("success",true)==false and mutation.get("status","")=="active":
 		# A definitive rejected candidate is editable. A changed candidate needs
@@ -261,7 +261,7 @@ func _process(delta:float)->void:
 		var remaining:=float(state.get("remaining_seconds",0))
 		var seconds:=maxf(0,remaining-(Time.get_ticks_msec()-received_at)/1000.0)
 		grid.set_status("SLICING · %d / %d PIPES%s"%[board.wires.size(),board.pairs.size()," · %ds"%ceili(seconds) if remaining>0 else ""])
-		notice.text=error if not error.is_empty() else "Checking Core3…" if busy or uncertain or submitted else board.error if not board.error.is_empty() else "Touch matching ends · Touch a connected end to detach"
+		notice.text=error if not error.is_empty() else "Checking CoreCU…" if busy or uncertain or submitted else board.error if not board.error.is_empty() else "Touch matching ends · Touch a connected end to detach"
 		# Native watchdog measures abandonment from the original player position;
 		# the visual cube anchor is not that origin. Status carries its outcome.
 	else:notice.text=error if not error.is_empty() else "Touch an item or mission terminal with the knife; click trigger"

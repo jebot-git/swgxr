@@ -23,6 +23,7 @@
 #include "scout_locomotion.h"
 #include "medic_drag.h"
 #include "vehicle_controls.h"
+#include "snapshot_motion.h"
 #include "portal_visibility.h"
 #include <gdextension_interface.h>
 #include <godot_cpp/godot.hpp>
@@ -56,6 +57,7 @@ void initialize_swg_native(ModuleInitializationLevel level) {
     ClassDB::register_class<SwgScoutLocomotion>();
     ClassDB::register_class<SwgMedicDrag>();
     ClassDB::register_class<SwgVehicleControls>();
+    ClassDB::register_class<SwgSnapshotMotion>();
     ClassDB::register_class<SwgPortalVisibility>();
 }
 void uninitialize_swg_native(ModuleInitializationLevel level) {

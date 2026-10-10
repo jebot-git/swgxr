@@ -213,7 +213,7 @@ func resolve_life_action(success: bool, message: String = "") -> void:
 		life_jump_armed = false
 	life_action_pending = false
 	life_action = ""
-	life_status = message if not message.is_empty() else ("Waiting for Core3 recovery…" if previous in ["recover", "force_of_will"] else "Waiting for Core3 medical transport…") if success else "Core3 rejected the request. Release the control before retrying."
+	life_status = message if not message.is_empty() else ("Waiting for CoreCU recovery…" if previous in ["recover", "force_of_will"] else "Waiting for CoreCU medical transport…") if success else "CoreCU rejected the request. Release the control before retrying."
 	update_life_label()
 
 func life_readout() -> Dictionary:
@@ -234,7 +234,7 @@ func update_life_label() -> void:
 	var lines: Array[String] = ["INCAPACITATED" if observed_posture == 13 else "DEAD"]
 	if not life_status.is_empty(): lines.append(life_status)
 	if recovery_requested_authoritatively and recovery_remaining_seconds >= 0: lines.append("Recovery: %.1f s" % recovery_remaining_seconds)
-	if cloning: lines.append("Core3 medical transport in progress…")
+	if cloning: lines.append("CoreCU medical transport in progress…")
 	if not life_action_pending and not cloning:
 		if observed_posture == 13:
 			if not recovery_requested_authoritatively: lines.append("Hold offhand stick: recover  %d%%" % roundi(100.0*life_hold_seconds/LIFE_HOLD_SECONDS))

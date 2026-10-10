@@ -65,7 +65,7 @@ func run() -> void:
 	assert(deleted.id=="42")
 	assert(not UI.can_delete({"deletable":true,"source":"core3_player_waypoint_list","server_driven":true}))
 	assert(not UI.can_delete({"deletable":true,"source":"core3_datapad_container","reference_only":true}))
-	ui.set_busy(true,"Saving to Core3…")
+	ui.set_busy(true,"Saving to CoreCU…")
 	assert(ui.waypoint_button.disabled and ui.delete_button.disabled)
 	ui.set_busy(false,"UI test fixture")
 	ui.select_category("pets")

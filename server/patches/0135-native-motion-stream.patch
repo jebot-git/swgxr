@@ -1,0 +1,140 @@
+--- /dev/null
++++ b/MMOCoreORB/src/client/zone/NativeMotionStream.h
+@@ -0,0 +1,51 @@
++#pragma once
++// Per-native-client presentation stream. Never reads ClientCore's shared JSON vars.
++#include "engine/util/JSONSerializationType.h"
++#include <mutex>
++#include <thread>
++#include <atomic>
++#include <map>
++#include <chrono>
++#include <fstream>
++#include <cstdio>
++#include <cstdint>
++namespace swgxr {
++class NativeMotionStream {
++ using Json=JSONSerializationType;
++ struct Entry { Json row; double at; };
++ std::mutex mutex;
++ std::map<uint64_t,Entry> rows;
++ uint64_t sequence=0,epoch=0;
++ std::string zone;
++ static double now(){return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();}
++public:
++ static NativeMotionStream& instance(){static NativeMotionStream state;return state;}
++ void scene(std::string terrain){std::lock_guard<std::mutex> lock(mutex);rows.clear();++epoch;auto slash=terrain.find_last_of('/');zone=terrain.substr(slash==std::string::npos?0:slash+1);auto dot=zone.find('.');if(dot!=std::string::npos)zone.resize(dot);}
++ void remove(uint64_t id){std::lock_guard<std::mutex> lock(mutex);rows.erase(id);}
++ void push(uint64_t id,uint64_t parent,double x,double z,double y,uint32_t counter,int speed,unsigned heading){
++  std::lock_guard<std::mutex> lock(mutex);
++  auto old=rows.find(id);
++  if(old!=rows.end() && old->second.row["cell_id"]==std::to_string(parent)){
++   uint32_t previous=old->second.row["movement_counter"].get<uint32_t>();
++   if(int32_t(counter-previous)<=0)return;
++  }
++  if(rows.size()>=512 && old==rows.end()){
++   auto oldest=rows.begin();for(auto it=rows.begin();it!=rows.end();++it)if(it->second.at<oldest->second.at)oldest=it;rows.erase(oldest);
++  }
++  rows[id]={{{"id",std::to_string(id)},{"cell_id",std::to_string(parent)},{"position",{x,z,y}},{"movement_counter",counter},{"speed",std::max(0,speed)},{"heading_radians",heading*6.283/100.},{"sequence",++sequence}},now()};
++ }
++ Json snapshot(uint64_t character){
++  std::lock_guard<std::mutex> lock(mutex);double stamp=now();Json out={{"source_kind","core3_motion_v1"},{"character_id",std::to_string(character)},{"epoch",epoch},{"zone",zone},{"written_at",stamp},{"actors",Json::array()}};
++  for(auto it=rows.begin();it!=rows.end();){if(stamp-it->second.at>3){it=rows.erase(it);continue;}auto row=it->second.row;row["age_ms"]=std::max(0.,(stamp-it->second.at)*1000);out["actors"].push_back(row);++it;}return out;
++ }
++ class Publisher {
++  std::atomic<bool> running{true};std::thread worker;
++ public:
++  Publisher(const std::string& directory,uint64_t character):worker([this,directory,character]{
++   while(running){try{auto value=NativeMotionStream::instance().snapshot(character);std::ofstream file(directory+"/motion.tmp");file<<value.dump();file.close();if(file)std::rename((directory+"/motion.tmp").c_str(),(directory+"/motion.json").c_str());}catch(...){/* Presentation failure never interrupts native transactions. */}std::this_thread::sleep_for(std::chrono::milliseconds(25));}
++  }){}
++  ~Publisher(){running=false;worker.join();}
++  Publisher(const Publisher&)=delete;Publisher& operator=(const Publisher&)=delete;
++ };
++};
++}
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -1,4 +1,5 @@
+ #include "Zone.h"
++#include "NativeMotionStream.h"
+ #include "ZonePacketHandler.h"
+ #include "ClientCore.h"
+ #include "client/zone/objects/scene/SceneObject.h"
+@@ -72,6 +73,7 @@
+ 		CASE_OPCODE("ChatOnLeaveRoom");
+ 			break;
+ 		CASE_OPCODE("SceneDestroyObject");
++			swgxr::NativeMotionStream::instance().remove(pack->parseLong());
+ 			break;
+ 		}
+ 		break;
+@@ -140,6 +142,18 @@
+ 			break;
+ 		}
+ 		break;
++	case 8:
++        if(opcode==0x1B24F808 || opcode==0xC867AB5A){
++            what="NativeMotion";
++            const bool parented=opcode==0xC867AB5A;
++            if(pack->size()-pack->getOffset()<(parented?28:20))break;
++            uint64 parent=parented?pack->parseLong():0,oid=pack->parseLong();
++            double scale=parented?8.:4.;
++            double x=int16_t(pack->parseShort())/scale,z=int16_t(pack->parseShort())/scale,y=int16_t(pack->parseShort())/scale;
++            uint32 counter=pack->parseInt();int speed=int8_t(pack->parseByte());unsigned heading=pack->parseByte();
++            swgxr::NativeMotionStream::instance().push(oid,parent,x,z,y,counter,speed,heading);
++        }
++        break;
+ 	case 9:
+ 		switch (opcode) {
+ 		CASE_OPCODE("CmdStartScene");
+@@ -207,6 +221,8 @@
+ 			<< "; aborting Scene.";
+ 		return;
+ 	}
++
++	swgxr::NativeMotionStream::instance().scene(terrain.toCharArray());
+ 
+ 	// Expose authoritative entry state to the local prototype adapter.
+ 	core->setVar("scene/terrain", terrain);
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -7,6 +7,7 @@
+  */
+ 
+ #include <fstream>
++#include "client/zone/NativeMotionStream.h"
+ #include <cstdio>
+ #include <chrono>
+ #include "server/zone/objects/creature/commands/SnapshotCodec.h"
+@@ -208,6 +209,7 @@
+ 
+ 		if (!liveDirectory.empty()) {
+ 			if(liveDirectory.find("/workspace/runtime/server/livecombat/")!=0 || liveDirectory.find("..")!=std::string::npos){result.setError("Invalid live IPC directory",10);return;}
++			swgxr::NativeMotionStream::Publisher motionPublisher(liveDirectory,oid);
+ 			auto publish=[&](const JSONSerializationType& value){std::ofstream file(liveDirectory+"/response.tmp");file<<value.dump();file.close();std::rename((liveDirectory+"/response.tmp").c_str(),(liveDirectory+"/response.json").c_str());};
+ 			{std::ofstream ready(liveDirectory+"/ready.json");ready<<"{\"zone_ready\":true}";}
+ 			auto last=std::chrono::steady_clock::now();int counter=100;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -75,6 +75,9 @@
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+   bool friendly=false;if(o->isCreatureObject()){auto creature=o->asCreatureObject();auto owner=creature->getLinkedCreature().get();friendly=owner==observer || (owner && observer->getGroupID()!=0 && owner->getGroupID()==observer->getGroupID());}out["relation"]=out["aggressive"].get<bool>()?"hostile":out["attackable"].get<bool>()?"attackable":friendly?"friendly":"neutral";
+   auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;out["building_id"]=cell && root!=nullptr?id(root):"0";out["cell_index"]=cell;
++  out["cell_id"]=cell?id(parent):"0";out["local_position"]=Json::array({o->getPositionX(),o->getPositionZ(),o->getPositionY()});out["cell_heading_radians"]=cell && root?root->getDirection()->getRadians():0.f;
++  out["heading_radians"]=std::fmod(o->getDirection()->getRadians()+out["cell_heading_radians"].get<double>(),6.283185307179586);out["movement_counter"]=o->getMovementCounter();
++  if(o->isCreatureObject()){auto creature=o->asCreatureObject();out["movement_speed"]=creature->getCurrentSpeed();out["walk_speed"]=creature->getWalkSpeed();out["run_speed"]=creature->getRunSpeed();}
+   String data;o->getCustomizationString(data);static const char* hex="0123456789abcdef";std::string encoded;for(int i=0;i<data.length();++i){unsigned char value=data[i];encoded+=hex[value>>4];encoded+=hex[value&15];}out["customization_hex"]=encoded;return out;
+  }
+  static std::string customization(TangibleObject* o){
+@@ -500,9 +503,9 @@
+   double contactScale=1.;
+   if(shot.scatter || shot.lightning){
+    corecu::bountyhunter::Vec o{},d{},h{};for(int i=0;i<3;++i){o[i]=shot.origin[i].get<double>();d[i]=shot.direction[i].get<double>();h[i]=hit[i].get<double>();}
+-   if(!guaranteed){if(age>stamp-shot.time+.15)throw std::runtime_error("projectile_ahead_of_clock");if(!SwgxrBlastSight::clear(c,tangible,o))throw std::runtime_error("projectile_occluded");auto center=position(target.get());center[1]=center[1].get<double>()+1.;double radius=target->isCreatureObject()?std::max(1.5,std::min(3.,double(target->asCreatureObject()->getHeight(false))*1.5)):3.;if(distance(hit,center)>radius)throw std::runtime_error("projectile_target_contact");
++   if(!guaranteed){if(age>stamp-shot.time+.15)throw std::runtime_error("projectile_ahead_of_clock");if(!SwgxrBlastSight::clear(c,tangible,o))throw std::runtime_error("projectile_occluded");/* Client collision selects contact on the presented actor, as for ordinary bolts. Native flight, ownership, life and damage checks remain authoritative. */
+     if(shot.scatter){if(!request.contains("pellet_contacts") || !request.at("pellet_contacts").is_array() || request.at("pellet_contacts").empty() || request.at("pellet_contacts").size()>8)throw std::runtime_error("invalid_pellet_contacts");std::set<int> pellets;double firstAge=9.;Json firstPoint;
+-     for(const auto& contact:request.at("pellet_contacts")){if(!contact.is_object() || !contact.contains("pellet_index") || !contact.at("pellet_index").is_number_integer())throw std::runtime_error("invalid_pellet_contacts");int index=contact.at("pellet_index").get<int>();if(index<0 || index>=8 || !pellets.insert(index).second)throw std::runtime_error("invalid_pellet_index");auto point=vector(contact.at("hit_position"));double pelletAge=contact.at("projectile_age_seconds").get<double>();corecu::bountyhunter::Vec ph{};for(int i=0;i<3;++i)ph[i]=point[i].get<double>();if(pelletAge>stamp-shot.time+.15 || !corecu::bountyhunter::contact(o,corecu::bountyhunter::pelletDirection(d,index),ph,pelletAge,shot.range) || distance(point,center)>radius)throw std::runtime_error("invalid_pellet_contact");if(pelletAge<firstAge){firstAge=pelletAge;firstPoint=point;}}
++     for(const auto& contact:request.at("pellet_contacts")){if(!contact.is_object() || !contact.contains("pellet_index") || !contact.at("pellet_index").is_number_integer())throw std::runtime_error("invalid_pellet_contacts");int index=contact.at("pellet_index").get<int>();if(index<0 || index>=8 || !pellets.insert(index).second)throw std::runtime_error("invalid_pellet_index");auto point=vector(contact.at("hit_position"));double pelletAge=contact.at("projectile_age_seconds").get<double>();corecu::bountyhunter::Vec ph{};for(int i=0;i<3;++i)ph[i]=point[i].get<double>();if(pelletAge>stamp-shot.time+.15 || !corecu::bountyhunter::contact(o,corecu::bountyhunter::pelletDirection(d,index),ph,pelletAge,shot.range))throw std::runtime_error("invalid_pellet_contact");if(pelletAge<firstAge){firstAge=pelletAge;firstPoint=point;}}
+      if(std::abs(firstAge-age)>.002 || distance(firstPoint,hit)>.05)throw std::runtime_error("pellet_primary_mismatch");contactScale=pellets.size()/8.;result["pellet_hits"]=pellets.size();
+     }else if(!shot.guidedTarget.empty()? !corecu::bountyhunter::guidedContact(o,d,h,age,shot.range):!corecu::bountyhunter::contact(o,d,h,age,shot.range))throw std::runtime_error("invalid_lightning_contact");
+    }else if(shot.scatter){contactScale=1.;result["pellet_hits"]=8;}

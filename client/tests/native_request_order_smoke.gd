@@ -11,7 +11,7 @@ class Host extends "res://scripts/main.gd":
 	func _ready()->void:pass
 	func _process(_delta:float)->void:pass
 	func _physics_process(_delta:float)->void:pass
-	func _api_dispatch(_method:HTTPClient.Method,path:String,body:Dictionary={})->Dictionary:
+	func _api_dispatch(_method:HTTPClient.Method,path:String,body:Dictionary={},_persistent:=false)->Dictionary:
 		active+=1;maximum=maxi(maximum,active);received.append({"path":path,"body":body.duplicate(true)})
 		for i in range(3):await get_tree().process_frame
 		active-=1
@@ -33,4 +33,16 @@ func run()->void:
 	for i in range(10):await process_frame
 	check(host.received.size()==3 and host.replies[-1].get("cancelled",false),"Queued economic action cannot follow a room transition")
 	check(host.native_api_queue.is_empty(),"Request queue drains after rejection")
+	host.services.cell=1
+	var stamped:=pose.duplicate(true);stamped.movement_revision=5
+	host.send("/services/status",pose);host.send("/combat/session/update",stamped)
+	for i in range(10):await process_frame
+	check(host.received[-1].body.position==[1,0,0] and not host.received[-1].body.has("movement_revision"),"Unsent heartbeat regenerates its pose and stamps fresh authority at dispatch")
+	host.send("/services/status",pose);host.send("/combat/session/fire",stamped)
+	for i in range(10):await process_frame
+	check(host.received[-1].body.position==[0,0,0] and host.received[-1].body.movement_revision==5,"Queued shot retains captured pose and authority")
+	stamped.transport_ack="arrival"
+	host.send("/services/status",pose);host.send("/combat/session/update",stamped)
+	for i in range(10):await process_frame
+	check(host.received[-1].body.position==[0,0,0] and host.received[-1].body.movement_revision==5,"Arrival acknowledgement retains exact destination and authority")
 	host.free();print(JSON.stringify({"errors":errors,"native":"mocked","renderer":"dummy"}));quit(0 if errors.is_empty() else 1)

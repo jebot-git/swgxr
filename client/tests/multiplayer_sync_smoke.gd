@@ -15,7 +15,7 @@ func run()->void:
 	check(state.accept(response(),"101","owned",1),"Accept authenticated owned full observer snapshot")
 	check(state.players.size()==1 and state.players[0].id=="102","Self omitted from remote player projection")
 	check(state.players[0].position==[2.5,0,0] and state.players[0].tracking.size()==2,"Fresh same-cell visual poses decorate native identity")
-	check(state.players[0].appearance.equipment[0].id=="77" and state.actors[0].health==100,"Equipment and actor health stay Core3 authoritative")
+	check(state.players[0].appearance.equipment[0].id=="77" and state.actors[0].health==100,"Equipment and actor health stay CoreCU authoritative")
 	var delta:=response(2);delta.world=null;delta.poses[0].position=[3,0,0]
 	check(state.accept(delta,"101","owned",2) and state.players[0].position==[3,0,0],"Unchanged native revision accepts cheap pose update without retransmitting world")
 	check(state.native_world.players[1].position==[2,0,0],"Pose overlay never rewrites cached authoritative world anchor")

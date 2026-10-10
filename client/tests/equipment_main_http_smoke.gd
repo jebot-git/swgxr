@@ -39,7 +39,7 @@ func run() -> void:
 	var tracked_pose:=Transform3D(Basis(Vector3.UP,0.08),Vector3(0.01,0.01,0))
 	app.avatar.skeleton.set_bone_pose(0,tracked_pose)
 	await app.refresh_inventory(); app.inventory.set_allowed(true)
-	check(app.inventory_snapshot.get("source_kind","")=="core3_inventory" and app.inventory_snapshot.has("equipment"),"Core3 full equipment metadata reached client")
+	check(app.inventory_snapshot.get("source_kind","")=="core3_inventory" and app.inventory_snapshot.has("equipment"),"CoreCU full equipment metadata reached client")
 	check(app.avatar.report.get("equipment_complete",false),"All original currently equipped appearances resolved")
 	var shirt: Dictionary={}
 	for item: Dictionary in app.inventory_snapshot.get("items",[]):
@@ -52,7 +52,7 @@ func run() -> void:
 		app.inventory.update_held_trigger(0,head.global_transform); app.inventory.update_held_trigger(0.9,head.global_transform)
 		check(app.inventory.hologram.active and app.inventory.blocks_combat(),"Fresh trigger displays local equipment hologram and reserves combat input")
 		var slot: String=arrangement.slots[0]
-		check(app.inventory.hologram.markers.has(slot),"Actual Core3 arrangement has original skeleton anchor")
+		check(app.inventory.hologram.markers.has(slot),"Actual CoreCU arrangement has original skeleton anchor")
 		if app.inventory.hologram.markers.has(slot):
 			var pose: Transform3D=app.inventory.hologram.markers[slot].global_transform
 			app.inventory.update_gestures(true,head.global_transform,Transform3D.IDENTITY,0,0.9,{},pose)
@@ -76,7 +76,7 @@ func run() -> void:
 		while app.inventory_request_pending: await create_timer(0.02).timeout
 		var remaining: Dictionary=app.owned_inventory_item(str(consumable.id))
 		var used: bool=remaining.is_empty() or int(remaining.get("use_count",0))==int(consumable.get("use_count",0))-1
-		check(used,"Fresh trigger invokes original Core3 consumption for exactly one unit/charge")
+		check(used,"Fresh trigger invokes original CoreCU consumption for exactly one unit/charge")
 		check(app.inventory.held_item.is_empty() if remaining.is_empty() else app.inventory.held_item.get("use_count",-1)==remaining.use_count,"Held appearance reconciles consumed object/charge")
 		await app.refresh_inventory()
 		check(app.owned_inventory_item(str(consumable.id))==remaining,"Consumption survives separate authenticated login")

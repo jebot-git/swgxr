@@ -35,12 +35,12 @@ func run()->void:
 	var board:Dictionary={}
 	for row:Dictionary in proof.responses:
 		if row.path=="/services/travel_board" and row.response.get("transport",{}).get("destination",{}).get("zone","")=="naboo":board=row.response;break
-	check(not board.is_empty(),"Actual Core3 Tatooine to Naboo transport fixture exists")
+	check(not board.is_empty(),"Actual CoreCU Tatooine to Naboo transport fixture exists")
 	app.datapad_character_id=str(board.character_id)
 	app.gameplay_session.live=true;app.gameplay_session.session_id=str(board.live_response.session_id);app.gameplay_session.sequence=int(board.live_response.sequence)-1
 	var deliveries:Array=[];app.gameplay_session.transport_required.connect(func(row):deliveries.append(row))
 	check(coordinator.accept_response(board),"Newer owned cross-zone native receipt enters persistent transport flow")
-	check(deliveries.size()==1 and deliveries[0].destination.zone=="naboo","Original Core3 destination survives the client bridge unchanged")
+	check(deliveries.size()==1 and deliveries[0].destination.zone=="naboo","Original CoreCU destination survives the client bridge unchanged")
 	check(coordinator.state.is_empty(),"Destination UI rows are not installed into the previous world")
 	var stale:=board.duplicate(true);stale.erase("live_response")
 	check(not coordinator.accept_response(stale),"Cross-zone services without owned transport cannot replace source state")
@@ -62,5 +62,5 @@ func run()->void:
 	check(not map.map.source_services.is_empty() and str(map.map.map_data.service_directory).contains("/naboo/"),"Destination original terminals and trainers populate map references")
 	check(map.entries.filter(func(row):return row.get("reference_only",false)).all(func(row):return row.planet=="naboo"),"Reference POIs contain only destination planet")
 	map.free();retry.free();app.free();await process_frame
-	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"native_envelopes":"recorded actual Core3 roundtrip","network":"none","xr":"off"}
+	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"native_envelopes":"recorded actual CoreCU roundtrip","network":"none","xr":"off"}
 	FileAccess.open("res://../runtime/evidence/planet-contract-smoke.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report));quit(0 if failures.is_empty() else 1)

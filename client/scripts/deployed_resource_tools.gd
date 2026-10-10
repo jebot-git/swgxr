@@ -16,7 +16,7 @@ var visuals: Dictionary={}
 var refresh_time:=0.0
 var server_clock_offset:=0.0
 var beam_material: StandardMaterial3D
-var report:={"last_error":"","failures":{},"awaiting_ground":0,"source":"confirmed persistent Core3 deployment states"}
+var report:={"last_error":"","failures":{},"awaiting_ground":0,"source":"confirmed persistent CoreCU deployment states"}
 
 func configure(source_assets: RefCounted) -> void:
 	clear()
@@ -138,12 +138,12 @@ func count_text(state: Dictionary, now: float=-1.0) -> String:
 	var message := str(state.get("sample_message",""))
 	if not message.is_empty(): text+="\n"+message.left(120)
 	elif not outcome.is_empty(): text+="\n"+outcome.replace("_"," ").capitalize()
-	else: text+="\nAwaiting Core3 sample status"
+	else: text+="\nAwaiting CoreCU sample status"
 	var current := now if now>=0 else Time.get_unix_time_from_system()+server_clock_offset
 	var due := float(state.get("next_sample_at_unix",0))
 	if due>0 and outcome not in ["expired","full","duplicate_type"]:
 		var seconds := maxi(0,ceili(due-current))
-		text+="\nNext sample: %ds"%seconds if seconds>0 else "\nWaiting for Core3 sample result"
+		text+="\nNext sample: %ds"%seconds if seconds>0 else "\nWaiting for CoreCU sample result"
 	var density := float(state.get("recommended_density",state.get("minimum_productive_density",0)))
 	if density>0 and outcome in ["trace_amount","density_below_threshold"]:
 		text+=" · seek ≥%d%% density"%ceili(density*100.0)

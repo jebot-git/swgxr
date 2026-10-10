@@ -88,7 +88,7 @@ func run() -> void:
 	var response: Dictionary=host.response()
 	response.state.skills=["combat_marksman_novice"];response.state.skills_complete=true
 	response.state.experience={"pistol":75};response.state.experience_complete=true
-	check(coordinator.accept_response(response),"Validated Core3 trainer state accepted")
+	check(coordinator.accept_response(response),"Validated CoreCU trainer state accepted")
 	check(host.datapad.ui.skill_calls.size()==1 and host.datapad.ui.skill_calls[0].values==["combat_marksman_novice"],"Complete native skill snapshot reaches datapad without legacy request")
 	check(host.datapad.ui.experience_calls.size()==1 and host.datapad.ui.experience_calls[0].values.pistol==75,"Complete native XP snapshot reaches datapad progress display")
 	coordinator.accept_response(response)
@@ -99,7 +99,7 @@ func run() -> void:
 	var invalid:=response.duplicate(true);invalid.state.character_id="other"
 	check(not coordinator.accept_response(invalid) and host.datapad.ui.skill_calls.size()==1,"Wrong-character skills cannot reach current datapad")
 	invalid=response.duplicate(true);invalid.source_kind="local_store"
-	check(not coordinator.accept_response(invalid) and host.datapad.ui.experience_calls.size()==1,"Non-Core3 progress cannot reach datapad")
+	check(not coordinator.accept_response(invalid) and host.datapad.ui.experience_calls.size()==1,"Non-CoreCU progress cannot reach datapad")
 	invalid=response.duplicate(true);invalid.state.skills=[12];invalid.state.experience={"pistol":-10}
 	coordinator.accept_response(invalid)
 	check(host.datapad.ui.skill_calls.size()==1 and host.datapad.ui.experience_calls.size()==1,"Malformed skills and negative XP rejected before presentation")
@@ -137,7 +137,7 @@ func run() -> void:
 	await coordinator.request("trainer_train",{"terminal_id":"actual-native-trainer-id","skill_id":"combat_marksman_pistol_03"})
 	check(host.weapon_refreshes==1,"Disconnected but reserved persistent session cannot fall back to legacy weapon endpoint")
 	host.queue_free();await process_frame
-	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"skills":"fourteen original user-media profession graphs","authority":"mocked Core3 envelopes only; native server tested separately","renderer":"headless dummy; XR disabled"}
+	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"skills":"fourteen original user-media profession graphs","authority":"mocked CoreCU envelopes only; native server tested separately","renderer":"headless dummy; XR disabled"}
 	var file:=FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/trainer-services-smoke.json"),FileAccess.WRITE)
 	if file!=null: file.store_string(JSON.stringify(result,"\t"))
 	print(JSON.stringify(result));quit(0 if failures.is_empty() else 1)

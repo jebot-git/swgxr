@@ -44,10 +44,10 @@ func run()->void:
 		var phase:=str(taming.get("state",""))
 		if phase=="pending" and not observed.pending:
 			observed.pending=true;handler.show_progress({"progress":0,"latched":true},"tame",{},true,taming,true)
-			check(handler.label.text.contains("Core3 taming") and not handler.label.text.contains("tamed and added"),"Real pending receipt never claims tame completion")
+			check(handler.label.text.contains("CoreCU taming") and not handler.label.text.contains("tamed and added"),"Real pending receipt never claims tame completion")
 		if phase=="succeeded" and not observed.succeeded:
 			observed.succeeded=true;success_request=str(taming.request_id)
-			check(handler.status.contains("Core3 confirmed") and not str(taming.device_id) in ["","0"],"Native owned device is required before success text")
+			check(handler.status.contains("CoreCU confirmed") and not str(taming.device_id) in ["","0"],"Native owned device is required before success text")
 		if phase=="failed" and str(taming.get("request_id",""))==success_request and not success_request.is_empty():
 			check(not handler.status.begins_with("Taming failed"),"Stored/relogged pet cannot revoke the same completed tame receipt")
 		var mutation:Dictionary=reply.get("mutation",{})

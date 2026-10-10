@@ -42,7 +42,7 @@ func exercise() -> void:
 	result=await request("/auth/session")
 	if not check(result.get("ok",false) and result.get("account")==account,"Verified HTTPS session resolves original account"):return
 	result=await request("/characters?account="+account)
-	if not check(result.get("ok",false) and result.get("backend")=="core3" and result.get("characters") is Array,"Authenticated account reaches original native Core3 roster"):return
+	if not check(result.get("ok",false) and result.get("backend")=="core3" and result.get("characters") is Array,"Authenticated account reaches original native CoreCU roster"):return
 	if not check(result.characters.is_empty(),"Fresh dedicated account has no characters"):return
 	result=await request("/auth/logout",HTTPClient.METHOD_POST,{})
 	if not check(result.get("ok",false) and result.get("logged_out",false),"Explicit logout revokes first opaque session"):return

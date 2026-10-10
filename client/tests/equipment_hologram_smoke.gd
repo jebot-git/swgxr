@@ -131,13 +131,13 @@ func run() -> void:
 		if "--live-snapshot" in OS.get_cmdline_user_args():
 			var actual: Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/evidence/equipment-fixture-snapshot.json"))
 			var incoming_records: Array=actual.items.filter(func(item): return str(item.get("id",""))=="281474993609991")
-			check(not incoming_records.is_empty(),"Actual Core3 fixture incoming shirt is available")
+			check(not incoming_records.is_empty(),"Actual CoreCU fixture incoming shirt is available")
 			incoming=incoming_records[0]
 			var source_report: Dictionary=source.configure(str(actual.race))
 			var gear_report: Dictionary=source.refresh_equipment(actual.equipment)
 			check(str(source_report.get("error","")).is_empty() and bool(gear_report.get("complete",false)),"Actual source avatar displays full server equipment snapshot")
 			bag.set_snapshot(actual); bag.set_equipment_context(source,actual.equipment); preview_slot="chest1"
-			caption_text="Desktop equipment preview · actual local Core3 avatar and item attributes"
+			caption_text="Desktop equipment preview · actual local CoreCU avatar and item attributes"
 		bag.take_item(incoming); bag.show_equipment_hologram(head.global_transform); bag.hologram.update_hand(bag.hologram.markers[preview_slot].global_position)
 		bag.held_model.visible=false
 		var camera:=Camera3D.new(); world.add_child(camera); camera.position=Vector3(0,1.52,0.5); camera.fov=52; camera.make_current()

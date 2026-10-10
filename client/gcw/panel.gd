@@ -73,7 +73,7 @@ func confirm()->void:
 	if terminal.get("kind","")!="recruiter":super();return
 	if pending or selected<0 or selected>=rows.size():return
 	var row:Dictionary=rows[selected]
-	if not row.get("eligible",false):message=str(row.get("reason","Core3 does not allow this action."));queue_redraw();return
+	if not row.get("eligible",false):message=str(row.get("reason","CoreCU does not allow this action."));queue_redraw();return
 	var action:="recruiter_join";var payload:Dictionary={"terminal_id":str(terminal.id)}
 	if row.get("kind")=="reward":
 		if not preview_ready:message="Inspect the original reward preview before purchasing.";queue_redraw();return
@@ -84,10 +84,10 @@ func draw_scan()->void:
 	draw_style_box(Holo.frame(14,"wide"),Rect2(Vector2.ZERO,size))
 	draw_string(FONT,Vector2(30,50),"CONTRABAND INSPECTION",HORIZONTAL_ALIGNMENT_LEFT,760,27,Color("d2f6ff"));draw_string(FONT,Vector2(818,40),"×",HORIZONTAL_ALIGNMENT_LEFT,30,25,Color("d2f6ff"))
 	var scan:Dictionary=terminal.get("scan",{})
-	draw_multiline_string(FONT,Vector2(40,160),"Core3's inspecting patrol has issued a fine.\n\nFine: %d credits\nCarried: %d credits · Bank: %d credits\n\nPay the fine or refuse. The patrol determines the outcome."%[int(scan.get("fine",0)),int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,770,24,10,Color("d2f6ff"))
+	draw_multiline_string(FONT,Vector2(40,160),"CoreCU's inspecting patrol has issued a fine.\n\nFine: %d credits\nCarried: %d credits · Bank: %d credits\n\nPay the fine or refuse. The patrol determines the outcome."%[int(scan.get("fine",0)),int(wallet.get("cash",0)),int(wallet.get("bank",0))],HORIZONTAL_ALIGNMENT_LEFT,770,24,10,Color("d2f6ff"))
 	for button in [{"rect":REFRESH_RECT,"text":"Pay fine"},{"rect":CONFIRM_RECT,"text":"Refuse"}]:
 		draw_style_box(Holo.button("disabled" if pending else "normal"),button.rect);draw_string(FONT,button.rect.position+Vector2(10,33),str(button.text),HORIZONTAL_ALIGNMENT_CENTER,button.rect.size.x-20,20,Color("d2f6ff"))
-	draw_string(FONT,Vector2(22,580),"Waiting for Core3…" if pending else message,HORIZONTAL_ALIGNMENT_LEFT,810,18,Color("9ac7da"))
+	draw_string(FONT,Vector2(22,580),"Waiting for CoreCU…" if pending else message,HORIZONTAL_ALIGNMENT_LEFT,810,18,Color("9ac7da"))
 func _draw()->void:
 	if terminal.get("kind","")=="contraband":draw_scan();return
 	if terminal.get("kind","")!="recruiter":super();return
@@ -101,5 +101,5 @@ func _draw()->void:
 	draw_style_box(Holo.button("disabled" if pending else "normal"),REFRESH_RECT);draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Refresh",HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if rows.size()>8:draw_string(FONT,Vector2(230,519),"%d–%d / %d · drag"%[int(offset)+1,mini(rows.size(),int(offset)+8),rows.size()],HORIZONTAL_ALIGNMENT_LEFT,330,18,Color("9ac7da"))
 	var valid:=selected>=0 and selected<rows.size();var reward:bool=valid and rows[selected].get("kind")=="reward";var enabled:bool=valid and rows[selected].get("eligible",false) and (not reward or preview_ready) and not pending
-	draw_style_box(Holo.button("hover" if enabled else "disabled"),CONFIRM_RECT);draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for Core3…" if pending else "Purchase reward" if reward else "Request promotion" if valid and rows[selected].get("kind")=="promotion" else "Confirm enlistment",HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
+	draw_style_box(Holo.button("hover" if enabled else "disabled"),CONFIRM_RECT);draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for CoreCU…" if pending else "Purchase reward" if reward else "Request promotion" if valid and rows[selected].get("kind")=="promotion" else "Confirm enlistment",HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
 	draw_string(FONT,Vector2(22,559),"Salute your recruiter to request on-leave / combatant duty.",HORIZONTAL_ALIGNMENT_LEFT,810,18,Color("9ac7da"));draw_string(FONT,Vector2(22,592),message,HORIZONTAL_ALIGNMENT_LEFT,810,17,Color("9ac7da"))

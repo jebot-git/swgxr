@@ -50,14 +50,14 @@ func run() -> void:
 	check(requests.size()==1 and requests[0].id==deed.id,"Triggering held creature deed requests exactly one registration")
 	host.inventory.finish_consumable_action({},false)
 
-	host.reply={"ok":false,"error":"Core3 request timed out; outcome unconfirmed.","code":"request_timeout"}
+	host.reply={"ok":false,"error":"CoreCU request timed out; outcome unconfirmed.","code":"request_timeout"}
 	await host.activate_inventory_vehicle_deed(deed)
 	check(host.calls[-1].path=="/vehicles/activate" and not host.calls[-1].payload.has("live_session_id"),"Normal world activation uses native vehicle endpoint without invented live session")
 	check(host.inventory.held_item.id==deed.id and not host.inventory.action_pending and not host.inventory_request_pending,"Unknown activation outcome preserves deed and unlocks input")
 	var receipt:String=host.calls[-1].payload.request_id
 	var original_position:Array=host.calls[-1].payload.position.duplicate()
 	host.player.global_position=Vector3(9,0,0)
-	host.reply={"ok":false,"error":"Core3 is busy.","error_code":"backend_busy","mutation_started":false}
+	host.reply={"ok":false,"error":"CoreCU is busy.","error_code":"backend_busy","mutation_started":false}
 	await host.activate_inventory_vehicle_deed(deed)
 	check(host.calls[-1].payload.request_id==receipt and host.calls.size()==2,"Explicit retry keeps same receipt after ambiguous response")
 	check(host.calls[-1].payload.position==original_position,"Moving after timeout cannot change semantic position under retained receipt")

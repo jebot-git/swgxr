@@ -690,6 +690,9 @@ def voice_request(account,data,issue=False):
     return out
 
 class Handler(BaseHTTPRequestHandler):
+    protocol_version = 'HTTP/1.1'
+    disable_nagle_algorithm = True
+    timeout = 15
     server_version = 'SWGXRPrototype/0.1'
 
     def log_message(self, format, *args):
@@ -716,6 +719,7 @@ class Handler(BaseHTTPRequestHandler):
     def allowed(self):
         # Native Godot has no Origin. No browser cross-origin API access.
         if self.headers.get('Origin'):
+            self.close_connection = True
             self.respond(403, {'error': 'Browser origins are not accepted by this local prototype API.'})
             return False
         return True
@@ -781,15 +785,24 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.allowed(): return
         try:
+            close_after_response = self.close_connection
+            self.close_connection = True
+            if self.headers.get("Transfer-Encoding"):
+                raise ValueError("Chunked requests are unsupported.")
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= MAX_BODY:
+                self.close_connection = True
                 raise ValueError('Invalid request size.')
-            data = json.loads(self.rfile.read(length))
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                raise ValueError('Incomplete request body.')
+            self.close_connection = close_after_response
+            data = json.loads(raw)
             if not isinstance(data, dict): raise ValueError('Expected a JSON object.')
             account = data.get('account', 'prototype')
             account_name(account)
             if self.path == '/session/sync':
-                self.respond(200,WORLD_SYNC.sync(account,data))
+                self.respond(200,WORLD_SYNC.sync(account,data,LIVE_COMBAT.motion(account,data)))
                 return
             if self.path == '/session/update' and LIVE_COMBAT.parallel_update_allowed(account,data):
                 # Verified new native binaries use Engine cross-locking. Keep

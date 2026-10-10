@@ -144,8 +144,8 @@ func run()->void:
 	check(app.statistics_refreshes==1,"Confirmed slicing success requests one forced equipment-stat refresh per attempt")
 	controller.error="Slice complete";controller.held_changed({})
 	check(controller.error.is_empty() and not controller.notice.visible,"Switching away from knife clears inactive completion notice")
-	controller.uncertain=true;controller.error="Checking Core3";controller.held_changed({})
-	check(controller.error=="Checking Core3","Switching tool preserves uncertain outcome notice")
+	controller.uncertain=true;controller.error="Checking CoreCU";controller.held_changed({})
+	check(controller.error=="Checking CoreCU","Switching tool preserves uncertain outcome notice")
 	# A request from a previous character must not restore its attempt after reset.
 	controller.reset();app.reply=response(true);controller.request("status");controller.reset();await settle()
 	check(not controller.active() and not controller.busy and controller.locked_target.is_empty(),"Late response after reset cannot restore old character puzzle or item lock")

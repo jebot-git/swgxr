@@ -112,7 +112,7 @@ func request(action: String,detail: Dictionary={})->void:
 		if action.begins_with("pet_"):
 			status=("Calling pet…" if action=="pet_call" else "Recalling pet…") if mutation.get("pending",false) else ("Command accepted" if action=="pet_command" else "Pet ready")
 		if action=="ch_train_command" and mutation.get("learned")==false:mutation.message="Training attempt accepted; the command was not learned. Try again."
-		if action.begins_with("ch_"):status=str(mutation.get("message","Core3 creature action pending" if mutation.get("pending",false) else "Creature handling confirmed")) if action!="ch_status" else ""
+		if action.begins_with("ch_"):status=str(mutation.get("message","CoreCU creature action pending" if mutation.get("pending",false) else "Creature handling confirmed")) if action!="ch_status" else ""
 	else:status=str(result.get("error",result.get("mutation",{}).get("error_code","Vehicle action not confirmed")))
 	if action.begins_with("ch_") and action!="ch_status":creature_action_finished.emit(action,status)
 	if is_instance_valid(app.datapad) and (action not in ["status","ch_status"] or not status.is_empty()):app.datapad.ui.set_status(status if not status.is_empty() else "Vehicle ready")
@@ -210,14 +210,19 @@ func board(value: Dictionary)->void:
 	var local_head: Transform3D=origin.global_transform.affine_inverse()*head.global_transform
 	var yaw:=atan2(local_head.basis.z.x,local_head.basis.z.z)
 	var basis:=last_seat.basis*Basis(Vector3.UP,-yaw)
-	origin.global_transform=Transform3D(basis,last_seat.origin+Vector3.UP*.68-basis*local_head.origin)
+	origin.global_transform=Transform3D(basis,last_seat.origin+last_seat.basis.y*.68-basis*local_head.origin)
 	origin_in_seat=last_seat.affine_inverse()*origin.global_transform
 	body.global_transform=last_seat;body.velocity=Vector3.ZERO;body.ground_control_velocity=Vector2.ZERO
 	body._update_locomotion()
 func unseat()->void:
 	var previous:Dictionary=vehicles.get(str(seat.get("vehicle_id","")),{})
 	if is_instance_valid(previous.get("yoke")):previous.yoke.transform=Transform3D.IDENTITY
-	if seated() and is_instance_valid(origin):origin.global_position.y=body.global_position.y+origin_floor_offset
+	if seated() and is_instance_valid(origin):
+		var head_position:=head.global_position
+		origin.global_basis=Basis(Vector3.UP,origin.global_basis.get_euler().y)
+		origin.global_position+=head_position-head.global_position
+		origin.global_position.y=body.global_position.y+origin_floor_offset
+		body.global_basis=Basis(Vector3.UP,body.global_basis.get_euler().y)
 	seat={};controls.reset();input={"held":false,"throttle":0.0,"steer":0.0,"left_held":false,"right_held":false}
 	if is_instance_valid(body):body.velocity=Vector3.ZERO;body._update_locomotion()
 func seat_step()->void:
@@ -269,7 +274,7 @@ func _physics_process(delta: float)->void:
 		if seated() and str(seat.vehicle_id)==id and str(seat.id)=="driver" and not bool(v.record.get("disabled",false)):
 			var motion: Dictionary=SwgVehicleControls.advance(v.speed,input.throttle,input.steer,v.record.max_speed,v.record.reverse_speed,v.record.acceleration,v.record.turn_rate,delta)
 			v.speed=motion.speed;v.node.rotate_y(-float(motion.yaw))
-			move_driver(v,-v.node.global_basis.z*float(motion.distance))
+			move_driver(v,-v.node.global_basis.z.slide(Vector3.UP).normalized()*float(motion.distance))
 			# New servers accept collision-resolved local motion. Older servers
 			# still integrate controls, so retain their existing reconciliation.
 			if not client_motion_supported():
@@ -279,7 +284,9 @@ func _physics_process(delta: float)->void:
 				target.basis=target.basis*Basis(Vector3.UP,predicted_yaw)
 				v.node.global_position=v.node.global_position.lerp(target.origin,1-exp(-delta*5))
 				v.node.quaternion=v.node.quaternion.slerp(target.basis.get_rotation_quaternion(),1-exp(-delta*3))
-		else:v.node.global_transform=v.node.global_transform.interpolate_with(target,1-exp(-delta*14))
+		else:
+			v.node.global_transform=v.node.global_transform.interpolate_with(target,1-exp(-delta*14))
+			align_ground(v)
 
 func move_driver(v:Dictionary,movement:Vector3)->void:
 	if client_motion_supported():
@@ -288,10 +295,16 @@ func move_driver(v:Dictionary,movement:Vector3)->void:
 		var ground:Dictionary=ground_motion.move_on_terrain(v.node,movement)
 		if ground.get("handled",false):
 			if ground.get("blocked",false):v.speed=0.0
+			align_ground(v,ground.get("support",{}))
 			return
 		if ground.get("reason","")=="terrain_gap_or_denied":v.speed=0.0;return
 	var collision:KinematicCollision3D=v.node.move_and_collide(movement)
 	if collision!=null:v.speed=0.0
+
+func align_ground(v:Dictionary,support:Dictionary={})->void:
+	if support.is_empty():support=ground_motion.terrain_support(v.node,v.node.global_position,.35,.6)
+	if support.get("valid",false):
+		v.node.global_basis=SwgVehicleControls.ground_basis(v.node.global_basis,support.normal)
 
 func _process(delta: float)->void:
 	if not is_instance_valid(app):return

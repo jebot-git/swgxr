@@ -45,7 +45,7 @@ func operate(action:String,extra:Dictionary={})->void:
 	if result.get("ok",false):observe(result)
 	else:show_error(result)
 func show_error(result:Dictionary)->void:
-	if is_open:ui.footer=str(result.get("error","Core3 did not confirm this operation."));ui.queue_redraw()
+	if is_open:ui.footer=str(result.get("error","CoreCU did not confirm this operation."));ui.queue_redraw()
 func withdraw_input(index:int)->void:
 	if index>=0 and index<ui.rows.size():operate("withdraw",{"item_id":str(ui.rows[index].id)})
 func collect_output(index:int)->void:

@@ -4,6 +4,7 @@
 #include <algorithm>
 using namespace godot;
 void SwgVehicleControls::_bind_methods(){
+ ClassDB::bind_static_method("SwgVehicleControls",D_METHOD("ground_basis","heading","normal"),&SwgVehicleControls::ground_basis);
  ClassDB::bind_method(D_METHOD("smooth_pose","target","delta","snap"),&SwgVehicleControls::smooth_pose,DEFVAL(false));
  ClassDB::bind_method(D_METHOD("reset"),&SwgVehicleControls::reset);
  ClassDB::bind_method(D_METHOD("sample_reins","mount","left","right","left_grip","right_grip","left_available","right_available","tracked","joystick"),&SwgVehicleControls::sample_reins);
@@ -98,5 +99,17 @@ Transform3D SwgVehicleControls::smooth_pose(const Transform3D& target,double dt,
   double angular=std::clamp(error*100-view_yaw_velocity*20,-8.0,8.0);
   view_yaw_velocity+=angular*h;yaw+=view_yaw_velocity*h;
  }
- view.basis=Basis(Vector3(0,1,0),yaw);return view;
+ // Preserve the surface frame while yaw retains its bounded damping.
+ Vector3 up=view.basis.get_column(1).lerp(target.basis.get_column(1),1-std::exp(-dt*20)).normalized();
+ view.basis=ground_basis(Basis(Vector3(0,1,0),yaw),up);
+ return view;
+}
+
+Basis SwgVehicleControls::ground_basis(const Basis &heading,const Vector3 &normal){
+ if(!heading.is_finite() || !normal.is_finite() || normal.length_squared()<1e-8 || normal.y<.05)return heading;
+ Vector3 up=normal.normalized(),back=heading.get_column(2);back.y=0;
+ if(back.length_squared()<1e-8)return heading;
+ back=back.normalized();back.y=-(up.x*back.x+up.z*back.z)/up.y;back=back.normalized();
+ Vector3 right=up.cross(back).normalized();
+ return Basis(right,up,back);
 }

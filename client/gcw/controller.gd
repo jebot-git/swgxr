@@ -21,11 +21,11 @@ func state()->Dictionary:return services.state.get("gcw",{})
 func observe(response:Dictionary)->void:
 	var mutation:Dictionary=response.get("mutation",{})
 	var operation:=str(mutation.get("operation",mutation.get("action","")))
-	if mutation.has("success") and not bool(mutation.success):outcome(str(mutation.get("error",mutation.get("message","Core3 rejected the request."))))
+	if mutation.has("success") and not bool(mutation.success):outcome(str(mutation.get("error",mutation.get("message","CoreCU rejected the request."))))
 	elif operation=="recruiter_status_toggle":
-		if state().get("changing",false):outcome("Duty change queued by Core3 · "+pending_text())
+		if state().get("changing",false):outcome("Duty change queued by CoreCU · "+pending_text())
 		else:outcome("Duty: "+str(state().get("status_name","unknown")).replace("_"," "))
-	if operation=="contraband_answer" and mutation.get("success",false):outcome("Inspection answer recorded · awaiting Core3 patrol outcome.")
+	if operation=="contraband_answer" and mutation.get("success",false):outcome("Inspection answer recorded · awaiting CoreCU patrol outcome.")
 	var scan:Dictionary=state().get("scan",{})
 	if not is_instance_valid(services.ui):return
 	if not scan.get("active",false) or not scan.get("answer_pending",false):
@@ -114,5 +114,5 @@ func _physics_process(delta:float)->void:
 	label.global_position=head.global_position-head.global_basis.z*.75+Vector3.DOWN*.2
 	label.text="Salute · %d%%"%roundi(float(sample.progress)*100) if float(sample.progress)>0 else message
 	if str(sample.action)=="salute":
-		outcome("Requesting duty change from Core3…")
+		outcome("Requesting duty change from CoreCU…")
 		services.request("recruiter_status_toggle",{"terminal_id":str(selected.id),"expected_status":int(state().get("status",-1))})

@@ -54,7 +54,7 @@ func run()->void:
 	services.ui.close_interface();services.accept_response(reply(scan));check(services.ui.terminal.is_empty(),"Dismissed native scan does not reopen on every status poll")
 	services.gcw.scan_shown="";services.accept_response(reply(scan));host.reply=reply(scan,"contraband_answer");services.ui.panel.click_at(services.ui.panel.REFRESH_RECT.get_center());await process_frame;await process_frame
 	check(host.calls.back().path=="/services/contraband_answer" and host.calls.back().body.scan_id=="scan77" and host.calls.back().body.accept,"Explicit pay routes exact native scan identity through actual services coordinator")
-	check(services.state.wallet.cash==1000 and services.gcw.message.contains("awaiting Core3"),"Fine receipt waits for native patrol outcome and does not locally deduct credits")
+	check(services.state.wallet.cash==1000 and services.gcw.message.contains("awaiting CoreCU"),"Fine receipt waits for native patrol outcome and does not locally deduct credits")
 	scan.gcw.scan.answer_pending=false;services.accept_response(reply(scan));check(services.ui.terminal.is_empty(),"Native answered scan closes prompt")
 	services.gcw.reset();check(services.gcw.scan_shown.is_empty() and services.gcw.message.is_empty(),"Session reset clears scan identity and gesture feedback")
 	XRServer.remove_tracker(right);XRServer.remove_tracker(head_tracker);host.free();await process_frame

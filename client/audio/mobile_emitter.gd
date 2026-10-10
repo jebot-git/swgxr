@@ -4,10 +4,14 @@ var source_template:=""
 var speed:=0.0
 var damage:=0.0
 var active:=true
+var ambient_allowed:=true
+var animation_driven:=false
 var moving:=false
 var initialized:=false
 var fresh_until:=0
 var events:Array[String]=[]
+var event_serial:=0
+var tail_until:=0
 func _ready()->void:add_to_group("swg_mobile_audio")
 func observe(template:String,velocity:float,enabled:bool,wear:=0.0)->void:
 	source_template=template;speed=absf(velocity);active=enabled;damage=clampf(wear,0,1)
@@ -15,6 +19,7 @@ func observe(template:String,velocity:float,enabled:bool,wear:=0.0)->void:
 	if initialized and active and next_moving!=moving:queue_event("accel" if next_moving else "decel")
 	moving=next_moving;initialized=true;fresh_until=Time.get_ticks_msec()+8000
 func queue_event(event:String)->void:
-	if events.size()<4:events.append(event)
+	if events.size()<4:
+		events.append(event);tail_until=Time.get_ticks_msec()+8000
 func audible()->bool:
-	return active and is_visible_in_tree() and Time.get_ticks_msec()<=fresh_until
+	return (active or Time.get_ticks_msec()<tail_until) and is_visible_in_tree() and Time.get_ticks_msec()<=fresh_until

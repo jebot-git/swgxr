@@ -54,7 +54,7 @@ func refresh() -> bool:
 			visuals.set_context(app.stage,app.player)
 			accepted=visuals.set_states(response.get("corpses",[]))
 			if accepted and not ui.corpse.is_empty() and not visuals.states.has(str(ui.corpse.id)): ui.close()
-		if not accepted: last_error=str(response.get("error","Core3 corpse state unavailable."))
+		if not accepted: last_error=str(response.get("error","CoreCU corpse state unavailable."))
 	busy=false; next_poll=POLL_SECONDS; request_finished.emit()
 	return accepted
 
@@ -87,7 +87,7 @@ func perform(action: String,record: Dictionary,kind: String="") -> Dictionary:
 		if confirmed: app.inventory_snapshot=snapshot.duplicate(true)
 	busy=false; app.inventory_request_pending=false; request_finished.emit(); next_poll=0.0
 	if not confirmed:
-		var reason:=str(response.get("error","Core3 did not confirm this corpse action."))
+		var reason:=str(response.get("error","CoreCU did not confirm this corpse action."))
 		if action!="inspect": await app.refresh_inventory()
 		if epoch!=app.datapad_epoch or generation!=revision: return {}
 		last_error=reason; ui.set_busy(false,reason)

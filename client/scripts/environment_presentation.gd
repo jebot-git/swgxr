@@ -1,6 +1,12 @@
 extends Node3D
 ## Original asset-driven ambience; static vertex lighting, no Light3D nodes.
 var manifest: Dictionary = {}
+var game_audio:Dictionary={}
+var game_audio_directory:=ProjectSettings.globalize_path("res://../runtime/assets/game_audio")
+var last_native_music_state:Dictionary={}
+var native_combat:=false
+var event_music_active:=false
+var water_audio:AudioStreamPlayer
 var directory := ""
 var phase := 0.25
 var cycle_seconds := 7200.0
@@ -31,6 +37,7 @@ var sample_index := 0
 var report := {"ready":false,"audio_sources":0,"active_emitters":0,"music_events":0,"dynamic_lights":0,"lighting":"original vertex colors + fixed vertex irradiance bake"}
 
 func _ready() -> void:
+	add_to_group("swg_audio_environment")
 	world = WorldEnvironment.new()
 	world.environment = Environment.new()
 	world.environment.background_mode = Environment.BG_SKY
@@ -55,8 +62,13 @@ func _ready() -> void:
 		player.bus = "SWG Music"
 		add_child(player)
 		music.append(player)
+	water_audio=AudioStreamPlayer.new();water_audio.bus="SWG Ambience";add_child(water_audio)
 
 func configure(path: String) -> bool:
+	var cues_path:=game_audio_directory.path_join("catalog.json")
+	if FileAccess.file_exists(cues_path):
+		var value:Variant=JSON.parse_string(FileAccess.get_file_as_string(cues_path))
+		if value is Dictionary:game_audio=value
 	if not FileAccess.file_exists(path):
 		report["error"] = "Environment asset manifest is missing."
 		return false
@@ -101,10 +113,13 @@ func set_active(value: bool) -> void:
 	active = value
 	if active:
 		refresh_region_and_emitters()
+		refresh_water_audio()
 		select_audio_context()
 	else:
 		pending_music = ""
 		if music_tween!=null and music_tween.is_valid(): music_tween.kill()
+		if is_instance_valid(water_audio):water_audio.stop()
+		last_native_music_state={};native_combat=false;event_music_active=false
 		for player in ambient + music:
 			player.stop()
 		for player in emitters.values():
@@ -154,7 +169,7 @@ func color(value: Array) -> Color:
 	return Color(float(value[0]),float(value[1]),float(value[2]))
 
 func definition(sound: String) -> Dictionary:
-	return manifest.get("sounds",{}).get(sound,{})
+	return manifest.get("sounds",{}).get(sound,game_audio.get("sounds",{}).get(sound,{}))
 
 func stream(sound: String) -> AudioStream:
 	var source := definition(sound)
@@ -162,14 +177,14 @@ func stream(sound: String) -> AudioStream:
 	if samples.is_empty(): return null
 	var variant := int(variants.get(sound,0))%samples.size()
 	var path: String = samples[variant]
-	var audio: AudioStream = audio_cache.request(directory.path_join(path),bool(source.get("loop",false)))
+	var audio: AudioStream = audio_cache.request((game_audio_directory if game_audio.get("sounds",{}).has(sound) else directory).path_join(path),bool(source.get("loop",false)))
 	if audio!=null: variants[sound] = variant+1
 	return audio
 
 func prefetch_sound(sound: String) -> void:
 	var source := definition(sound)
 	for path in source.get("samples",[]):
-		audio_cache.request(directory.path_join(path),bool(source.get("loop",false)))
+		audio_cache.request((game_audio_directory if game_audio.get("sounds",{}).has(sound) else directory).path_join(path),bool(source.get("loop",false)))
 
 func source_volume(sound: String) -> float:
 	return float(definition(sound).get("volume",0.5))
@@ -192,6 +207,8 @@ func select_audio_context() -> void:
 		ambient[i].set_meta("sound",sound)
 		ambient[i].set_meta("next",elapsed)
 		prefetch_sound(sound)
+	report["selected_ambient"] = ambient.map(func(player): return str(player.get_meta("sound","")))
+	if event_music_active:return
 	pending_music = ""
 	if music_tween!=null and music_tween.is_valid(): music_tween.kill()
 	for player in music: player.stop()
@@ -236,7 +253,7 @@ func play_music(sound: String) -> void:
 		var samples: Array = source.get("samples",[])
 		var can_load := false
 		for path in samples:
-			if not audio_cache.is_failed(directory.path_join(path),bool(source.get("loop",false))): can_load = true
+			if not audio_cache.is_failed((game_audio_directory if game_audio.get("sounds",{}).has(sound) else directory).path_join(path),bool(source.get("loop",false))): can_load = true
 		pending_music = sound if can_load else ""
 		next_music = elapsed+90.0
 		return
@@ -266,11 +283,12 @@ func _process(delta: float) -> void:
 	var previous_phase := phase
 	set_phase(phase+delta/cycle_seconds)
 	if not pending_music.is_empty(): play_music(pending_music)
-	if not indoors and phase < previous_phase:
+	if not native_combat and not event_music_active and not indoors and phase < previous_phase:
 		play_music(manifest.families[family].get("sunrise_music",""))
-	elif not indoors and previous_phase < 0.5 and phase >= 0.5:
+	elif not native_combat and not event_music_active and not indoors and previous_phase < 0.5 and phase >= 0.5:
 		play_music(manifest.families[family].get("sunset_music",""))
 	elif elapsed >= next_music:
+		event_music_active=false
 		play_music((interior_soundscape if indoors else manifest.families[family]).get("first_music",""))
 	var daylight: float = report.get("daylight",1.0)
 	for i in range(4):
@@ -288,6 +306,7 @@ func _process(delta: float) -> void:
 	if poll >= 0.5:
 		poll = 0.0
 		refresh_region_and_emitters()
+		refresh_water_audio()
 
 func refresh_region_and_emitters() -> void:
 	var cell := resolved_observer_cell()
@@ -363,3 +382,63 @@ func refresh_region_and_emitters() -> void:
 func _exit_tree() -> void:
 	set_active(false)
 	audio_cache.shutdown()
+
+func observe_native_music(value:Dictionary)->void:
+	if value.get("space_active",false):return
+	var current:Dictionary={"dead":bool(value.get("dead",false)),"incapacitated":bool(value.get("incapacitated",false)),"combat":bool(value.get("in_combat",false))}
+	if last_native_music_state.is_empty():last_native_music_state=current;native_combat=current.combat;return
+	var cue:=""
+	if current.incapacitated and not last_native_music_state.incapacitated:cue="incapacitated"
+	elif current.dead and not last_native_music_state.dead:cue="dead"
+	elif not current.dead and not current.incapacitated and current.combat!=last_native_music_state.combat:cue="enter" if current.combat else "exit"
+	last_native_music_state=current;native_combat=current.combat
+	var choices:Array=game_audio.get("cues",{}).get(cue,[])
+	if choices.is_empty() or not active:return
+	event_music_active=true
+	play_music(str(choices[randi()%choices.size()]))
+
+func refresh_water_audio()->void:
+	var choices:Array=game_audio.get("cues",{}).get("water",[])
+	if indoors or not is_instance_valid(terrain) or not terrain.configured or choices.is_empty():
+		water_audio.stop();return
+	var point:Vector2=terrain.source_position(observer)
+	var chunk:=maxf(1,float(terrain.source_manifest.get("source_chunk_size",8)))
+	var center:=Vector2(floorf(point.x/chunk)*chunk,floorf(point.y/chunk)*chunk)
+	var wet:=0
+	# Original GameMusicManager samples a 5x5 terrain-chunk neighborhood and
+	# saturates at half the chunks. Use original chunk width, not render LOD.
+	for x in range(-2,3):
+		for z in range(-2,3):
+			var sample:Dictionary=terrain.evaluator.sample(center.x+x*chunk,center.y+z*chunk)
+			if sample.get("water_enabled",false) and float(sample.get("water_height",0))>float(sample.get("height",0)):wet+=1
+	var volume:=clampf(wet/12.0,0,1)
+	if volume==0:water_audio.stop();return
+	var sound:=str(choices[0])
+	water_audio.volume_db=linear_to_db(maxf(.00001,volume*source_volume(sound)))
+	if not water_audio.playing:
+		water_audio.stream=stream(sound)
+		if water_audio.stream!=null:water_audio.play()
+
+func footstep_surface(position:Vector3)->String:
+	# Original interior table overrides terrain; water overrides the ground family.
+	if is_instance_valid(stage):
+		var cell:Dictionary=stage.classify_world(position)
+		if not str(cell.get("cell_id","")).is_empty():
+			var source:Dictionary=stage.definitions.get(str(cell.cell_id),{})
+			var pob:=str(source.get("source_pob","")).get_file().get_basename()
+			var room:=str(source.get("name",cell.get("name","")))
+			var rooms:Dictionary=manifest.get("interior_soundscapes",{})
+			var info:Dictionary=rooms.get(pob+":"+room,rooms.get(pob+":default",rooms.get("default:default",{})))
+			return str(info.get("source_values",{}).get("Surface Type",""))
+	if not is_instance_valid(terrain) or not terrain.configured:return ""
+	var point:Vector2=terrain.source_position(position)
+	var sample:Dictionary=terrain.evaluator.sample(point.x,point.y)
+	if sample.get("water_enabled",false) and float(sample.water_height)>position.y+terrain.origin.y:return "surf"
+	var ids:PackedFloat32Array=sample.get("shader_ids",PackedFloat32Array())
+	var weights:PackedFloat32Array=sample.get("shader_weights",PackedFloat32Array())
+	var best:=-1;var weight:=-1.0
+	for i in range(mini(ids.size(),weights.size())):
+		if weights[i]>weight:best=int(ids[i]);weight=weights[i]
+	for family_info:Dictionary in terrain.source_manifest.get("shader_families",[]):
+		if int(family_info.id)==best:return str(family_info.get("file","")).get_file().get_basename()
+	return ""

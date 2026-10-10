@@ -47,7 +47,7 @@ func check(value:bool,label:String)->void:
 func _initialize()->void:call_deferred("run")
 func run()->void:
 	create_timer(15).timeout.connect(func():quit(2))
-	var endpoint:=Endpoint.new();root.add_child(endpoint);check(endpoint.server.listen(0,"127.0.0.1")==OK,"Slow mock Core3 endpoint starts")
+	var endpoint:=Endpoint.new();root.add_child(endpoint);check(endpoint.server.listen(0,"127.0.0.1")==OK,"Slow mock CoreCU endpoint starts")
 	endpoint.envelope={"ok":true,"backend":"core3","source_kind":"core3_live_combat","character_id":"123","session_id":"native-session","sequence":0,"session_live":true,"snapshot":{"ready":true,"full":true,"actors":[],"player":{"ham":[1000,900,800],"max_ham":[1000,900,800],"dead":false,"incapacitated":false,"posture":0,"wounds":[0,0,0],"shock_wounds":0},"weapon":{"item_id":"987","certified":true,"fire_interval_seconds":3.0,"max_range_m":50.0,"projectile_speed":100.0}}}
 	var app:=Harness.new();root.add_child(app);app.backend_url="http://127.0.0.1:%d"%endpoint.server.get_local_port();app.datapad_account="fixture";app.datapad_character_id="123";app.world_ready=true;app.live_combat_reserved=true
 	app.menu=PanelContainer.new();app.add_child(app.menu);app.menu.hide();app.stage=Node3D.new();app.add_child(app.stage);app.player=CharacterBody3D.new();app.add_child(app.player)
@@ -67,6 +67,6 @@ func run()->void:
 	services.set_process(false);entertainer.set_process(false);performance.set_process(false);live.set_process(false)
 	while app.api_requests_in_flight>0:await process_frame
 	check(app.native_requests_in_flight()==0,"Completed production HTTP requests release native admission counters")
-	var report:Dictionary={"checks":checks,"errors":errors,"heartbeat_seconds":.35,"services_grants":services.grants,"entertainer_grants":entertainer.grants,"performance_requests":performance.grants,"live_sequence":live.sequence,"transport":"actual loopback HTTP, mocked Core3","headset_validated":false}
+	var report:Dictionary={"checks":checks,"errors":errors,"heartbeat_seconds":.35,"services_grants":services.grants,"entertainer_grants":entertainer.grants,"performance_requests":performance.grants,"live_sequence":live.sequence,"transport":"actual loopback HTTP, mocked CoreCU","headset_validated":false}
 	app.free();endpoint.server.stop();endpoint.free();await process_frame
 	FileAccess.open("res://../runtime/evidence/live-slow-heartbeat-smoke.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report));quit(0 if errors.is_empty() else 1)

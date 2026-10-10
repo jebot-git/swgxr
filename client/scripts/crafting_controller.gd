@@ -129,7 +129,7 @@ func request(action: String, extra: Dictionary={}) -> Dictionary:
 		last_error="";last_outcome=""
 		if action in ["experiment","finish"]:last_outcome=experimentation_label(int(result.get("mutation",{}).get("experimentation_result",-1)))
 		if action=="finish" and is_instance_valid(app.get("services")):app.services.poll_clock=0
-	else: last_error=str(result.get("error","Core3 did not confirm crafting. Refresh before retrying."))
+	else: last_error=str(result.get("error","CoreCU did not confirm crafting. Refresh before retrying."))
 	if pending_cancel:
 		pending_cancel=false
 		if not str(state.get("session_id","")).is_empty(): cancel_draft()
@@ -169,7 +169,7 @@ func select_schematic(index: int) -> void:
 	var choices: Array=ui.rows
 	if index<0 or index>=choices.size(): return
 	pending_selection={"id":str(choices[index].get("id","")),"template":str(choices[index].get("template","")),"epoch":app.datapad_epoch,"generation":generation,"tool":held_id}
-	ui.footer="Loading selected recipe from Core3…";ui.queue_redraw()
+	ui.footer="Loading selected recipe from CoreCU…";ui.queue_redraw()
 	drain_selection()
 
 func drain_selection() -> void:
@@ -314,7 +314,7 @@ func show_preview(template: String, customization: Dictionary={}) -> void:
 	preview=null
 	preview_missing.visible=true
 	if template.is_empty():
-		preview_missing.text="No usable recipes returned by Core3."
+		preview_missing.text="No usable recipes returned by CoreCU."
 		return
 	var model: MeshInstance3D=bag.assets.instance(template,0.20,customization)
 	if model==null:

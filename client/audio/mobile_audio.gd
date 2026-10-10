@@ -27,7 +27,7 @@ func vehicle_slots(definition:Dictionary,damage:float)->Dictionary:
 	return slots
 func wanted(emitter:Node3D)->Dictionary:
 	var definition:=binding(emitter.source_template)
-	if definition.is_empty():return {}
+	if definition.is_empty() or not emitter.active:return {}
 	var result:Dictionary={}
 	if definition.kind=="vehicle":
 		var slots:=vehicle_slots(definition,emitter.damage)
@@ -36,10 +36,10 @@ func wanted(emitter:Node3D)->Dictionary:
 			var sound:=str(slots.get(key,""))
 			if not sound.is_empty():result["engine" if key==phase else "damage"]={"sound":sound,"repeat":true}
 	else:
-		for i in range(definition.get("ambient",[]).size()):
+		for i in range(definition.get("ambient",[]).size() if emitter.ambient_allowed else 0):
 			var source:String=definition.ambient[i]
 			result["ambient"+str(i)]={"sound":source,"repeat":bool(catalog.get("sounds",{}).get(source,{}).get("repeat",false))}
-		if emitter.moving and definition.get("events",{}).has("footstep"):
+		if emitter.moving and not emitter.animation_driven and definition.get("events",{}).has("footstep"):
 			result["movement"]={"sound":definition.events.footstep,"repeat":true}
 	return result
 func stop_channel(key:String)->void:
@@ -67,7 +67,9 @@ func tick(delta:float)->void:
 		var range_limit:=512.0 if binding(emitter.source_template).get("kind","")=="shuttle" else 96.0
 		if distance>range_limit:emitter.events.clear();continue
 		nearby.append({"emitter":emitter,"distance":distance})
-	nearby.sort_custom(func(a,b):return a.distance<b.distance)
+	nearby.sort_custom(func(a,b):
+		if a.emitter.events.is_empty()!=b.emitter.events.is_empty():return not a.emitter.events.is_empty()
+		return a.distance<b.distance)
 	var desired:Dictionary={}
 	for i in range(mini(MAX_EMITTERS,nearby.size())):
 		var emitter:Node3D=nearby[i].emitter
@@ -79,8 +81,18 @@ func tick(delta:float)->void:
 		var definition:=binding(emitter.source_template)
 		var slots:Dictionary=vehicle_slots(definition,emitter.damage) if definition.kind=="vehicle" else definition.get("events",{})
 		for event:String in emitter.events:
-			var sound:=str(slots.get(event,""))
-			if not sound.is_empty():desired[prefix+"event"]={"emitter":emitter,"sound":sound,"repeat":false}
+			if event=="footstep":
+				var environment:=get_tree().get_first_node_in_group("swg_audio_environment")
+				var surface:String=environment.footstep_surface(emitter.global_position) if environment!=null else ""
+				var specific:="footstep_"+surface
+				if not surface.is_empty() and (slots.has(specific) or definition.get("effects",{}).has(specific)):event=specific
+			var sound:=str(catalog.get("weapon_sounds",{}).get(event.trim_prefix("weapon:"),"")) if event.begins_with("weapon:") else str(slots.get(event,""))
+			if sound.is_empty() and event=="attacklight":sound=str(slots.get("attackheavy",""))
+			var sounds:Array=definition.get("effects",{}).get(event,[]).duplicate()
+			if not sound.is_empty() and not sounds.has(sound):sounds.append(sound)
+			for source:String in sounds:
+				emitter.event_serial+=1
+				desired[prefix+str(emitter.event_serial)+":event"]={"emitter":emitter,"sound":source,"repeat":false}
 		emitter.events.clear()
 	# Keep an accepted one-shot until it completes; continuous channels follow state.
 	for key:String in channels.keys():
@@ -106,7 +118,7 @@ func tick(delta:float)->void:
 		var looped:bool=sound.get("loop",false) and channel.repeat
 		var stream:AudioStream=cache.request(directory.path_join(sound.samples[index]),looped)
 		if stream==null:continue
-		var player:AudioStreamPlayer3D=mixer.play_stream(sound,request.sound,stream,request.emitter.global_position,0,looped)
+		var player:AudioStreamPlayer3D=mixer.play_stream(sound,request.sound,stream,request.emitter.global_position,2 if key.ends_with(":event") else 0,looped)
 		if player==null:continue
 		variants[request.sound]=index+1;channel.player=player
 		channel.due=clock+stream.get_length()+randf_range(sound.delay_seconds[0],sound.delay_seconds[1])

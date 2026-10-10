@@ -121,7 +121,7 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	if version!=app.datapad_epoch:return {}
 	busy=false
 	if response.get("source_kind","")!="core3_jtl" or str(response.get("character_id",""))!=app.datapad_character_id:
-		error=str(response.get("error","Core3 did not confirm the ship action"));notice(error)
+		error=str(response.get("error","CoreCU did not confirm the ship action"));notice(error)
 		if action in ["walk","control"]:needs_reconcile=true;poll=0
 		return response
 	if mutation:pending_mutations.erase(key)
@@ -129,13 +129,13 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	var live:Variant=response.get("live_response",response.get("live"))
 	if not value is Dictionary or value.get("scope","") not in ["noncombat_yacht","noncombat_navigation","original_sectors"] or not value.get("enabled",false):
 		if action in ["walk","control"]:needs_reconcile=true;poll=0
-		return {"ok":false,"error":"Core3 returned an incomplete ship snapshot."}
+		return {"ok":false,"error":"CoreCU returned an incomplete ship snapshot."}
 	var native_revision:int=int(live.get("sequence",revision+1)) if live is Dictionary else int(response.get("sequence",revision+1))
 	if native_revision<revision:return {"ok":false,"error":"A newer native ship snapshot is already active."}
 	var next_ship:Variant=value.get("ship") if value is Dictionary else null
 	if next_ship!=null and not next_ship is Dictionary:
 		if action in ["walk","control"]:needs_reconcile=true;poll=0
-		return {"ok":false,"error":"Core3 returned an invalid ship state."}
+		return {"ok":false,"error":"CoreCU returned an invalid ship state."}
 	# A rejected control after the pilot disconnects still carries the native
 	# passenger ejection destination. Consume that recovery before reporting failure.
 	var landing:bool=(action=="land" and response.get("ok",false)) or (aboard() and (not next_ship is Dictionary or str(next_ship.get("station","ground"))=="ground"))
@@ -149,7 +149,7 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	if landing:
 		var destination:Dictionary=live.get("snapshot",{}).get("player",{}) if live is Dictionary else {}
 		if not preload("res://combat/live_transport.gd").new().destination_valid(destination):
-			notice("Core3 landing position is unavailable; reconnect to resume on the ground.");return {"ok":false,"error":error}
+			notice("CoreCU landing position is unavailable; reconnect to resume on the ground.");return {"ok":false,"error":error}
 		if not await app.perform_service_transport({"destination":destination}):return {"ok":false,"error":"The original landing area could not be loaded."}
 	if not response.get("ok",false):notice(str(response.get("error","Ship action rejected")));return response
 	if action=="crew_prepare":show_lobby()
@@ -179,7 +179,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	station=next
 	if aboard():
 		scene.observe(ship)
-		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]))
+		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]),scene.visual_ship_pose)
 		if is_instance_valid(hyperspace_effect):hyperspace_effect.observe(ship.get("hyperspace",{}),app.player.get_camera())
 		scene.update_nearby(state.get("nearby_ships",[]),ship,state.get("nearby_ships_busy",false))
 		if is_instance_valid(scene.combat_effects):scene.combat_effects.receive(state.get("combat_events",[]))
@@ -313,7 +313,7 @@ func terminal_request(action:String,detail:Dictionary)->Dictionary:
 	ui.set_pending(false)
 	var records:=terminal_records().filter(func(row):return str(row.id)==terminal_id)
 	if not records.is_empty():ui.terminal=records[0];ui.panel.configure(records[0],{})
-	ui.panel.message="Item returned to inventory." if action=="pob_recover" and response.get("ok",false) else "Confirmed by Core3" if response.get("ok",false) else str(response.get("error","Ship terminal request rejected."))
+	ui.panel.message="Item returned to inventory." if action=="pob_recover" and response.get("ok",false) else "Confirmed by CoreCU" if response.get("ok",false) else str(response.get("error","Ship terminal request rejected."))
 	ui.panel.queue_redraw();return response
 func launch_terminal()->String:
 	if not is_instance_valid(app.services):return ""

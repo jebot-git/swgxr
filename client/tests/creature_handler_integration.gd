@@ -43,11 +43,11 @@ func run()->void:
 	check(not tame.is_empty() and tame[0].detail.target_id=="42" and str(tame[0].detail.request_id).begins_with("ch-"),"Native tame is bound to selected ID and stable mutation receipt")
 	vehicle.state.creature_handler.taming={"state":"pending"}
 	for i in range(100):handler._physics_process(1.0/90)
-	check(handler.label.text.contains("Core3 taming") and vehicle.requests.filter(func(row):return row.action=="ch_tame").size()==1,"Native asynchronous taming remains pending without reissuing")
+	check(handler.label.text.contains("CoreCU taming") and vehicle.requests.filter(func(row):return row.action=="ch_tame").size()==1,"Native asynchronous taming remains pending without reissuing")
 	vehicle.state.creature_handler.taming={"request_id":"tame-1","state":"failed","reason":"The creature resisted"};handler.observe_outcome();handler._physics_process(1.0/90)
 	check(handler.label.text.contains("Taming failed") and not handler.label.text.contains("tamed and added"),"Native failed tame is displayed without claiming acquisition")
 	vehicle.state.creature_handler.taming={"request_id":"tame-2","state":"succeeded"};handler.observe_outcome();handler._physics_process(1.0/90)
-	check(handler.label.text.contains("Core3 confirmed"),"Only native succeeded state displays tame success")
+	check(handler.label.text.contains("CoreCU confirmed"),"Only native succeeded state displays tame success")
 	handler.status_until=Time.get_ticks_msec()-1;handler.observe_outcome()
 	check(handler.status.is_empty(),"Native outcome text expires rather than remaining forever")
 	vehicle.state.creature_handler.taming={};handler.reset();host.allowed=false

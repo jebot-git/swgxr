@@ -65,7 +65,7 @@ func run() -> void:
 		performer.item={"id":"123","template":"object/tangible/instrument/"+instrument+".iff"} if not instrument.is_empty() else {}
 		performer.equipped_instrument=performer.item.duplicate(true)
 		var choices:Array=performer.assets.performances(performer.context,performer.item)
-		check(not choices.is_empty(),kind+" eligible with original mixed-case Core3 command grants")
+		check(not choices.is_empty(),kind+" eligible with original mixed-case CoreCU command grants")
 		if choices.is_empty():continue
 		performer.selected=choices[0];performer.primed=true;performer.motion.reset();performer.native.calls.clear()
 		pad.set_gesture_reserved(false);pad.update_activation(true,0,0,.02)

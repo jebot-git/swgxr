@@ -194,7 +194,7 @@ func set_service_points(values: Array) -> void:
 		if not value is Dictionary or str(value.get("kind","")) not in SERVICE_KINDS:continue
 		var position: Variant=value.get("position")
 		if not position is Array or position.size()!=3 or not position_of(position).is_finite():continue
-		native_services.append({"id":"native-service:"+str(value.get("id","")),"type":"mission" if value.kind=="underworld" else value.kind,"service_kind":value.kind,"name":str(value.get("name",str(value.kind).capitalize())),"position":position.duplicate(),"source":"Core3 discovery","building_id":value.get("building_id","0"),"cell_index":value.get("cell_index",0)})
+		native_services.append({"id":"native-service:"+str(value.get("id","")),"type":"mission" if value.kind=="underworld" else value.kind,"service_kind":value.kind,"name":str(value.get("name",str(value.kind).capitalize())),"position":position.duplicate(),"source":"CoreCU discovery","building_id":value.get("building_id","0"),"cell_index":value.get("cell_index",0)})
 	rebuild_service_points()
 func load_service_references(directory:= "res://../runtime/assets/services") -> void:
 	source_services=[]

@@ -32,7 +32,7 @@ func run() -> void:
 	var sample_text:String=sample_view.count_text(sampling,100)
 	check(sample_text.contains("Trace amounts") and sample_text.contains("10s") and sample_text.contains("40%") and sample_text.contains("0 units"),"Original trace outcome, productive density and server-clock countdown are visible without inventing yield")
 	sampling.buffer=[{"quantity":3}];sampling.sample_status="sample_located";sampling.sample_message="Sample located."
-	check(sample_view.count_text(sampling,111).contains("3 units") and sample_view.count_text(sampling,111).contains("Waiting for Core3"),"Collected count is authoritative and overdue timer waits for native result")
+	check(sample_view.count_text(sampling,111).contains("3 units") and sample_view.count_text(sampling,111).contains("Waiting for CoreCU"),"Collected count is authoritative and overdue timer waits for native result")
 	sample_view.free()
 	check(service.accept_state(state),"Owner-verified initial context accepted")
 	var alien:=state.duplicate(true); alien.character_id="different"
@@ -72,12 +72,12 @@ func run() -> void:
 	check(service.state.is_empty() and service.hip_item().is_empty(),"Session reset clears canonical presentation")
 	var deployed:Dictionary=state.duplicate(true);deployed.deployments=[{"id":"deployment-fixture","tool_id":tool.id,"resource_name":"Fixture ore"}]
 	service.accept_state(deployed)
-	app.reply={"ok":false,"error":"Core3 request timed out; outcome unconfirmed.","code":"request_timeout"}
+	app.reply={"ok":false,"error":"CoreCU request timed out; outcome unconfirmed.","code":"request_timeout"}
 	app.inventory.begin_mutation("Recovering deployed tool")
 	await service.perform("collect",{"deployment_id":"deployment-fixture","position":[1,0,2]})
 	var original_request:Dictionary=app.calls[-1].payload.duplicate(true)
 	check(service.state.deployments.size()==1 and not app.inventory.action_pending and not app.reconciliation_started_pending,"Timed-out recovery preserves deployed source state and releases hand before slow reconciliation")
-	app.reply={"ok":false,"error":"Core3 is busy.","code":"backend_busy","mutation_started":false}
+	app.reply={"ok":false,"error":"CoreCU is busy.","code":"backend_busy","mutation_started":false}
 	await service.perform("collect",{"deployment_id":"deployment-fixture","position":[2,0,3]})
 	check(app.calls[-1].payload.request_id==original_request.request_id and app.calls[-1].payload.position==original_request.position,"Explicit ambiguous retry keeps original receipt and semantic position")
 	check(service.state.deployments.size()==1 and not app.inventory.action_pending,"Backend-busy recovery preserves deployment and permits another intentional grip")

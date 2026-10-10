@@ -41,11 +41,11 @@ class GuiTests(unittest.TestCase):
         self.app.buttons[0].invoke()
         self.assertEqual(self.calls[-1],[])
     def test_import_picker_and_cancellation(self):
-        with patch('tkinter.filedialog.askopenfilename',return_value=''):
+        with patch('tkinter.filedialog.askdirectory',return_value=''):
             self.app.import_assets();self.assertFalse(self.calls)
-        with patch('tkinter.filedialog.askopenfilename',return_value='/path with spaces/data.zip'):
+        with patch('tkinter.filedialog.askdirectory',return_value='/path with spaces/SWG'):
             self.app.import_assets()
-        self.assertEqual(self.calls,[['--import-only','--asset-archive','/path with spaces/data.zip']])
+        self.assertEqual(self.calls,[['--import-only','--prepare-game-data','--game-installation','/path with spaces/SWG']])
     def test_update_error_is_visible_and_retry_enabled(self):
         self.app.update();self.app.task.events.put(('output','Checksum mismatch\n'));self.finish(2)
         self.assertIn('failed',self.app.status.get())

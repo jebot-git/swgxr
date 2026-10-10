@@ -14,7 +14,7 @@ func run() -> void:
 		var evidence: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(source_path))
 		for record: Dictionary in evidence.get("responses", []):
 			if str(record.get("path", "")) == "/session/sync" and not record.get("response", {}).get("world", {}).get("players", []).is_empty():
-				row = record.response.world.players[0].duplicate(true); row.position = Vector3.ZERO; row.name = "Native Core3 appearance · isolated capture"; break
+				row = record.response.world.players[0].duplicate(true); row.position = Vector3.ZERO; row.name = "Native CoreCU appearance · isolated capture"; break
 	row.heading_radians = -float(row.get("heading_radians", 0.0))
 	var peer:=preload("res://multiplayer/remote_player.gd").new();world.add_child(peer);peer.configure();peer.apply_peer(row);peer.advance(0.01)
 	var pulse:=preload("res://multiplayer/survey_pulse.gd").shared(world,eye);pulse.set_process(false);pulse.play_confirmed(Vector3.ZERO,"visual-fixture")
@@ -30,7 +30,7 @@ func run() -> void:
 		root.get_texture().get_image().save_png(path);paths.append(path)
 	pulse.clear()
 	eye.position=-peer.global_basis.z*3.5+Vector3.UP*1.7;eye.look_at(Vector3(0,1.0,0))
-	title.text="ACTUAL CORE3 PEER · original appearance and equipment"
+	title.text="ACTUAL CORECU PEER · original appearance and equipment"
 	note.text="Recorded native snapshot · source shirt, pants and shoes · isolated desktop Vulkan replay"
 	peer.label.visible=false
 	for frame in range(5): await process_frame
@@ -52,6 +52,6 @@ func run() -> void:
 	await RenderingServer.frame_post_draw
 	var cached_path:=ProjectSettings.globalize_path("res://../runtime/evidence/multiplayer-cached-avatar.png")
 	root.get_texture().get_image().save_png(cached_path);paths.append(cached_path)
-	var report:={"rendering_method":RenderingServer.get_current_rendering_method(),"rendering_driver":RenderingServer.get_current_rendering_driver_name(),"gpu":RenderingServer.get_video_adapter_name(),"captures":paths,"statistics":pulse.statistics(),"headset_validated":false,"original_reference":"Core3 SurveySessionImplementation broadcasts activeSurveyTool.getSurveyAnimation; mineral tool uses clienteffect/survey_tool_mineral.cef. Analytic ground ring is a bounded style approximation, not decoded original CEF playback."}
+	var report:={"rendering_method":RenderingServer.get_current_rendering_method(),"rendering_driver":RenderingServer.get_current_rendering_driver_name(),"gpu":RenderingServer.get_video_adapter_name(),"captures":paths,"statistics":pulse.statistics(),"headset_validated":false,"original_reference":"CoreCU SurveySessionImplementation broadcasts activeSurveyTool.getSurveyAnimation; mineral tool uses clienteffect/survey_tool_mineral.cef. Analytic ground ring is a bounded style approximation, not decoded original CEF playback."}
 	FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/survey-pulse-capture.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report))
 	cache.clear();pulse.queue_free();world.queue_free();await process_frame;await process_frame;quit(0)

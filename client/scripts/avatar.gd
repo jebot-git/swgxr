@@ -1,4 +1,6 @@
 extends Node3D
+signal original_animation_event(event:String)
+var animation_events_available:=false
 
 const AvatarMaterials = preload("res://scripts/avatar_materials.gd")
 const AnimationClipCache = preload("res://scripts/animation_clip_cache.gd")
@@ -543,6 +545,7 @@ func build_animations(clips: Dictionary) -> void:
 		face_player.play("face_idle")
 
 func add_animation_clip(clip_name: String, clip: Dictionary, target: AnimationPlayer) -> void:
+	if not clip.get("messages",[]).is_empty():animation_events_available=true
 	clip_rates[clip_name] = float(clip.get("source_speed_scale", 1.0))
 	if clip.has("source_speed_mps"):
 		clip_speeds[clip_name] = float(clip.source_speed_mps)
@@ -581,6 +584,17 @@ func add_animation_clip(clip_name: String, clip: Dictionary, target: AnimationPl
 						# physics; retain the original landing compression.
 						position.y = minf(position.y, float(jump_phases.get("baseline", rest.y)))
 				animation.position_track_insert_key(index, float(key[0]), position)
+	var messages:Array=clip.get("messages",[])
+	if not messages.is_empty():
+		var event_track:=animation.add_track(Animation.TYPE_METHOD)
+		animation.track_set_path(event_track,NodePath(".."))
+		for message:Dictionary in messages:
+			var original:=str(message.get("message",""))
+			var event:=""
+			if original.begins_with("event_"):event=original.trim_prefix("event_")
+			elif original.begins_with("hpevent_"):event=original.get_slice("_",original.get_slice_count("_")-1)
+			if not event.is_empty():
+				animation.track_insert_key(event_track,float(message.seconds),{"method":"emit_original_animation_event","args":[event]})
 	if animation_cache_enabled: AnimationClipCache.publish(cache_key,animation)
 	target.get_animation_library("").add_animation(clip_name, animation)
 
@@ -776,3 +790,6 @@ func main_palette_variables(model_path: String) -> Array:
 				if not variable in result:
 					result.append(variable)
 	return result
+
+func emit_original_animation_event(event:String)->void:
+	if not tracking_mode:original_animation_event.emit(event)

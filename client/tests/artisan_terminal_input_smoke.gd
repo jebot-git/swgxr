@@ -64,7 +64,7 @@ func run()->void:
 		for i in range(mesh.get_surface_count()):mesh.surface_set_material(i,loader.make_material(data.surfaces[i],ProjectSettings.globalize_path("res://../runtime/assets/tatooine_world")))
 		var model:=MeshInstance3D.new();model.mesh=mesh;model.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF;host.add_child(model);model.global_transform=Transform3D(scenery.terminal_basis(original),record.position)
 		var camera:=Camera3D.new();host.add_child(camera);camera.global_position=physical+screen.basis.z*1.7+screen.basis.x*.65+Vector3.UP*.35;camera.look_at(record.position+Vector3.UP*.95);camera.make_current()
-		var title:=Label.new();root.add_child(title);title.position=Vector2(24,24);title.text="ARTISAN TERMINAL · ORIGINAL SOURCE MESH\nProduction input path · recorded Core3 offers · mocked tracking · XR disabled";title.add_theme_font_size_override("font_size",22)
+		var title:=Label.new();root.add_child(title);title.position=Vector2(24,24);title.text="ARTISAN TERMINAL · ORIGINAL SOURCE MESH\nProduction input path · recorded CoreCU offers · mocked tracking · XR disabled";title.add_theme_font_size_override("font_size",22)
 	await frames();right.set_input("trigger",0.0);await frames();ui._process(.016)
 	check(not record.get("pick_geometry",{}).is_empty(),"Actual artisan casing geometry is available for mesh picking")
 	if capture:

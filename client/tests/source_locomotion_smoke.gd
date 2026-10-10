@@ -84,9 +84,9 @@ func run()->void:
 			if native_player.has("locomotion") and not native_player.locomotion.frozen:
 				native_profile=native_player.locomotion
 				player.feedback.observe(native_player)
-				check(player.feedback.locomotion==native_profile and sample(native_profile,0).valid,"Actual Core3 envelope passes owner observer and source movement policy")
+				check(player.feedback.locomotion==native_profile and sample(native_profile,0).valid,"Actual CoreCU envelope passes owner observer and source movement policy")
 				provider.source_speed=0;player.ground_control_velocity=Vector2(rig.get_node("LeftHand/MovementDirect").max_speed,0);provider.physics_movement(1,player,false)
-				check(is_equal_approx(player.source_movement_velocity.length(),native_profile.server_max_speed),"Actual Core3 speed replaces offline XR speed")
+				check(is_equal_approx(player.source_movement_velocity.length(),native_profile.server_max_speed),"Actual CoreCU speed replaces offline XR speed")
 				break
 	var desktop=load("res://scripts/player.gd").new();root_node.add_child(desktop);desktop.testing=true;desktop.active=true;desktop.position=Vector3(0,.02,3)
 	desktop.configure_player_combat({"character_id":"desktop-native","locomotion":native_profile if not native_profile.is_empty() else profile()})

@@ -186,8 +186,8 @@ func run() -> void:
 		var caption: String="Desktop asset preview · synthetic slot arrangement"
 		if "--live-snapshot" in OS.get_cmdline_user_args():
 			fixture=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/evidence/inventory-live-snapshot.json"))
-			check(fixture.get("source_kind","")=="core3_inventory" and not fixture.get("items",[]).is_empty(),"Live preview uses actual read-only Core3 inventory snapshot")
-			caption="Local Core3 inventory snapshot · desktop rendering"
+			check(fixture.get("source_kind","")=="core3_inventory" and not fixture.get("items",[]).is_empty(),"Live preview uses actual read-only CoreCU inventory snapshot")
+			caption="Local CoreCU inventory snapshot · desktop rendering"
 		bag.set_snapshot(fixture); bag.set_open(true); bag.global_transform=Transform3D.IDENTITY; bag.ui.select_item(fixture.items[0]); bag.ui.status=caption
 		if is_instance_valid(bag.bag_model): bag.bag_model.position=Vector3(-0.4,-0.035,0.08)
 		var camera:=Camera3D.new(); world.add_child(camera); camera.position=Vector3(0.1,0.19,1.03); camera.fov=48; camera.make_current()

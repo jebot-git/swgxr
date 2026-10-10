@@ -85,14 +85,14 @@ func sample(tracked:bool,empty:bool,hand:Transform3D,head:Transform3D,trigger:fl
 			var choice:Dictionary=choices[selected]
 			if not bool(choice.get("available",false)):
 				set_busy(false,str(choice.get("block_reason","This resource cannot be harvested.")));return
-			set_busy(true,"Harvesting resource in Core3…")
+			set_busy(true,"Harvesting resource in CoreCU…")
 			corpse_harvest_requested.emit(corpse.duplicate(true),str(choice.get("kind","")));return
 	if trigger>=0.55 and trigger_armed:
 		trigger_armed=false
 		if hovered.is_empty():return
 		if visible and str(corpse.get("id",""))==str(hovered.id) and not context.is_empty():
 			if context.has("loot_available") and not bool(context.loot_available):set_busy(false,str(context.get("loot_block_reason","This corpse cannot be looted.")));return
-			set_busy(true,"Looting credits and items in Core3…");corpse_loot_requested.emit(corpse.duplicate(true))
+			set_busy(true,"Looting credits and items in CoreCU…");corpse_loot_requested.emit(corpse.duplicate(true))
 		else:
 			corpse=hovered.duplicate(true);context={};clear_choices();visible=true
 			place_above(corpse,head);title.text=str(corpse.get("name","Corpse"));set_busy(true,"Inspecting corpse…")

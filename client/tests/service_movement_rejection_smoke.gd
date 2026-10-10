@@ -65,5 +65,5 @@ func run()->void:
 	var stamped:Dictionary=preload("res://combat/movement_reconciliation.gd").stamp_request({"position":[2,0,3]},session.player_state)
 	check(stamped.movement_revision==91,"Next movement uses revision produced by successful housing/service request")
 	endpoint.server.stop();endpoint.queue_free();app.queue_free();await process_frame
-	var report:Dictionary={"checks":checks,"errors":errors,"transport":"loopback HTTP, mocked Core3" if listening else "direct production API response consumer, mocked Core3","renderer":"dummy","headset_validated":false}
+	var report:Dictionary={"checks":checks,"errors":errors,"transport":"loopback HTTP, mocked CoreCU" if listening else "direct production API response consumer, mocked CoreCU","renderer":"dummy","headset_validated":false}
 	FileAccess.open("res://../runtime/evidence/service-movement-rejection-client.json",FileAccess.WRITE).store_string(JSON.stringify(report));print(JSON.stringify(report));quit(0 if errors.is_empty() else 1)

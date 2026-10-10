@@ -45,7 +45,7 @@ func observe(response:Dictionary)->void:
 		next[str(entry.id)]=entry
 	parcels=next
 	if not held.is_empty() and not parcels.has(str(held.id)):
-		return_parcel();receipt.clear();status="Mission item removed or delivered by Core3."
+		return_parcel();receipt.clear();status="Mission item removed or delivered by CoreCU."
 	if is_instance_valid(app.datapad):
 		app.datapad.ui.set_mission_parcels(parcels.values())
 		app.datapad.ui.set_owned_missions(state.get("missions",[]))
@@ -135,7 +135,7 @@ func deliver(receiver:Dictionary)->void:
 	if confirmed:
 		receipt.clear()
 		if is_instance_valid(app.services.ui):app.services.ui.close_interface()
-		status="Parcel handed over. Core3 is completing the mission."
+		status="Parcel handed over. CoreCU is completing the mission."
 	else:
 		status=str(response.get("error",response.get("mutation",{}).get("error_code","Delivery was not confirmed. Keep the parcel and try again.")))
 		if not held.is_empty():label.text=status

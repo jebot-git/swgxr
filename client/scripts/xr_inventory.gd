@@ -288,7 +288,7 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 func take_item(item: Dictionary, side := "") -> void:
 	if item.get("equipped",false):
 		if not item.get("unequip_available",false):set_busy(false,str(item.get("unequip_block_reason","This item cannot be removed.")));return
-		begin_mutation("Removing equipment in Core3…")
+		begin_mutation("Removing equipment in CoreCU…")
 		unequip_requested.emit(item.duplicate(true),side if side in ["left","right"] else main_side())
 		return
 	var presentation:=assets.instance(str(item.get("template","")),0.28,item.get("customization",{}))
@@ -788,8 +788,8 @@ func sample_ability_editor(click:bool,pose:Transform3D,grip:float,trigger:float,
 func request_loadout(proposal:Dictionary)->void:
 	if loadout_pending:return
 	if not loadout_request.is_valid():
-		hologram.ability_editor.finish(false,"A live Core3 weapon snapshot is required.");return
+		hologram.ability_editor.finish(false,"A live CoreCU weapon snapshot is required.");return
 	loadout_pending=true
 	var result:Dictionary=await loadout_request.call(proposal)
 	loadout_pending=false
-	if is_instance_valid(hologram) and is_instance_valid(hologram.ability_editor):hologram.ability_editor.finish(result.get("success",false),str(result.get("error","Core3 rejected the loadout.")))
+	if is_instance_valid(hologram) and is_instance_valid(hologram.ability_editor):hologram.ability_editor.finish(result.get("success",false),str(result.get("error","CoreCU rejected the loadout.")))

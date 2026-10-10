@@ -16,7 +16,7 @@ func run()->void:
 	catalog.append({"id":"taunt","label":"Taunt","category":"gesture","trigger_description":"Beat your chest twice with a free clenched hand.","weapon_requirement":"Any certified weapon; requires a free hand."})
 	hologram.set_ability_context({"item_id":"99","ability_catalog":catalog,"ability_loadout":{"family":"pistols","slots":["concussion_shot_improved","lethal_shot","low_blow","restraining_shot"],"ultimate":"last_ditch","revision":1}})
 	hologram.show_equipment(Transform3D.IDENTITY);hologram.global_transform=Transform3D.IDENTITY;hologram.ability_editor.toggle();hologram.ability_editor.describe("warcry")
-	var caption:=Label.new();root.add_child(caption);caption.position=Vector2(30,25);caption.text="WEAPON LOADOUT  /  MOCK CORE3 STATE  /  DESKTOP VULKAN  /  XR OFF";caption.add_theme_font_override("font",preload("res://resources/fonts/Jupiteroid-Regular.ttf"));caption.add_theme_font_size_override("font_size",20)
+	var caption:=Label.new();root.add_child(caption);caption.position=Vector2(30,25);caption.text="WEAPON LOADOUT  /  MOCK CORECU STATE  /  DESKTOP VULKAN  /  XR OFF";caption.add_theme_font_override("font",preload("res://resources/fonts/Jupiteroid-Regular.ttf"));caption.add_theme_font_size_override("font_size",20)
 	for i in range(10):await process_frame
 	await RenderingServer.frame_post_draw
 	var path:=ProjectSettings.globalize_path("res://../runtime/evidence/gesture-abilities-vulkan.png");root.get_texture().get_image().save_png(path)

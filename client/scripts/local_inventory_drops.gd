@@ -9,7 +9,7 @@ const REMOTE_PICKUP_RANGE := 2.0
 const REMOTE_PICKUP_CONE := 0.94 # Approximately20 degrees from deliberate hand aim.
 var assets: RefCounted
 var records: Dictionary = {}
-var report := {"created":0,"removed":0,"rejected":0,"last_error":"","ownership":"Core3 unchanged; session-local proxy and reserved source slot"}
+var report := {"created":0,"removed":0,"rejected":0,"last_error":"","ownership":"CoreCU unchanged; session-local proxy and reserved source slot"}
 
 func configure(source_assets: RefCounted) -> void:
 	clear()

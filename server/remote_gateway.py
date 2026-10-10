@@ -81,6 +81,9 @@ def accounts_from_config(value, *, allow_empty=False):
 
 class Gateway(http.server.BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
+    # TLS headers and body are separate small writes. Nagle can hold the body
+    # until the peer's delayed ACK plus another RTT, stalling every sync poll.
+    disable_nagle_algorithm = True
     server_version = 'SWGXR-Gateway'
     sys_version = ''
 

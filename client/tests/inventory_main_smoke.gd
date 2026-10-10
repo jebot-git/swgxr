@@ -19,7 +19,7 @@ func run() -> void:
 	create_timer(150).timeout.connect(func(): push_error("Inventory main HTTP test timed out"); quit(2))
 	var fixture: Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/server/unarmed-fixture.json"))
 	if fixture.is_empty():
-		push_error("Missing real Core3 fixture"); quit(2); return
+		push_error("Missing real CoreCU fixture"); quit(2); return
 	var app:=Harness.new(); root.add_child(app)
 	app.xr_origin=XROrigin3D.new(); app.add_child(app.xr_origin)
 	var head:=XRCamera3D.new(); head.name="XRCamera3D"; app.xr_origin.add_child(head); head.position=Vector3(0,1.7,0)
@@ -36,7 +36,7 @@ func run() -> void:
 	app.datapad_account=fixture.account; app.datapad_character_id=fixture.id
 	app.world_ready=true; app.inventory.set_allowed(true)
 	await app.refresh_inventory()
-	check(app.inventory_snapshot.get("source_kind","")=="core3_inventory" and not app.inventory_snapshot.get("items",[]).is_empty(),"Real Core3 read populated main inventory")
+	check(app.inventory_snapshot.get("source_kind","")=="core3_inventory" and not app.inventory_snapshot.get("items",[]).is_empty(),"Real CoreCU read populated main inventory")
 	check(not app.inventory_request_pending and not app.inventory.action_pending,"Successful HTTP read clears both pending gates")
 	if app.inventory_snapshot.get("items",[]).is_empty(): app.queue_free(); await process_frame; quit(1); return
 	var baseline: Dictionary=app.inventory_snapshot.duplicate(true)
@@ -48,7 +48,7 @@ func run() -> void:
 	check(app.inventory.held_item.is_empty() and not app.inventory.ui.detail_item.has("local_state"),"Bag return releases local reservation")
 	var result: Dictionary=await app.api(HTTPClient.METHOD_GET,"/weapons?account="+fixture.account.uri_encode()+"&character_id="+fixture.id.uri_encode())
 	var profiles: Array=result.get("weapons",[])
-	check(result.get("ok",false) and not profiles.is_empty(),"Fresh Core3 owner-verified weapon profiles available")
+	check(result.get("ok",false) and not profiles.is_empty(),"Fresh CoreCU owner-verified weapon profiles available")
 	app.combat_rig=Combat.new(); app.add_child(app.combat_rig)
 	check(app.combat_rig.configure(head,app.player,[]),"Combat rig accepts inventory-driven initialization without synthetic equipment")
 	app.combat_rig.inventory=app.inventory; app.combat_rig.set_process(false); app.combat_rig.set_physics_process(false)
@@ -73,7 +73,7 @@ func run() -> void:
 	app.drop_inventory_item(item,pose)
 	check(app.inventory.held_item.is_empty() and app.inventory_drops.reserved_ids().has(str(item.id)),"Stowed release creates recoverable local drop and clears hand")
 	check(app.inventory.ui.detail_item.get("local_state","")=="dropped" and app.combat_rig.inventory_reserved_ids.has(str(item.id)),"Dropped source remains reserved in bag and holster")
-	check(app.inventory_snapshot.inventory==baseline.inventory,"Session-local drop never frees Core3 inventory capacity")
+	check(app.inventory_snapshot.inventory==baseline.inventory,"Session-local drop never frees CoreCU inventory capacity")
 	# Existing loadout entries must obey the same reservation, not only new bag entries.
 	app.combat_rig.weapons[0].erase("inventory_only")
 	app.combat_rig.set_allowed(true)
@@ -97,7 +97,7 @@ func run() -> void:
 	app.reconcile_inventory_presentations(); app.update_inventory_presentation()
 	check(app.inventory_drops.reserved_ids().is_empty() and app.inventory_pickup_candidate(pose).is_empty(),"Lost ownership removes stale local drop")
 	await app.refresh_inventory()
-	check(app.inventory_snapshot==baseline,"Fresh Core3 login confirms hold/drop/recover never mutated user ownership")
+	check(app.inventory_snapshot==baseline,"Fresh CoreCU login confirms hold/drop/recover never mutated user ownership")
 	app.backend_url="http://127.0.0.1:1"
 	await app.refresh_inventory()
 	check(not app.inventory_request_pending and not app.inventory.action_pending and not app.inventory.ui.status.is_empty(),"Read failure resolves pending state and shows server error")

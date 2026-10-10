@@ -35,7 +35,7 @@ func run()->void:
 	var live:=Live.new();host.add_child(live);live.configure(host,rig,stage,body);live.set_process(false)
 	var ambient:=Ambient.new();host.add_child(ambient);ambient.set_process(false);ambient.configure(ProjectSettings.globalize_path("res://../runtime/assets/ambient_npcs/placements.json"));live.configure_ambient(ambient)
 	check(saved.snapshot.actors.size()==14,"Saved native nearby preflight contains all14 expected actors")
-	check(await live.start(Vector3.ZERO,0),"Full saved Core3 snapshot admits every original actor: "+live.last_error)
+	check(await live.start(Vector3.ZERO,0),"Full saved CoreCU snapshot admits every original actor: "+live.last_error)
 	check(live.actors.size()==saved.snapshot.actors.size(),"No source actor omitted or replaced by generic geometry")
 	check(not live.is_ready() and not live.native_ready,"Saved protected loading snapshot remains disarmed")
 	check(ambient.live_suppressed.size()==4,"All four exact duplicates preserve their source visual variant before local suppression")

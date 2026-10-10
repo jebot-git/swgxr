@@ -85,7 +85,7 @@ func run()->void:
 	check(native.accept(reply(3)) and performer.selected.is_empty() and not performer.primed,"Revoked selection is disarmed immediately")
 	host.reply=reply(4)
 	await native.request("flourish")
-	check(host.calls.back().path=="/entertainer/flourish" and not host.calls.back().payload.has("index"),"Existing trigger delegates random learned flourish choice to Core3")
+	check(host.calls.back().path=="/entertainer/flourish" and not host.calls.back().payload.has("index"),"Existing trigger delegates random learned flourish choice to CoreCU")
 	check(host.calls.back().payload.position==[3500.0,5.0,-4800.0] and host.calls.back().payload.live_session_id=="native-fixture" and host.calls.back().payload.cell_index==2,"Native actions preserve owned session and source location/cell")
 	var before:int=host.calls.size();host.menu=Control.new();host.add_child(host.menu)
 	for i in range(1000):native.sample_registration(1.0/90,pose(0,1.7),pose(-.55,2.1),pose(.55,2.1),true,true)

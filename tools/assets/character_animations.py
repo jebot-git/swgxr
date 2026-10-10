@@ -228,6 +228,30 @@ def locomotion_metadata(raw):
     return result
 
 
+
+def animation_messages(raw):
+    """Original ANS frame messages; bounded parsing, no invented event cadence."""
+    tree=parse_iff(raw)
+    compressed=tree.tag=='CKAT'
+    fps,last_frame,*_=struct.unpack('<f6h' if compressed else '<f6i',tree.first('INFO').data)
+    messages=[]
+    for node in tree.walk('MESG'):
+        decoded=None
+        for width,kind in ((2,'H'),(4,'I')):
+            if len(node.data)<width+1:continue
+            count=struct.unpack_from('<'+kind,node.data)[0]
+            if count>4096:continue
+            try:message,offset=cstring(node.data,width)
+            except (ValueError,UnicodeDecodeError):continue
+            if len(node.data)-offset!=count*width:continue
+            frames=struct.unpack_from('<'+kind*count,node.data,offset)
+            if any(frame>last_frame for frame in frames):continue
+            decoded=[{'seconds':frame/fps,'message':message} for frame in frames]
+            break
+        if decoded is None:raise ValueError('Unsupported original ANS message layout')
+        messages.extend(decoded)
+    return sorted(messages,key=lambda row:row['seconds'])
+
 def decode_clip(imp, path, bones, names):
     raw=imp.read(path)
     r=parse_iff(raw);assert r.tag in ('KFAT','CKAT');compressed=r.tag=='CKAT'
@@ -259,4 +283,4 @@ def decode_clip(imp, path, bones, names):
      for frame in times:
       delta=mirror([sample(keys,frame) for keys in channels]);pkeys.append([frame/fps,*[bone['rest_position'][j]+delta[j] for j in range(3)]])
      tracks.append({'bone':bi,'name':name,'rotations':qkeys,'positions':pkeys})
-    return {'fps':fps,'length':last_frame/fps,'source':path,'tracks':tracks,'root_motion':'ignored; gameplay controller drives translation',**locomotion_metadata(raw)}
+    return {'fps':fps,'length':last_frame/fps,'source':path,'tracks':tracks,'messages':animation_messages(raw),'root_motion':'ignored; gameplay controller drives translation',**locomotion_metadata(raw)}

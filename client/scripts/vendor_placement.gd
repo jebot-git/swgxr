@@ -51,7 +51,7 @@ func observe(response:Dictionary)->void:
 		next[str(row.id)]=row
 	vendors=next;awaiting_refresh.clear()
 	if not held.is_empty() and not vendors.has(str(held.id)):cancel()
-	app.datapad.ui.set_vendors(vendors.values())
+	if is_instance_valid(app.datapad) and is_instance_valid(app.datapad.ui):app.datapad.ui.set_vendors(vendors.values())
 	show_placed(state.get("placed_vendors",[]))
 func show_placed(rows:Array)->void:
 	var retained:Dictionary={}
@@ -77,7 +77,7 @@ func draw_vendor(entry:Dictionary,hand_pose:Transform3D)->bool:
 	if busy or not held.is_empty() or not app.world_ready or app.session_leaving or not hand_pose.is_finite():return false
 	var id:=str(entry.get("id",""))
 	if not vendors.has(id) or not is_instance_valid(app.services):return false
-	if awaiting_refresh.has(id):app.datapad.ui.set_status("Wait for Core3 to refresh the vendor list.");return false
+	if awaiting_refresh.has(id):app.datapad.ui.set_status("Wait for CoreCU to refresh the vendor list.");return false
 	if is_instance_valid(app.inventory) and not app.inventory.held_item.is_empty():
 		app.datapad.ui.set_status("Return the held item before placing a vendor.");return false
 	var mesh:ArrayMesh=assets.model(str(vendors[id].template),vendors[id].get("customization",{}))
@@ -114,7 +114,7 @@ func update_pose(hand_pose:Transform3D)->void:
 	var identity:Dictionary=app.services.identity_payload()
 	var eligibility:Dictionary=app.services.state.get("vendor_placement",{})
 	var reason:="Move the hologram onto a nearby floor"
-	if app.services.state_age>8:reason="Waiting for current Core3 placement permissions"
+	if app.services.state_age>8:reason="Waiting for current CoreCU placement permissions"
 	elif not eligibility.get("eligible",false):reason=str(eligibility.get("reason","Enter an authorized public building"))
 	elif str(eligibility.get("building_id","0"))!=str(identity.building_id) or int(eligibility.get("cell_index",0))!=int(identity.cell_index):reason="Waiting for this room's placement permissions"
 	elif not hit.is_empty() and hit.get("normal",Vector3.ZERO).dot(Vector3.UP)>.75 and point.distance_to(app.player.global_position)<=minf(4,float(eligibility.get("max_distance",4))) and unobstructed(point):
@@ -133,7 +133,7 @@ func placement_frame(tracked:bool,hand_pose:Transform3D,grip:float,trigger:float
 	if trigger<.55 or not trigger_armed:return
 	trigger_armed=false
 	if not valid_pose:return
-	if app.services.busy or not app.services.allowed:label.text="Wait for Core3, then press trigger again";return
+	if app.services.busy or not app.services.allowed:label.text="Wait for CoreCU, then press trigger again";return
 	commit()
 func commit()->void:
 	if busy or held.is_empty() or not valid_pose or app.services.busy or not app.services.allowed:return

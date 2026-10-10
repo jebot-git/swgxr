@@ -44,16 +44,16 @@ func accept(response:Dictionary,character_id:String,session_id:String,minimum_se
 	var incoming:=int(response.get("sequence",-1))
 	if incoming<minimum_sequence or incoming<=sequence:error="Stale multiplayer snapshot.";return false
 	var revision:=int(response.get("world_revision",-1))
-	if revision<0 or revision<world_revision:error="Stale Core3 world revision.";return false
+	if revision<0 or revision<world_revision:error="Stale CoreCU world revision.";return false
 	var world:Variant=response.get("world")
 	if world==null and revision==world_revision and not native_world.is_empty():world=native_world
 	if not world is Dictionary or world.get("source_kind")!="core3_world" or not world.get("full",false) or not world.get("players") is Array or not world.get("actors") is Array or world.players.size()>MAX_PLAYERS or world.actors.size()>MAX_ACTORS:
-		error="Incomplete or oversized Core3 world snapshot.";return false
+		error="Incomplete or oversized CoreCU world snapshot.";return false
 	var seen:Dictionary={}
 	for records in [world.players,world.actors]:
 		for row in records:
 			if not row is Dictionary or not valid_id(row.get("id")) or seen.has(row.id) or not finite_point(row.get("position")) or not is_finite(float(row.get("heading_radians",NAN))):
-				error="Malformed Core3 world identity or transform.";return false
+				error="Malformed CoreCU world identity or transform.";return false
 			seen[row.id]=true
 	for row:Dictionary in world.players:
 		if not row.get("appearance") is Dictionary or int(row.get("posture",-1)) not in range(15):error="Missing original remote player appearance/posture.";return false

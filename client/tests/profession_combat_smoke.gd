@@ -49,7 +49,7 @@ func run() -> void:
 	check(abilities.toggle_prime(pistol), "Cooldown expires")
 	abilities.primed = false
 	abilities.ham[0] = abilities.costs(pistol.abilities[0])[0]
-	check(not abilities.toggle_prime(pistol), "Exact remaining HAM cost is rejected as Core3 requires")
+	check(not abilities.toggle_prime(pistol), "Exact remaining HAM cost is rejected as CoreCU requires")
 	abilities.refresh_context({"character_id":"other", "complete":false})
 	abilities.select(pistol, "lethal_shot")
 	check(not abilities.toggle_prime(pistol), "Missing authoritative pool observation fails closed")

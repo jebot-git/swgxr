@@ -34,7 +34,12 @@ def prepare():
   ships[template]=info
  root=parse_iff(imp.read('scene/game_music_manager.iff'));combat={}
  for tag,key in [('SENT','enter'),('SEXI','exit')]:combat[key]=[imp.sound(cstring(n.data)[0]) for n in root.walk(tag)]
- output=dict(schema_version=1,sectors=sectors,ships=ships,combat=combat,sounds=imp.sounds,provenance=imp.dependencies,failures=imp.failures,policy='Original environment/interior/CDF/SENT/SEXI bindings. Blank source music remains silent. Native combat events drive a bounded five-second combat hold.')
+ def effect_sounds(source):
+  try:return [sound for n in parse_iff(imp.read(source)).walk('PSND') if (sound:=imp.sound(cstring(n.data)[0]))]
+  except Exception as error:imp.failures.append(dict(source=source,phase='combat_audio',error=str(error)));return []
+ projectiles={str(row['index']):effect_sounds(row['fireClientEffectTemplateName']) for row in datatable(imp.read('datatables/projectile/projectile.iff')) if row['fireClientEffectTemplateName']}
+ hits={str(index):effect_sounds('clienteffect/combat_ship_hit_'+kind+'.cef') for index,kind in enumerate(['shield','armor','component','chassis'])}
+ output=dict(schema_version=1,sectors=sectors,ships=ships,combat=combat,projectiles=projectiles,hits=hits,sounds=imp.sounds,provenance=imp.dependencies,failures=imp.failures,policy='Original environment/interior/CDF/SENT/SEXI and projectile table bindings. Blank source music remains silent. Native combat events drive a bounded five-second combat hold.')
  (out/'catalog.json').write_text(json.dumps(output,indent=2)+'\n')
  effects=ROOT/'runtime/assets/space_effects/assets.json';data=json.loads(effects.read_text());characters=json.loads((ROOT/'runtime/assets/characters/catalog.json').read_text());poses={}
  character=CharacterImporter(ROOT/'runtime/asset_sources/active_tre',out)

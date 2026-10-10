@@ -10,7 +10,7 @@ func run()->void:
 	ui.set_entries([{"id":"12","name":"placeholder","category":"data"}])
 	var mission:Dictionary={"id":"12","name":"Parcel delivery","description":"Deliver medicine.","type":"deliver","target":"Recipient","reward":250,"difficulty":5,"active":true,"status":"Collect parcel","waypoint":{"planet":"tatooine","position":[100,0,200],"active":true}}
 	ui.set_owned_missions([mission]);ui.select_category("missions")
-	check(ui.filtered_entries.size()==1 and ui.detail_description.text=="Deliver medicine.","Owned mission replaces generic replicated object and exposes description")
+	check(ui.filtered_entries.size()==1 and ui.detail_description.text.begins_with("Deliver medicine.") and ui.detail_description.text.contains("224 m"),"Owned mission replaces generic replicated object and exposes description")
 	check(ui.detail_attributes.text.contains("Collect parcel") and ui.detail_attributes.text.contains("250 credits"),"Mission phase and reward visible")
 	check(ui.map.waypoints.size()==1 and ui.map.waypoints[0].position==[100,0,200],"Native mission waypoint reaches map")
 	mission.status="Deliver parcel";mission.waypoint.position=[300,0,400];ui.set_owned_missions([mission])
@@ -22,6 +22,14 @@ func run()->void:
 	ui.set_owned_missions([])
 	check(ui.map.waypoints.is_empty() and ui.filtered_entries.is_empty(),"Completed or cancelled mission removes objective and marker")
 	ui.free()
+	var distance=preload("res://scripts/mission_distance.gd")
+	check(distance.text({"planet":"tatooine","position":[300,900,400]},Vector3.ZERO,"tatooine").contains("500 m"),"Ground distance ignores elevation")
+	check(distance.text({"planet":"naboo","position":[300,0,400]},Vector3.ZERO,"tatooine").contains("another planet"),"Interplanetary coordinates are not compared")
+	check(distance.text({"planet":"tatooine"},Vector3.ZERO,"tatooine").is_empty(),"Unknown objective has no invented distance")
+	check(distance.text({"planet":"tatooine","position":[3000,0,4000]},Vector3.ZERO,"tatooine").contains("5.0 km"),"Long mission distances use kilometres")
+	var prose:Dictionary={"error":"Core3 rejected request","backend":"core3","source_kind":"core3_world","nested":[{"message":"Core3 ready"}]}
+	preload("res://scripts/backend_brand.gd").messages(prose)
+	check(prose.error=="CoreCU rejected request" and prose.nested[0].message=="CoreCU ready" and prose.source_kind=="core3_world" and prose.backend=="core3","Backend prose is branded without changing wire identities")
 	var radar:=preload("res://scripts/wrist_radar.gd").new();root.add_child(radar);radar.configure();radar.set_active(true)
 	radar.refresh(Vector3.ZERO,Vector3.FORWARD,[{"id":"far","kind":"waypoint","position":Vector3(1000,0,0)},{"id":"npc","kind":"npc","position":Vector3(1000,0,0)}])
 	check(radar.last_contacts.size()==1 and radar.last_contacts[0].id=="far" and radar.last_contacts[0].pixel.distance_to(Vector2(128,128))<=110.01,"Far active waypoint has bounded bearing; distant NPC omitted")

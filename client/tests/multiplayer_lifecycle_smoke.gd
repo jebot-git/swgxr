@@ -1,4 +1,6 @@
 extends SceneTree
+class Player extends Node3D:
+	func get_camera()->Camera3D:return null
 class Session extends Node:
 	var live:=true
 	var session_id:="owned"
@@ -43,7 +45,7 @@ func run()->void:
 	var app:=Host.new();root.add_child(app)
 	app.loader.report.origin=[100,0,200]
 	app.stage=Stage.new();app.add_child(app.stage)
-	app.player=Node3D.new();app.add_child(app.player)
+	app.player=Player.new();app.add_child(app.player)
 	app.gameplay_session=Session.new();app.add_child(app.gameplay_session)
 	app.response={"ok":true,"backend":"core3","source_kind":"core3_multiplayer_sync","character_id":"101","session_id":"owned","world_revision":1,"world":{"source_kind":"core3_world","full":true,"players":[{"id":"102","position":[102,0,200],"heading_radians":.5,"appearance":{},"posture":0}],"actors":[]},"poses":[]}
 	var sync:=preload("res://multiplayer/client_sync.gd").new();app.multiplayer_sync=sync;app.add_child(sync);sync.setup(app);sync.set_process(false)

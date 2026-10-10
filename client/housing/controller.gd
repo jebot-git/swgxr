@@ -91,7 +91,7 @@ func request(action:String,extra:Dictionary={})->Dictionary:
 		# Passive discovery is not a placement attempt. Keep the last readout;
 		# connection loss is handled by the main reconnect screen.
 		if action=="status":return {"ok":false,"error":str(response.get("error","Housing status unavailable."))}
-		error=str(response.get("error","Core3 did not confirm housing operation. Refresh before retrying."))
+		error=str(response.get("error","CoreCU did not confirm housing operation. Refresh before retrying."))
 		transient_error_until=0
 		if bool(response.get("movement_rejected",false)) or error.begins_with("native_movement_"):
 			error="Movement was rejected. Aim at the plot again."
@@ -112,7 +112,7 @@ func place()->void:
 	var result:=await request("place",desired)
 	var success:bool=result.get("ok",false) and result.get("mutation",{}).get("success",false)
 	bag.finish_item_action(success)
-	if success:status.text="Core3 construction started";poll=.1
+	if success:status.text="CoreCU construction started";poll=.1
 func try_drop(item:Dictionary,pose:Transform3D)->bool:
 	if is_instance_valid(factory_panel) and factory_panel.try_drop(item,pose):return true
 	if item.get("type","")=="manufacturing_blueprint":bag.finish_item_action(true);return true
@@ -219,7 +219,7 @@ func _process(dt:float)->void:
 		preview.global_transform=preview_pose
 		var desired:=candidate(preview_pose);var fresh:bool=same_candidate(desired,approved) and approved.get("valid",false) and Time.get_ticks_msec()-int(approved.get("received",0))<1500
 		scenery.color_preview(preview,fresh and valid_floor)
-		status.show();status.global_position=pose.origin+Vector3(0,.15,0);status.text="Trigger: build · release: cancel" if fresh else error if not error.is_empty() else "Checking Core3 placement…"
+		status.show();status.global_position=pose.origin+Vector3(0,.15,0);status.text="Trigger: build · release: cancel" if fresh else error if not error.is_empty() else "Checking CoreCU placement…"
 		var trigger:=hand.get_float("trigger")
 		if trigger<.35:trigger_ready=true
 		if trigger>.65 and trigger_ready:trigger_ready=false;if_ready_place(fresh and valid_floor)
@@ -227,7 +227,7 @@ func _process(dt:float)->void:
 			preview_poll=.5;check_preview(desired)
 	elif arm.is_empty():
 		status.visible=bool(state.get("construction_active",false)) or not error.is_empty()
-		if status.visible:status.global_position=right.global_position+Vector3(0,.2,0);status.text=error if not error.is_empty() else "Core3 construction in progress"
+		if status.visible:status.global_position=right.global_position+Vector3(0,.2,0);status.text=error if not error.is_empty() else "CoreCU construction in progress"
 	if poll<=0 and not busy and deed.is_empty() and not harvester_panel.is_open and not factory_panel.is_open and (not app.has_method("try_background_poll") or app.try_background_poll("housing")):request("status")
 func if_ready_place(valid:bool)->void:
 	if valid:place()
@@ -235,7 +235,7 @@ func check_preview(desired:Dictionary)->void:
 	var result:=await request("preview",desired)
 	if result.get("ok",false):
 		approved=result.get("mutation",{}).duplicate(true);approved.received=Time.get_ticks_msec()
-		if not approved.get("valid",false):error=str(approved.get("reason","Core3 rejected this placement"))
+		if not approved.get("valid",false):error=str(approved.get("reason","CoreCU rejected this placement"))
 
 func draw_harvester(entry:Dictionary,_pose:Transform3D)->void:
 	if busy or not bag.held_item.is_empty() or not app.world_ready:return

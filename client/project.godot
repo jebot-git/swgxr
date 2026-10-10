@@ -36,6 +36,7 @@ defaults/default_clear_color=Color(0.12,0.15,0.18,1)
 
 [autoload]
 SWGSpatialAudio="*res://audio/spatial_audio.gd"
+SWGUIAudio="*res://audio/ui_audio.gd"
 RenderPolicy="*res://scripts/render_policy.gd"
 XRToolsUserSettings="*res://addons/godot-xr-tools/user_settings/user_settings.gd"
 XRToolsRumbleManager="*res://addons/godot-xr-tools/rumble/rumble_manager.gd"

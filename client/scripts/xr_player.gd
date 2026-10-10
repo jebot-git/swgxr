@@ -89,7 +89,7 @@ func _update_locomotion() -> void:
 		var provider := get_node_or_null(path)
 		if provider != null:
 			var moving: bool = path.contains("MovementDirect")
-			provider.enabled = active and not (is_instance_valid(space) and space.seated()) and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right") and pet_stick_side != ("left" if moving else "right") and fishing_stick_side != ("left" if moving else "right")
+			provider.enabled = active and not feedback.life_locked and not (is_instance_valid(space) and space.seated()) and not (is_instance_valid(vehicles) and vehicles.seated()) and not (moving and feedback.combat_blocked()) and not (interface_move_captured if moving else interface_turn_captured) and combat_stick_side != ("left" if moving else "right") and medical_stick_side != ("left" if moving else "right") and pet_stick_side != ("left" if moving else "right") and fishing_stick_side != ("left" if moving else "right")
 
 func _on_controller_button(button: String, side := "left") -> void:
 	if button == "menu_button":
@@ -119,7 +119,10 @@ func _physics_process(delta: float) -> void:
 	if (is_instance_valid(vehicles) and vehicles.seated()) or (is_instance_valid(space) and space.seated()):
 		velocity=Vector3.ZERO;ground_control_velocity=Vector2.ZERO
 		feedback.vital.advance(delta);return
-	super(delta)
+	if feedback.life_locked:
+		clear_locomotion()
+	else:
+		super(delta)
 	var offhand: XRController3D = right_hand_node if dominant_hand == "left" else left_hand_node
 	var life_input_tracked: bool = preload("res://scripts/tracked_hand_input.gd").controller_tracked(offhand) and bool(combat_tracking_context().tracked)
 	feedback.update_life_input(offhand.is_button_pressed("primary_click"), life_input_tracked and not interface_move_captured and not interface_turn_captured, delta)
@@ -219,7 +222,7 @@ func _constrain_source_motion(start: Vector3, motion: Vector3) -> Vector3:
 
 func _update_body_under_camera(delta: float) -> void:
 	# Physical head/hands keep tracking while the authoritative body is anchored.
-	if feedback.feigning_death or not bool(feedback.locomotion.get("movement_allowed",true)) or bool(feedback.locomotion.get("frozen",false)):return
+	if feedback.life_locked or feedback.feigning_death or not bool(feedback.locomotion.get("movement_allowed",true)) or bool(feedback.locomotion.get("frozen",false)):return
 	var before := global_position
 	var previous := _source_support(before, support_contact_distance, support_contact_distance + player_radius)
 	var supported: bool = (bool(previous.get("valid", false)) and absf(float(previous.body_height) - before.y) <= support_contact_distance) or step_solver.has_support(self, support_contact_distance)
@@ -285,7 +288,17 @@ func _update_body_under_camera(delta: float) -> void:
 			steps_down += 1
 	origin_node.global_position.y += global_position.y - after_tracking.y
 
+func clear_locomotion() -> void:
+	velocity=Vector3.ZERO;ground_control_velocity=Vector2.ZERO
+	source_movement_active=false;source_movement_velocity=Vector2.ZERO
+	jump_in_progress=false
+	var scout:=origin_node.get_node_or_null("ScoutMovement")
+	if scout!=null:scout.source_speed=0;scout.source_direction=Vector2.ZERO
+
 func move_player(requested_velocity: Vector3) -> Vector3:
+	if feedback.life_locked:
+		clear_locomotion()
+		return Vector3.ZERO
 	if feedback.feigning_death or not bool(feedback.locomotion.get("movement_allowed",true)) or bool(feedback.locomotion.get("frozen",false)):
 		requested_velocity.x=0;requested_velocity.z=0;ground_control_velocity=Vector2.ZERO;source_movement_velocity=Vector2.ZERO
 	var supported: bool = on_ground or bool(support_state.get("valid", false)) or step_solver.has_support(self, support_contact_distance)

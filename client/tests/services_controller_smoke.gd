@@ -133,7 +133,7 @@ func run() -> void:
 	check(host.calls.size()==before+1 and host.calls.back().path=="/services/bank_transfer","Queued user mutation submits exactly once")
 	check(host.calls.back().payload.amount==400 and not coordinator.busy and coordinator.queued_action.is_empty(),"Queued action retains proposal and clears flight state")
 	var invalid:=host.response();invalid.source_kind="local_fixture"
-	check(not coordinator.accept_response(invalid),"Non-Core3 service source rejected")
+	check(not coordinator.accept_response(invalid),"Non-CoreCU service source rejected")
 	invalid=host.response();invalid.character_id="other"
 	check(not coordinator.accept_response(invalid),"Wrong envelope character rejected")
 	invalid=host.response();invalid.state.character_id="other"
@@ -144,12 +144,12 @@ func run() -> void:
 	host.release_api.emit();await frames()
 	check(coordinator.state.is_empty() and ui.wallet.cash==cash_before,"Late old-character response cannot update current state")
 	check(not coordinator.busy,"Session reset clears busy while old reply is discarded")
-	host.next_response={"ok":false,"error":"Core3 unavailable"};host.hold_next=true;coordinator.request("status")
+	host.next_response={"ok":false,"error":"CoreCU unavailable"};host.hold_next=true;coordinator.request("status")
 	before=host.calls.size()
 	coordinator.request("pay",{"target_id":"3000","amount":50})
 	host.release_api.emit();await frames(6)
 	check(host.calls.size()==before and coordinator.queued_action.is_empty(),"Failed prerequisite read cancels queued economic mutation")
-	check(ui.panel.message=="Core3 unavailable" and not ui.pending,"Native failure is visible and does not hang UI")
+	check(ui.panel.message=="CoreCU unavailable" and not ui.pending,"Native failure is visible and does not hang UI")
 	var reply:=host.response();reply.transport={"id":"travel-1","destination":{"zone":"tatooine","position":[3600,5,-4700],"building_id":"0","cell_index":0}}
 	host.next_response=reply
 	coordinator.state.tickets=[{"id":"700","destination_planet":"tatooine","usable":true}]
@@ -304,7 +304,7 @@ func run() -> void:
 	check(ticket_offer.get("ok",false) and ui.panel.rows.size()==1 and ui.panel.rows[0].id=="700","Terminal boarding selects owned usable tickets for the nearby native departure")
 	check(host.calls.size()==terminal_calls,"Selecting terminal boarding does not consume a ticket or teleport locally")
 	ui.close_interface();host.player.position=Vector3(30,0,0)
-	check(not coordinator.open_terminal_tickets().get("ok",true),"Terminal boarding retains Core3 25m range")
+	check(not coordinator.open_terminal_tickets().get("ok",true),"Terminal boarding retains CoreCU 25m range")
 	host.player.position=Vector3.ZERO;coordinator.state.shuttles[0].doors_open=false
 	check(not coordinator.open_terminal_tickets().get("ok",true),"Closed shuttle doors prevent terminal boarding")
 	coordinator.state.shuttles[0].doors_open=true;coordinator.state_age=3
@@ -317,7 +317,7 @@ func run() -> void:
 	terminal_calls=host.calls.size();ui.open_terminal(collectors[0]);await frames()
 	check(ui.terminal.get("kind","")=="boarding" and ui.panel.rows.size()==1 and host.calls.size()==terminal_calls,"Collector activation opens native ticket selection without unsupported terminal-open API call")
 	host.queue_free();await process_frame
-	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"backend":"async mocked Core3 envelopes","renderer":"headless dummy","tracking":"mocked; not live XR"}
+	var result: Dictionary={"checks":checks,"failures":failures,"passed":failures.is_empty(),"backend":"async mocked CoreCU envelopes","renderer":"headless dummy","tracking":"mocked; not live XR"}
 	var file:=FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/services-controller-smoke.json"),FileAccess.WRITE)
 	if file!=null: file.store_string(JSON.stringify(result,"\t"))
 	print(JSON.stringify(result));quit(0 if failures.is_empty() else 1)

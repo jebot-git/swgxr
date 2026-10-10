@@ -47,6 +47,14 @@ class LiveCombatHub:
   return next(iter(self.sessions.values()),None)
  def active_for(self,account):
   return self.sessions.get(account.lower())
+ def motion(self,account,data):
+  active=self.active_for(account)
+  if not active or active['id']!=data.get('session_id') or active['character_id']!=str(data.get('character_id','')) or active['process'].poll() is not None:return {}
+  try:
+   from .native_motion import read
+  except ImportError:
+   from native_motion import read
+  return read(active['folder'])
  def parallel_update_allowed(self,account,data):
   active=self.active_for(account)
   return bool(active and active.get('native_concurrency')=='engine_cross_lock_v1'

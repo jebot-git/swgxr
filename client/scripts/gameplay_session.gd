@@ -10,6 +10,8 @@ var weapon_state: Dictionary={}
 var pending_transport: Dictionary={}
 var notified_transport_id:=""
 var pending_ack:=""
+var confirmed_transport_id:=""
+var arrival_pending:=false
 var life_action_pending:=""
 var app: Node
 var live:=false
@@ -23,10 +25,11 @@ var last_error:=""
 var last_confirmed_ms:=0
 var last_smuggler_pose:Dictionary={}
 var last_guard_mode:="none"
+const WORLD_REFRESH_MS:=200
 func setup(host: Node) -> void:app=host
 func reset() -> void:
 	generation+=1;live=false;session_id="";character_id="";busy=false
-	last_smuggler_pose={};last_guard_mode="none"
+	last_smuggler_pose={};last_guard_mode="none";confirmed_transport_id="";arrival_pending=false
 	next_update=0;last_position=Vector3.INF;last_error="";last_confirmed_ms=0
 	sequence=-1;player_state={};weapon_state={};pending_transport={};notified_transport_id="";pending_ack="";life_action_pending=""
 func identity() -> Dictionary:
@@ -41,11 +44,11 @@ func identity() -> Dictionary:
 	return payload # Stamp at dispatch after preceding native receipts are consumed.
 func accept(result: Dictionary, starting:=false) -> bool:
 	if not result.get("ok",false) or result.get("source_kind")!="core3_gameplay_session" or str(result.get("character_id",""))!=app.datapad_character_id or not result.get("session_live",false) or str(result.get("session_id","")).is_empty():
-		last_error=str(result.get("error","Core3 session was not confirmed."));return false
+		last_error=str(result.get("error","CoreCU session was not confirmed."));return false
 	if not starting and not session_id.is_empty() and str(result.session_id)!=session_id:
-		last_error="Core3 returned another session.";return false
+		last_error="CoreCU returned another session.";return false
 	var revision:=int(result.get("sequence",-1))
-	if revision<0:last_error="Core3 omitted its player snapshot revision.";return false
+	if revision<0:last_error="CoreCU omitted its player snapshot revision.";return false
 	# A valid older receipt can settle an action, but cannot roll back newer vitals.
 	if not starting and revision<sequence:return true
 	var snapshot: Variant=result.get("snapshot")
@@ -61,7 +64,10 @@ func accept(result: Dictionary, starting:=false) -> bool:
 	if snapshot.get("jtl") is Dictionary:player_state.jtl=snapshot.jtl
 	var rig:Variant=app.get("combat_rig")
 	if is_instance_valid(rig) and rig.has_method("guard_feedback"):rig.guard_feedback(player_state.get("physical_guard",{}))
-	if pending_transport.is_empty():pending_ack="";notified_transport_id=""
+	if pending_transport.is_empty():
+		if not pending_ack.is_empty():confirmed_transport_id=pending_ack
+		pending_ack="";notified_transport_id=""
+		if not bool(player_state.get("cloning",false)):arrival_pending=false
 	if is_instance_valid(app.vehicles) and snapshot.get("vehicles") is Dictionary:app.vehicles.observe(snapshot.vehicles)
 	snapshot_applied.emit(player_state.duplicate(true))
 	if not starting and not pending_transport.is_empty() and str(pending_transport.id)!=notified_transport_id:
@@ -102,8 +108,10 @@ func request_life_action(action: String) -> bool:
 	life_action_pending=action;next_update=0
 	return true
 func acknowledge_transport(id: String) -> bool:
-	if not live or pending_transport.is_empty() or str(pending_transport.get("id",""))!=id:return false
-	pending_ack=id;next_update=0
+	if not live:return false
+	if pending_transport.is_empty():return not id.is_empty() and id==confirmed_transport_id
+	if str(pending_transport.get("id",""))!=id:return false
+	pending_ack=id;arrival_pending=true;next_update=0
 	return true
 func send_life_action() -> void:
 	busy=true
@@ -139,8 +147,8 @@ func native_requests_pending() -> bool:
 func authority_expired() -> bool:
 	return Time.get_ticks_msec()-last_confirmed_ms>=preload("res://combat/live_world.gd").SESSION_TIMEOUT*1000.0
 func movement_corrected()->void:
-	# Force one fresh pose even while stationary; otherwise the idle throttle
-	# delays rearming combat for three seconds after a corrected service action.
+	# Force one fresh pose even while stationary, so a corrected service action
+	# can rearm combat without waiting for the idle refresh interval.
 	last_position=Vector3.INF;next_update=0.1
 func _process(delta: float) -> void:
 	if not is_instance_valid(app) or app.session_leaving or not live:return
@@ -151,6 +159,9 @@ func _process(delta: float) -> void:
 	# Medical placement temporarily disables world_ready; its native arrival
 	# acknowledgement must still run or the loading screen would deadlock.
 	if not pending_ack.is_empty():update_pose();return
+	# The transport ACK can precede Core3's scheduled clone recovery. Keep
+	# reading the owned snapshot under the loading cover without sending motion.
+	if arrival_pending:poll_arrival();return
 	if not life_action_pending.is_empty():send_life_action();return
 	if not app.world_ready:return
 	if is_instance_valid(app.get("space")) and app.space.aboard():return
@@ -158,9 +169,11 @@ func _process(delta: float) -> void:
 	# Stale combat cannot submit its commands. Give the owned heartbeat priority
 	# so that the queued gestures cannot prevent their own authority recovery.
 	if is_instance_valid(combat) and combat.has_pending_commands() and not authority_expired():return
-	if is_instance_valid(combat) and authority_expired():combat.fail("Core3 authority expired; queued combat gestures discarded.")
+	if is_instance_valid(combat) and authority_expired():combat.fail("CoreCU authority expired; queued combat gestures discarded.")
+	# /session/sync serves the world cached by this heartbeat. Standing still
+	# must not reduce NPC updates to one every three seconds.
 	var moved:=last_position.distance_squared_to(app.player.global_position)>.01
-	if not driving() and not moved and smuggler_pose()==last_smuggler_pose and str(guard_pose().get("mode","none"))=="none" and last_guard_mode=="none" and Time.get_ticks_msec()-last_confirmed_ms<3000:return
+	if not driving() and not moved and smuggler_pose()==last_smuggler_pose and str(guard_pose().get("mode","none"))=="none" and last_guard_mode=="none" and Time.get_ticks_msec()-last_confirmed_ms<WORLD_REFRESH_MS:return
 	update_pose()
 func smuggler_pose() -> Dictionary:
 	var feedback:Variant=app.player.get("feedback")
@@ -203,3 +216,13 @@ func update_pose() -> void:
 		live=false
 		if is_instance_valid(app.asset_status):app.asset_status.text=last_error
 		connection_lost.emit(last_error)
+
+func poll_arrival() -> void:
+	busy=true;next_update=.2
+	var epoch:=generation
+	var result:Dictionary=await app.api(HTTPClient.METHOD_GET,"/combat/session?account="+str(app.datapad_account).uri_encode()+"&character_id="+str(app.datapad_character_id).uri_encode()+"&session_id="+session_id.uri_encode())
+	if epoch!=generation:return
+	busy=false
+	if accept_native_response(result):return
+	if authority_expired():
+		live=false;connection_lost.emit(last_error)

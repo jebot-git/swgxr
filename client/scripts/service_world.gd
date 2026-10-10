@@ -72,7 +72,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 		keep[id] = true
 		if not shuttles.has(id):
 			var actor := Avatar.new()
-			actor.name = "Core3Shuttle_"+id
+			actor.name = "CoreCUShuttle_"+id
 			actor.catalog = catalog
 			actor.catalog_directory = directory
 			actor.tracking_mode = true # Generic character locomotion must not alter it.
@@ -136,7 +136,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			var node := MeshInstance3D.new()
 			node.mesh = mesh # Source meters/origin: no inventory preview centering.
 			node.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			node.name = "Core3Terminal_"+id
+			node.name = "CoreCUTerminal_"+id
 			add_child(node)
 			terminals[id] = {"node":node}
 		terminals[id].node.position = local_position(p)

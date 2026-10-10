@@ -78,7 +78,7 @@ func exercise() -> void:
 		for field in ["zone","position","building_id"]:identity[field]=entry.source_location[field]
 		identity.cell_index=int(entry.source_location.cell_index)
 		var ticket:=await request(connection,"/voice/session",identity)
-		if not check(ticket.get("ok",false) and ticket.get("protocol")=="swgxr-voice-v1","Authenticated Core3 voice ticket issued: "+str(ticket.get("error",""))):return
+		if not check(ticket.get("ok",false) and ticket.get("protocol")=="swgxr-voice-v1","Authenticated CoreCU voice ticket issued: "+str(ticket.get("error",""))):return
 		var wire:=ProbeTransport.new();root.add_child(wire)
 		var peer: Dictionary={"connection":connection,"identity":identity,"wire":wire,"channel":"","failed":false,"grants":[],"roster":[]}
 		peers.append(peer)
@@ -166,7 +166,7 @@ func run() -> void:
 	for peer in peers:peer.wire.shutdown();peer.wire.queue_free();peer.connection.clear_session()
 	playback=null;audio_stream=null
 	await process_frame
-	var report: Dictionary={"passed":not failed,"checks":checks,"disconnects":disconnects,"events":events,"received_frames":received,"decoded_energy":decoded_energy,"microphone_activated":false,"xr":"off","transport":"actual Godot WSS and Core3 metadata","character_creation":false}
+	var report: Dictionary={"passed":not failed,"checks":checks,"disconnects":disconnects,"events":events,"received_frames":received,"decoded_energy":decoded_energy,"microphone_activated":false,"xr":"off","transport":"actual Godot WSS and CoreCU metadata","character_creation":false}
 	if options.has("evidence"):
 		var file:=FileAccess.open(options.evidence,FileAccess.WRITE)
 		if file!=null:file.store_string(JSON.stringify(report,"\t"));file.close()

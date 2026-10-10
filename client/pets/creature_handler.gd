@@ -76,7 +76,7 @@ func observe_outcome()->void:
 	var signature:=request+":"+str(taming.get("state",""))
 	if signature!=last_taming:
 		last_taming=signature
-		if taming.get("state","")=="succeeded":outcome("Core3 confirmed: creature tamed and added to your datapad.")
+		if taming.get("state","")=="succeeded":outcome("CoreCU confirmed: creature tamed and added to your datapad.")
 		elif taming.get("state","")=="failed" and not tame_succeeded:outcome("Taming failed. "+str(taming.get("reason",taming.get("message","The creature was not acquired."))))
 	if Time.get_ticks_msec()>status_until:status=""
 func submit(action:String,detail:Dictionary)->void:
@@ -125,4 +125,4 @@ func show_progress(sample:Dictionary,kind:String,mount:Dictionary,pending:bool,t
 	reticle.update_aim(vehicles.head.global_transform,not selected.is_empty())
 	label.visible=allowed and (pending or not selected.is_empty() or float(sample.progress)>0 or not status.is_empty())
 	label.global_position=vehicles.head.global_position-vehicles.head.global_basis.z*.75+Vector3.DOWN*.22
-	label.text=("Core3 taming · %d / %d seconds"%[int(taming.get("elapsed_seconds",0)),int(taming.get("duration_seconds",30))]) if pending else status if not status.is_empty() and (progress==0 or bool(sample.latched)) else str(selected.get("name",mount.get("name","Pet")))+"\n"+("Clap or beckon continuously" if kind=="tame" else "Stroke the original head" if kind=="mount" else "Embolden pets · hold fists" if sample.get("mode","")=="ch_embolden" else "Enrage pets · hold fists" if sample.get("mode","")=="ch_enrage" else "Hold fists")+" · %d%%"%roundi(float(sample.progress)*100)
+	label.text=("CoreCU taming · %d / %d seconds"%[int(taming.get("elapsed_seconds",0)),int(taming.get("duration_seconds",30))]) if pending else status if not status.is_empty() and (progress==0 or bool(sample.latched)) else str(selected.get("name",mount.get("name","Pet")))+"\n"+("Clap or beckon continuously" if kind=="tame" else "Stroke the original head" if kind=="mount" else "Embolden pets · hold fists" if sample.get("mode","")=="ch_embolden" else "Enrage pets · hold fists" if sample.get("mode","")=="ch_enrage" else "Hold fists")+" · %d%%"%roundi(float(sample.progress)*100)

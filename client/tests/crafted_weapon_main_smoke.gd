@@ -21,7 +21,7 @@ func run() -> void:
 		assert(snapshot.weapons.any(func(item):return item.item_id==state.profile.item_id and ((item.power==state.profile.power and item.stance_recovery==state.profile.stance_recovery) if state.is_melee() else (item.rpm==state.profile.rpm and item.capacity==state.profile.capacity))))
 		assert(state.certified())
 	assert(app.combat_rig.unarmed.size()==2 and app.combat_rig.unarmed.right.profile==snapshot.unarmed)
-	assert(app.session_mode.contains("CORE3 WEAPONS"))
+	assert(app.session_mode.contains("CORECU WEAPONS"))
 	# Exercise the no-supported-items branch using the real player profile and
 	# an explicitly filtered inventory fixture; this is not an inventory mutation.
 	app.combat_rig.free(); app.combat_target.free()

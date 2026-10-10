@@ -43,7 +43,7 @@ func run()->void:
 	check(not host.try_background_poll("entertainer"),"In-flight native service blocks optional live polls")
 	host.api_requests_in_flight=0
 	host.native_poll_budget.reset()
-	var gate:Dictionary={"ok":false,"http_status":503,"backend":"core3","error_code":"backend_busy","mutation_started":false,"retry_after":1,"error":"Core3 request queue is full; retry shortly"}
+	var gate:Dictionary={"ok":false,"http_status":503,"backend":"core3","error_code":"backend_busy","mutation_started":false,"retry_after":1,"error":"CoreCU request queue is full; retry shortly"}
 	host.reply=gate;live.poll_clock=1;live.elapsed_since_snapshot=.5;var epoch:int=live.generation
 	await live.pump()
 	check(live.live and live.session_id=="native-session" and live.generation==epoch and live.elapsed_since_snapshot==.5,"Explicit unstarted gate rejection retains owner and does not invent a confirmation")

@@ -17,6 +17,7 @@ var revision:=-1
 var last_snapshot_ms:=0
 var snapshot_seconds:=1.0
 var snapshot_usec:=0
+var presentation_usec:=0
 var ambient:Node
 var suppressed:Dictionary={}
 func setup(host:Node)->void:
@@ -25,13 +26,16 @@ func setup(host:Node)->void:
 	if is_instance_valid(ambient):bindings.configure(ambient.manifest)
 func clear()->void:
 	for actor:Node in actors.values():actor.free()
-	actors.clear();desired.clear();bindings.clear();suppressed.clear();revision=-1
+	actors.clear();desired.clear();bindings.clear();suppressed.clear();revision=-1;last_snapshot_ms=0;snapshot_usec=0;presentation_usec=0
 	if is_instance_valid(ambient):ambient.set_live_suppressed({})
 func accept(rows:Array,owner:String,world_revision:int,age_seconds:=INF)->void:
 	if revision==world_revision:return
 	snapshot_seconds=maxf(.1,(Time.get_ticks_msec()-last_snapshot_ms)/1000.0) if last_snapshot_ms>0 else 1.0
 	last_snapshot_ms=Time.get_ticks_msec();revision=world_revision;session_id=owner
 	snapshot_usec=Time.get_ticks_usec()-int(maxf(0,age_seconds)*1000000) if is_finite(age_seconds) else 0
+	# Presentation uses monotonic arrival times. Keep conservative authority
+	# age separate; subtracting RTT here consumes the interpolation buffer.
+	presentation_usec=Time.get_ticks_usec()
 	bindings.update(rows);desired.clear()
 	for row:Dictionary in rows:
 		if not valid_actor(row):continue
@@ -43,7 +47,9 @@ func accept(rows:Array,owner:String,world_revision:int,age_seconds:=INF)->void:
 		desired[id]=value
 	for id in actors.keys():
 		if not desired.has(id):actors[id].free();actors.erase(id)
-		elif signature(actors[id].record)!=signature(desired[id]):actors[id].free();actors.erase(id)
+		elif signature(actors[id].record)!=signature(desired[id]):
+			if desired[id].dead:actors[id].finish_death_audio()
+			actors[id].free();actors.erase(id)
 		else:apply_actor(actors[id],desired[id],false)
 func valid_actor(row:Dictionary)->bool:
 	return not str(row.get("template","")).is_empty() and row.get("kind","") in ["creature","lair"] and row.get("dead") is bool and is_finite(float(row.get("health",NAN))) and is_finite(float(row.get("max_health",NAN))) and float(row.max_health)>0 and float(row.get("scale",1))>0 and float(row.get("scale",1))<=20
@@ -51,7 +57,7 @@ func signature(row:Dictionary)->Array:
 	return [row.get("template"),row.get("dead"),row.get("scale",1),row.get("customization",{}),row.get("equipment",[]),row.get("source_placement_visual",{})]
 func apply_actor(actor:Node3D,row:Dictionary,initial:bool)->void:
 	var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-float(row.heading_radians)),app.multiplayer_sync.world(row.position))
-	actor.apply_record(row,pose,snapshot_seconds,initial)
+	actor.apply_record(row,pose,snapshot_seconds,initial,float(presentation_usec)/1000000.0)
 	actor.snapshot_usec=snapshot_usec
 	floor_projection.apply(actor,row,app.get("terrain"),app.stage)
 	apply_cell_visibility(actor,row)

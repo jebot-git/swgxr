@@ -47,6 +47,6 @@ func run()->void:
 	check(app.player.transform==body_pose and head.transform==head_pose,"Appearance never moves physics body or HMD")
 	var stable_id:int=app.avatar.skeleton.get_instance_id();app.apply_native_appearance(after)
 	check(app.avatar.skeleton.get_instance_id()==stable_id,"Repeated status never rebuilds unchanged avatar")
-	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"source":"recorded actual native Core3 image design","renderer":"dummy","live_xr":false}
+	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"source":"recorded actual native CoreCU image design","renderer":"dummy","live_xr":false}
 	FileAccess.open("res://../runtime/evidence/entertainment/image-avatar.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report))
 	app.free();await process_frame;quit(0 if failures.is_empty() else 1)

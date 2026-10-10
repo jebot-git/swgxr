@@ -36,6 +36,7 @@ var combat_rig: Node3D
 var entertainer: Node3D
 var combat_target: Node3D
 var tracked_avatar: Node3D
+var footstep_audio:Node3D
 const TerrainStream = preload("res://scripts/terrain_stream.gd")
 const WorldStream = preload("res://scripts/world_stream.gd")
 const EnvironmentPresentation = preload("res://scripts/environment_presentation.gd")
@@ -580,6 +581,7 @@ func configure_backend_connection() -> bool:
 	return true
 
 var native_http=preload("res://scripts/persistent_http.gd").new()
+var presentation_http=preload("res://scripts/persistent_http.gd").new()
 var native_api_queue:Array[int]=[]
 var native_api_ticket:=0
 var native_api_observations:Array=[]
@@ -599,15 +601,21 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 			native_api_queue.erase(ticket)
 			return {"ok":false,"cancelled":true,"error":"Native request expired before dispatch; retry the action."}
 		await get_tree().process_frame
-	if waited and body is Dictionary and body.get("position") is Array and not path.begins_with("/jtl/") and not body.has("movement_revision") and world_ready:
+	var heartbeat:=path in ["/session/update","/combat/session/update"] and not body.has("transport_ack")
+	if waited and body is Dictionary and body.get("position") is Array and not path.begins_with("/jtl/") and (not body.has("movement_revision") or heartbeat) and world_ready:
 		# Refresh the locomotion envelope, retaining item/target/hand intent. A
 		# queued action cannot follow the player into a different room or zone.
 		var current:Dictionary=services.identity_payload()
-		if str(body.get("zone",active_planet))!=str(current.zone) or str(body.get("building_id","0"))!=str(current.building_id) or int(body.get("cell_index",0))!=int(current.cell_index):
+		var context_changed:=str(body.get("zone",active_planet))!=str(current.zone) or str(body.get("building_id","0"))!=str(current.building_id) or int(body.get("cell_index",0))!=int(current.cell_index)
+		if context_changed and not heartbeat:
 			native_api_queue.erase(ticket)
 			return {"ok":false,"cancelled":true,"error":"Room changed before the action could be sent. Try again in the current room."}
-		body=body.duplicate(true)
-		body.position=current.position
+		if not context_changed:
+			body=body.duplicate(true)
+			body.position=current.position
+			# Regenerate an unsent same-room heartbeat after a service advanced
+			# movement. Actions and arrival acknowledgements retain their fence.
+			if heartbeat:body.erase("movement_revision")
 	var dispatched:=Time.get_ticks_msec()
 	var result:=await _api_dispatch(method,path,body,true)
 	var finished:=Time.get_ticks_msec()
@@ -670,27 +678,31 @@ func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persiste
 		if path=="/combat/session/fire":body["launch_age_seconds"]=preload("res://combat/latency_policy.gd").launch_age(int(body._client_launch_usec),Time.get_ticks_usec())
 		body.erase("_client_launch_usec")
 	var serialized:=JSON.stringify(body) if method != HTTPClient.METHOD_GET else ""
-	var error := OK if persistent else request.request(backend_url + path, headers, method, serialized)
+	# World presentation has its own reusable connection. Reopening TLS for
+	# every 100ms poll costs several network round trips and cannot reach 10Hz.
+	var transport= native_http if persistent else presentation_http if path=="/session/sync" else null
+	var error := OK if transport!=null else request.request(backend_url + path, headers, method, serialized)
 	if error != OK:
 		request.queue_free()
-		return {"ok": false, "error": "Cannot request Core3 service: " + error_string(error)}
+		return {"ok": false, "error": "Cannot request CoreCU service: " + error_string(error)}
 	api_requests_in_flight += 1
 	var realtime:=path in ["/session/sync","/services/presence","/performance"]
 	if realtime:api_realtime_requests_in_flight+=1
 	var request_started_usec:=Time.get_ticks_usec()
-	var result: Array = await native_http.exchange(get_tree(),backend_url,path,method,headers,serialized,tls,request.timeout) if persistent else await request.request_completed
+	var result: Array = await transport.exchange(get_tree(),backend_url,path,method,headers,serialized,tls,request.timeout) if transport!=null else await request.request_completed
 	api_requests_in_flight -= 1
 	if realtime:api_realtime_requests_in_flight-=1
 	request.queue_free()
 	if result[0] != HTTPRequest.RESULT_SUCCESS:
 		if result[0]==HTTPRequest.RESULT_TIMEOUT:
-			return {"ok":false,"request_timeout":true,"error":"Core3 request timed out; the result is not confirmed. Refresh before retrying."}
-		return {"ok": false, "error": "Core3 service unavailable at " + backend_url}
+			return {"ok":false,"request_timeout":true,"error":"CoreCU request timed out; the result is not confirmed. Refresh before retrying."}
+		return {"ok": false, "error": "CoreCU service unavailable at " + backend_url}
 	if remote_connection.configured and revision!=auth_revision: return {"ok":false,"error":"Account session changed."}
 	if int(result[1])==401 and remote_connection.configured and path not in remote_connection.PUBLIC_AUTH:
 		expire_account()
 		return {"ok":false,"error":"Your session expired. Sign in again."}
 	var parsed = JSON.parse_string(result[3].get_string_from_utf8())
+	preload("res://scripts/backend_brand.gd").messages(parsed)
 	var data: Dictionary = parsed if parsed is Dictionary else {}
 	data["ok"] = int(result[1]) >= 200 and int(result[1]) < 300
 	data["http_status"] = int(result[1])
@@ -781,7 +793,7 @@ func gameplay_connection_lost(message: String) -> void:
 func reconnect_gameplay() -> void:
 	if loading_stage or session_leaving or gameplay_session.busy:return
 	loading_stage=true;world_ready=false;player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false)
-	loading_screen.begin("Reconnecting to Core3…")
+	loading_screen.begin("Reconnecting to CoreCU…")
 	if not await ensure_gameplay_session():
 		loading_stage=false;world_ready=true;loading_screen.finish()
 		gameplay_connection_lost(gameplay_session.last_error);return
@@ -796,7 +808,7 @@ func reconnect_gameplay() -> void:
 	else:
 		var result:Dictionary=await medical_placement.place(self,gameplay_session.player_state)
 		placed=result.get("ok",false)
-	if not placed:fail_loading("Core3 reconnected, but its confirmed location could not be loaded.");return
+	if not placed:fail_loading("CoreCU reconnected, but its confirmed location could not be loaded.");return
 	loading_stage=false;world_ready=true;player.set_physics_process(true)
 	resume_button.text="Resume exploration";loading_screen.finish();close_menu()
 
@@ -825,8 +837,8 @@ func refresh_backend() -> void:
 				creator.set_options(creation_options)
 		await refresh_characters()
 	else:
-		var detail: String = str(core.get("detail", response.get("error", response.get("detail", "Core3 is not ready.")))) if core is Dictionary else "Core3 is not ready."
-		status.text = "CORE3 UNAVAILABLE · " + detail
+		var detail: String = str(core.get("detail", response.get("error", response.get("detail", "CoreCU is not ready.")))) if core is Dictionary else "CoreCU is not ready."
+		status.text = "CORECU UNAVAILABLE · " + detail
 		status.add_theme_color_override("font_color", Color("e4bb86"))
 	busy = false
 	update_buttons()
@@ -893,7 +905,7 @@ func enter_character() -> void:
 	if result.get("ok", false) and result.get("backend", "") == "core3":
 		await enter_stage(false, result)
 	else:
-		status.text = str(result.get("error", "Core3 did not confirm world entry."))
+		status.text = str(result.get("error", "CoreCU did not confirm world entry."))
 	busy = false
 	update_buttons()
 
@@ -904,7 +916,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if loading_stage or (xr_requested and not xr_initialized):
 		return
 	if args.has("live-combat") and (offline or not args.has("combat-items")):
-		status.text = "Live combat requires a real Core3 character and --combat-items."
+		status.text = "Live combat requires a real CoreCU character and --combat-items."
 		return
 	await stop_live_combat()
 	var desired_zone:=str(entry.get("source_location",{}).get("zone",entry.get("zone",entry.get("character",{}).get("zone","tatooine")))) if not offline else str(args.get("planet","tatooine"))
@@ -986,7 +998,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	var saved_location: Dictionary=entry.get("source_location",{}) if not offline else {}
 	if not saved_location.is_empty():
 		if not medical_placement.destination_valid(saved_location):
-			fail_loading("Core3 returned an unsupported saved location.");return
+			fail_loading("CoreCU returned an unsupported saved location.");return
 		var source: Array=saved_location.position
 		var origin:=loader.vec(loader.report.origin)
 		player.spawn_point=stage.to_global(Vector3(float(source[0])-origin.x,float(source[1])-origin.y,-(float(source[2])-origin.z)))
@@ -1099,7 +1111,7 @@ func enter_stage(offline: bool, entry := {}) -> void:
 			await get_tree().process_frame
 	get_node("/root/SWGSpatialAudio").configure(player.get_camera(),stage,str(args.get("spatial-audio","steam_audio")))
 	player.testing = smoke_mode or not screenshot_path.is_empty()
-	session_mode = "OFFLINE ASSET INSPECTION" if offline else "CORE3 CHARACTER · LOCAL MOVEMENT · " + str(entry.get("name", "Character"))
+	session_mode = "OFFLINE ASSET INSPECTION" if offline else "CORECU CHARACTER · LOCAL MOVEMENT · " + str(entry.get("name", "Character"))
 	mode_label.text = active_planet.to_upper()+"   /   " + session_mode
 	asset_status.text = "%d mesh instances · %d collision bodies\nLocomotion is local to this prototype." % [loader.report.instances, loader.report.collision_bodies]
 	resume_button.visible = true
@@ -1113,17 +1125,17 @@ func enter_stage(offline: bool, entry := {}) -> void:
 		await refresh_datapad()
 	if is_instance_valid(inventory):
 		inventory.avatar = tracked_avatar
-		loading_screen.set_status("Reading Core3 inventory…")
+		loading_screen.set_status("Reading CoreCU inventory…")
 		await refresh_inventory()
 	if args.has("live-combat"):
-		loading_screen.set_status("Connecting to live Core3 combat…")
+		loading_screen.set_status("Connecting to live CoreCU combat…")
 		if not await start_live_combat():
-			fail_loading("Live Core3 combat could not start: " + (live_combat.last_error if is_instance_valid(live_combat) else "No authenticated ranged weapon."))
+			fail_loading("Live CoreCU combat could not start: " + (live_combat.last_error if is_instance_valid(live_combat) else "No authenticated ranged weapon."))
 			return
 	elif not offline:
-		loading_screen.set_status("Keeping your Core3 character connected…")
+		loading_screen.set_status("Keeping your CoreCU character connected…")
 		if not await ensure_gameplay_session():
-			fail_loading("Core3 gameplay connection failed: "+gameplay_session.last_error);return
+			fail_loading("CoreCU gameplay connection failed: "+gameplay_session.last_error);return
 		if not gameplay_session.pending_transport.is_empty():
 			if not await perform_live_transport(gameplay_session.pending_transport,true):return
 		elif gameplay_session.player_state.get("space_active",false):
@@ -1143,9 +1155,9 @@ func enter_stage(offline: bool, entry := {}) -> void:
 	if not offline and is_instance_valid(multiplayer_sync) and not (is_instance_valid(space) and space.aboard()):
 		loading_screen.set_status("Synchronizing nearby players and entities…")
 		var synchronized:bool=await multiplayer_sync.prime()
-		session_mode="CORE3 MULTIPLAYER · "+str(entry.get("name","Character"))
+		session_mode="CORECU MULTIPLAYER · "+str(entry.get("name","Character"))
 		mode_label.text=active_planet.to_upper()+" / "+session_mode
-		asset_status.text="Persistent Core3 character · shared nearby players and entities · tracked local locomotion" if synchronized else "Core3 connected · waiting for multiplayer world sync: "+multiplayer_sync.last_error
+		asset_status.text="Persistent CoreCU character · shared nearby players and entities · tracked local locomotion" if synchronized else "CoreCU connected · waiting for multiplayer world sync: "+multiplayer_sync.last_error
 	if not offline and not is_instance_valid(mission_parcels):
 		mission_parcels=preload("res://scripts/mission_parcels.gd").new();add_child(mission_parcels);mission_parcels.setup(self)
 	if not offline and not is_instance_valid(vendor_placement):
@@ -1309,8 +1321,8 @@ func ensure_gameplay_combat() -> void:
 		gameplay_combat=preload("res://multiplayer/gameplay_combat.gd").new();add_child(gameplay_combat)
 		gameplay_combat.attach(self,combat_rig,gameplay_session,multiplayer_sync)
 		if is_instance_valid(combat_target):combat_target.queue_free();combat_target=null
-		session_mode="CORE3 MULTIPLAYER · "+str(gameplay_session.player_state.get("name","Character"));mode_label.text=active_planet.to_upper()+" / "+session_mode
-		asset_status.text="Persistent Core3 session · equipped ranged attacks use native combat authority."
+		session_mode="CORECU MULTIPLAYER · "+str(gameplay_session.player_state.get("name","Character"));mode_label.text=active_planet.to_upper()+" / "+session_mode
+		asset_status.text="Persistent CoreCU session · equipped ranged attacks use native combat authority."
 
 func interface_button(button: String, side: String) -> bool:
 	if button!="primary_click" or not xr_focused or not world_ready or menu.visible:return false
@@ -1321,6 +1333,7 @@ func interface_button(button: String, side: String) -> bool:
 	return false
 
 func _process(_delta: float) -> void:
+	update_player_footsteps()
 	ensure_gameplay_combat()
 	update_voice_chat()
 	var diagnostic_active := xr_diagnostic_active()
@@ -1571,7 +1584,7 @@ func configure_player_avatar(entry: Dictionary) -> void:
 	var character: Dictionary = entry.get("character", {})
 	var appearance: Dictionary = character.get("appearance", {}).duplicate(true)
 	if appearance.is_empty():
-		asset_status.text = "Core3 supplied no appearance data; avatar unavailable."
+		asset_status.text = "CoreCU supplied no appearance data; avatar unavailable."
 		return
 	var race: String = appearance.get("race", "")
 	if race.begins_with("object/"):
@@ -1858,11 +1871,11 @@ func ground_xr_spawn_down() -> bool:
 func refresh_inventory() -> void:
 	if not is_instance_valid(inventory) or inventory_request_pending: return
 	if datapad_character_id.is_empty():
-		inventory.set_snapshot({"error":"Offline · Core3 inventory unavailable"})
+		inventory.set_snapshot({"error":"Offline · CoreCU inventory unavailable"})
 		return
 	var epoch := datapad_epoch
 	inventory_request_pending=true
-	inventory.set_busy(true,"Reading Core3 inventory…")
+	inventory.set_busy(true,"Reading CoreCU inventory…")
 	var result: Dictionary
 	if live_combat_reserved and is_instance_valid(live_combat) and not live_combat.session_id.is_empty():
 		result=await api(HTTPClient.METHOD_POST,"/inventory/status",{"account":datapad_account,"character_id":datapad_character_id,"live_session_id":live_combat.session_id})
@@ -1880,7 +1893,7 @@ func refresh_inventory() -> void:
 		# equipment reads must not keep browsing blocked after this read completes.
 		await sync_inventory_equipment()
 		if epoch==datapad_epoch:update_inventory_presentation()
-	else: inventory.set_busy(false,str(result.get("error","Core3 inventory unavailable")))
+	else: inventory.set_busy(false,str(result.get("error","CoreCU inventory unavailable")))
 
 func owned_inventory_item(id: String) -> Dictionary:
 	for item: Dictionary in inventory_snapshot.get("items",[]):
@@ -1929,7 +1942,7 @@ func split_inventory_stack(item: Dictionary, quantity: int) -> void:
 		return
 	var epoch := datapad_epoch
 	inventory_request_pending=true
-	inventory.begin_mutation("Splitting stack in Core3…")
+	inventory.begin_mutation("Splitting stack in CoreCU…")
 	var result := await api(HTTPClient.METHOD_POST,"/inventory/split",{"account":datapad_account,"character_id":datapad_character_id,"item_id":str(item.get("id","")),"quantity":quantity})
 	inventory_request_pending=false
 	if epoch!=datapad_epoch:
@@ -1983,7 +1996,7 @@ func activate_inventory_vehicle_deed(item: Dictionary) -> void:
 	# the same semantic request even if the player has moved since sending it.
 	payload=vehicle_activation_requests[key].payload.duplicate(true)
 	if is_instance_valid(live_combat) and live_combat.live:payload.live_session_id=live_combat.session_id
-	inventory_request_pending=true;inventory.begin_mutation("Registering deed in Core3…")
+	inventory_request_pending=true;inventory.begin_mutation("Registering deed in CoreCU…")
 	var result: Dictionary=await api(HTTPClient.METHOD_POST,"/vehicles/activate",payload)
 	inventory_request_pending=false
 	if epoch!=datapad_epoch or not is_instance_valid(inventory):return
@@ -2048,7 +2061,7 @@ func unequip_inventory_item(item: Dictionary, side: String="") -> void:
 	if current.is_empty() or not current.get("equipped",false) or not current.get("unequip_available",false):
 		inventory.set_busy(false,str(current.get("unequip_block_reason","This item is no longer equipped.")));return
 	var epoch:=datapad_epoch
-	inventory_request_pending=true;inventory.begin_mutation("Removing equipment in Core3…")
+	inventory_request_pending=true;inventory.begin_mutation("Removing equipment in CoreCU…")
 	var result:=await api(HTTPClient.METHOD_POST,"/inventory/unequip",{"account":datapad_account,"character_id":datapad_character_id,"item_id":id})
 	if epoch!=datapad_epoch:inventory_request_pending=false;return
 	var confirmed:bool=result.get("ok",false) and result.get("source_kind","")=="core3_inventory_unequip" and result.get("mutation",{}).get("success",false) and str(result.get("inventory",{}).get("character_id",""))==datapad_character_id
@@ -2061,7 +2074,7 @@ func unequip_inventory_item(item: Dictionary, side: String="") -> void:
 		inventory.set_busy(false,"Returned to inventory.")
 	else:
 		inventory.finish_item_action(false);inventory_request_pending=false;await refresh_inventory()
-		if epoch==datapad_epoch:inventory.set_busy(false,str(result.get("error","Core3 did not confirm removing this item.")))
+		if epoch==datapad_epoch:inventory.set_busy(false,str(result.get("error","CoreCU did not confirm removing this item.")))
 	inventory_request_pending=false
 
 func consume_inventory_item(item: Dictionary) -> void:
@@ -2083,7 +2096,7 @@ func mutate_inventory_item(operation: String, item: Dictionary, extra: Dictionar
 	var body: Dictionary={"account":datapad_account,"character_id":datapad_character_id,"item_id":id}
 	body.merge(extra)
 	inventory_request_pending=true
-	inventory.begin_mutation("Equipping in Core3…" if operation=="equip" else "Using item in Core3…")
+	inventory.begin_mutation("Equipping in CoreCU…" if operation=="equip" else "Using item in CoreCU…")
 	var result:=await api(HTTPClient.METHOD_POST,"/inventory/"+operation,body)
 	if epoch!=datapad_epoch:
 		inventory_request_pending=false; refresh_inventory(); return
@@ -2102,7 +2115,7 @@ func mutate_inventory_item(operation: String, item: Dictionary, extra: Dictionar
 	else:
 		if operation=="equip": inventory.finish_equipment_action(false)
 		else: inventory.finish_consumable_action({},false)
-		var message:=str(result.get("error","Core3 did not confirm the action. Reopen the bag to refresh before retrying."))
+		var message:=str(result.get("error","CoreCU did not confirm the action. Reopen the bag to refresh before retrying."))
 		# A timeout may happen after Core3 committed. Reconcile with one read,
 		# never another mutation, before presenting the remaining held object.
 		inventory_request_pending=false
@@ -2249,7 +2262,7 @@ func refresh_datapad() -> void:
 	if live_combat_reserved:
 		# Reuse the native session; a legacy datapad login would disconnect it.
 		if is_instance_valid(services): await services.request("status")
-		datapad.ui.set_busy(false,"Core3 · live skills and XP")
+		datapad.ui.set_busy(false,"CoreCU · live skills and XP")
 		return
 	if datapad_character_id.is_empty():
 		datapad.ui.set_entries([])
@@ -2257,7 +2270,7 @@ func refresh_datapad() -> void:
 		return
 	var epoch := datapad_epoch
 	datapad_request_pending = true
-	datapad.ui.set_busy(true,"Reading Core3…")
+	datapad.ui.set_busy(true,"Reading CoreCU…")
 	var result := await api(HTTPClient.METHOD_GET,"/datapad?account="+datapad_account.uri_encode()+"&character_id="+datapad_character_id.uri_encode())
 	datapad_request_pending = false
 	if epoch != datapad_epoch:
@@ -2268,7 +2281,7 @@ func refresh_datapad() -> void:
 		datapad.ui.set_entries(result.get("entries",[]))
 		datapad.ui.set_skills(result.get("skills", []), result.get("skills_complete", false))
 		datapad.ui.set_experience(result.get("experience", {}), result.get("experience_complete", false))
-		datapad.ui.set_busy(false,"Core3 · character datapad")
+		datapad.ui.set_busy(false,"CoreCU · character datapad")
 	else:
 		datapad.ui.set_busy(true,str(result.get("error","Datapad unavailable")))
 
@@ -2290,7 +2303,7 @@ func create_datapad_waypoint(point: Vector3, label: String) -> void:
 		return
 	if result.get("ok",false) and result.get("backend","") == "core3":
 		datapad.ui.set_entries(result.get("datapad",{}).get("entries",[]))
-		datapad.ui.set_busy(false,"Waypoint saved in Core3")
+		datapad.ui.set_busy(false,"Waypoint saved in CoreCU")
 	else:
 		datapad.ui.set_busy(false,str(result.get("error","Waypoint was not saved")))
 
@@ -2319,7 +2332,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 	var profiles: Array = []
 	if args.has("combat-items"):
 		if snapshot.get("backend","")!="core3" or snapshot.get("source","")!="authenticated_core3_attributes":
-			asset_status.text = "Core3 weapon snapshot unavailable."
+			asset_status.text = "CoreCU weapon snapshot unavailable."
 			return
 		# One actual item at each mount. Explicit IDs select among owned items.
 		for hands in [1,2]:
@@ -2329,7 +2342,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 					profiles.append(item)
 					break
 		if profiles.is_empty() and snapshot.get("unarmed",{}).is_empty():
-			asset_status.text = "No supported Core3 weapons in this character's inventory."
+			asset_status.text = "No supported CoreCU weapons in this character's inventory."
 			return
 	else:
 		for key in [str(args.get("combat-sidearm","pistol_dl44")),str(args.get("combat-longarm","rifle_e11"))]:
@@ -2379,7 +2392,7 @@ func configure_combat_lab(snapshot: Dictionary = {}) -> void:
 	var floor_hit := get_world_3d().direct_space_state.intersect_ray(floor_query)
 	combat_target.global_position = (floor_hit.position if not floor_hit.is_empty() else target_point) + Vector3.UP*0.65
 	combat_target.look_at(combat_target.global_position-forward)
-	session_mode += " · CORE3 WEAPONS · LOCAL COMBAT" if args.has("combat-items") else " · LOCAL COMBAT LAB · NON-PERSISTENT"
+	session_mode += " · CORECU WEAPONS · LOCAL COMBAT" if args.has("combat-items") else " · LOCAL COMBAT LAB · NON-PERSISTENT"
 	mode_label.text = active_planet.to_upper()+" / " + session_mode
 	asset_status.text = "Combat: dominant grip at hip / over shoulder to draw; keep grip held.
 Melee/unarmed: hold trigger for combat ready; release for peace. Swing and recover distance to attack.
@@ -2431,7 +2444,7 @@ func delete_datapad_entry(entry: Dictionary) -> void:
 		datapad.ui.set_entries(result.get("datapad",{}).get("entries",[]))
 		datapad.ui.set_busy(false,"Entry deleted")
 	else:
-		datapad.ui.set_busy(false,str(result.get("error","Core3 did not confirm deletion")))
+		datapad.ui.set_busy(false,str(result.get("error","CoreCU did not confirm deletion")))
 
 func start_live_combat() -> bool:
 	if not is_instance_valid(combat_rig) or combat_rig.weapons.is_empty(): return false
@@ -2485,10 +2498,10 @@ func start_live_combat() -> bool:
 		# tracked input must resume too; only legacy corpse gathering stays paused.
 		for controller in [gathering,entertainer]:
 			if is_instance_valid(controller):controller.process_mode=Node.PROCESS_MODE_INHERIT
-		session_mode = "LIVE CORE3 · RANGED COMBAT TEST"
+		session_mode = "LIVE CORECU · RANGED COMBAT TEST"
 		mode_label.text = active_planet.to_upper()+" / " + session_mode
-		asset_status.text = "Live Core3 creatures, HAM, retaliation and deaths. Grip at dominant hip to draw; trigger fires.
-Terminals, wallet, gathering and crafting use the live Core3 session. Legacy inventory RPCs remain suspended during this ranged test. Core3 stays running after exit."
+		asset_status.text = "Live CoreCU creatures, HAM, retaliation and deaths. Grip at dominant hip to draw; trigger fires.
+Terminals, wallet, gathering and crafting use the live CoreCU session. Legacy inventory RPCs remain suspended during this ranged test. CoreCU stays running after exit."
 	return started
 
 func apply_live_player(snapshot: Dictionary) -> void:
@@ -2502,6 +2515,7 @@ func apply_live_player(snapshot: Dictionary) -> void:
 	var context := snapshot.duplicate(true)
 	context["character_id"] = datapad_character_id
 	player.feedback.observe(context)
+	if is_instance_valid(environment_presentation):environment_presentation.observe_native_music(snapshot)
 	if snapshot.get("player_summary") is Dictionary:update_datapad_summary(snapshot.player_summary)
 	if is_instance_valid(space) and snapshot.get("jtl") is Dictionary:
 		var native_sequence:int=live_combat.sequence if live_combat_reserved and is_instance_valid(live_combat) else gameplay_session.sequence if is_instance_valid(gameplay_session) else -1
@@ -2516,7 +2530,7 @@ func request_live_life_action(action: String) -> void:
 	var session: Node=live_combat if live_combat_reserved else gameplay_session
 	if not is_instance_valid(session) or not session.request_life_action(action):
 		if is_instance_valid(player) and player.feedback.has_method("resolve_life_action"):
-			player.feedback.resolve_life_action(false,"Core3 cannot accept that action right now.")
+			player.feedback.resolve_life_action(false,"CoreCU cannot accept that action right now.")
 
 func live_life_action_finished(_action: String, success: bool, message: String) -> void:
 	if is_instance_valid(player) and player.feedback.has_method("resolve_life_action"):
@@ -2535,7 +2549,7 @@ func perform_service_transport(transport: Dictionary) -> bool:
 	if is_instance_valid(services): services.set_allowed(false)
 	ensure_loading_screen()
 	if loading_screen.has_method("set_failure_hint"):loading_screen.set_failure_hint("Press Menu / Esc to retry loading this destination.")
-	loading_screen.begin("Travelling to the Core3 shuttle destination…")
+	loading_screen.begin("Travelling to the CoreCU shuttle destination…")
 	var placed: Dictionary = await medical_placement.place(self,transport.destination)
 	if epoch != live_transport_epoch: return false
 	if not placed.get("ok",false):
@@ -2563,23 +2577,23 @@ func perform_live_transport(transport: Dictionary, initial: bool) -> bool:
 	player.set_physics_process(false)
 	if is_instance_valid(combat_rig):combat_rig.set_allowed(false)
 	if loading_screen.has_method("set_failure_hint"):loading_screen.set_failure_hint("Press Menu / Esc to retry loading this destination.")
-	loading_screen.begin("Travelling to the Core3 destination…" if str(transport.get("kind", ""))=="shuttle" else "Transporting to the Core3 medical bay…")
+	loading_screen.begin("Travelling to the CoreCU destination…" if str(transport.get("kind", ""))=="shuttle" else "Transporting to the CoreCU medical bay…")
 	var placed: Dictionary=await medical_placement.place(self,transport.destination)
 	if epoch!=live_transport_epoch or not is_instance_valid(session) or session!=(live_combat if live_combat_reserved else gameplay_session):return false
 	if not placed.get("ok",false):
 		live_transport_busy=false
 		loading_screen.fail(str(placed.get("error","Medical transport placement cancelled.")))
 		return false
-	loading_screen.set_status("Confirming arrival with Core3…")
+	loading_screen.set_status("Confirming arrival with CoreCU…")
 	if not session.acknowledge_transport(id):
-		live_transport_busy=false;loading_screen.fail("Core3 medical transport is no longer available.");return false
+		live_transport_busy=false;loading_screen.fail("CoreCU medical transport is no longer available.");return false
 	var deadline:=Time.get_ticks_msec()+20000
 	while session.live and (not session.pending_transport.is_empty() or bool(session.player_state.get("cloning",false))):
 		if epoch!=live_transport_epoch or Time.get_ticks_msec()>deadline:
-			live_transport_busy=false;loading_screen.fail("Core3 medical arrival confirmation timed out.");return false
+			live_transport_busy=false;loading_screen.fail("CoreCU medical arrival confirmation timed out.");return false
 		await get_tree().process_frame
 	if not session.live:
-		live_transport_busy=false;loading_screen.fail("Core3 disconnected during medical transport.");return false
+		live_transport_busy=false;loading_screen.fail("CoreCU disconnected during medical transport.");return false
 	await complete_planet_arrival()
 	retry_transport={}
 	live_transport_busy=false
@@ -2917,3 +2931,14 @@ func update_voice_chat() -> void:
 		if not held:desktop_voice_ptt_armed=true
 		if not gate.allowed:desktop_voice_ptt_armed=false
 		voice_chat.set_ptt(gate.allowed and ((held and desktop_voice_ptt_armed) or desktop_voice_pointer_ptt))
+
+func update_player_footsteps()->void:
+	if not is_instance_valid(player):return
+	if not is_instance_valid(footstep_audio):
+		footstep_audio=preload("res://audio/player_footsteps.gd").new();add_child(footstep_audio)
+	var enabled:bool=world_ready and not loading_stage and player.active and not player.feedback.life_locked and is_instance_valid(avatar)
+	if is_instance_valid(vehicles) and vehicles.seated():enabled=false
+	if is_instance_valid(space) and space.aboard():enabled=false
+	var grounded:bool=player.on_ground if xr_requested else player.is_on_floor()
+	var template:="object/creature/player/"+str(avatar.race_id)+".iff" if is_instance_valid(avatar) else ""
+	footstep_audio.observe(player.global_position,template,grounded,enabled)

@@ -87,7 +87,7 @@ func refresh(tool_id: String="") -> bool:
 	var accepted:=false
 	if epoch==app.datapad_epoch and generation==revision:
 		if result.get("ok",false): accepted=accept_state(result.get("state",result))
-		if not accepted: last_error=str(result.get("error","Core3 gathering state is unavailable."))
+		if not accepted: last_error=str(result.get("error","CoreCU gathering state is unavailable."))
 	busy=false; request_finished.emit(); next_poll=POLL_SECONDS
 	return accepted
 
@@ -125,7 +125,7 @@ func wait_available(epoch: int, held_revision: int) -> bool:
 		if epoch!=app.datapad_epoch or held_revision!=bag.held_revision: return false
 		if Time.get_ticks_msec()>=deadline:
 			bag.finish_item_action(false)
-			bag.set_busy(false,"Core3 is still handling the previous request. Try again shortly.")
+			bag.set_busy(false,"CoreCU is still handling the previous request. Try again shortly.")
 			return false
 		await get_tree().process_frame
 	return epoch==app.datapad_epoch and held_revision==bag.held_revision
@@ -137,10 +137,10 @@ func perform(action: String, parameters: Dictionary) -> Dictionary:
 	if app.inventory_request_pending:
 		bag.finish_item_action(false)
 		bag.set_busy(false,"Wait for the current inventory request, then grip the tool again."); return {}
-	if app.datapad_character_id.is_empty(): bag.set_busy(false,"Core3 character is unavailable."); return {}
+	if app.datapad_character_id.is_empty(): bag.set_busy(false,"CoreCU character is unavailable."); return {}
 	var payload := mutation_payload(action,parameters)
 	if payload.is_empty():
-		bag.finish_item_action(false);bag.set_busy(false,"Too many unconfirmed Core3 actions. Reconnect before retrying.");return {}
+		bag.finish_item_action(false);bag.set_busy(false,"Too many unconfirmed CoreCU actions. Reconnect before retrying.");return {}
 	var receipt_key := str(payload["_receipt_key"]);payload.erase("_receipt_key")
 	busy=true; app.inventory_request_pending=true
 	var generation:=revision
@@ -164,7 +164,7 @@ func perform(action: String, parameters: Dictionary) -> Dictionary:
 		if result.get("mutation_started",true)==false:
 			if not ambiguous_receipts.has(receipt_key): pending_receipts.erase(receipt_key)
 		else: ambiguous_receipts[receipt_key]=true
-		var reason:=str(result.get("error","Core3 did not confirm this action."))
+		var reason:=str(result.get("error","CoreCU did not confirm this action."))
 		# Reconcile possessions after a potentially committed response was lost.
 		# Only reads are retried: never silently issue a second mutation.
 		last_error=reason

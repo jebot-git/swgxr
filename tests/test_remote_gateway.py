@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from pathlib import Path
 from server import remote_gateway as gateway
 
@@ -66,6 +67,25 @@ class Tests(unittest.TestCase):
         self.assertEqual(run.returncode,0,run.stdout+run.stderr)
         self.assertIn('PERSISTENT_TLS_PASSED',run.stdout)
         self.assertEqual(len(self.upstream.seen),3)
+
+    def test_tls_response_socket_disables_nagle(self):
+        observed=[]
+        original=gateway.Gateway.setup
+        def setup(handler):
+            original(handler)
+            observed.append(handler.connection.getsockopt(socket.IPPROTO_TCP,socket.TCP_NODELAY))
+        with mock.patch.object(gateway.Gateway,'setup',setup):
+            status,_=self.request()
+        self.assertEqual(status,200)
+        self.assertEqual(observed,[1])
+
+    def test_godot_presentation_tls_is_reused_outside_native_lane(self):
+        root=Path(__file__).resolve().parents[1]
+        run=subprocess.run(['godot','--headless','--xr-mode','off','--path',str(root/'client'),'--script','res://tests/presentation_http_smoke.gd','--','https://127.0.0.1:'+str(self.gateway.server_address[1]),str(self.cert)],capture_output=True,text=True,timeout=20)
+        self.assertEqual(run.returncode,0,run.stdout+run.stderr)
+        self.assertIn('PRESENTATION_TLS_PASSED',run.stdout)
+        self.assertEqual(len(self.upstream.seen),3)
+        self.assertTrue(all(row['path']=='/session/sync' for row in self.upstream.seen))
 
     def test_ship_keepalive_reauthenticates_each_request(self):
         conn=http.client.HTTPSConnection(*self.gateway.server_address,context=self.context,timeout=3)
@@ -333,7 +353,9 @@ class Tests(unittest.TestCase):
         held=[]
         try:
             for _ in range(gateway.MAX_CONNECTIONS):
-                self.assertTrue(self.gateway.slots.acquire(False));held.append(1)
+                # A previous response may finish before its handler releases
+                # the slot, especially with TCP_NODELAY. Bound the drain wait.
+                self.assertTrue(self.gateway.slots.acquire(timeout=3));held.append(1)
             with socket.create_connection(self.gateway.server_address,timeout=3) as raw:
                 self.assertEqual(raw.recv(1),b'')
         finally:

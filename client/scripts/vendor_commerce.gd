@@ -232,14 +232,14 @@ func mutate(action:String,request:Dictionary)->void:
 	if uncertain.has(identity):request=uncertain[identity].duplicate(true)
 	else:request.request_id="commerce-"+Crypto.new().generate_random_bytes(16).hex_encode()
 	uncertain[identity]=request.duplicate(true);busy=true;var version:=generation
-	if is_instance_valid(note):note.text="Waiting for Core3…"
+	if is_instance_valid(note):note.text="Waiting for CoreCU…"
 	var response:Dictionary=await app.services.request(action,request)
 	if version!=generation:return
 	busy=false
 	var confirmed:bool=response.get("ok",false) and response.get("mutation",{}).get("success",false) and response.get("mutation",{}).get("request_id","")==request.request_id
 	if confirmed:uncertain.erase(identity)
 	var message:="Vendor recovered." if action=="vendor_recover" else "Vendor appearance saved." if action=="vendor_customize" else "Item listed for sale."
-	if not confirmed:message=str(response.get("error","Core3 did not confirm the operation. Retry keeps the original proposal."))
+	if not confirmed:message=str(response.get("error","CoreCU did not confirm the operation. Retry keeps the original proposal."))
 	close();app.datapad.ui.set_status(message);app.services.poll_clock=0.0
 func gesture_frame(tracked:bool,left:Transform3D,right:Transform3D,grips:Vector2,triggers:Vector2)->void:
 	if blocks_interactions():return

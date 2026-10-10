@@ -38,7 +38,7 @@ func observe(reply:Dictionary)->void:
 	if not reply.get("ok",false):show_message(str(reply.get("error","Ranger action was not confirmed.")))
 	elif str(mutation.get("action",mutation.get("operation","")))=="rescue":
 		show_message("Rescue succeeded · attacker distracted" if mutation.get("rescued",false) else "Rescue attempt failed to distract the attacker.")
-	elif str(mutation.get("action",mutation.get("operation","")))=="conceal":show_message(str(mutation.get("message","Camouflage applied · Core3 confirmed")))
+	elif str(mutation.get("action",mutation.get("operation","")))=="conceal":show_message(str(mutation.get("message","Camouflage applied · CoreCU confirmed")))
 func show_message(value:String)->void:
 	message=value;message_until=Time.get_ticks_msec()+8000
 	if is_instance_valid(panel):panel.panel.message=value;panel.panel.queue_redraw()
@@ -90,7 +90,7 @@ func conceal(item:Dictionary)->void:
 	var epoch:int=app.datapad_epoch
 	var result:Dictionary=await scout.request("conceal",detail)
 	if epoch!=app.datapad_epoch:return
-	bag.set_busy(false,message if not result.get("ok",false) else "Camouflage applied · Core3 confirmed")
+	bag.set_busy(false,message if not result.get("ok",false) else "Camouflage applied · CoreCU confirmed")
 func action(kind:String,detail:Dictionary={})->void:
 	if kind!="area_track" or scout.busy or not allowed():return
 	var chosen:=str(detail.get("track_type",track_type))

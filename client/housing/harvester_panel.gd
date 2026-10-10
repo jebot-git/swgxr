@@ -82,7 +82,7 @@ func operate(action:String,extra:Dictionary={})->void:
 	extra=extra.duplicate(true);extra.structure_id=structure_id
 	var result:Dictionary=await owner_controller.request("harvester_"+action,extra)
 	if result.get("ok",false):observe(result)
-	elif is_open:ui.footer=str(result.get("error","Core3 did not confirm this operation."));ui.queue_redraw()
+	elif is_open:ui.footer=str(result.get("error","CoreCU did not confirm this operation."));ui.queue_redraw()
 func select_resource(index:int)->void:
 	if index>=0 and index<ui.rows.size():operate("select",{"resource_id":str(ui.rows[index].id)})
 func collect_output(index:int)->void:
@@ -100,7 +100,7 @@ func deposit_power(item:Dictionary)->void:
 	if version!=owner_controller.generation:return
 	owner_controller.bag.finish_item_action(result.get("ok",false) and result.get("mutation",{}).get("success",false))
 	if result.get("ok",false):observe(result)
-	elif is_open:ui.footer=str(result.get("error","Core3 did not confirm this operation."));ui.queue_redraw()
+	elif is_open:ui.footer=str(result.get("error","CoreCU did not confirm this operation."));ui.queue_redraw()
 func _process(dt:float)->void:
 	if not is_open:return
 	if not owner_controller.allowed:close();return

@@ -69,7 +69,7 @@ func run() -> void:
 		right.set_input("grip",0); left.set_input("trigger",0); await process_frame; rig._physics_process(0.01)
 	# Refresh an actual player snapshot without accepting another player's stats.
 	var live:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/evidence/melee-live-snapshot.json"))
-	check(rig.configure_unarmed(live.unarmed),"Actual Core3 player profile configures")
+	check(rig.configure_unarmed(live.unarmed),"Actual CoreCU player profile configures")
 	check(rig.unarmed.right.profile.power==live.unarmed.power,"Actual resolved player Power preserved")
 	var updated:Dictionary=live.unarmed.duplicate(true); updated.power+=20; updated.stance_recovery+=15
 	check(rig.unarmed.right.refresh_player(updated),"Owned player stat refresh")

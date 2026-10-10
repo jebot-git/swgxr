@@ -39,7 +39,7 @@ func run()->void:
 		var actor:=Actor.new();world.add_child(actor)
 		actor.configure(row,"recorded-native-mission",RefCounted.new(),RefCounted.new(),ProjectSettings.globalize_path("res://../runtime/assets/ambient_npcs/catalog.json"))
 		var pose:=Transform3D(Basis.IDENTITY,Vector3(0.8 if index==0 else -0.8,0,0));actor.apply_record(row,pose,0.1,true);actor.label.visible=false
-		var result:Dictionary={"id":id,"role":contacts[id].role,"mission_id":contacts[id].mission_id,"name":row.name,"template":row.template,"source_position":row.position,"render_position":pose.origin,"report":actor.report.duplicate(true),"source":"actual Core3 world actor matched to owned mission contact"}
+		var result:Dictionary={"id":id,"role":contacts[id].role,"mission_id":contacts[id].mission_id,"name":row.name,"template":row.template,"source_position":row.position,"render_position":pose.origin,"report":actor.report.duplicate(true),"source":"actual CoreCU world actor matched to owned mission contact"}
 		if actor.report.appearance_status!="complete":failures.append("Incomplete original appearance: "+row.template)
 		if actor.visual==null or not actor.visual is OriginalAvatar:
 			failures.append("Original skeletal avatar missing: "+id)
@@ -53,7 +53,7 @@ func run()->void:
 			if result.skinned_meshes<=0 or result.bones<=0 or result.wearable_parts<=0:failures.append("Missing original skin or clothing: "+id)
 		results.append(result)
 		var nameplate:=Label.new();root.add_child(nameplate);nameplate.add_theme_font_override("font",SourceFont);nameplate.add_theme_font_size_override("font_size",24);nameplate.position=Vector2(270 if index==0 else 830,775);nameplate.text=str(contacts[id].role).to_upper()+" · "+str(row.name)
-	var title:=Label.new();root.add_child(title);title.add_theme_font_override("font",SourceFont);title.add_theme_font_size_override("font_size",27);title.position=Vector2(30,25);title.text="ORIGINAL MISSION CONTACTS · ACTUAL CORE3 IDENTITIES"
+	var title:=Label.new();root.add_child(title);title.add_theme_font_override("font",SourceFont);title.add_theme_font_size_override("font_size",27);title.position=Vector2(30,25);title.text="ORIGINAL MISSION CONTACTS · ACTUAL CORECU IDENTITIES"
 	var note:=Label.new();root.add_child(note);note.add_theme_font_override("font",SourceFont);note.add_theme_font_size_override("font_size",20);note.position=Vector2(30,835);note.text="Source bodies, skeletons and clothing · isolated native snapshot replay · desktop Vulkan · XR disabled"
 	for frame:int in range(12):await process_frame
 	var capture:=""

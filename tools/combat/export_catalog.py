@@ -56,7 +56,7 @@ def export(core3, balance):
                                 source_file=relative, source_kind='core3_template_defaults')
         except (OSError, ValueError, KeyError) as exc:
             errors.append({'weapon': key, 'error': str(exc)})
-    revision = subprocess.check_output(['git', '-C', str(core3), 'rev-parse', 'HEAD'], text=True).strip()
+    revision = (core3/'REVISION').read_text().strip() if (core3/'REVISION').is_file() else subprocess.check_output(['git', '-C', str(core3), 'rev-parse', 'HEAD'], text=True).strip()
     return {'schema': 1, 'source_kind': 'core3_template_defaults', 'core3_revision': revision,
             'weapons': entries, 'failures': errors}
 

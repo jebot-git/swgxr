@@ -13,6 +13,7 @@ class SwgVehicleControls : public RefCounted {
  Transform3D view;Vector3 view_velocity;double view_yaw_velocity=0;bool view_ready=false;
 protected:static void _bind_methods();
 public:
+ static Basis ground_basis(const Basis &heading,const Vector3 &normal);
  void reset();
  Dictionary sample_reins(const Transform3D &mount,const Transform3D &left,const Transform3D &right,double left_grip,double right_grip,bool left_available,bool right_available,bool tracked,const Vector2 &joystick);
  Transform3D smooth_pose(const Transform3D &target,double delta,bool snap=false);

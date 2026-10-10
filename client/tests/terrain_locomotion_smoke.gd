@@ -69,7 +69,7 @@ func run() -> void:
 	for hz: int in [60,120]:
 		var novice: Dictionary = rows.filter(func(row):return row.angle == 70.0 and row.hz == hz and row.negotiation == 0.0)[0]
 		var master: Dictionary = rows.filter(func(row):return row.angle == 70.0 and row.hz == hz and row.negotiation == 1.0)[0]
-		check(master.ticks < novice.ticks,"Core3 slope_fraction did not improve steep walking speed")
+		check(master.ticks < novice.ticks,"CoreCU slope_fraction did not improve steep walking speed")
 	# Physical tracking uses the same support path without modifying head pose.
 	var physical_world := Node3D.new();root.add_child(physical_world)
 	floor_mesh(physical_world,[Vector2(-3,0),Vector2(0,0),Vector2(0.5,1.2),Vector2(3,1.2)])

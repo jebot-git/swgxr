@@ -24,6 +24,7 @@ class Host extends "res://scripts/main.gd":
 	var calls: Array=[]
 	var response: Dictionary={}
 	var ack_response: Dictionary={}
+	var arrival_response: Dictionary={}
 	func _ready()->void:pass
 	func _process(_delta: float)->void:pass
 	func _physics_process(_delta: float)->void:pass
@@ -31,7 +32,7 @@ class Host extends "res://scripts/main.gd":
 	func source_position_at(point: Vector3)->Vector3:return point
 	func api(_method: HTTPClient.Method,path: String,payload: Dictionary={})->Dictionary:
 		calls.append({"path":path,"payload":payload.duplicate(true)})
-		var result:=ack_response.duplicate(true) if payload.has("transport_ack") else response.duplicate(true)
+		var result:=arrival_response.duplicate(true) if path.begins_with("/combat/session?") else ack_response.duplicate(true) if payload.has("transport_ack") else response.duplicate(true)
 		await get_tree().process_frame
 		return result
 var failures: Array=[]
@@ -83,7 +84,9 @@ func run()->void:
 	session.accept(reply(14,4))
 	check(app.player.feedback.life_locked and app.player.feedback.observed_posture==14,"Normal death without combat rig still applies existing forced death feedback")
 	var transport: Dictionary={"id":"medical-1","kind":"medical","destination":{"zone":"tatooine","position":[25,5,-30],"building_id":"0","cell_index":0}}
-	app.response=reply(14,5,transport);app.ack_response=reply(0,6)
+	app.response=reply(14,5,transport);app.ack_response=reply(14,6)
+	app.ack_response.snapshot.player.cloning=true
+	app.arrival_response=reply(0,7);app.arrival_response.backend="core3";app.arrival_response.source_kind="core3_live_combat"
 	check(app.player.feedback.request_life_action("medical_transport"),"Existing suicide/medical transport action routes from normal death")
 	session._process(.1)
 	for i in range(20):
@@ -94,7 +97,9 @@ func run()->void:
 	var acks: Array=app.calls.filter(func(call):return call.payload.get("transport_ack","")=="medical-1")
 	check(acks.size()==1 and acks[0].path=="/session/update","Arrival acknowledgement pumps while world_ready is false")
 	check(app.world_ready and not app.loading_stage and not app.live_transport_busy and app.loading_screen.finished and not app.player.feedback.life_locked,"Normal no-combat-rig loading ends only after confirmed native arrival and awake state")
-	check(session.pending_transport.is_empty() and session.pending_ack.is_empty(),"Confirmed transport clears acknowledgement state")
+	check(app.calls.any(func(call):return call.path.begins_with("/combat/session?")),"ACK before scheduled clone recovery keeps read-only native polling alive under loading cover")
+	check(session.acknowledge_transport("medical-1") and not session.acknowledge_transport("other"),"Confirmed arrival retries are idempotent only for the acknowledged transport")
+	check(not session.arrival_pending and session.pending_transport.is_empty() and session.pending_ack.is_empty(),"Confirmed transport clears acknowledgement state")
 	app.player.set_physics_process(false);session.set_process(false)
 	app.free();await process_frame
 	print(JSON.stringify({"checks":checks,"failures":failures,"passed":failures.is_empty(),"native_replies":"mocked","placement":"mocked geometry","xr":"off"}));quit(0 if failures.is_empty() else 1)

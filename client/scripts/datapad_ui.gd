@@ -460,6 +460,7 @@ func set_player_position(value: Vector3) -> void:
 	build_ui()
 	player_position = value
 	map.set_player_position(value)
+	update_mission_description()
 	update_coordinates()
 
 func select_category(id: String) -> void:
@@ -515,6 +516,7 @@ func select_entry(index: int) -> void:
 	detail_title.text = str(entry.get("name","Unnamed entry"))
 	detail_type.text = str(entry.get("category","data")).capitalize()
 	detail_description.text = str(entry.get("description",""))
+	update_mission_description()
 	var fields := PackedStringArray()
 	if entry.has("planet"): fields.append(str(entry.planet).capitalize())
 	if entry.has("position"):
@@ -649,10 +651,15 @@ func set_registered_locations(values:Array)->void:
 		if not Vector3(float(point[0]),float(point[1]),float(point[2])).is_finite():continue
 		var id:=str(row.get("building_id",row.get("id","")))
 		if id.is_empty():continue
-		points.append({"id":id,"type":"poi","name":str(row.get("name","Registered performance venue"))+" · "+str(row.get("category","entertainer")),"position":point.duplicate(),"source":"Core3 registered venue","native_icon":row.get("native_icon",2)})
+		points.append({"id":id,"type":"poi","name":str(row.get("name","Registered performance venue"))+" · "+str(row.get("category","entertainer")),"position":point.duplicate(),"source":"CoreCU registered venue","native_icon":row.get("native_icon",2)})
 	if map.registered_locations==points:return
 	map.registered_locations=points;map.queue_redraw()
 
 func set_factory_blueprints(values:Array)->void:
 	if values==factory_blueprints:return
 	factory_blueprints=values.duplicate(true);set_entries(entries)
+
+func update_mission_description()->void:
+	if selected_entry.get("type","") not in ["ground_mission","bounty_mission"]:return
+	var distance:=preload("res://scripts/mission_distance.gd").text(selected_entry,player_position,planet)
+	detail_description.text=str(selected_entry.get("description",""))+("\n\n"+distance if not distance.is_empty() else "")

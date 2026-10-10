@@ -174,7 +174,7 @@ func request(action:String,detail:Dictionary={})->Dictionary:
 	if epoch!=generation or owner!=Identity.id(host):return {}
 	busy=false
 	if not accept(reply) or not reply.get("ok",false):
-		performer.message=str(reply.get("error",reply.get("mutation",{}).get("error_code","Core3 did not confirm this action.")))
+		performer.message=str(reply.get("error",reply.get("mutation",{}).get("error_code","CoreCU did not confirm this action.")))
 		if is_instance_valid(design_ui):design_ui.set_pending(false);design_ui.panel.message=performer.message;design_ui.panel.queue_redraw()
 	elif action=="group_invite" and is_instance_valid(design_ui):design_ui.close_interface()
 	return reply

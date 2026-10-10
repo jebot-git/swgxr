@@ -42,7 +42,7 @@ func run() -> void:
 	await process_frame
 	var catalog: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(ProjectSettings.globalize_path("res://../runtime/assets/services/catalog.json")))
 	var placement := Placement.new()
-	var report := {"points":[],"passed":true,"gpu_tested":false,"validation":"Original source travel centers, streamed authored geometry/collisions, real native player capsule; no live Core3 transaction or XR validation"}
+	var report := {"points":[],"passed":true,"gpu_tested":false,"validation":"Original source travel centers, streamed authored geometry/collisions, real native player capsule; no live CoreCU transaction or XR validation"}
 	for point: Dictionary in catalog.travel_points:
 		var start := Time.get_ticks_msec()
 		var target := {"position":point.position,"zone":"tatooine","building_id":"0","cell_index":0}

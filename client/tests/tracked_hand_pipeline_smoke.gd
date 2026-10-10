@@ -88,7 +88,7 @@ func run() -> void:
 	var fixture := Avatar.read_json(ProjectSettings.globalize_path("res://../runtime/evidence/tracked-avatar-core3-character.json"))
 	var character: Dictionary = fixture.character
 	var configured: Dictionary = avatar.configure("human_male", character.appearance, character.equipment)
-	check(configured.error == "" and driver.configure(avatar, rig), "Original human Core3 appearance fixture failed to configure")
+	check(configured.error == "" and driver.configure(avatar, rig), "Original human CoreCU appearance fixture failed to configure")
 	var skeleton: Skeleton3D = avatar.skeleton
 	var open_left := rotations(skeleton, "l")
 	var joints := source_joints(skeleton)

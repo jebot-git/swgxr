@@ -28,7 +28,7 @@ var selected_id := ""
 var hovered := -1
 var navigation_anchor:=Vector2.INF
 var unavailable: Dictionary = {}
-var status := "Waiting for Core3 inventory…"
+var status := "Waiting for CoreCU inventory…"
 var detail: Control
 var detail_item: Dictionary = {}
 var detail_title: Label

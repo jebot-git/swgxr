@@ -28,7 +28,7 @@ func run() -> void:
 		panel.configure(record,{"cash":12000,"bank":80000})
 		for row_index in range(panel.rows.size()):
 			if panel.rows[row_index].id==selected_id: panel.selected=row_index;panel.offset=maxi(0,row_index-4);break
-		panel.message="Preview — training and credit deductions require Core3 confirmation"
+		panel.message="Preview — training and credit deductions require CoreCU confirmation"
 	for frame in range(8): await process_frame
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/trainers-ui-vulkan.png"))

@@ -13,6 +13,10 @@ var sector_music:=""
 var combat_hold:=0.0
 var combat_active:=false
 var seen:Dictionary={}
+var pending_effects:Array=[]
+var engine_moving:=false
+var engine_initialized:=false
+var effects_played:=0
 func _ready()->void:
 	preload("res://audio/preferences.gd").ensure_buses()
 	var path:=directory.path_join("catalog.json")
@@ -28,22 +32,41 @@ func stream(sound:String)->AudioStream:
 	return cache.request(ProjectSettings.globalize_path(directory.path_join(source.samples[0])),bool(source.get("loop",false)))
 func request_music(sound:String)->void:
 	pending_music=sound;music.stop()
-func observe(ship:Dictionary,events:Array=[])->void:
+func observe(ship:Dictionary,events:Array=[],ship_pose:=Transform3D.IDENTITY)->void:
 	var next:=str(ship.get("zone",""));var environment:Dictionary=catalog.get("sectors",{}).get(next,{})
 	if next!=zone:
 		zone=next;combat_hold=0;combat_active=false;sector_music=str(environment.get("music",""));request_music(sector_music)
 	var definition:Dictionary=catalog.get("ships",{}).get(str(ship.get("template","")),{})
 	var power:=clampf(float(ship.get("speed_mps",0))/maxf(1,float(ship.get("max_speed_mps",1))),0,1)
+	var moving:=power>(.015 if engine_moving else .035)
+	if engine_initialized and moving!=engine_moving:
+		queue_effect(str(definition.get("accel" if moving else "decel","")),Vector3.ZERO,false)
+	engine_moving=moving;engine_initialized=true
 	desired={"interior":{"sound":definition.get("interior",""),"gain":1.0},"ambient":{"sound":environment.get("ambient",""),"gain":1.0},"idle":{"sound":definition.get("idle",""),"gain":1-power},"run":{"sound":definition.get("run",""),"gain":power}}
 	for event:Dictionary in events:
 		var id:=str(event.get("id",""))
 		if id.is_empty() or seen.has(id):continue
 		seen[id]=true
+		if float(event.get("age_seconds",0))>1.0:continue
 		var p:Array=event.get("position",[]);var own:Array=ship.get("position",[])
 		if p.size()==3 and own.size()==3 and Vector3(p[0],p[1],p[2]).distance_to(Vector3(own[0],own[1],own[2]))<=1024:combat_hold=5.0
+		if p.size()!=3:continue
+		var sounds:Array=[]
+		if event.get("kind","")=="projectile":sounds=catalog.get("projectiles",{}).get(str(event.get("projectile_type",-1)),[])
+		elif event.get("kind","")=="hit":sounds=catalog.get("hits",{}).get(str(event.get("hit_type",-1)),[])
+		for sound:String in sounds:queue_effect(sound,ship_pose.affine_inverse()*Vector3(p[0],p[1],-p[2]),true)
 	while seen.size()>256:seen.erase(seen.keys()[0])
 func _process(delta:float)->void:
 	cache.poll()
+	for effect:Dictionary in pending_effects.duplicate():
+		if Time.get_ticks_msec()>effect.expires:pending_effects.erase(effect);continue
+		var audio:=stream(effect.sound)
+		if audio==null:continue
+		var mixer:=get_node_or_null("/root/SWGSpatialAudio")
+		if mixer!=null and mixer.enabled:
+			var point:Vector3=effect.position if effect.spatial else mixer.camera.global_position
+			if mixer.play_stream(catalog.sounds[effect.sound],effect.sound,audio,point,2)!=null:effects_played+=1
+		pending_effects.erase(effect)
 	combat_hold=maxf(0,combat_hold-delta)
 	var active:=combat_hold>0
 	if active!=combat_active:
@@ -64,3 +87,7 @@ func _process(delta:float)->void:
 		layer.gain=move_toward(float(layer.gain),float(target.get("gain",0)),delta*2)
 		layer.player.volume_db=linear_to_db(maxf(.00001,float(layer.gain)*float(catalog.get("sounds",{}).get(name,{}).get("volume",1))))
 func _exit_tree()->void:cache.shutdown()
+
+func queue_effect(sound:String,position:Vector3,spatial:bool)->void:
+	if not sound.is_empty() and pending_effects.size()<16:
+		pending_effects.append({"sound":sound,"position":position,"spatial":spatial,"expires":Time.get_ticks_msec()+750})

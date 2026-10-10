@@ -156,7 +156,7 @@ class MultiplayerSync:
                 event['weapon_id'] = shot[0]
         self.events.append({'at': now, 'zone': current['zone'], 'cell': current['cell'], 'event': event})
 
-    def sync(self, account, data):
+    def sync(self, account, data, motion=None):
         with self.lock:
             now = self.clock()
             current = self.sessions.get(account.lower())
@@ -221,7 +221,12 @@ class MultiplayerSync:
                       if row['event']['id'] > cursor and now-row['at'] <= 5
                       and row['event']['actor_id'] in visible_ids
                       and row['zone'] == current['zone'] and row['cell'] == current['cell']]
-            return {'ok': True, 'backend': 'core3', 'source_kind': 'core3_multiplayer_sync',
+            try:
+                from .native_motion import project
+            except ImportError:
+                from native_motion import project
+            goals = project(motion, current['world'], current['character_id']) if motion else {}
+            return {'motion': goals, 'ok': True, 'backend': 'core3', 'source_kind': 'core3_multiplayer_sync',
                     'character_id': current['character_id'], 'session_id': current['session_id'],
                     'sequence': sequence, 'zone': current['zone'], 'world_revision': current['revision'],
                     'world': deepcopy(current['world']) if data.get('world_revision', -1) != current['revision'] else None,

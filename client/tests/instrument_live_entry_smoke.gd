@@ -100,4 +100,4 @@ func run()->void:
 	await app.stop_live_combat();await process_frame
 	for tracker in trackers:XRServer.remove_tracker(tracker)
 	app.free();await process_frame
-	print(JSON.stringify({"checks":checks,"errors":errors,"transport":"mocked Core3","original_instrument":true,"renderer":"dummy","headset_validated":false}));quit(0 if errors.is_empty() else 1)
+	print(JSON.stringify({"checks":checks,"errors":errors,"transport":"mocked CoreCU","original_instrument":true,"renderer":"dummy","headset_validated":false}));quit(0 if errors.is_empty() else 1)

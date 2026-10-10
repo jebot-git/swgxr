@@ -24,6 +24,8 @@ def main():
     parser.add_argument('--import-only',action='store_true')
     parser.add_argument('--launcher',action='store_true',help='Open the desktop launcher')
     parser.add_argument('--terminal-menu',action='store_true',help='Use the text menu instead of the desktop launcher')
+    parser.add_argument('--game-installation',type=Path,help='Prepare from a local Total Experience installation; otherwise use five ISO images in data/')
+    parser.add_argument('--prepare-game-data',action='store_true')
     parser.add_argument('--asset-archive',type=Path,help='Import a supplied asset ZIP from this location')
     parser.add_argument('--install-shortcuts',action='store_true')
     parser.add_argument('--updates',action='store_true')
@@ -56,6 +58,11 @@ def main():
                 except ImportError: from tester_data import install
                 result=install(args.asset_archive,root)
                 print('Assets ready: '+str(result['verified_files'])+' verified files.',flush=True)
+            elif (root/'engine/data-preparation/recipe.json').is_file():
+                executable=root/'python/python.exe' if os.name=='nt' else root/'engine/data-python/bin/python3'
+                command=[str(executable),'-u',str(root/'engine/data-preparation/tools/client/prepare_game_data.py'),'--root',str(root)]
+                if args.game_installation:command+=['--installation',str(args.game_installation)]
+                subprocess.run(command,cwd=root,check=True)
             else:ensure_data(root)
             if args.import_only:return 0
             public=json.loads((root/'server.json').read_text());public['ca_certificate']=(root/'server-ca.pem').as_posix()

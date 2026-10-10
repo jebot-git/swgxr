@@ -13,7 +13,7 @@ func fetch(path: String) -> Dictionary:
 	request.queue_free()
 	if result[0]!=HTTPRequest.RESULT_SUCCESS: return {"ok":false,"error":"Verified HTTPS transport failed","transport_result":int(result[0])}
 	var parsed: Variant=JSON.parse_string(result[3].get_string_from_utf8())
-	if not parsed is Dictionary: return {"ok":false,"error":"Core3 response is not a JSON object"}
+	if not parsed is Dictionary: return {"ok":false,"error":"CoreCU response is not a JSON object"}
 	parsed.ok=int(result[1])>=200 and int(result[1])<300
 	return parsed
 func run() -> void:
@@ -35,7 +35,7 @@ func run() -> void:
 			report.native_character_list=characters.get("backend","")=="core3" and characters.get("characters") is Array
 			report.character_count=characters.get("characters",[]).size() if characters.get("characters") is Array else 0
 			report.passed=report.characters_http_ok and report.native_character_list
-		else: report.error="Remote native Core3 readiness was not confirmed."
+		else: report.error="Remote native CoreCU readiness was not confirmed."
 	if options.has("evidence"):
 		var output:=FileAccess.open(str(options.evidence),FileAccess.WRITE)
 		if output!=null: output.store_string(JSON.stringify(report,"\t"))

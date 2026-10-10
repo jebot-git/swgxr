@@ -24,7 +24,7 @@ func run() -> void:
 	root.add_child(app)
 	var report := {"test": "creator_ui_to_core3_avatar"}
 	if not await wait_idle(app) or not app.core3_ready:
-		report.error = "Core3 readiness failed"
+		report.error = "CoreCU readiness failed"
 		finish(report, false)
 		return
 	var suffix := ""

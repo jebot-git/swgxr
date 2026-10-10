@@ -76,7 +76,7 @@ func run()->void:
 		var environment:=WorldEnvironment.new();var settings:=Environment.new();settings.background_mode=Environment.BG_COLOR;settings.background_color=Color("74899b");environment.environment=settings;host.add_child(environment)
 		var camera:=Camera3D.new();host.add_child(camera);camera.position=location+Vector3(26,18,30);camera.look_at(location+Vector3.UP);camera.current=true;camera.far=2000
 		root.size=Vector2i(1280,800)
-		var label:=Label.new();root.add_child(label);label.position=Vector2(20,20);label.text="Original camp + terrain · actual local Core3 placement · desktop replay"
+		var label:=Label.new();root.add_child(label);label.position=Vector2(20,20);label.text="Original camp + terrain · actual local CoreCU placement · desktop replay"
 		for i in 8:await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://../runtime/evidence/structure-placement/camp-terrain.png")
@@ -86,7 +86,7 @@ func run()->void:
 		while not host.terrain.ready_near(house_center,1):await process_frame
 		scenery.structures[str(house.id)].show()
 		camera.position=house_center+Vector3(30,18,35);camera.look_at(house_center+Vector3.UP*2)
-		label.text="Original house foundation + terrain · actual local Core3 placement · desktop replay"
+		label.text="Original house foundation + terrain · actual local CoreCU placement · desktop replay"
 		for i in 8:await process_frame
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png("res://../runtime/evidence/structure-placement/house-terrain.png")

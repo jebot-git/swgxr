@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Original vehicle VSND and droid ASND/CSND audio; local assets only."""
+"""Original vehicle, creature and NPC CDF combat audio; local assets only."""
 import argparse
 import hashlib
 import json
@@ -38,16 +38,32 @@ def sound_bindings(raw, vehicle=False):
     return {'kind': 'droid', 'ambient': [cstring(n.data)[0] for n in tree.walk('ASND')], 'events': events}
 
 
+def client_binding(imp, source):
+    raw = imp.read(source)
+    binding = sound_bindings(raw)
+    binding['effects'] = {}
+    for node in parse_iff(raw).walk():
+        if node.tag not in ('CEFT','EVNT'):continue
+        event, offset = cstring(node.data)
+        effect, _ = cstring(node.data, offset)
+        try:
+            # CEFT is a general event binding: original CDFs also put SNDs here.
+            binding['effects'][event] = [effect] if effect.endswith('.snd') else [cstring(n.data)[0] for n in parse_iff(imp.read(effect)).walk('PSND')]
+        except Exception as error:
+            imp.failures.append({'source': effect, 'cdf': source, 'event': event, 'error': str(error)})
+    return binding
+
+
 def sources(binding):
     if binding['kind'] == 'vehicle':
         return {value for band in binding['bands'] for row in band['sounds']
                 for key, value in row.items() if key != 'hardpoint' and value}
-    return set(binding['ambient']) | set(binding['events'].values())
+    return set(binding['ambient']) | set(binding['events'].values()) | {sound for sounds in binding.get('effects', {}).values() for sound in sounds}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__); parser.add_argument('--ensure', action='store_true'); args = parser.parse_args()
-    paths = [Path(__file__), ROOT/'tools/assets/prepare_environment.py', ROOT/'runtime/assets/vehicles/catalog.json', ROOT/'runtime/assets/services/catalog.json',
+    paths = [Path(__file__), ROOT/'tools/assets/prepare_environment.py', ROOT/'runtime/assets/vehicles/catalog.json', ROOT/'runtime/assets/services/catalog.json', ROOT/'runtime/assets/combat/assets.json',
              *sorted((ROOT/'runtime/asset_sources/active_tre').glob('*.tre'))]
     signature = hashlib.sha256(json.dumps([(str(p.relative_to(ROOT)), p.stat().st_size, p.stat().st_mtime_ns) for p in paths]).encode()).hexdigest()
     target = OUT/'catalog.json'
@@ -66,11 +82,12 @@ def main():
         except Exception as error: imp.failures.append({'source':source,'template':template,'error':str(error)})
     # Exact original shared-template inheritance, including player-crafted droids.
     for shared in sorted(imp.t.entries):
-        if not shared.startswith('object/mobile/') or '/shared_' not in shared or not shared.endswith('.iff'): continue
+        if not shared.startswith(('object/mobile/','object/creature/player/')) or '/shared_' not in shared or not shared.endswith('.iff'): continue
         try:
             source = imp.properties(shared).get('clientDataFile','')
-            if not source.startswith('clientdata/droid/'): continue
-            if source not in bindings: bindings[source] = sound_bindings(imp.read(source))
+            if not source or source not in imp.t.entries: continue
+            if source not in bindings: bindings[source] = client_binding(imp, source)
+            bindings[source]['kind'] = 'droid' if source.startswith('clientdata/droid/') else 'creature'
             templates[shared.replace('/shared_', '/')] = source
         except Exception as error: imp.failures.append({'source':shared,'error':str(error)})
     # Original shuttle animation messages resolve through CDF CSND/CEFT PSND.
@@ -95,9 +112,16 @@ def main():
                     messages.append({'seconds':frame/clip['fps'],'event':event,'message':message})
             binding['clips'][phase] = sorted(messages,key=lambda row:row['seconds'])
         bindings[source] = binding; templates[template] = source
+    weapon_sounds = {}
+    combat = json.loads((ROOT/'runtime/assets/combat/assets.json').read_text())
+    for weapon in combat['weapons'].values():
+        effect = combat.get('effects', {}).get(weapon.get('effects', {}).get('fire', ''), {})
+        sounds = effect.get('sounds', [])
+        if sounds: weapon_sounds[weapon['shared_template'].replace('/shared_', '/')] = sounds[0]
+    for sound in sorted(set(weapon_sounds.values())): imp.sound(sound)
     for sound in sorted(set().union(*(sources(binding) for binding in bindings.values()))): imp.sound(sound)
     catalog = {'schema_version':1,'signature':signature,'templates':templates,'bindings':bindings,
-               'sounds':imp.sounds,'provenance':imp.dependencies,'failures':imp.failures,
+               'weapon_sounds':weapon_sounds,'sounds':imp.sounds,'provenance':imp.dependencies,'failures':imp.failures,
                'policy':'Original CDF slots and SND samples. Prototype motion thresholds; no synthesized sounds or animation-message timing claim.'}
     target.write_text(json.dumps(catalog,indent=2)+'\n')
     print(json.dumps({'templates':len(templates),'bindings':len(bindings),'sounds':len(imp.sounds),'failures':imp.failures}))

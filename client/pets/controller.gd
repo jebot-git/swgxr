@@ -47,7 +47,7 @@ func merge_datapad()->void:
 	var entries:Array=app.datapad.ui.entries.filter(func(row):return not (row.get("native_droid",false) or row.get("native_pet",false)) and not authoritative.has(str(row.get("id",""))))
 	for row:Dictionary in vehicles.state.pet_datapad:
 		var entry:=row.duplicate(true);entry.category="pets";entry.native_droid=row.get("pet_kind","droid")=="droid";entry.native_pet=true;entry.deletable=false
-		entry.description="Called into the world. Offhand trigger over pet opens commands. Both grips recover." if entry.spawned else "Stored in datapad. Core3 call limits and cooldowns apply."
+		entry.description="Called into the world. Offhand trigger over pet opens commands. Both grips recover." if entry.spawned else "Stored in datapad. CoreCU call limits and cooldowns apply."
 		entries.append(entry)
 	app.datapad.ui.set_entries(entries)
 	for i in range(app.datapad.ui.filtered_entries.size()):

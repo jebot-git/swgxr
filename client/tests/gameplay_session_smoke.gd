@@ -76,6 +76,10 @@ func run()->void:
 	before=app.calls.size();session._process(.01)
 	await process_frame
 	check(app.calls.size()==before+1 and app.calls.back().payload.guard_pose=={"mode":"none"},"Lowering guard sends release without waiting for normal cadence")
+	app.vehicles.driving=false;session.last_position=app.player.global_position
+	session.last_confirmed_ms=Time.get_ticks_msec()-250;session.next_update=0
+	before=app.calls.size();session._process(.01);await process_frame
+	check(app.calls.size()==before+1,"Stationary player refreshes authoritative world within 250ms rather than starving NPC movement for three seconds")
 	check(app.combat_rig.feedback_count>=3,"Native receipts feed guard feedback")
 	var foreign:Dictionary=app.response.duplicate(true);foreign.session_id="another"
 	check(not session.accept(foreign) and session.session_id=="native-one","Unsolicited update cannot replace session identity")

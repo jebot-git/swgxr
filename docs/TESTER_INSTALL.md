@@ -1,162 +1,44 @@
-# Install the SWGXR test client — 2026.10.10
+# Install the SWGXR test client — 2026.10.11
 
-Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.10-test.11), then install the matching private SWG data ZIP. The repository and client releases are public. Original SWG data remains separately distributed in private.
+Download the Linux or Windows client from the [test release](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.11-test.12). Original game data is prepared locally from your SWG The Total Experience installation or all five installation ISO images. No private asset ZIP is required.
 
 ## Requirements
 
 | Platform | Requirements |
 | --- | --- |
-| Linux | x86_64, **glibc 2.43 or newer**, libstdc++ providing **GLIBCXX_3.4.30**, Python 3.10+ with Tk, Vulkan graphics drivers |
-| Windows | x86_64, Vulkan graphics drivers; **Python is included** |
-| VR | A configured OpenXR runtime and connected headset; initial hardware target is Quest through SteamVR or WiVRn on Linux |
-| Storage | At least **25 GB free** for the client, compressed data and installed data |
+| Linux | x86_64, glibc 2.43+, libstdc++ with GLIBCXX_3.4.30, Python 3.10+ with Tk, Vulkan drivers |
+| Windows | x86_64 and Vulkan drivers; Python and Tcl/Tk are included |
+| VR | Configured OpenXR runtime and connected headset |
+| Storage | At least 40 GB free for original archives, preparation and rollback data |
 
-Windows includes a private Python 3.13.16 runtime for data installation and startup. No Python installation, `py` launcher, pip, compiler, administrator setup, or developer tools are required. The launchers use the bundled runtime without changing system Python settings.
+Forward+ on Vulkan is the supported renderer. Standalone Quest, Mobile, Compatibility/OpenGL, Direct3D and ARM are unsupported. Linux requires Tk (`python3-tkinter` on Fedora, `python3-tk` on Debian/Ubuntu). Do not replace a distribution's system C library to run this build.
 
-On Linux, Python 3.10+ and Tk are required for the desktop launcher (`python3-tkinter` on Fedora, `python3-tk` on Debian/Ubuntu); use a supported version from [python.org](https://www.python.org/downloads/) or your distribution. Verify `python3 --version` and `ldd --version`.
+## Prepare your original game data
 
-Older Linux distributions with glibc below 2.43 cannot run this particular build. Do not replace your system C library to work around that requirement. The client uses **Forward+ on Vulkan only**. Standalone Quest, Mobile, Compatibility/OpenGL, Direct3D and ARM builds are unsupported. Godot and the native extensions are included; no separate Godot installation or compiler is needed.
+1. Extract the complete client into a short, writable path, such as `C:\SWGXR` on Windows.
+2. Open `launcher.cmd` or `./launcher.sh` and choose **Prepare game data…**. Select your installed **SWG The Total Experience** folder. Alternatively put all **five** Total Experience `.iso` files into the client's `data/` folder; the launcher detects the complete set automatically.
+3. Let extraction and conversion finish. Progress and errors appear in the launcher. Completed steps resume after an interruption. Preparation runs no original installer and needs no administrator privileges, compiler, pip or extra conversion tools.
+4. Configure your OpenXR runtime and choose **Play in VR**, or use **Desktop mode** for regression and asset inspection.
 
-## Get the matching SWG assets
+`import-data.cmd` / `./import-data.sh` prepares data without starting the game. For a local installation from the command line, append `--game-installation "path to SWG"`. The GUI prompts for that folder when no five-disc set is present.
 
-The client downloads contain no original SWG game data. Obtain **`test-runtime-data-test9-20261010.zip` separately from the test organizer through the private distribution channel**, using your own original SWG media as required for participation. It is deliberately not attached to the GitHub release. There is no public asset download or automatic game-data downloader.
+The supplied Total Experience discs contain all 51 archives used by the current pre-CU client, byte-for-byte identical to the active development source set. All 58 original archives are retained under `runtime/original-game/tre` for future recipes; the current archive precedence activates only the pinned 51. This does not promise that future expansion assets, or every dangling reference inside an original file, exist on these discs. Missing source references and conversion failures remain in the catalogs and logs. The launcher never downloads original SWG media.
 
-The matching ZIP is **5,187,073,127 bytes** (about 4.83 GiB). Its SHA-256 is:
+The package includes open-source converters, Python, Pillow, NumPy, FFmpeg and Unshield. Licenses and dependency hashes are under `engine/data-preparation/licenses` and `dependencies.json`. Source archive hashes are in `runtime/original-game/sources.json`; successful preparation creates `GAME_DATA_RECEIPT.json`. Logs are under `runtime/preparation/logs`. Existing prepared data is replaced only after conversion succeeds, with the prior set kept for rollback.
 
-```text
-953b058b06dd3c57c73aa1e529e51853682c13fa7d89ca35d78b69097a49fc8b
-```
+Do not move an installation after preparation: some converted catalogs contain absolute paths. To relocate, extract a fresh client and prepare again from your retained original files.
 
-It contains **55,288 verified runtime files**, occupying about **9.90 GiB** after extraction. These are the converted data referenced by the client for all ten ground planets and the ten original JtL sectors. Raw TRE archives, server-only catalogs, standalone developer reports and unreferenced conversion outputs are excluded. Source hashes and conversion limitations remain in the retained catalogs. Testers do not install TRE files separately. **A retail installation, loose TRE files or an arbitrary ZIP of your game folder is not a drop-in substitute.** This client expects the matching `swgxr-assets-v2` manifest and converted catalogs.
+## Updates and shortcuts
 
-If you only have your own installation media, use the repository's [local asset preparation guide](https://github.com/jebot-git/swgxr/blob/main/tools/assets/README.md) with the test organizer to prepare the matching data. The documented source set uses original base-game, Jump to Lightspeed and Total Experience media to complete the pinned 51-file pre-CU archive allowlist. Base CDs alone supply only 30 of those archives. Extraction, activation, conversion and validation are a separate developer workflow; the packaged launcher only verifies and imports the completed data ZIP. Do not fetch replacement proprietary assets or publish the resulting bundle.
+Use **Check & install updates** or `updates.cmd` / `./updates.sh`. Close the game first. Updates preserve accounts, connection settings and original source archives. When the conversion recipe changes, the next preparation updates local data from those retained sources. The updater itself does not launch the game.
+
+Existing test.11 installations can update in place, then choose **Prepare game data…** and supply their original installation or five ISOs once. The old private asset archive alone does not include the new audio banks. The legacy `--asset-archive` import remains available for older distributions.
+
+Run `install-shortcuts.cmd` / `./install-shortcuts.sh` to create SWGXR, VR, Desktop and Updates shortcuts. No administrator privileges are needed. For clients older than test.11, extract this complete release into a new folder, or use the standalone updater published with the release.
 
 ## Verify downloads
 
-Download `CHECKSUMS.sha256` from the same release. It lists both client archives and the private data ZIP.
-
-On Linux, from the download directory:
-
-```sh
-sha256sum test-client-linux-20261010.tar.gz test-runtime-data-test9-20261010.zip
-```
-
-Compare both values with `CHECKSUMS.sha256`. On Windows, use PowerShell:
-
-```powershell
-Get-FileHash .\test-client-windows-20261010.zip -Algorithm SHA256
-Get-FileHash .\test-runtime-data-test9-20261010.zip -Algorithm SHA256
-```
-
-Compare the values with the checksum file (letter case does not matter). If a hash differs, obtain a fresh copy before importing it. The launcher also checks every individual data file during installation.
-
-## Linux installation
-
-1. Extract `test-client-linux-20261010.tar.gz` into a writable folder:
-
-   ```sh
-   tar -xzf test-client-linux-20261010.tar.gz
-   cd test-client-linux-20261010
-   ```
-
-2. Copy the **unextracted** `test-runtime-data-test9-20261010.zip` into `data/`. Keep exactly one ZIP in that folder.
-3. Install and verify the data without starting the client:
-
-   ```sh
-   ./import-data.sh
-   ```
-
-4. Configure your OpenXR runtime, connect the headset, then start:
-
-   ```sh
-   ./play-vr.sh
-   ```
-
-For desktop regression or asset inspection, use `./play-desktop.sh`, which explicitly disables XR. If an executable bit was lost during extraction, use `sh import-data.sh` or `sh play-vr.sh`.
-
-## Windows installation
-
-1. Extract **all** of `test-client-windows-20261010.zip` into a short writable path such as `C:\SWGXR`. Open the extracted `test-client-windows-20261010` folder; do not run files from inside the ZIP.
-2. Copy the **unextracted** `test-runtime-data-test9-20261010.zip` into its `data` folder. Keep exactly one ZIP there.
-3. Run `import-data.cmd`. It verifies and installs the assets without starting the client. From PowerShell, use `.\import-data.cmd`.
-4. Configure your OpenXR runtime and connect the headset, then run `play-vr.cmd`.
-
-Use `play-desktop.cmd` only for desktop regression or asset inspection. Keep the included `python/` folder with the client. If the launcher reports that bundled Python is missing, extract the complete client ZIP again.
-
-The refreshed Windows download retains the filename `test-client-windows-20261010.zip`; verify it against the updated release checksum. Older copies that call `py -3` require a fresh download. Extract the updated package into a fresh folder and import the new matching JtL runtime data ZIP. Test.6 requires both the new client and presentation data, including when upgrading from test.5. The data adds original seated avatar poses, ship and sector audio, and source NPC variant pools.
-
-After installation, the folder has this shape:
-
-```text
-test-client-<platform>-20261010/
-  data/
-    test-runtime-data-test9-20261010.zip
-  runtime/
-    assets/
-  engine/
-  python/       # Windows only; included in the client ZIP
-  client/
-  server.json
-  server-ca.pem
-  ASSET_RESTORE_RECEIPT.json
-  play-vr.sh or play-vr.cmd
-```
-
-The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. After a successful import, repeat starts use the install receipt; you may keep the ZIP elsewhere as a backup.
-
-## Desktop launcher and updates
-
-Run `./install-shortcuts.sh` on Linux or `install-shortcuts.cmd` on Windows.
-This creates **SWGXR**, **SWGXR VR**, **SWGXR Desktop**, and **SWGXR Updates**
-shortcuts on your desktop. Linux also receives application-menu entries. If your
-desktop asks, mark the shortcuts trusted / allow launching. Installation needs
-no administrator privileges and does not start the game.
-
-**SWGXR** opens a desktop window showing the installed build, asset status and server.
-`launcher.sh` / `launcher.cmd` opens the same window. Choose **Play in VR**,
-**Desktop mode**, **Check & install updates**, **Import asset ZIP…**, or
-**Create shortcuts**. Import can select a ZIP anywhere on your computer.
-Updates and imports show progress and errors in the activity log; the window stays
-responsive and prevents overlapping operations. Windows includes Tcl/Tk and opens
-without a console. `start_client.py --terminal-menu` retains the text interface
-for troubleshooting; direct command-line launch and update commands remain available.
-**SWGXR Updates** (test.11 onward) downloads and verifies the latest complete
-Linux or Windows test release, then updates this installation in place. Close the
-game first. Assets, imported-data receipts, server settings and credentials remain
-untouched. Changed code files are backed up under `.updates/`; an installation
-failure restores them. The updater never starts VR or the desktop client.
-
-## Upgrading an existing installation
-
-For **test.11 and later**, choose **Check & install updates** in the graphical launcher (or **Install client updates** in older text menus), or
-run `updates.sh` / `updates.cmd`. No account or developer tools are required.
-The same test.9 private data ZIP remains valid for test.11, so there is no asset
-re-download or re-import for this update. Existing desktop shortcuts keep working.
-
-For **the original text-menu test.11 build**, use the current standalone `update_test_client.py` once with the commands below to install this GUI revision. Its old updater recognizes version tags but cannot detect replaced packages under the same tag. The revised updater also checks the published archive checksum.
-
-For **test.10 or older**, the installed Updates option only opens the release
-page. Download `update_test_client.py` from the test.11 release and run it once
-against the existing client folder:
-
-```sh
-python3 ~/Downloads/update_test_client.py --root ~/Downloads/test-client-linux-20261010
-```
-
-On Windows, use the existing bundled Python (adjust both paths):
-
-```bat
-C:\SWGXR\python\python.exe -I -X utf8 "%USERPROFILE%\Downloads\update_test_client.py" --root C:\SWGXR
-```
-
-The bootstrap performs the verified update automatically; do not copy package
-files over the installation yourself. Afterwards, use the normal launcher Updates
-option. Download the bootstrap and checksum file from the same release. Original
-SWG assets remain in the separately supplied private archive.
-
-To relocate or change the asset bundle, use a fresh folder and import its matching
-data ZIP. Older pre-test.9 data archives lack newer shuttle audio or other required
-runtime assets; do not merge different data ZIPs into one installed asset tree.
+Compare the client archive against `CHECKSUMS.sha256` attached to the release. Original media is never included in those public archives.
 
 ## Connect and create a character
 
@@ -170,16 +52,16 @@ Test.5 fixes microphone activation being disabled in the client project. Voice s
 
 Synthetic speech captured through a virtual Linux input passed the production RNNoise/Opus path, startup mute, push-to-talk and shutdown checks. Voice controller, codec, context, channel routing and microphone preference regressions passed. Physical headset microphones and native Windows microphone capture have not been tested in this update; headset tests remain suspended.
 
-- **“Place exactly one supplied SWGXR data ZIP…”:** put the matching ZIP in the extracted client's `data/` folder and remove extra ZIPs from that folder.
-- **SHA-256/manifest errors:** use a complete matching data ZIP; do not edit its files or manifest.
-- **“Insufficient free disk space”:** free enough space for both the ZIP and approximately 9.9 GiB of installed runtime data, plus the client.
-- **“Existing data belongs to a different…location”:** extract a fresh client folder at the desired path and import again.
+- **Missing archives:** select a complete Total Experience installation or all five matching ISO images. Base-game CDs alone are insufficient.
+- **Preparation failure:** inspect the named log under `runtime/preparation/logs`, correct the source problem and retry. Existing installed assets are preserved.
+- **Insufficient space:** allow at least 40 GB free, including conversion and rollback data.
+- **Relocated data:** prepare again in a fresh client folder at the desired path.
 - **GLIBC/GLIBCXX errors:** the Linux build requires the library versions listed above. This release does not provide an older-distribution build.
 - **OpenXR initialization failure:** confirm that your headset is connected and the intended OpenXR runtime is active. Desktop mode is only a separate inspection/regression option.
 
-Both executable/PCK packages passed headless native-loading and catalog preflight checks. The runtime ZIP is checked against every entry SHA-256 and ZIP CRC during packaging. Full imports passed with the packaged Linux importer and the bundled Windows Python under Wine. Both executables then loaded the imported ground data, 277 ship descriptors and native clothing without errors. Original-starport stairs and yacht doorway movement passed using the native controller with XR disabled or mocked tracking.
+Audio checks use original recordings through the production playback paths, including Linux PulseAudio mixing with muted physical output. Headless regression tests use the dummy renderer. Native Windows Vulkan/OpenXR and live headset validation remain separate; Wine does not establish hardware support.
 
-All ten sectors were captured with desktop Forward+ Vulkan. Native Shipwright crafting/experimentation, pilot enlistment/first patrol, chassis redemption and component swapping passed live Core3 tests. See [JtL test status](JTL_TEST_STATUS.md) for combat-fixture boundaries and remaining source/presentation limitations. Native Windows Vulkan/OpenXR and live headset validation are separate; dummy-renderer and Wine checks do not validate a GPU or headset. Windows uses standard spatial audio fallback and includes TwoVoIP.
+All ten sectors were captured with desktop Forward+ Vulkan. Native Shipwright crafting/experimentation, pilot enlistment/first patrol, chassis redemption and component swapping passed live Core3 tests. See [JtL test status](JTL_TEST_STATUS.md) for combat-fixture boundaries and remaining source/presentation limitations. Windows uses standard spatial audio fallback and includes TwoVoIP.
 
 UI pointing uses the controller aim throughout the client. Finger bending does not
 move the cursor, and only a targeting dot is shown. Dropdowns open within the VR

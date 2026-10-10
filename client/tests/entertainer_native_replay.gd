@@ -33,5 +33,5 @@ func run()->void:
 		check(not performer.native.accept(corrupt),"Foreign owned-session payload rejected before grants/appearance")
 		host.free();await process_frame
 	check(replayed>0,"Actual native image sessions were replayed")
-	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"active_designs":replayed,"source":"recorded real Core3 image-design replies","live_xr":false,"renderer":"dummy"}
+	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"active_designs":replayed,"source":"recorded real CoreCU image-design replies","live_xr":false,"renderer":"dummy"}
 	FileAccess.open("res://../runtime/evidence/entertainment/native-client-replay.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "));print(JSON.stringify(report));quit(0 if failures.is_empty() else 1)

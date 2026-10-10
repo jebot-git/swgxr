@@ -159,7 +159,7 @@ func show_equipment(head: Transform3D) -> bool:
 		add_child(marker);marker.position=anchor
 		var id:=str(item.get("id",""));markers[id]=marker;equipment_targets[id]=item.duplicate(true)
 	labels[0].text="EQUIPPED ITEMS\n\nTouch a glowing item and squeeze grip.\n\nOpen your backpack with the other hand, then release the item inside it."
-	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until Core3 confirms their return to inventory.\n\nUse Combat abilities below the hologram to equip skills."
+	labels[1].text="SELECT EQUIPMENT\n\nItems stay equipped until CoreCU confirms their return to inventory.\n\nUse Combat abilities below the hologram to equip skills."
 	return true
 
 func equipped_at(position:Vector3)->Dictionary:

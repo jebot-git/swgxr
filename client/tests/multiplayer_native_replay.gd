@@ -12,7 +12,7 @@ func run()->void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--capture="):path=argument.trim_prefix("--capture=")
 	var parsed:Variant=JSON.parse_string(FileAccess.get_file_as_string(path))
-	check(parsed is Dictionary and parsed.get("native_execution",false),"Capture records actual Core3 execution")
+	check(parsed is Dictionary and parsed.get("native_execution",false),"Capture records actual CoreCU execution")
 	var states:Dictionary={}
 	var peers:=0
 	var events:=0

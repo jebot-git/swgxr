@@ -6,14 +6,14 @@ Download the Linux or Windows client from the [test release](https://github.com/
 
 | Platform | Requirements |
 | --- | --- |
-| Linux | x86_64, **glibc 2.43 or newer**, libstdc++ providing **GLIBCXX_3.4.30**, Python 3.10+, Vulkan graphics drivers |
+| Linux | x86_64, **glibc 2.43 or newer**, libstdc++ providing **GLIBCXX_3.4.30**, Python 3.10+ with Tk, Vulkan graphics drivers |
 | Windows | x86_64, Vulkan graphics drivers; **Python is included** |
 | VR | A configured OpenXR runtime and connected headset; initial hardware target is Quest through SteamVR or WiVRn on Linux |
 | Storage | At least **25 GB free** for the client, compressed data and installed data |
 
 Windows includes a private Python 3.13.16 runtime for data installation and startup. No Python installation, `py` launcher, pip, compiler, administrator setup, or developer tools are required. The launchers use the bundled runtime without changing system Python settings.
 
-On Linux, Python 3.10+ is still required; use a supported version from [python.org](https://www.python.org/downloads/) or your distribution. Verify `python3 --version` and `ldd --version`.
+On Linux, Python 3.10+ and Tk are required for the desktop launcher (`python3-tkinter` on Fedora, `python3-tk` on Debian/Ubuntu); use a supported version from [python.org](https://www.python.org/downloads/) or your distribution. Verify `python3 --version` and `ldd --version`.
 
 Older Linux distributions with glibc below 2.43 cannot run this particular build. Do not replace your system C library to work around that requirement. The client uses **Forward+ on Vulkan only**. Standalone Quest, Mobile, Compatibility/OpenGL, Direct3D and ARM builds are unsupported. Godot and the native extensions are included; no separate Godot installation or compiler is needed.
 
@@ -102,9 +102,9 @@ test-client-<platform>-20261010/
   play-vr.sh or play-vr.cmd
 ```
 
-The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. Keep the data ZIP in `data/` after installation; repeat starts use the verified install receipt.
+The importer creates the runtime directories and receipt. Do not manually unpack the data ZIP or move the client folder after importing: absolute catalog paths are rebased to the chosen location. To relocate, extract a fresh client folder, copy the matching data ZIP into `data/`, and import again. After a successful import, repeat starts use the install receipt; you may keep the ZIP elsewhere as a backup.
 
-## Desktop launchers and updates (test.8)
+## Desktop launcher and updates
 
 Run `./install-shortcuts.sh` on Linux or `install-shortcuts.cmd` on Windows.
 This creates **SWGXR**, **SWGXR VR**, **SWGXR Desktop**, and **SWGXR Updates**
@@ -112,8 +112,14 @@ shortcuts on your desktop. Linux also receives application-menu entries. If your
 desktop asks, mark the shortcuts trusted / allow launching. Installation needs
 no administrator privileges and does not start the game.
 
-**SWGXR** opens a small terminal menu for VR, desktop mode, asset import, updates,
-and refreshing shortcuts. `launcher.sh` / `launcher.cmd` opens the same menu.
+**SWGXR** opens a desktop window showing the installed build, asset status and server.
+`launcher.sh` / `launcher.cmd` opens the same window. Choose **Play in VR**,
+**Desktop mode**, **Check & install updates**, **Import asset ZIP…**, or
+**Create shortcuts**. Import can select a ZIP anywhere on your computer.
+Updates and imports show progress and errors in the activity log; the window stays
+responsive and prevents overlapping operations. Windows includes Tcl/Tk and opens
+without a console. `start_client.py --terminal-menu` retains the text interface
+for troubleshooting; direct command-line launch and update commands remain available.
 **SWGXR Updates** (test.11 onward) downloads and verifies the latest complete
 Linux or Windows test release, then updates this installation in place. Close the
 game first. Assets, imported-data receipts, server settings and credentials remain
@@ -122,7 +128,7 @@ failure restores them. The updater never starts VR or the desktop client.
 
 ## Upgrading an existing installation
 
-For **test.11 and later**, choose **Install client updates** in the launcher, or
+For **test.11 and later**, choose **Check & install updates** in the graphical launcher (or **Install client updates** in older text menus), or
 run `updates.sh` / `updates.cmd`. No account or developer tools are required.
 The same test.9 private data ZIP remains valid for test.11, so there is no asset
 re-download or re-import for this update. Existing desktop shortcuts keep working.

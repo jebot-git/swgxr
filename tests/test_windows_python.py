@@ -23,7 +23,7 @@ class WindowsPythonTests(unittest.TestCase):
                 for name in ('python.exe','python313.dll','python313.zip','LICENSE.txt','python313._pth'):
                     out.writestr(name,b'fixture')
             digest=hashlib.sha256(archive.read_bytes()).hexdigest()
-            with patch.object(windows_python,'SHA256',digest):
+            with patch.object(windows_python,'SHA256',digest), patch.object(windows_python,'install_tk',return_value={'bundled':True}):
                 report=windows_python.install(root/'python',cache=root)
             self.assertFalse(report['system_python_required'])
             self.assertEqual((root/'python/LICENSE.txt').read_bytes(),b'fixture')

@@ -135,6 +135,13 @@ def install(zip_path, root):
 
 def ensure_data(root):
     root=Path(root).resolve()
+    # A completed import is portable within this exact installation, even if
+    # the tester selected an archive elsewhere and later removes that ZIP.
+    receipt=root/'ASSET_RESTORE_RECEIPT.json'
+    if receipt.is_file() and (root/'ASSET_MANIFEST.json').is_file():
+        previous=json.loads(receipt.read_text())
+        if previous.get('workspace')==root.resolve().as_posix() and previous.get('verified_files',0)>0 and (root/'runtime/assets').is_dir():
+            return dict(previous,already_installed=True)
     choices=sorted((root/'data').glob('*.zip'))
     if len(choices)!=1: raise ValueError('Place exactly one supplied SWGXR data ZIP in the data folder, then retry')
     return install(choices[0],root)

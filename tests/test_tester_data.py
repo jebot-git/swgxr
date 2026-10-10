@@ -30,6 +30,9 @@ class TesterData(unittest.TestCase):
   data=json.loads((self.root/'runtime/assets/catalog.json').read_text());self.assertEqual(data['source'],self.root.as_posix()+'/runtime/assets/file.png');self.assertEqual(data['other'],'unchanged')
   self.assertEqual((self.root/'runtime/asset_sources/active_tre/data.tre').read_bytes(),b'original data')
   self.assertTrue(tester_data.install(self.archive,self.root)['already_installed'])
+ def test_imported_assets_work_without_retaining_zip(self):
+  self.bundle();tester_data.install(self.archive,self.root);self.archive.unlink()
+  self.assertTrue(tester_data.ensure_data(self.root)['already_installed'])
  def test_bad_hash_rolls_back_all_data(self):
   self.bundle(mutate=lambda m:m['files'][0].update(sha256='0'*64))
   with self.assertRaisesRegex(ValueError,'SHA256'):tester_data.install(self.archive,self.root)

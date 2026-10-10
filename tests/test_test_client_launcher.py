@@ -22,6 +22,8 @@ class LauncherTests(unittest.TestCase):
                         self.assertIn(launcher.desktop_quote(root/'start_client.py')+' --desktop',entry)
                         self.assertIn('Terminal=true',entry)
                         self.assertTrue((directory/'swgxr.desktop').stat().st_mode & 0o111)
+                        self.assertIn('Terminal=false',(directory/'swgxr.desktop').read_text())
+                        self.assertIn('--launcher --updates',(directory/'swgxr-updates.desktop').read_text())
 
     def test_desktop_entry_exec_survives_real_glib_parsing(self):
         try:

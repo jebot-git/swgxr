@@ -1,0 +1,649 @@
+--- a/MMOCoreORB/src/server/zone/TreeNode.cpp
++++ b/MMOCoreORB/src/server/zone/TreeNode.cpp
+@@ -180,10 +180,13 @@
+ 
+ void TreeNode::setBoundingSphere() {
+ 	if (nodeType == TreeNode::OCTREE_NODE) {
+-		centerX = (maxX - minX) * 0.5f;
+-		centerY = (maxY - minY) * 0.5f;
+-		centerZ = (maxZ - minZ) * 0.5f;
+-		radius = sqrtf(centerX*centerX + centerY*centerY + centerZ*centerZ);
++		const float halfX = (maxX - minX) * 0.5f;
++		const float halfY = (maxY - minY) * 0.5f;
++		const float halfZ = (maxZ - minZ) * 0.5f;
++		centerX = minX + halfX;
++		centerY = minY + halfY;
++		centerZ = minZ + halfZ;
++		radius = sqrtf(halfX*halfX + halfY*halfY + halfZ*halfZ);
+ 	} else {
+ 		/* unused variable in quadtree
+ 		centerX = (maxX - minX) * 0.5f;
+--- a/MMOCoreORB/src/server/zone/managers/spacecombat/SpaceCombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/spacecombat/SpaceCombatManager.cpp
+@@ -15,7 +15,10 @@
+ #include "templates/params/ship/ShipFlag.h"
+ #include "server/zone/objects/ship/ai/events/RemoveDisabledInvulnerableTask.h"
+ 
++#include "server/zone/objects/creature/commands/SwgxrSpaceEvents.h"
++
+ void SpaceCombatManager::broadcastProjectile(ShipObject* ship, const ShipProjectile* projectile, CreatureObject* player) const {
++	SwgxrSpaceEvents::projectile(ship,projectile);
+ 	auto cov = ship == nullptr ? nullptr : ship->getCloseObjects();
+ 	if (cov == nullptr) {
+ 		return;
+@@ -63,6 +66,7 @@
+ 
+ void SpaceCombatManager::broadcastProjectileCollision(ShipObject* ship, const ShipProjectile* projectile, int hitType, const SpaceCollisionResult& result) const {
+ 	const Vector3& position = result.getPosition();
++	SwgxrSpaceEvents::hit(ship,position,hitType);
+ 	String cefType	= "clienteffect/combat_ship_hit_" + shipHitTypeToString(hitType) + ".cef";
+ 
+ 	auto message = new PlayClientEffectLoc(cefType, "", position.getX(), position.getZ(), position.getY());
+@@ -70,6 +74,7 @@
+ }
+ 
+ void SpaceCombatManager::getHitEffectMessages(ShipObject* target, const SpaceCollisionResult& result, int hitType, float newPercent, float oldPercent, Vector<BasePacket*>& messages) const {
++	SwgxrSpaceEvents::hit(target,result.getPosition(),hitType);
+ 	const Vector3& position = result.getPosition();
+ 	String cefType	= "clienteffect/combat_ship_hit_" + shipHitTypeToString(hitType) + ".cef";
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/JtlPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/JtlPolicy.h
+@@ -13,33 +13,52 @@
+ inline Quat normalized(Quat q){double n=0;for(double v:q){if(!std::isfinite(v))throw std::runtime_error("jtl_invalid_quaternion");n+=v*v;}if(n<.0001)throw std::runtime_error("jtl_invalid_quaternion");for(auto& v:q)v/=std::sqrt(n);return q;}
+ inline Quat axis(int i,double angle){Quat q{{0,0,0,std::cos(angle/2)}};q[i]=std::sin(angle/2);return q;}
+ struct Input {double throttle=0,pitch=0,yaw=0,roll=0;uint64_t sequence=0;};
+-struct State {Vec position{{0,0,0}};Quat orientation{{0,0,0,1}};double speed=0,stamp=0;uint64_t sequence=0;};
++struct State {Vec position{{0,0,0}};Quat orientation{{0,0,0,1}};double speed=0,stamp=0;uint64_t sequence=0;Vec velocity{{0,0,0}}, angular{{0,0,0}};};
+ constexpr double CONTROL_LEASE_SECONDS=1.5;
+ inline void validate(const Input& i){for(double v:{i.throttle,i.pitch,i.yaw,i.roll})if(!std::isfinite(v) || std::abs(v)>1)throw std::runtime_error("jtl_invalid_controls");if(i.throttle<0 || i.sequence==0)throw std::runtime_error("jtl_invalid_controls");}
+-// Control packets supply inputs, never pose, velocity, elapsed time or ship stats.
+-// Advance held controls on the native clock, independently of HTTP arrivals.
+-inline State integrate(State s,const Input& i,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
+- validate(i);
++// Original ShipDynamicsModel behavior, with authoritative Core3 component stats.
++// Angular rates/accelerations are radians, speed is m/s. Controls never supply stats.
++struct Dynamics {
++ double maxSpeed=0,acceleration=0,deceleration=0;
++ Vec rates{{0,0,0}}, angularAcceleration{{0,0,0}}; // pitch, yaw, roll
++ double slideDampener=0,halfWidth=8192;
++};
++inline void validate(const Dynamics& d){
++ for(double v:{d.maxSpeed,d.acceleration,d.deceleration,d.slideDampener,d.halfWidth})if(!std::isfinite(v) || v<0)throw std::runtime_error("jtl_invalid_dynamics");
++ for(auto values:{d.rates,d.angularAcceleration})for(double v:values)if(!std::isfinite(v) || v<0)throw std::runtime_error("jtl_invalid_dynamics");
++ if(d.halfWidth<=32)throw std::runtime_error("jtl_invalid_dynamics");
++}
++inline double approach(double current,double desired,double up,double down,double dt){return current+clamp(desired-current,-down*dt,up*dt);}
++inline void stop(State& s){s.speed=0;s.velocity={{0,0,0}};s.angular={{0,0,0}};}
++// Advance held controls on a fixed native clock independently of HTTP arrivals.
++inline State integrate(State s,const Input& i,double now,const Dynamics& d){
++ validate(i);validate(d);
+  if(!std::isfinite(now) || now<s.stamp)throw std::runtime_error("jtl_invalid_clock");
+  double dt=clamp(now-s.stamp,0,.05);s.stamp=now;
+- double desired=clamp(maxSpeed,0,100)*i.throttle,delta=clamp(acceleration,1,30)*dt;
+- s.speed+=clamp(desired-s.speed,-delta,delta);
+- const double rad=3.141592653589793/180;
+- s.orientation=normalized(multiply(s.orientation,multiply(axis(1,i.yaw*clamp(yawRate,0,60)*rad*dt),multiply(axis(0,i.pitch*clamp(pitchRate,0,60)*rad*dt),axis(2,i.roll*clamp(rollRate,0,60)*rad*dt)))));
++ s.speed=approach(s.speed,d.maxSpeed*i.throttle,d.acceleration,d.deceleration,dt);
++ Vec controls{{i.pitch,i.yaw,i.roll}};
++ for(int k=0;k<3;++k)s.angular[k]=approach(s.angular[k],controls[k]*d.rates[k],d.angularAcceleration[k],d.angularAcceleration[k],dt);
++ s.orientation=normalized(multiply(s.orientation,multiply(axis(1,s.angular[1]*dt),multiply(axis(0,s.angular[0]*dt),axis(2,s.angular[2]*dt)))));
+  auto q=s.orientation;Vec forward{{2*(q[0]*q[2]+q[3]*q[1]),2*(q[1]*q[2]-q[3]*q[0]),1-2*(q[0]*q[0]+q[1]*q[1])}};
+- for(int k=0;k<3;++k){s.position[k]+=forward[k]*s.speed*dt;if(std::abs(s.position[k])>7000){s.position[k]=clamp(s.position[k],-7000,7000);s.speed=0;}}
++ if(d.slideDampener==0){for(int k=0;k<3;++k)s.velocity[k]=forward[k]*s.speed;}
++ else{
++  for(int k=0;k<3;++k)s.velocity[k]+=forward[k]*s.speed*d.slideDampener*dt;
++  double magnitude=length(s.velocity);if(magnitude>s.speed && magnitude>0)for(auto& v:s.velocity)v*=s.speed/magnitude;
++ }
++ // Original client reserves 32 metres inside the terrain's sector volume.
++ for(int k=0;k<3;++k)s.position[k]=clamp(s.position[k]+s.velocity[k]*dt,-d.halfWidth+32,d.halfWidth-32);
+  return s;
+ }
+-inline State advance(State s,const Input& held,double received,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
+- if(!std::isfinite(now) || now<s.stamp)throw std::runtime_error("jtl_invalid_clock");
++inline State advance(State s,const Input& held,double received,double now,const Dynamics& d){
++ if(!std::isfinite(now) || now<s.stamp || !std::isfinite(received))throw std::runtime_error("jtl_invalid_clock");
+  double end=std::min(now,received+CONTROL_LEASE_SECONDS);
+- while(s.stamp+1e-8<end)s=integrate(s,held,std::min(end,s.stamp+.05),maxSpeed,acceleration,pitchRate,yawRate,rollRate);
+- if(now>=received+CONTROL_LEASE_SECONDS)s.speed=0;
++ while(s.stamp+1e-8<end)s=integrate(s,held,std::min(end,s.stamp+.05),d);
++ if(now>=received+CONTROL_LEASE_SECONDS)stop(s);
+  s.stamp=now;return s;
+ }
+-inline State step(State s,const Input& i,double now,double maxSpeed,double acceleration,double pitchRate,double yawRate,double rollRate){
++inline State step(State s,const Input& i,double now,const Dynamics& d){
+  validate(i);if(i.sequence<=s.sequence)throw std::runtime_error("jtl_stale_controls");
+- s=advance(s,i,s.stamp,now,maxSpeed,acceleration,pitchRate,yawRate,rollRate);s.sequence=i.sequence;return s;
++ s=advance(s,i,s.stamp,now,d);s.sequence=i.sequence;return s;
+ }
+ // Transfer existing shield energy, conserving charge and respecting each bank.
+ inline std::array<double,2> shields(double front,double rear,double maxFront,double maxRear,double ratio){double total=std::max(0.,front)+std::max(0.,rear);double f=clamp(total*clamp(ratio,0,1),std::max(0.,total-maxRear),std::min(total,maxFront));return {{f,total-f}};}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrCrafting.h
+@@ -90,6 +90,14 @@
+    if(cs->getState()==2)throw std::runtime_error("Critical assembly failure; original ingredients returned");
+   }catch(...){cancel(c,s);throw;}
+  }
++ static void experiment(CraftingSession* cs,const Json& request,bool required=false){
++  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());auto points=request.value("points",Json::array());int total=0,rows=0;std::string exp;
++  if(!points.is_array() || points.size()>view["rows"].size())throw std::runtime_error("Invalid experimentation allocation");
++  for(size_t i=0;i<points.size();++i){if(!points[i].is_number_integer())throw std::runtime_error("Experimentation points must be integers");int n=points[i];if(n<0 || n>view["rows"][i]["point_limit"].get<int>())throw std::runtime_error("Experimentation row limit exceeded");total+=n;if(n){++rows;exp+=std::to_string(i)+" "+std::to_string(n)+" ";}}
++  if(total>view["points"].get<int>() || (total && cs->getState()!=3))throw std::runtime_error("Experimentation allowance exceeded");
++  if(required && (cs->getState()!=3 || total==0))throw std::runtime_error("Allocate experimentation points first");
++  if(rows)cs->experiment(rows,String(exp.c_str()),0);
++ }
+  static void finish(CreatureObject* c,Json& s,CraftingSession* cs,CraftingTool* tool,const Json& request){
+   if(cs->getState()!=3 && cs->getState()!=4)throw std::runtime_error("Assembly required before crafting");auto root=c->getInventory();
+   // Escrow reservations are still counted: never promise a slot released by
+@@ -98,13 +106,10 @@
+   ManagedReference<ManufactureSchematic*> schematic=cs->getSchematic().get();auto datapad=c->getSlottedObject("datapad");
+   if(blueprint){if(limit<1 || limit>1000 || !schematic || !schematic->allowFactoryRun() || Json::parse(cs->swgxrSnapshot().toCharArray()).value("station_id",std::string("0"))=="0")throw std::runtime_error("Factory blueprint requires an eligible recipe and crafting station");if(!datapad || datapad->getContainerObjectsSize()+schematic->getDraftSchematic()->getSize()>datapad->getContainerVolumeLimit())throw std::runtime_error("Datapad space required for blueprint");}
+   else if(root==nullptr || root->getCountableObjectsRecursive()>=root->getContainerVolumeLimit())throw std::runtime_error("No inventory slot available for crafted output");
+-  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());auto points=request.value("points",Json::array());int total=0,rows=0;std::string exp;
+-  if(!points.is_array() || points.size()>view["rows"].size())throw std::runtime_error("Invalid experimentation allocation");
+-  for(size_t i=0;i<points.size();++i){if(!points[i].is_number_integer())throw std::runtime_error("Experimentation points must be integers");int n=points[i];if(n<0 || n>view["rows"][i]["point_limit"].get<int>())throw std::runtime_error("Experimentation row limit exceeded");total+=n;if(n){++rows;exp+=std::to_string(i)+" "+std::to_string(n)+" ";}}
+-  if(total>view["points"].get<int>() || (total && cs->getState()!=3))throw std::runtime_error("Experimentation allowance exceeded");
++  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());
+   auto colors=request.value("colors",Json::array());if(!colors.is_array() || colors.size()>view["colors"].size())throw std::runtime_error("Invalid color choices");std::string customization;
+   for(size_t i=0;i<colors.size();++i){if(!colors[i].is_number_integer())throw std::runtime_error("Invalid palette index");int n=colors[i];auto v=view["colors"][i];if(n<v["minimum"].get<int>() || n>v["maximum"].get<int>())throw std::runtime_error("Color is outside learned allowance");customization+=std::to_string(v["index"].get<int>())+" "+std::to_string(n)+" ";}
+-  if(rows)cs->experiment(rows,String(exp.c_str()),0);
++  experiment(cs,request);
+   if(cs->getState()==3)cs->nextCraftingStage(0);
+   cs->customization("",0xFF,blueprint?limit:1,String(customization.c_str()));cs->nextCraftingStage(0);
+   auto m=cs->getSchematic().get();auto proto=tool->getPrototype();if(proto==nullptr || m==nullptr)throw std::runtime_error("Crafting prototype lost");
+@@ -147,6 +152,7 @@
+      auto cs=session(c,s["draft"]);if(cs==nullptr)throw std::runtime_error("Crafting session expired");Locker lock(cs,c);c->addActiveSession(SessionFacadeType::CRAFTING,cs);
+      if(action=="select"){if(cs->getState()>2)throw std::runtime_error("Cancel assembled draft before changing schematic");int index=request.at("index").get<int>();auto choices=Json::parse(cs->swgxrSnapshot().toCharArray())["schematics"];if(index<0 || index>=int(choices.size()))throw std::runtime_error("Schematic is not usable with this tool");cs->selectDraftSchematic(index);}
+      else if(action=="assemble"){assemble(c,s,cs,tool,request);if(cs->getState()==4)finish(c,s,cs,tool,request);}
++     else if(action=="experiment"){experiment(cs,request,true);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
+      else if(action=="finish"){finish(c,s,cs,tool,request);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
+      else throw std::runtime_error("Unknown crafting action");
+     }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrHousing.h
+@@ -30,7 +30,7 @@
+   ManagedReference<SceneObject*> parent=c->getParent().get();SceneObject* root=c->getRootParent();if(!parent || !parent->isCellObject() || !root || !(shipLocal?root->isPobShip() && root->asPobShip()->isOnAdminList(c):root->isBuildingObject() && static_cast<BuildingObject*>(root)->isOnAdminList(c)))throw std::runtime_error("Enter a house where you have administrator permission");
+   auto o=c->getZoneServer()->getObject(oid(r,"item_id"));if(!o || o->isVendor() || o->isCreatureObject() || o->isTerminal() || root->containsChildObject(o))throw std::runtime_error("Movable furniture required");Locker lock(o,c);
+   auto cell=static_cast<CellObject*>(parent.get());
+-  if(recover){if(o->getParentID()!=parent->getObjectID() || !c->isInRange(o,3) || !CollisionManager::checkLineOfSight(c,o))throw std::runtime_error("Furniture out of reach");for(auto field:{"left_hand","right_hand"}){auto p=r.at(field);vector(p);auto op=shipLocal?o->getPosition():o->getWorldPosition();if(Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>()).distanceTo(op)>1.0f)throw std::runtime_error("Both hands must touch the item");}}
++  if(recover){if(o->getParentID()!=parent->getObjectID() || !c->isInRange(o,3) || !CollisionManager::checkLineOfSight(c,o))throw std::runtime_error("Furniture out of reach");for(auto field:{"left_hand","right_hand"}){auto p=r.at(field);vector(p);auto op=shipLocal?o->getPosition():o->getWorldPosition();Vector3 hand(p[0].get<float>(),p[2].get<float>(),p[1].get<float>());auto playerPosition=shipLocal?c->getPosition():c->getWorldPosition();if(hand.distanceTo(playerPosition)>3.0f)throw std::runtime_error("Furniture hand out of reach");auto appearance=o->getAppearanceTemplate();auto volume=appearance?appearance->getBoundingVolume():nullptr;bool touching=false;if(volume){Matrix4 rotation;rotation.setRotationMatrix(o->getDirection()->toMatrix3());auto local=CollisionManager::getAxisAlignedVector(hand-op,rotation);const auto& box=volume->getBoundingBox();const auto low=box.getMinBound(),high=box.getMaxBound();touching=local.getX()>=low->getX()-.2f && local.getX()<=high->getX()+.2f && local.getY()>=low->getY()-.2f && local.getY()<=high->getY()+.2f && local.getZ()>=low->getZ()-.2f && local.getZ()<=high->getZ()+.2f;}else touching=hand.distanceTo(op)<=1.0f;if(!touching)throw std::runtime_error("Both hands must touch the item");}}
+   else if(!SwgxrEquipment::inInventory(o,c))throw std::runtime_error("Owned inventory item required");
+   float x=0,y=0,z=0;Json q;
+   if(!recover){auto p=r.at("placement_position");vector(p);auto wp=shipLocal?c->getPosition():c->getWorldPosition();if(Vector3(p[0].get<float>(),p[2].get<float>(),p[1].get<float>()).distanceTo(wp)>3)throw std::runtime_error("Place furniture within hand reach");double a=root->getDirection()->getRadians(),dx=p[0].get<double>()-root->getPositionX(),dy=p[2].get<double>()-root->getPositionY();x=dx*std::cos(a)-dy*std::sin(a);y=dx*std::sin(a)+dy*std::cos(a);z=p[1].get<float>()-root->getPositionZ();if(shipLocal){x=p[0].get<float>();z=p[1].get<float>();y=p[2].get<float>();}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -1,5 +1,10 @@
+ #pragma once
+ #include "JtlPolicy.h"
++#include "server/zone/managers/spacecombat/SpaceCombatManager.h"
++#include "server/zone/managers/spacecombat/projectile/ShipProjectile.h"
++#include "server/zone/objects/ship/transform/ShipObjectTransform.h"
++#include "SwgxrSpaceEvents.h"
++#include "SwgxrSpaceJournal.h"
+ #include "SwgxrPublicAppearance.h"
+ #include "SwgxrJtlLifecycle.h"
+ #include "server/zone/managers/planet/PlanetTravelPoint.h"
+@@ -29,7 +34,7 @@
+ class SwgxrJtl {
+  using Json=JSONSerializationType;
+  struct Walk {double stamp=0,credit=1.5;uint64 sequence=0;};
+- struct Motion {swgxr::jtl::State state;swgxr::jtl::Input input;double received=0,generation=0;bool ticking=false;std::map<uint64,Walk> walkers;std::string power="balanced";};
++ struct Motion {swgxr::jtl::State state;swgxr::jtl::Input input;double received=0,generation=0;bool ticking=false,primaryFire=false;std::map<int,double> nextShot;std::map<uint64,Walk> walkers;std::string power="balanced";};
+  static std::map<uint64,Motion>& motions(){static std::map<uint64,Motion> value;return value;}
+  static Mutex& motionMutex(){static Mutex value;return value;}
+  static void eraseMotion(ShipObject* s){Locker guard(&motionMutex(),s);motions().erase(s->getObjectID());}
+@@ -53,20 +58,56 @@
+  static CellObject* interior(CreatureObject* c,ShipObject* s){auto p=c->getParent().get();if(c->getRootParent()!=s || !p || !p->isCellObject())throw std::runtime_error("jtl_leave_station_first");return static_cast<CellObject*>(p.get());}
+  static Motion& motion(ShipObject* ship){Locker guard(&motionMutex(),ship);auto found=motions().find(ship->getObjectID());if(found==motions().end()){Motion m;m.state.position={{ship->getPositionX(),ship->getPositionZ(),ship->getPositionY()}};auto q=ship->getDirection();m.state.orientation={{q->getX(),q->getY(),q->getZ(),q->getW()}};m.state.stamp=now();m.generation=m.state.stamp;found=motions().emplace(ship->getObjectID(),m).first;}return found->second;}
+  static void applyMotion(ShipObject* s,Motion& m,double stamp){
+-  m.state=swgxr::jtl::advance(m.state,m.input,m.received,stamp,s->getActualMaxSpeed(),s->getActualAccelerationRate(),s->getActualPitchRate(),s->getActualYawRate(),s->getActualRollRate());
+-  auto& state=m.state;s->setCurrentSpeed(state.speed);s->setPosition(state.position[0],state.position[1],state.position[2]);Quaternion q(state.orientation[3],state.orientation[0],state.orientation[1],state.orientation[2]);s->setDirection(q);s->setRotationMatrix(q);s->updateZone(false,true);s->incrementMovementCounter();
++  s->updateSpeedRotationValues(false);
++  swgxr::jtl::Dynamics d;d.maxSpeed=s->getActualMaxSpeed();d.acceleration=s->getActualAccelerationRate();d.deceleration=s->getActualDecelerationRate();d.rates={{s->getActualPitchRate(),s->getActualYawRate(),s->getActualRollRate()}};d.angularAcceleration={{s->getActualPitchAccelerationRate(),s->getActualYawAccelerationRate(),s->getActualRollAccelerationRate()}};d.slideDampener=s->getSlip();
++  m.state=swgxr::jtl::advance(m.state,m.input,m.received,stamp,d);
++  auto& state=m.state;s->setCurrentSpeed(state.speed);s->setPosition(state.position[0],state.position[1],state.position[2]);Quaternion q(state.orientation[3],state.orientation[0],state.orientation[1],state.orientation[2]);s->setDirection(q);s->setRotationMatrix(q);s->updateZone(false,true);s->incrementMovementCounter();auto transform=s->getShipTransform();if(transform)transform->setCurrentTransform(s);
++ }
++ static void fireWeapons(ShipObject* s,Motion& m,double stamp){
++  if(!m.primaryFire || stamp>=m.received+swgxr::jtl::CONTROL_LEASE_SECONDS || yacht(s) || s->isHyperspacing() || !s->getPilot())return;
++  auto direction=SpaceMath::matrixToVelocity(*s->getConjugateMatrix());
++  for(int slot=Components::WEAPON_START;slot<=Components::FIGHTERSLOTMAX;++slot){
++   if(m.nextShot[slot]>stamp || !s->isComponentFunctional(slot))continue;
++   auto data=ShipManager::instance()->getProjectileData(s->getShipComponentMap()->get(slot));
++   // Primary fixed guns only. Mining is deferred; missiles need lock-on controls.
++   if(!data || data->isMissile() || data->isCountermeasure() || data->isMiningLaser() || data->isTractorBeam() || data->consumesAmmo() || data->getSpeed()<=0 || data->getRange()<=0)continue;
++   if(ShipManager::instance()->getShipTurretData(s->getShipChassisName(),slot-Components::WEAPON_START))continue;
++   float energy=std::max(0.f,s->getEnergyPerShotMap()->get(slot))/swgxr::jtl::clamp(s->getComponentEnergyEfficiencyMap()->get(slot),.1,10);
++   if(s->getCapacitorEnergy()<energy)continue;
++   double refire=std::max(.05,double(s->getComponentRefireRate()->get(slot))/swgxr::jtl::clamp(s->getComponentRefireEfficiency()->get(slot),.1,10));
++   auto projectile=new ShipProjectile(s,slot-Components::WEAPON_START,data->getIndex(),0,s->getPosition(),direction*7800.f,data->getSpeed(),data->getRange(),1.f,System::getMiliTime());projectile->readProjectileData(data);
++   s->setCapacitorEnergy(s->getCapacitorEnergy()-energy,true);m.nextShot[slot]=stamp+refire;
++   SpaceCombatManager::instance()->addProjectile(s,projectile,s->getPilot());
++  }
+  }
+  static void flightTick(ManagedWeakReference<ShipObject*> weak,double generation){
+   Core::getTaskManager()->scheduleTask([weak,generation]() mutable {
+    auto s=weak.get();if(!s)return;Locker lock(s);
+    Motion* m=nullptr;{Locker guard(&motionMutex(),s);auto it=motions().find(s->getObjectID());if(it==motions().end() || it->second.generation!=generation)return;m=&it->second;}
+-   if(!s->isShipLaunched() || !s->getPilot()){m->state.speed=0;s->setCurrentSpeed(0);m->ticking=false;return;}
+-   double stamp=now();applyMotion(s,*m,stamp);
++   if(!s->isShipLaunched() || !s->getPilot() || s->isHyperspacing()){swgxr::jtl::stop(m->state);s->setCurrentSpeed(0);m->ticking=false;return;}
++   double stamp=now();applyMotion(s,*m,stamp);fireWeapons(s,*m,stamp);
+    if(stamp>=m->received+swgxr::jtl::CONTROL_LEASE_SECONDS){m->ticking=false;return;}
+    flightTick(weak,generation);
+   },"SwgxrJtlFlight",50);
+  }
+  static void requirePilot(CreatureObject* c,ShipObject* s){if(!s || s->getOwnerID()!=c->getObjectID() || current(c)!=s || s->getPilot()!=c || !c->isPilotingShip())throw std::runtime_error("jtl_pilot_required");}
++ static void terminalAction(CreatureObject* c,ShipObject* s,const Json& request){
++  // This fixed terminal is part of the authored POB interior mesh: a ray to
++  // its origin hits that same mesh. Gate its original radial interaction by
++  // exact fixed-child identity, same room, short reach and native admin rights.
++  auto terminal=c->getZoneServer()->getObject(oid(request,"terminal_id"));auto pob=s->asPobShip();
++  if(!pob || !terminal || terminal->getObjectTemplate()->getFullTemplateString()!="object/tangible/terminal/terminal_pob_ship.iff" || !s->containsChildObject(terminal) || terminal->getRootParent()!=s || terminal->getParentID()!=c->getParentID() || !c->isInRange(terminal,4))throw std::runtime_error("jtl_pob_terminal_out_of_reach");
++  if(!pob->isOnAdminList(c))throw std::runtime_error("jtl_ship_admin_required");
++  if(request.at("action")=="terminal_recover"){
++   auto item=c->getZoneServer()->getObject(oid(request,"item_id"));auto inventory=c->getInventory();
++   if(!item || !inventory || !item->isTangibleObject() || item->isClientObject() || item->isCreatureObject() || item->isTerminal() || item->isVendor() || s->containsChildObject(item) || item->getRootParent()!=s)throw std::runtime_error("jtl_movable_furniture_required");
++   Locker itemLock(item,c);auto parent=item->getParent().get();
++   if(!parent || !parent->isCellObject() || !item->checkContainerPermission(c,ContainerPermissions::MOVECONTAINER) || !parent->checkContainerPermission(c,ContainerPermissions::MOVEOUT) || !inventory->checkContainerPermission(c,ContainerPermissions::MOVEIN))throw std::runtime_error("jtl_furniture_permission_rejected");
++   String description;if(inventory->canAddObject(item,-1,description)!=0)throw std::runtime_error("jtl_inventory_full");
++   if(!c->getZoneServer()->getObjectController()->transferObject(item,inventory,-1,true) || item->getParentID()!=inventory->getObjectID())throw std::runtime_error("jtl_native_recovery_rejected");
++   item->updateToDatabaseAllObjects(false);persist(c,s);
++  }
++ }
+  static void command(CreatureObject* c,ShipObject* s,const Json& request){
+   const auto cmd=request.at("command_id").get<std::string>();
+   if(cmd=="elevator_up" || cmd=="elevator_down"){
+@@ -130,7 +171,7 @@
+  static void save(CreatureObject* c,const char* key,const Json& value){c->getPlayerObject()->setScreenPlayData("swgxr_jtl",key,String(value.dump().c_str()));c->getPlayerObject()->updateToDatabase();}
+  static CreatureObject* player(CreatureObject* c,const std::string& key){if(key.empty() || key.size()>20 || key.find_first_not_of("0123456789")!=std::string::npos)return nullptr;auto o=c->getZoneServer()->getObject(std::stoull(key));return o && o->isPlayerCreature()?o->asCreatureObject():nullptr;}
+  static ShipObject* ship(CreatureObject* c,const std::string& key){if(key.empty() || key.size()>20 || key.find_first_not_of("0123456789")!=std::string::npos)return nullptr;auto o=c->getZoneServer()->getObject(std::stoull(key));return o && o->isShipObject()?o->asShipObject():nullptr;}
+- static ShipObject* current(CreatureObject* c){auto o=c?c->getRootParent():nullptr;return o && o->isShipObject() && zone(c)=="space_tatooine"?o->asShipObject():nullptr;}
++ static ShipObject* current(CreatureObject* c){auto o=c?c->getRootParent():nullptr;return o && o->isShipObject() && spaceZoneName(zone(c))?o->asShipObject():nullptr;}
+ 
+  // Ground building cells never index an owned ship's independent cell vector.
+  static CellObject* playerCell(CreatureObject* c,ShipObject* s){
+@@ -167,24 +208,25 @@
+  static void boardingEligible(CreatureObject* guest,ShipObject* own,ShipObject* host){if(!own || !host || own==host || own->isPobShip() || gunship(own) || !supported(own) || !host->isPobShip() || !supported(host))throw std::runtime_error("jtl_boarding_ship_class_rejected");requirePilot(guest,own);device(guest,own);if(!alone(guest,own))throw std::runtime_error("jtl_boarding_seat_occupied");auto captain=player(guest,std::to_string(host->getOwnerID()));if(!connected(guest) || !captain || !connected(captain) || host->getPilot()!=captain || current(captain)!=host || !captain->isPilotingShip() || own->getZone()!=host->getZone() || !own->isInRange(host,256) || !std::isfinite(own->getCurrentSpeed()) || !std::isfinite(host->getCurrentSpeed()) || std::abs(own->getCurrentSpeed())>1 || std::abs(host->getCurrentSpeed())>1)throw std::runtime_error("jtl_boarding_hold_nearby");if(host->getTotalPlayersOnBoard()>=capacity(host))throw std::runtime_error("jtl_crew_full");}
+  static void boardingAction(CreatureObject* c,const Json& r){auto action=r.at("action").get<std::string>();
+   if(action=="boarding_request"){auto own=current(c);auto host=ship(c,r.at("target_ship_id").get<std::string>());if(!own || !host)throw std::runtime_error("jtl_boarding_ship_class_rejected");Locker hostLock(host,c);Locker ownLock(own,c);boardingEligible(c,own,host);auto captain=player(c,std::to_string(host->getOwnerID()));Locker lock(captain,c);save(c,"boarding_request",{{"target_ship_id",id(host)},{"ship_id",id(own)},{"requester_id",id(c)},{"name",std::string(c->getFirstName().toCharArray())},{"expires",epoch()+30},{"guest_session",leaseToken(c)},{"captain_session",leaseToken(captain)}});auto incoming=data(captain,"boarding_incoming");if(!incoming.is_array())incoming=Json::array();bool present=false;for(auto& key:incoming)if(key==id(c))present=true;if(!present)incoming.push_back(id(c));while(incoming.size()>32)incoming.erase(incoming.begin());save(captain,"boarding_incoming",incoming);return;}
+-  if(action=="return_ship"){auto parked=data(c,"parked_ship");auto host=current(c);if(parked.empty() || !host || parked.at("host_ship_id")!=id(host))throw std::runtime_error("jtl_return_ship_unavailable");Locker hostLock(host,c);auto own=owned(c,Json{{"ship_id",parked.at("ship_id")}});Locker lock(own,c);auto d=device(c,own);if(own->isShipLaunched())throw std::runtime_error("jtl_return_ship_already_launched");parked["phase"]="returning";save(c,"parked_ship",parked);auto pos=host->getPosition();pos.setX(std::min(6900.f,pos.getX()+200));auto oldZone=own->getSpaceLaunchZone();auto oldReturn=own->getSpaceLaunchLocation();try{if(d->launchShip(c,"space_tatooine",pos)!=own)throw std::runtime_error("jtl_native_launch_failed");c->clearSpaceStates();InsertPilotIntoShipTask insert(c,own);insert.run();if(current(c)!=own)throw std::runtime_error("jtl_native_board_failed");host->removePlayerOnBoard(c);eraseWalker(host,c);own->setSpaceLaunchZone(oldZone);own->setSpaceLaunchLocation(oldReturn);own->setOptionBit(OptionBitmask::INVULNERABLE,false);own->setCurrentSpeed(0);eraseMotion(own);motion(own);bind(c,own);save(c,"parked_ship",Json::object());save(c,"selected_ship",id(own));c->getPlayerObject()->notifySceneReady();persist(c,own);}catch(...){if(own->isShipLaunched())store(c,own,true);if(zone(c)=="space_tatooine")eject(c,host);host->removePlayerOnBoard(c);eraseWalker(host,c);save(c,"parked_ship",Json::object());save(c,"aboard_ship",Json::object());c->updateToDatabaseAllObjects(false);throw;}return;}
+-  auto host=current(c);if(!host)throw std::runtime_error("jtl_pilot_required");Locker hostLock(host,c);requirePilot(c,host);auto guest=player(c,r.at("requester_id").get<std::string>());if(!guest)throw std::runtime_error("jtl_boarding_request_missing");Locker lock(guest,c);auto pending=data(guest,"boarding_request");if(pending.empty() || pending.at("target_ship_id")!=id(host) || pending.at("expires").get<double>()<epoch() || pending.value("guest_session",std::string())!=leaseToken(guest) || pending.value("captain_session",std::string())!=leaseToken(c))throw std::runtime_error("jtl_boarding_request_expired");if(action=="boarding_decline"){save(guest,"boarding_request",Json::object());return;}auto own=current(guest);if(!own || pending.at("ship_id")!=id(own))throw std::runtime_error("jtl_boarding_ship_changed");Locker shipLock(own,c);boardingEligible(guest,own,host);save(guest,"parked_ship",{{"ship_id",id(own)},{"device_id",std::to_string(own->getControlDeviceID())},{"host_ship_id",id(host)}});try{store(guest,own,true);insertGuest(guest,host);}catch(...){if(zone(guest)=="space_tatooine")eject(guest,current(guest));save(guest,"parked_ship",Json::object());throw;}save(guest,"boarding_request",Json::object());
++  if(action=="return_ship"){auto parked=data(c,"parked_ship");auto host=current(c);if(parked.empty() || !host || parked.at("host_ship_id")!=id(host))throw std::runtime_error("jtl_return_ship_unavailable");Locker hostLock(host,c);auto own=owned(c,Json{{"ship_id",parked.at("ship_id")}});Locker lock(own,c);auto d=device(c,own);if(own->isShipLaunched())throw std::runtime_error("jtl_return_ship_already_launched");parked["phase"]="returning";save(c,"parked_ship",parked);auto pos=host->getPosition();pos.setX(std::min(6900.f,pos.getX()+200));auto oldZone=own->getSpaceLaunchZone();auto oldReturn=own->getSpaceLaunchLocation();try{if(d->launchShip(c,host->getZone()->getZoneName(),pos)!=own)throw std::runtime_error("jtl_native_launch_failed");c->clearSpaceStates();InsertPilotIntoShipTask insert(c,own);insert.run();if(current(c)!=own)throw std::runtime_error("jtl_native_board_failed");host->removePlayerOnBoard(c);eraseWalker(host,c);own->setSpaceLaunchZone(oldZone);own->setSpaceLaunchLocation(oldReturn);if(yacht(own))own->setOptionBit(OptionBitmask::INVULNERABLE,false);own->setCurrentSpeed(0);eraseMotion(own);motion(own);bind(c,own);save(c,"parked_ship",Json::object());save(c,"selected_ship",id(own));c->getPlayerObject()->notifySceneReady();persist(c,own);}catch(...){if(own->isShipLaunched())store(c,own,true);if(spaceZoneName(zone(c)))eject(c,host);host->removePlayerOnBoard(c);eraseWalker(host,c);save(c,"parked_ship",Json::object());save(c,"aboard_ship",Json::object());c->updateToDatabaseAllObjects(false);throw;}return;}
++  auto host=current(c);if(!host)throw std::runtime_error("jtl_pilot_required");Locker hostLock(host,c);requirePilot(c,host);auto guest=player(c,r.at("requester_id").get<std::string>());if(!guest)throw std::runtime_error("jtl_boarding_request_missing");Locker lock(guest,c);auto pending=data(guest,"boarding_request");if(pending.empty() || pending.at("target_ship_id")!=id(host) || pending.at("expires").get<double>()<epoch() || pending.value("guest_session",std::string())!=leaseToken(guest) || pending.value("captain_session",std::string())!=leaseToken(c))throw std::runtime_error("jtl_boarding_request_expired");if(action=="boarding_decline"){save(guest,"boarding_request",Json::object());return;}auto own=current(guest);if(!own || pending.at("ship_id")!=id(own))throw std::runtime_error("jtl_boarding_ship_changed");Locker shipLock(own,c);boardingEligible(guest,own,host);save(guest,"parked_ship",{{"ship_id",id(own)},{"device_id",std::to_string(own->getControlDeviceID())},{"host_ship_id",id(host)}});try{store(guest,own,true);insertGuest(guest,host);}catch(...){if(spaceZoneName(zone(guest)))eject(guest,current(guest));save(guest,"parked_ship",Json::object());throw;}save(guest,"boarding_request",Json::object());
+  }
+  static Json crew(ShipObject* s,CreatureObject* observer){Json rows=Json::array();auto ids=s->getPlayersOnBoard();for(int i=0;i<ids.size();++i){auto c=player(observer,std::to_string(ids.get(i)));if(!c)continue;Locker lock(c,observer);if(current(c)!=s)continue;auto row=member(c);row["ship_id"]=id(s);row["kind"]="player";row["position"]=c->isPilotingShip() && s->isPobShip()?Json::array({-.76,.93,21.14}):s->isPobShip()?point(c):Json::array({0,0,0});auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["heading_radians"]=c->getDirection()->getRadians();row["posture"]=int(c->getPosture());row["station"]=s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner";row["appearance"]=SwgxrPublicAppearance::publicAppearance(c);row["equipment_complete"]=row["appearance"]["equipment_complete"];row["template"]=row["appearance"]["template"];row["dead"]=c->isDead();row["incapacitated"]=c->isIncapacitated();row["scale"]=c->getHeight(false);rows.push_back(row);}return rows;}
+  static Json boardingState(CreatureObject* c){Json out={{"incoming",Json::array()},{"pending",Json::object()},{"return_ship",data(c,"parked_ship")}};auto pending=data(c,"boarding_request");if(!pending.empty() && pending.value("expires",0.)>epoch() && pending.value("guest_session",std::string())==leaseToken(c)){pending.erase("guest_session");pending.erase("captain_session");out["pending"]=pending;}auto list=data(c,"boarding_incoming");if(list.is_array())for(auto& key:list){auto guest=player(c,key.get<std::string>());if(!guest)continue;Locker lock(guest,c);auto request=data(guest,"boarding_request");if(!request.empty() && current(c) && request.at("target_ship_id")==id(current(c)) && request.value("expires",0.)>epoch() && connected(guest) && request.value("guest_session",std::string())==leaseToken(guest) && request.value("captain_session",std::string())==leaseToken(c)){request.erase("guest_session");request.erase("captain_session");out["incoming"].push_back(request);}}return out;}
+ 
+ public:
+  static bool starshipTerminal(SceneObject* o){return o && o->isTerminal() && o->getObjectTemplate()->getFullTemplateString()=="object/tangible/terminal/terminal_space.iff";}
+-static void recoverGround(CreatureObject* c){if(zone(c)!="space_tatooine")return;auto s=current(c);if(!s){auto saved=data(c,"aboard_ship");if(saved.is_string())s=ship(c,saved.get<std::string>());}if(s){Locker lock(s,c);if(s->getOwnerID()==c->getObjectID()){String fallback="tatooine";auto arrival=disconnectArrival(c);s->setSpaceLaunchZone(fallback);s->setSpaceLaunchLocation(arrival);store(c,s);if(zone(c)=="space_tatooine")eject(c,s);}else eject(c,s);}else eject(c,nullptr);}
++static void recoverGround(CreatureObject* c){if(!spaceZoneName(zone(c)))return;auto s=current(c);if(!s){auto saved=data(c,"aboard_ship");if(saved.is_string())s=ship(c,saved.get<std::string>());}if(s){Locker lock(s,c);if(s->getOwnerID()==c->getObjectID()){String fallback="tatooine";auto arrival=disconnectArrival(c);s->setSpaceLaunchZone(fallback);s->setSpaceLaunchLocation(arrival);store(c,s);if(spaceZoneName(zone(c)))eject(c,s);}else eject(c,s);}else eject(c,nullptr);}
+ 
+  static void expire(CreatureObject* c){removeFromStage(c);save(c,"boarding_request",Json::object());recoverGround(c);}
+  static void watchdog(ManagedWeakReference<CreatureObject*> weak,const std::string& token){auto current=weak.get();if(!current)return;uint64 owner=current->getObjectID();Core::getTaskManager()->scheduleTask([weak,token,owner]() mutable {auto c=weak.get();if(!c || !c->getPlayerObject()){std::lock_guard<std::mutex> lock(leaseMutex());auto it=leases().find(owner);if(it!=leases().end() && it->second.token==token)leases().erase(it);return;}bool expired=false;{std::lock_guard<std::mutex> lock(leaseMutex());auto it=leases().find(c->getObjectID());if(it==leases().end() || it->second.token!=token)return;expired=now()-it->second.touched>60;}Locker lock(c);if(expired || c->getPlayerObject()->isOffline()){try{expire(c);}catch(const std::exception&){watchdog(weak,token);return;}std::lock_guard<std::mutex> guard(leaseMutex());auto it=leases().find(c->getObjectID());if(it!=leases().end() && it->second.token==token)leases().erase(it);return;}try{stage(c);}catch(const std::exception&){}watchdog(weak,token);},"SwgxrJtlCrewLease",1000);}
+- static void attach(CreatureObject* c,const std::string& token){SwgxrJtlLifecycle::install(&disconnected);removeFromStage(c);save(c,"boarding_request",Json::object());if(zone(c)!="space_tatooine"){save(c,"parked_ship",Json::object());save(c,"aboard_ship",Json::object());}{std::lock_guard<std::mutex> lock(leaseMutex());leases()[c->getObjectID()]={token,now()};}watchdog(c,token);}
++ static void attach(CreatureObject* c,const std::string& token){SwgxrJtlLifecycle::install(&disconnected);removeFromStage(c);save(c,"boarding_request",Json::object());if(!spaceZoneName(zone(c))){save(c,"parked_ship",Json::object());save(c,"aboard_ship",Json::object());}{std::lock_guard<std::mutex> lock(leaseMutex());leases()[c->getObjectID()]={token,now()};}watchdog(c,token);}
+  static void touch(CreatureObject* c,const std::string& token){std::lock_guard<std::mutex> lock(leaseMutex());auto it=leases().find(c->getObjectID());if(it!=leases().end() && it->second.token==token)it->second.touched=now();}
+  static void detach(CreatureObject* c){expire(c);std::lock_guard<std::mutex> lock(leaseMutex());leases().erase(c->getObjectID());}
+  static void disconnected(CreatureObject* c){if(data(c,"aboard_ship").empty() && data(c,"launch_stage").empty() && data(c,"crew_pilot").empty())return;try{detach(c);}catch(const std::exception& e){c->error(String("JtL disconnect recovery: ")+e.what());}}
+  static bool enabled(){return ConfigManager::instance()->isJtlEnabled() && ConfigManager::instance()->getBool("Core3.JTL.SwgxrTesterYachts",false);}
+- static bool aboard(CreatureObject* c){auto root=c?c->getRootParent():nullptr;return root && root->isShipObject() && c->getZone() && c->getZone()->getZoneName()=="space_tatooine";}
++ static bool spaceZoneName(const std::string& name){static const std::set<std::string> zones={"space_corellia","space_dantooine","space_dathomir","space_endor","space_lok","space_naboo","space_tatooine","space_yavin4","space_light1","space_heavy1"};return zones.count(name)!=0;}
++ static bool aboard(CreatureObject* c){auto root=c?c->getRootParent():nullptr;return root && root->isShipObject() && c->getZone() && c->getZone()->isSpaceZone() && spaceZoneName(zone(c));}
+  static void provision(CreatureObject* c){
+   if(!enabled())return;auto account=c->getPlayerObject()->getAccount();if(!account)throw std::runtime_error("jtl_native_account_required");Locker accountLock(account,c);
+   if(account->getSwgxrYachtCharacter() && account->getSwgxrYachtCharacter()!=c->getObjectID())return;
+@@ -199,24 +241,29 @@
+   if(!ship || !yacht(ship))throw std::runtime_error("jtl_native_yacht_creation_failed");ship->setShipName("Luxury Yacht");persist(c,ship);account->setSwgxrYachtShip(ship->getObjectID());ObjectManager::instance()->updatePersistentObject(account);
+  }
+  static Json snapshot(CreatureObject* c){
+-  Json out={{"enabled",enabled()},{"scope","noncombat_navigation"},{"space_active",aboard(c)},{"ships",Json::array()},{"ship",Json::object()},{"launch_stage",Json::object()},{"boarding",Json::object()},{"nearby_ships",Json::array()}};if(!enabled())return out;
+-  out["launch_stage"]=stage(c);out["boarding"]=boardingState(c);auto pad=c->getDatapad();if(pad)for(int i=0;i<pad->getContainerObjectsSize();++i){auto d=pad->getContainerObject(i);if(!d || !d->isShipControlDevice())continue;auto controlled=static_cast<ShipControlDevice*>(d.get())->getControlledObject();if(!controlled || !controlled->isShipObject())continue;auto own=controlled->asShipObject();if(own->getOwnerID()!=c->getObjectID())continue;out["ships"].push_back({{"id",id(own)},{"device_id",id(d)},{"template",std::string(own->getObjectTemplate()->getFullTemplateString().toCharArray())},{"name",std::string(own->getDisplayedName().toCharArray())},{"owner_id",id(c)},{"launched",own->isShipLaunched()},{"supported",supported(own)},{"eligible",supported(own) && own->canBePilotedBy(c) && !own->isShipLaunched()},{"reason",!supported(own)?"Original ship assets are not enabled":!own->canBePilotedBy(c)?"Original pilot certification required":own->isShipLaunched()?"Ship already launched":""}});}
+-  auto s=current(c);if(!s){try{s=owned(c,Json::object());}catch(const std::exception&){return out;}}Locker lock(s,c);Motion offline;auto& motionState=s->isShipLaunched()?motion(s):offline;
+-  if(aboard(c)){SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(s->getPositionX(),s->getPositionZ(),s->getPositionY(),2048,&objects,true);std::vector<ShipObject*> nearby;for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o!=s && o->isShipObject() && supported(o->asShipObject()))nearby.push_back(o->asShipObject());}std::sort(nearby.begin(),nearby.end(),[&](ShipObject* a,ShipObject* b){return s->getPosition().squaredDistanceTo(a->getPosition())<s->getPosition().squaredDistanceTo(b->getPosition());});out["nearby_ships_truncated"]=nearby.size()>32;for(auto target:nearby){if(out["nearby_ships"].size()>=32)break;Locker targetLock(target,c);auto row=record(target);row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
+-
+-  auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->getCurrentSpeed();row["max_speed_mps"]=std::min(100.f,s->getActualMaxSpeed());row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
+-  row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
+-  for(int i=0;pob && i<pob->getTotalCellNumber();++i){auto cell=pob->getCell(i);if(!cell)continue;row["cells"].push_back({{"id",id(cell)},{"index",cell->getCellNumber()},{"name",std::string("cell_")+std::to_string(i)}});for(int n=0;n<cell->getContainerObjectsSize() && row["decorations"].size()<400;++n){auto item=cell->getContainerObject(n);if(!item || item->isCreatureObject() || s->containsChildObject(item))continue;auto itemRow=record(item);itemRow["cell_index"]=cell->getCellNumber();row["decorations"].push_back(itemRow);}}
++  Json out={{"enabled",enabled()},{"scope","original_sectors"},{"space_active",aboard(c)},{"ships",Json::array()},{"ship",Json::object()},{"launch_stage",Json::object()},{"boarding",Json::object()},{"nearby_ships",Json::array()}};if(!enabled())return out;
++  SwgxrSpaceJournal::snapshot(c,out);out["launch_stage"]=stage(c);out["boarding"]=boardingState(c);auto pad=c->getDatapad();if(pad)for(int i=0;i<pad->getContainerObjectsSize();++i){auto d=pad->getContainerObject(i);if(!d || !d->isShipControlDevice())continue;auto controlled=static_cast<ShipControlDevice*>(d.get())->getControlledObject();if(!controlled || !controlled->isShipObject())continue;auto own=controlled->asShipObject();if(own->getOwnerID()!=c->getObjectID())continue;out["ships"].push_back({{"id",id(own)},{"device_id",id(d)},{"template",std::string(own->getObjectTemplate()->getFullTemplateString().toCharArray())},{"name",std::string(own->getDisplayedName().toCharArray())},{"owner_id",id(c)},{"launched",own->isShipLaunched()},{"supported",supported(own)},{"eligible",supported(own) && own->canBePilotedBy(c) && !own->isShipLaunched()},{"reason",!supported(own)?"Original ship assets are not enabled":!own->canBePilotedBy(c)?"Original pilot certification required":own->isShipLaunched()?"Ship already launched":""}});}
++  auto s=current(c);if(!s){try{s=owned(c,Json::object());}catch(const std::exception&){return out;}}Locker lock(s,c);if(s->isHyperspacing())eraseMotion(s);Motion offline;auto& motionState=s->isShipLaunched()?motion(s):offline;
++  if(aboard(c)){SortedVector<ManagedReference<TreeEntry*>> objects(128,128);c->getZone()->getInRangeObjects(s->getPositionX(),s->getPositionZ(),s->getPositionY(),2048,&objects,true);std::vector<ManagedReference<ShipObject*>> nearby;for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i).get());if(o!=s && o->isShipObject() && (supported(o->asShipObject()) || o->isShipAiAgent()))nearby.push_back(o->asShipObject());}std::sort(nearby.begin(),nearby.end(),[&](ShipObject* a,ShipObject* b){return s->getPosition().squaredDistanceTo(a->getPosition())<s->getPosition().squaredDistanceTo(b->getPosition());});out["nearby_ships_truncated"]=nearby.size()>32;for(auto targetRef:nearby){if(out["nearby_ships"].size()>=32)break;auto target=targetRef.get();
++   // Snapshot holds the pilot and own ship. Never wait on an NPC combat lock:
++   // native AI can hold that target while waiting for the player's ship.
++   bool held=target->isLockedByCurrentThread();if(!held && !target->tryWLock()){out["nearby_ships_busy"]=true;continue;}
++   struct UnlockTarget {ShipObject* ship;~UnlockTarget(){if(ship)ship->unlock();}} unlockTarget{held?nullptr:target};
++   auto row=record(target);row["npc"]=target->isShipAiAgent();row["hostile"]=!yacht(s) && target->isAggressiveTo(s);row["speed_mps"]=target->getCurrentSpeed();row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
++
++  auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->getCurrentSpeed();row["max_speed_mps"]=s->getActualMaxSpeed();row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["velocity"]=motionState.state.velocity;row["angular_velocity"]=motionState.state.angular;row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
++  out["combat_events"]=SwgxrSpaceEvents::snapshot(s);row["capacitor"]={{"current",s->getCapacitorEnergy()},{"maximum",s->getCapacitorMaxEnergy()}};row["can_furnish"]=s->isPobShip() && s->asPobShip()->isOnAdminList(c);row["hyperspacing"]=s->isHyperspacing();row["hyperspace_delay"]=s->getHyperspaceDelay();row["hull"]={{"current",s->getChassisCurrentHealth()},{"maximum",s->getChassisMaxHealth()}};row["combat_excluded"]=yacht(s);row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
++  for(int i=0;pob && i<pob->getTotalCellNumber();++i){auto cell=pob->getCell(i);if(!cell)continue;row["cells"].push_back({{"id",id(cell)},{"index",cell->getCellNumber()},{"name",std::string("cell_")+std::to_string(i)}});for(int n=0;n<cell->getContainerObjectsSize() && row["decorations"].size()<400;++n){auto item=cell->getContainerObject(n);if(!item || item->isCreatureObject() || s->containsChildObject(item))continue;auto itemRow=record(item);itemRow["name"]=std::string(item->getDisplayedName().toCharArray());itemRow["cell_index"]=cell->getCellNumber();row["decorations"].push_back(itemRow);}}
+   auto chair=s->getPilotChair().get();auto pilot=s->getPilot();row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(chair)},{"cell_index",1},{"position",Json::array({-.76,.43,21.14})},{"occupied_by",id(pilot)}}});if(s->isPobShip())row["stations"].push_back({{"id","passenger"},{"object_id",id(passenger(s))},{"cell_index",1},{"position",Json::array({.75,.43,21.15})},{"occupied_by",passengerOccupant(s,c)}});if(!s->isPobShip())row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(pilot)},{"cell_index",0},{"position",Json::array({0,0,0})},{"occupied_by",id(pilot)}}});row["commands"]=Json::array();
+   for(auto cmd:{"shield_front","shield_rear","shield_balance","power_engines","power_balanced"})row["commands"].push_back({{"id",cmd},{"label",cmd},{"available",aboard(c) && pilot==c},{"reason",pilot==c?"":"Pilot station required"}});
+   for(auto cmd:{"droidcommand_shieldadjustfrontone","droidcommand_shieldadjustrearone","droidcommand_engineoverloadone","droidcommand_enginenormalize"}){bool available=aboard(c) && pilot==c && s->isComponentFunctional(Components::DROID_INTERFACE) && s->getShipDroidID()!=0 && s->hasDroidCommand(String(cmd).hashCode());row["commands"].push_back({{"id",cmd},{"label",cmd},{"available",available},{"reason",available?"":"Installed interface, assigned droid and program required"}});}
+-  row["interactions"]=Json::array();auto children=s->getChildObjects();for(int i=0;i<children->size();++i){auto object=children->get(i);auto name=object->getObjectTemplate()->getFullTemplateString();bool up=name=="object/tangible/terminal/terminal_elevator_up.iff",down=name=="object/tangible/terminal/terminal_elevator_down.iff";if(!up && !down)continue;auto parent=object->getParent().get();if(!parent || !parent->isCellObject())continue;row["interactions"].push_back({{"id",id(object)},{"command_id",up?"elevator_up":"elevator_down"},{"label",up?"Elevator up":"Elevator down"},{"cell_index",static_cast<CellObject*>(parent.get())->getCellNumber()},{"position",point(object)}});}
++  row["interactions"]=Json::array();auto children=s->getChildObjects();for(int i=0;i<children->size();++i){auto object=children->get(i);auto name=object->getObjectTemplate()->getFullTemplateString();bool up=name=="object/tangible/terminal/terminal_elevator_up.iff",down=name=="object/tangible/terminal/terminal_elevator_down.iff",house=name=="object/tangible/terminal/terminal_pob_ship.iff";if(!up && !down && !house)continue;auto parent=object->getParent().get();if(!parent || !parent->isCellObject())continue;row["interactions"].push_back({{"id",id(object)},{"kind",house?"house":"ship_control"},{"template",std::string(name.toCharArray())},{"quaternion",quat(object)},{"command_id",house?"pob_terminal":up?"elevator_up":"elevator_down"},{"label",house?"Ship housing terminal":up?"Elevator up":"Elevator down"},{"cell_index",static_cast<CellObject*>(parent.get())->getCellNumber()},{"position",point(object)}});}
+   auto returnPosition=s->getSpaceLaunchLocation();out["return_location"]={{"zone",std::string(s->getSpaceLaunchZone().toCharArray())},{"position",Json::array({returnPosition.getX(),returnPosition.getZ(),returnPosition.getY()})},{"building_id","0"},{"cell_index",0},{"heading_radians",0}};
+   out["ship"]=row;return out;
+  }
+  static Json finish(CreatureObject* c,const Json& request,Json receipts){auto key=request.at("request_id").get<std::string>();receipts.push_back({{"id",key},{"request",request}});while(receipts.size()>32)receipts.erase(receipts.begin());save(c,"receipts",receipts);c->updateToDatabaseAllObjects(false);return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"action",request.at("action")},{"request_id",key},{"jtl",snapshot(c)}};}
+  static Json run(CreatureObject* c,const Json& r){
+-  if(!enabled())throw std::runtime_error("jtl_disabled");auto action=r.at("action").get<std::string>();if(c->isDead() || c->isIncapacitated() || c->isInCombat())throw std::runtime_error("jtl_player_unavailable");if(action=="status"){provision(c);return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"jtl",snapshot(c)}};}
++  if(!enabled())throw std::runtime_error("jtl_disabled");auto action=r.at("action").get<std::string>();if(c->isDead() || c->isIncapacitated() || (c->isInCombat() && !aboard(c)))throw std::runtime_error("jtl_player_unavailable");if(action=="status"){provision(c);return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"jtl",snapshot(c)}};}
+   bool mutating=action!="control" && action!="walk";Json receipts=Json::array(),canonical=r;canonical.erase("handshake_receipt_only");auto key=r.value("request_id",std::string());if(mutating){if(key.size()<8 || key.size()>64 || key.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")!=std::string::npos)throw std::runtime_error("jtl_request_id_required");auto saved=c->getPlayerObject()->getScreenPlayData("swgxr_jtl","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());for(auto& receipt:receipts)if(receipt.at("id")==key){if(receipt.at("request")!=canonical)throw std::runtime_error("jtl_request_id_reused");return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"replayed",true},{"request_id",key},{"action",action},{"jtl",snapshot(c)}};}}
+   if(r.value("handshake_receipt_only",false))throw std::runtime_error("jtl_handshake_receipt_missing");
+   if(action=="crew_prepare" || action=="crew_cancel" || action=="crew_remove" || action=="crew_join"){crewAction(c,r);return finish(c,canonical,receipts);}
+@@ -227,22 +274,26 @@
+    auto launchStage=stage(c);if(launchStage.empty() || launchStage.at("pilot_id")!=id(c) || launchStage.at("id")!=r.at("launch_id") || launchStage.at("terminal_id")!=r.at("terminal_id") || launchStage.at("ship_id")!=id(s))throw std::runtime_error("jtl_launch_confirmation_required");auto d=device(c,s);
+    if(s->isShipLaunched()){if(!aboard(c))throw std::runtime_error("jtl_ship_already_launched");}
+    else{
+-    if(!SwgxrPlanets::supportedName(zone(c)) || c->isRidingMount())throw std::runtime_error("jtl_launch_ground_required");auto terminal=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(!starshipTerminal(terminal) || terminal->getZone()!=c->getZone() || terminal->getParentID()!=c->getParentID() || !c->isInRange(terminal,8) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("jtl_starship_terminal_out_of_reach");auto space=c->getZoneServer()->getZone("space_tatooine");if(!space)throw std::runtime_error("jtl_space_zone_not_loaded");d->setStoredLocationData(c);auto returnZone=d->getStoredZoneName();auto returnPosition=d->getStoredPosition(false);if(!SwgxrPlanets::supported(returnZone))throw std::runtime_error("jtl_native_landing_point_required");
++    if(!SwgxrPlanets::supportedName(zone(c)) || c->isRidingMount())throw std::runtime_error("jtl_launch_ground_required");auto terminal=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(!starshipTerminal(terminal) || terminal->getZone()!=c->getZone() || terminal->getParentID()!=c->getParentID() || !c->isInRange(terminal,8) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("jtl_starship_terminal_out_of_reach");auto originalGround=c->getZone();if(!originalGround || !originalGround->getPlanetManager())throw std::runtime_error("jtl_original_launch_point_unavailable");auto spaceName=originalGround->getPlanetManager()->getJtlZoneName();if(!spaceZoneName(spaceName.toCharArray()))throw std::runtime_error("jtl_original_launch_zone_unavailable");auto space=c->getZoneServer()->getZone(spaceName);if(!space)throw std::runtime_error("jtl_space_zone_not_loaded");d->setStoredLocationData(c);auto returnZone=d->getStoredZoneName();auto returnPosition=d->getStoredPosition(false);if(!SwgxrPlanets::supported(returnZone))throw std::runtime_error("jtl_native_landing_point_required");
+     s->setSpaceLaunchZone(returnZone);s->setSpaceLaunchLocation(returnPosition);c->getPlayerObject()->setSpaceLaunchZone(returnZone);c->getPlayerObject()->setSpaceLaunchLocation(returnPosition);
+-    {Locker deviceLock(d,c);auto originalGround=c->getZoneServer()->getZone("tatooine");if(!originalGround || !originalGround->getPlanetManager())throw std::runtime_error("jtl_original_launch_point_unavailable");auto launch=originalGround->getPlanetManager()->getJtlLaunchLocations();launch.setX(launch.getX()+500);if(d->launchShip(c,"space_tatooine",launch)!=s)throw std::runtime_error("jtl_native_launch_failed");}
+-    s->setOptionBit(OptionBitmask::INVULNERABLE,false);s->setCurrentSpeed(0);eraseMotion(s);motion(s);try{InsertPilotIntoShipTask insert(c,s);insert.run();if(current(c)!=s)throw std::runtime_error("jtl_native_board_failed");c->getPlayerObject()->notifySceneReady();bind(c,s);for(auto& member:launchStage.at("members")){if(member.at("id")==id(c))continue;auto guest=player(c,member.at("id").get<std::string>());if(!guest)throw std::runtime_error("jtl_crew_member_missing");Locker guestLock(guest,c);if(!atTerminal(guest,oid(launchStage,"terminal_id")))throw std::runtime_error("jtl_crew_member_left");insertGuest(guest,s);}}catch(...){store(c,s);cancelStage(c);throw;}cancelStage(c);persist(c,s);
++    {Locker deviceLock(d,c);auto launch=originalGround->getPlanetManager()->getJtlLaunchLocations();launch.setX(launch.getX()+500);if(d->launchShip(c,spaceName,launch)!=s)throw std::runtime_error("jtl_native_launch_failed");}
++    if(yacht(s))s->setOptionBit(OptionBitmask::INVULNERABLE,false);s->setCurrentSpeed(0);eraseMotion(s);motion(s);try{InsertPilotIntoShipTask insert(c,s);insert.run();if(current(c)!=s)throw std::runtime_error("jtl_native_board_failed");c->getPlayerObject()->notifySceneReady();bind(c,s);for(auto& member:launchStage.at("members")){if(member.at("id")==id(c))continue;auto guest=player(c,member.at("id").get<std::string>());if(!guest)throw std::runtime_error("jtl_crew_member_missing");Locker guestLock(guest,c);if(!atTerminal(guest,oid(launchStage,"terminal_id")))throw std::runtime_error("jtl_crew_member_left");insertGuest(guest,s);}}catch(...){store(c,s);cancelStage(c);throw;}cancelStage(c);persist(c,s);
+    }
+   }else if(action=="land"){
+    if(s->isShipLaunched()){requirePilot(c,s);store(c,s);}
+   }else if(action=="station"){
+    if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(passengerSeated(c))throw std::runtime_error("jtl_leave_station_first");auto cell=interior(c,s);auto station=r.at("station_id").get<std::string>();if(station=="pilot" && s->getOwnerID()!=c->getObjectID())throw std::runtime_error("jtl_captain_required");if(station=="passenger" && passengerOccupant(s,c)!="0")throw std::runtime_error("jtl_station_occupied");if((station!="pilot" && station!="passenger") || cell->getCellNumber()!=1)throw std::runtime_error("jtl_invalid_station");SceneObject* chair=nullptr;if(station=="pilot")chair=s->getPilotChair().get();else chair=passenger(s);if(!chair || !c->isInRange(chair,3) || (station=="pilot" && s->getPilot()!=nullptr && s->getPilot()!=c))throw std::runtime_error("jtl_station_unavailable");if(station=="pilot"){InsertPilotIntoShipTask insert(c,s);insert.run();}else{c->initializePosition(chair->getPositionX(),chair->getPositionZ(),chair->getPositionY());c->setPosture(CreaturePosture::SITTING);c->setState(CreatureState::SITTINGONCHAIR);c->updateZoneWithParent(cell,true);}c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station",String(station.c_str()));c->getPlayerObject()->notifySceneReady();
+   }else if(action=="leave"){
+-   if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(!passengerSeated(c))requirePilot(c,s);auto cell=s->asPobShip()->getCell(0);if(!cell)throw std::runtime_error("jtl_bridge_unavailable");s->setCurrentSpeed(0);motion(s).state.speed=0;c->clearSpaceStates();c->clearState(CreatureState::SITTINGONCHAIR);c->setPosture(CreaturePosture::UPRIGHT);c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station","");c->switchZone("space_tatooine",0,.4,20,cell->getObjectID(),false,-1);c->getPlayerObject()->notifySceneReady();motion(s).walkers[c->getObjectID()]={now(),1.5,0};
++   if(!s->isPobShip())throw std::runtime_error("jtl_no_walkable_interior");if(!passengerSeated(c))requirePilot(c,s);auto cell=s->asPobShip()->getCell(0);if(!cell)throw std::runtime_error("jtl_bridge_unavailable");s->setCurrentSpeed(0);swgxr::jtl::stop(motion(s).state);c->clearSpaceStates();c->clearState(CreatureState::SITTINGONCHAIR);c->setPosture(CreaturePosture::UPRIGHT);c->getPlayerObject()->setScreenPlayData("swgxr_jtl","station","");c->switchZone(s->getZone()->getZoneName(),0,.4,20,cell->getObjectID(),false,-1);c->getPlayerObject()->notifySceneReady();motion(s).walkers[c->getObjectID()]={now(),1.5,0};
++  }else if(action=="hyperspace" || action=="abort_hyperspace"){
++   requirePilot(c,s);std::string destination=r.value("destination",std::string());if(action=="hyperspace"){auto manager=ShipManager::instance();String pointName(destination.c_str());if(!manager->hyperspaceLocationExists(pointName) || !spaceZoneName(manager->getHyperspaceZone(pointName).toCharArray()))throw std::runtime_error("jtl_unknown_hyperspace_destination");}auto q=c->getZoneServer()->getObjectController()->getQueueCommand(action=="hyperspace"?"hyperspace":"aborthyperspace");if(!q || q->doQueueCommand(c,0,UnicodeString(String(destination.c_str())))!=QueueCommand::SUCCESS)throw std::runtime_error("jtl_native_hyperspace_rejected");s->setCurrentSpeed(0);eraseMotion(s);
+   }else if(action=="control"){
+-   requirePilot(c,s);swgxr::jtl::Input input;input.throttle=r.at("throttle").get<double>();input.pitch=r.at("pitch").get<double>();input.yaw=r.at("yaw").get<double>();input.roll=r.at("roll").get<double>();input.sequence=r.at("sequence").get<uint64>();auto& m=motion(s);swgxr::jtl::validate(input);if(input.sequence<=m.state.sequence)throw std::runtime_error("jtl_stale_controls");double stamp=now();if(m.input.sequence)applyMotion(s,m,stamp);else m.state.stamp=stamp;m.input=input;m.received=stamp;m.state.sequence=input.sequence;if(!m.ticking){m.ticking=true;flightTick(s,m.generation);}
++   if(s->isHyperspacing())throw std::runtime_error("jtl_hyperspace_in_progress");
++   requirePilot(c,s);swgxr::jtl::Input input;input.throttle=r.at("throttle").get<double>();input.pitch=r.at("pitch").get<double>();input.yaw=r.at("yaw").get<double>();input.roll=r.at("roll").get<double>();input.sequence=r.at("sequence").get<uint64>();auto& m=motion(s);swgxr::jtl::validate(input);if(input.sequence<=m.state.sequence)throw std::runtime_error("jtl_stale_controls");double stamp=now();if(m.input.sequence)applyMotion(s,m,stamp);else m.state.stamp=stamp;m.input=input;m.primaryFire=r.value("primary_fire",false);m.received=stamp;m.state.sequence=input.sequence;if(!m.ticking){m.ticking=true;flightTick(s,m.generation);}
+   }else if(action=="walk")walk(c,s,r);
+   else if(action=="decorate" || action=="recover")furnish(c,s,r,action=="recover");
+   else if(action=="command")command(c,s,r);
++  else if(action=="terminal" || action=="terminal_recover")terminalAction(c,s,r);
+   else throw std::runtime_error("jtl_unsupported_action");
+   if(mutating){persist(c,s);return finish(c,canonical,receipts);}
+   return {{"success",true},{"source_kind","core3_jtl"},{"character_id",id(c)},{"action",action},{"request_id",key},{"jtl",snapshot(c)}};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -137,7 +137,7 @@
+  }
+  static Json snapshot(CreatureObject* c,Session& session){
+   if(!c->getZone())throw std::runtime_error("native_player_zone_unavailable");
+-  if(SwgxrJtl::aboard(c)){auto space=SwgxrJtl::snapshot(c);auto ship=space["ship"];return {{"ready",session.ready},{"full",true},{"actors",Json::array()},{"transport",Json::object()},{"weapon",nullptr},{"jtl",space},{"player",{{"id",id(c)},{"name",std::string(c->getFirstName().toCharArray())},{"space_active",true},{"jtl",space},{"zone","space_tatooine"},{"position",ship["player_position"]},{"cell_index",ship["cell_index"]},{"building_id",ship["cell_index"].get<int>()>0?ship["id"]:Json("0")},{"cell_id",ship["cell_id"]},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated() && !c->isFeigningDeath()},{"posture",int(c->getPosture())},{"feigning_death",c->isFeigningDeath()},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true},{"voice",{{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())},{"scope","sector"},{"ship_id",ship["id"]}}}}},{"world",{{"zone","space_tatooine"},{"source_kind","core3_jtl"},{"full",true},{"players",Json::array()},{"actors",Json::array()}}}};}
++  if(SwgxrJtl::aboard(c)){auto space=SwgxrJtl::snapshot(c);auto ship=space["ship"];return {{"ready",session.ready},{"full",true},{"actors",Json::array()},{"transport",Json::object()},{"weapon",nullptr},{"jtl",space},{"player",{{"id",id(c)},{"name",std::string(c->getFirstName().toCharArray())},{"space_active",true},{"jtl",space},{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"position",ship["player_position"]},{"cell_index",ship["cell_index"]},{"building_id",ship["cell_index"].get<int>()>0?ship["id"]:Json("0")},{"cell_id",ship["cell_id"]},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated() && !c->isFeigningDeath()},{"posture",int(c->getPosture())},{"feigning_death",c->isFeigningDeath()},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true},{"voice",{{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())},{"scope","sector"},{"ship_id",ship["id"]}}}}},{"world",{{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"source_kind","core3_jtl"},{"full",true},{"players",Json::array()},{"actors",Json::array()}}}};}
+   Json actors=Json::array();SortedVector<TreeEntry*> objects(512,512);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);bool truncated=false;
+   for(int i=0;i<objects.size();++i){auto o=static_cast<SceneObject*>(objects.get(i));if(o==c || (!o->isAiAgent() && !o->isLairObject()) || o->getParent().get()!=nullptr)continue;if(actors.size()>=96){truncated=true;break;}Locker lock(o,c);actors.push_back(actor(c,o->asTangibleObject(),session));}
+   SwgxrPistoleer::refresh(c);SwgxrCarbineer::refresh(c);SwgxrRifleman::refresh(c);SwgxrCommando::refresh(c);SwgxrBountyHunter::refresh(c);if(!session.bountyArm.ready(id(c->getWeapon()),now()) || !SwgxrBountyHunter::learned(c,"underhand_shot") || !SwgxrBountyHunter::conditions(c,"underhand_shot") || !session.transport.empty())session.bountyArm.clear();
+@@ -206,7 +206,7 @@
+    if(requestedVerb=="update"){if(request.value("ready",false)){c->getPlayerObject()->notifySceneReady();s.ready=true;}return {{"success",true},{"movement_accepted",false},{"space_active",true}};}
+    if(requestedVerb=="inventory")return {{"inventory",SwgxrInventory::snapshot(c)}};
+    if(requestedVerb=="session")return SwgxrServices::sessionState(c,request.at("session"));
+-   if(requestedVerb=="replication")return {{"object_ids",Json::array()},{"location",{{"zone","space_tatooine"},{"space_active",true}}}};
++   if(requestedVerb=="replication")return {{"object_ids",Json::array()},{"location",{{"zone",std::string(c->getZone()->getZoneName().toCharArray())},{"space_active",true}}}};
+    throw std::runtime_error("jtl_ground_action_unavailable");
+   }
+   SwgxrMovement::RequestScope movementRequest(c,request);
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPilotTrainers.h
+@@ -0,0 +1,56 @@
++#pragma once
++#include "server/zone/objects/creature/conversation/LuaConversationObserver.h"
++#include "server/zone/objects/player/sessions/ConversationSession.h"
++#include <set>
++// Existing pilot screenplays own enlistment, skill gates, missions and rewards.
++// This bridge presents their actual conversation screens; it creates no quests.
++class SwgxrPilotTrainers {
++ using Json=JSONSerializationType;
++ static std::string text(const String& s){return s.toCharArray();}
++ static std::string id(SceneObject* s){return std::to_string(s->getObjectID());}
++ static ConversationTemplate* conversation(SceneObject* npc){
++  if(!npc || !npc->isAiAgent())return nullptr;
++  auto mobile=npc->asAiAgent()->getCreatureTemplate();
++  return mobile?CreatureTemplateManager::instance()->getConversationTemplate(mobile->getConversationTemplate()):nullptr;
++ }
++public:
++ static bool supports(SceneObject* npc){
++  auto t=conversation(npc);if(!t)return false;
++  static const std::set<std::string> handlers={"fernYarrowConvoHandler","guilloParootchieConvoHandler","ioTsomcrenConvoHandler","j1p0ConvoHandler","kessYarrowConvoHandler","kultonWoodleConvoHandler","moochDavoneyConvoHandler","ralMundiConvoHandler","raneYarrowConvoHandler","tarthJaxxConvoHandler","vincieKalhoonConvoHandler","imperialBrokerConvoHandler","ramnaConvoHandler","rheaConvoHandler","rikkhConvoHandler","turoldineConvoHandler","gilBurtinConvoHandler","dingeConvoHandler","duliosConvoHandler","kaydineConvoHandler","aqzowConvoHandler","kreezoConvoHandler","viopaConvoHandler","vrakConvoHandler","jPaiBrekConvoHandler"};
++  return handlers.count(text(t->getLuaClassHandler()))!=0;
++ }
++ static void describe(CreatureObject* c,SceneObject* npc,Json& out){
++  auto stored=c->getPlayerObject()->getScreenPlayData("swgxr_pilot","view");
++  Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
++  if(!stored.isEmpty() && session && session->getNPC().get()==npc){
++   auto view=Json::parse(stored.toCharArray());if(view.value("npc_id",std::string())==id(npc)){out.update(view);return;}
++  }
++  out["dialogue"]="Speak to this pilot trainer about enlistment, training and missions.";
++  out["options"]=Json::array({{{"name","Speak to pilot trainer"},{"begin",true}}});
++ }
++ static Json run(CreatureObject* c,SceneObject* npc,const Json& request){
++  if(!supports(npc) || !c->isInRange(npc,5) || c->getParentID()!=npc->getParentID() || !CollisionManager::checkLineOfSight(c,npc))throw std::runtime_error("pilot_trainer_out_of_reach");
++  auto ghost=c->getPlayerObject();auto t=conversation(npc);
++  Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
++  bool begin=request.at("action")=="pilot_begin";int selected=-1;
++  if(begin){if(session)session->cancelSession();session=new ConversationSession(npc);c->addActiveSession(SessionFacadeType::CONVERSATION,session);ghost->setConversatingObject(npc);}
++  else{
++   auto saved=ghost->getScreenPlayData("swgxr_pilot","view");auto view=saved.isEmpty()?Json::object():Json::parse(saved.toCharArray());
++   if(!session || session->getNPC().get()!=npc || view.value("npc_id",std::string())!=id(npc) || view.value("screen_token",std::string())!=request.value("screen_token",std::string()))throw std::runtime_error("pilot_conversation_changed");
++   auto screen=session->getLastConversationScreen();selected=request.at("option").get<int>();
++   if(!screen || selected<0 || selected>=screen->getOptionCount())throw std::runtime_error("pilot_conversation_option_unavailable");
++  }
++  Reference<LuaConversationObserver*> observer=new LuaConversationObserver(npc->asAiAgent()->getCreatureTemplate()->getConversationTemplate());
++  Reference<ConversationScreen*> screen=observer->getNextConversationScreen(c,selected,npc);
++  if(screen)screen=observer->runScreenHandlers(c,npc,selected,screen);
++  Json view={{"npc_id",id(npc)},{"screen_token",request.at("request_id")},{"options",Json::array()},{"dialogue","Conversation finished."}};
++  if(screen){
++   view["dialogue"]=text(screen->getDialogText()->getFullPath());view["screen_id"]=text(screen->getScreenID());
++   for(int i=0;i<screen->getOptionCount();++i)view["options"].push_back({{"name",text(screen->getOptionText(i))},{"option",i}});
++   screen->sendTo(c,npc);
++  }else{if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);}
++  if(view["options"].empty())view["options"].push_back({{"name","Speak again"},{"begin",true}});
++  ghost->setScreenPlayData("swgxr_pilot","view",String(view.dump().c_str()));c->updateToDatabaseAllObjects(false);
++  return view;
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -30,13 +30,15 @@
+ #include "server/zone/objects/player/sui/callbacks/TravelCouponUseSuiCallback.h"
+ // Thin authenticated presentation bridge. Objects, prices, mission objectives,
+ // ownership and shuttle scheduling remain the original Core3 implementations.
++#include "SwgxrPilotTrainers.h"
++#include "SwgxrShipServices.h"
+ class SwgxrServices {
+  using Json=JSONSerializationType;
+  static std::string str(const String& s){return s.toCharArray();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
+  static uint64 oid(const Json& r,const char* k){auto v=r.at(k).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_object_id");return std::stoull(v);}
+  static Json pos(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+- static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrJtl::starshipTerminal(o)?"starship":SwgxrUnderworld::broker(o)?"underworld":SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":SwgxrGcw::recruiter(o)?"recruiter":!SwgxrTrainers::type(o).empty()?"trainer":"";}
++ static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrShipServices::dealer(o)?"chassis_dealer":SwgxrPilotTrainers::supports(o)?"pilot_trainer":SwgxrJtl::starshipTerminal(o)?"starship":SwgxrUnderworld::broker(o)?"underworld":SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":SwgxrGcw::recruiter(o)?"recruiter":!SwgxrTrainers::type(o).empty()?"trainer":"";}
+  static Json terminal(SceneObject* o,CreatureObject* c){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";SwgxrSlicing::describeTerminal(c,o,out);}return out;}
+  static ManagedReference<SceneObject*> nearby(CreatureObject* c,const Json& r,const std::string& expected=""){
+   auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(t==nullptr || kind(t).empty() || (!expected.empty() && kind(t)!=expected) || t->getZone()!=c->getZone() || c->getParentID()!=t->getParentID() || !c->isInRange(t,kind(t)=="mission"?6:kind(t)=="crafting"?7:8))throw std::runtime_error("terminal_type_cell_or_distance");if(kind(t)=="trainer")SwgxrTrainers::validate(c,t);return t;
+@@ -55,7 +57,7 @@
+  static void move(CreatureObject* c,const Json& r){SwgxrMovement::move(c,r);}
+ 
+  static Json sessionState(CreatureObject* c,const Json& r){
+-  if(c->getZone() && c->getZone()->getZoneName()=="space_tatooine"){auto request=r;SwgxrJtl::recoverGround(c);auto where=location(c);for(auto field:{"zone","planet","position","building_id","cell_id","cell_index","heading_radians"})request.erase(field);for(auto field:{"position","building_id","cell_index","heading_radians"})request[field]=where[field];request["receipt_request"]=r;return sessionState(c,request);}
++  if(c->getZone() && SwgxrJtl::spaceZoneName(c->getZone()->getZoneName().toCharArray())){auto request=r;SwgxrJtl::recoverGround(c);auto where=location(c);for(auto field:{"zone","planet","position","building_id","cell_id","cell_index","heading_radians"})request.erase(field);for(auto field:{"position","building_id","cell_index","heading_radians"})request[field]=where[field];request["receipt_request"]=r;return sessionState(c,request);}
+   SwgxrPlanets::require(c);  auto action=r.value("action",std::string("status"));if(action!="status" && action!="logout")throw std::runtime_error("invalid_session_action");Json receipts=Json::array(),original=r.value("receipt_request",r);auto ghost=c->getPlayerObject();
+   if(action=="logout"){
+    auto saved=ghost->getScreenPlayData("swgxr_session","logout_receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());auto key=original.value("request_id",std::string());if(key.size()<8 || key.size()>64)throw std::runtime_error("stable_logout_request_id_required");
+@@ -84,7 +86,7 @@
+   auto cell=c->getParent().get();if(cell!=nullptr && cell->isCellObject())for(int i=0;i<cell->getContainerObjectsSize();++i)objects.put(cell->getContainerObject(i));
+   for(int i=0;i<objects.size() && out["terminals"].size()<128;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!kind(o).empty()){auto entry=terminal(o,c);if(kind(o)=="trainer"){entry["trainer_type"]=SwgxrTrainers::type(o);entry["profession"]=SwgxrTrainers::type(o).substr(8);}if(kind(o)=="recruiter"){entry["can_salute"]=SwgxrGcw::canToggle(c,o) && c->isInRange(o,3) && c->getParentID()==o->getParentID() && CollisionManager::checkLineOfSight(o,c);entry["faction"]=SwgxrGcw::faction(o->asCreatureObject());out["gcw"]["recruiters"].push_back(entry);}out["terminals"].push_back(entry);}}
+   auto travel=Json::parse(c->getZone()->getPlanetManager()->swgxrServicesTravel(c).toCharArray());out["tickets"]=tickets(c,travel);out["shuttle"]=travel.value("shuttle",Json::object());
+-  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t,c);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="underworld")SwgxrUnderworld::describe(c,t,view);else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="recruiter"){SwgxrGcw::validate(c,t);SwgxrGcw::describe(c,t,view);}else if(k=="starship"){SwgxrJtl::provision(c);auto state=SwgxrJtl::snapshot(c);view["ships"]=state["ships"];view["jtl"]=state;}else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
++  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t,c);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);}else if(k=="chassis_dealer")SwgxrShipServices::describeDealer(c,view);else if(k=="pilot_trainer")SwgxrPilotTrainers::describe(c,t,view);else if(k=="underworld")SwgxrUnderworld::describe(c,t,view);else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="recruiter"){SwgxrGcw::validate(c,t);SwgxrGcw::describe(c,t,view);}else if(k=="starship"){SwgxrJtl::provision(c);auto state=SwgxrJtl::snapshot(c);view["ships"]=state["ships"];view["jtl"]=state;if(r.contains("ship_id") && r.value("action",std::string()).rfind("ship_",0)==0)SwgxrShipServices::describeComponents(c,r,view);}else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
+    else if(k=="crafting"){auto station=static_cast<CraftingStation*>(t.get());view["station_type"]=station->getStationType();view["complexity"]=station->getComplexityLevel();view["tools"]=Json::array();auto inv=c->getInventory();if(inv!=nullptr)for(int i=0;i<inv->getContainerObjectsSize();++i){auto o=inv->getContainerObject(i);if(o->isCraftingTool()){auto tool=static_cast<CraftingTool*>(o.get());auto compatible=c->getZoneServer()->getPlayerManager()->getNearbyCraftingStation(c,tool->getToolType());if(compatible==t)view["tools"].push_back(Json{{"id",id(tool)},{"name",str(tool->getDisplayedName())},{"template",str(tool->getObjectTemplate()->getFullTemplateString())},{"client_crc",tool->getClientObjectCRC()}});}}}
+    out["terminal"]=view;
+   }return out;
+@@ -94,10 +96,12 @@
+   if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="slicing_status" && action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+   Json receiptRequest=r;if(action.rfind("bounty_",0)==0)for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());if(action.rfind("ship_",0)==0 || action.rfind("pilot_",0)==0){try{out=snapshot(c,r);}catch(const std::exception&){}}out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && action!="slicing_status" && action!="slicing_cancel" && (c->isDead() || c->isIncapacitated() || c->hasBuff(STRING_HASHCODE("private_feign_buff")) || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+   if(action.rfind("slicing_",0)==0){auto changed=SwgxrSlicing::run(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
+   else if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
++  else if(action=="ship_manage" || action=="ship_component_install" || action=="ship_component_remove" || action=="ship_chassis_redeem" || action=="ship_register"){SwgxrShipServices::run(c,nearby(c,r),r);}
++  else if(action=="pilot_begin" || action=="pilot_choose"){auto view=SwgxrPilotTrainers::run(c,nearby(c,r,"pilot_trainer"),r);result["conversation"]=view;}
+   else if(action=="underworld_accept"){auto changed=SwgxrUnderworld::accept(c,nearby(c,r,"underworld"));for(auto& field:changed.items())result[field.key()]=field.value();}
+   else if(action=="delivery_open"){SwgxrDelivery::open(c,r);}
+   else if(action=="delivery_pickup" || action=="delivery_complete"){auto delivery=SwgxrDelivery::mutate(c,r);for(auto it=delivery.begin();it!=delivery.end();++it)result[it.key()]=it.value();}
+@@ -118,7 +122,7 @@
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || (!SwgxrPlanets::supported(ticket->getArrivalPlanet()) || c->getZoneServer()->getZone(ticket->getArrivalPlanet())==nullptr))throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+   if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrShipServices.h
+@@ -0,0 +1,68 @@
++#pragma once
++#include "InstallShipComponentCommand.h"
++#include "server/zone/objects/ship/components/ShipChassisComponent.h"
++#include "server/zone/objects/tangible/deed/ship/ShipDeed.h"
++// Native hull purchase/registration and component commands, exposed at originals.
++class SwgxrShipServices {
++ using Json=JSONSerializationType;
++ static std::string text(const String& s){return s.toCharArray();}
++ static std::string id(SceneObject* o){return std::to_string(o->getObjectID());}
++ static uint64 oid(const Json& r,const char* key){auto v=r.at(key).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("ship_service_invalid_object");return std::stoull(v);}
++ static ShipObject* ship(CreatureObject* c,const Json& request){
++  auto o=c->getZoneServer()->getObject(oid(request,"ship_id"));auto s=o?o->asShipObject():nullptr;
++  auto d=s?c->getZoneServer()->getObject(s->getControlDeviceID()):nullptr;
++  if(!s || s->getOwnerID()!=c->getObjectID() || !d || !d->isShipControlDevice() || !d->isASubChildOf(c) || s->isShipLaunched())throw std::runtime_error("owned_stored_ship_required");return s;
++ }
++public:
++ static bool dealer(SceneObject* npc){
++  if(!npc || !npc->isAiAgent())return false;auto mobile=npc->asAiAgent()->getCreatureTemplate();if(!mobile)return false;
++  auto t=CreatureTemplateManager::instance()->getConversationTemplate(mobile->getConversationTemplate());return t && t->getLuaClassHandler()=="chassisDealerConvoHandler";
++ }
++ static void describeDealer(CreatureObject* c,Json& view){
++  view["options"]=Json::array();auto inv=c->getInventory();if(!inv)return;
++  for(int i=0;i<inv->getContainerObjectsSize();++i){auto o=inv->getContainerObject(i);auto chassis=dynamic_cast<ShipChassisComponent*>(o.get());
++   if(chassis){auto cert=chassis->getCertificationRequired();int cost=chassis->getDealerFee() * (!cert.isEmpty() && !c->getPlayerObject()->hasAbility(cert)?ShipManager::NO_CERT_COST_MULTI:1);view["options"].push_back({{"name","Redeem "+text(o->getDisplayedName())+" · "+std::to_string(cost)+" credits"},{"item_id",id(o)},{"price",cost},{"operation","ship_chassis_redeem"},{"item_name",text(o->getDisplayedName())}});}
++   else if(o->isShipDeedObject())view["options"].push_back({{"name","Register "+text(o->getDisplayedName())},{"item_id",id(o)},{"operation","ship_register"},{"item_name",text(o->getDisplayedName())}});
++  }
++ }
++ static void describeComponents(CreatureObject* c,const Json& request,Json& view){
++  auto s=ship(c,request);Locker shipLock(s,c);auto install=dynamic_cast<const InstallShipComponentCommand*>(c->getZoneServer()->getObjectController()->getQueueCommand("installshipcomponent"));if(!install)throw std::runtime_error("native_ship_component_command_missing");
++  view["kind"]="ship_outfit";view["ship_id"]=id(s);view["name"]=text(s->getDisplayedName());view["options"]=Json::array();view["mass"]=s->getChassisMass();view["maximum_mass"]=s->getChassisMaxMass();auto inventory=c->getInventory();
++  for(int slot=0;slot<=Components::FIGHTERSLOTMAX;++slot){
++   auto installed=s->getComponentObject(slot);std::string slotName=text(Components::shipComponentSlotToString(slot));
++   if(installed){view["options"].push_back({{"name","Remove "+slotName+": "+text(installed->getDisplayedName())},{"operation","ship_component_remove"},{"slot",slot},{"slot_name",slotName},{"item_name",text(installed->getDisplayedName())},{"component_id",id(installed)}});continue;}
++   for(int i=0;inventory && i<inventory->getContainerObjectsSize();++i){auto o=inventory->getContainerObject(i);auto component=dynamic_cast<ShipComponent*>(o.get());
++    if(component && install->isSlotCompatibleWithComponent(s,component,slot))view["options"].push_back({{"name","Install "+slotName+": "+text(component->getDisplayedName())},{"operation","ship_component_install"},{"slot",slot},{"slot_name",slotName},{"item_name",text(component->getDisplayedName())},{"component_id",id(component)},{"mass",component->getMass()}});
++   }
++  }
++ }
++ static void run(CreatureObject* c,SceneObject* terminal,const Json& request){
++  auto action=request.at("action").get<std::string>();
++  if(action=="ship_chassis_redeem" || action=="ship_register"){
++   if(!dealer(terminal) || !c->isInRange(terminal,5) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("native_chassis_dealer_required");
++   auto item=c->getZoneServer()->getObject(oid(request,"item_id"));if(!item || !SwgxrEquipment::inInventory(item,c))throw std::runtime_error("owned_ship_blueprint_or_deed_required");Locker itemLock(item,c);
++   if(action=="ship_chassis_redeem"){
++    auto chassis=dynamic_cast<ShipChassisComponent*>(item.get());if(!chassis)throw std::runtime_error("native_crafted_chassis_required");
++    auto cert=chassis->getCertificationRequired();int price=chassis->getDealerFee() * (!cert.isEmpty() && !c->getPlayerObject()->hasAbility(cert)?ShipManager::NO_CERT_COST_MULTI:1);
++    if(request.at("price").get<int>()!=price)throw std::runtime_error("ship_dealer_price_changed");
++    if(!ShipManager::instance()->createDeedFromChassis(c,chassis,terminal->asCreatureObject()))throw std::runtime_error("native_chassis_redemption_rejected");
++   }else{
++    auto deed=dynamic_cast<ShipDeed*>(item.get());if(!deed || deed->getGeneratedObjectTemplate().hashCode()==388127163 || deed->handleObjectMenuSelect(c,20)!=0 || item->isASubChildOf(c))throw std::runtime_error("native_ship_registration_rejected");
++   }
++  }else{
++   if(!SwgxrJtl::starshipTerminal(terminal) || !CollisionManager::checkLineOfSight(c,terminal))throw std::runtime_error("native_starship_terminal_required");
++   auto s=ship(c,request);Locker shipLock(s,c);if(action=="ship_manage")return;
++   int slot=request.at("slot").get<int>();if(slot<0 || slot>Components::FIGHTERSLOTMAX)throw std::runtime_error("native_ship_slot_invalid");
++   auto component=c->getZoneServer()->getObject(oid(request,"component_id"));if(!component)throw std::runtime_error("native_ship_component_missing");
++   bool installing=action=="ship_component_install";auto old=s->getComponentObject(slot);
++   if(installing && (old || !SwgxrEquipment::inInventory(component,c)))throw std::runtime_error("empty_slot_and_owned_component_required");
++   if(!installing && old!=component)throw std::runtime_error("installed_component_changed");
++   auto inv=c->getInventory();if(!installing && (!inv || inv->getCountableObjectsRecursive()>=inv->getContainerVolumeLimit()))throw std::runtime_error("inventory_space_required");
++   auto q=c->getZoneServer()->getObjectController()->getQueueCommand(installing?"installshipcomponent":"uninstallshipcomponent");
++   std::string args=id(s)+" "+std::to_string(slot)+(installing?" "+id(component):"");
++   if(!q || q->doQueueCommand(c,0,UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS || (installing?s->getComponentObject(slot)!=component:s->getComponentObject(slot)!=nullptr || !component->isASubChildOf(c)))throw std::runtime_error("native_ship_component_change_rejected");
++   s->updateToDatabaseAllObjects(false);component->updateToDatabaseAllObjects(false);
++  }
++  c->updateToDatabaseAllObjects(false);
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSpaceEvents.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <deque>
++#include <mutex>
++#include <chrono>
++// Bounded presentation receipts emitted by the actual native combat manager.
++// They never feed back into collision, damage, threat attribution or loot rolls.
++class SwgxrSpaceEvents {
++ using Json=JSONSerializationType;
++ struct Event {uint64 id;double stamp;std::string zone;Vector3 position;Json data;};
++ struct Store {std::mutex mutex;std::deque<Event> events;uint64 next=0;};
++ static Store& store(){static Store value;return value;}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static Json vector(const Vector3& v){return Json::array({v.getX(),v.getZ(),v.getY()});}
++ static void push(ShipObject* ship,const Vector3& position,Json data){
++  if(!ship || !ship->getZone())return;auto& s=store();std::lock_guard<std::mutex> lock(s.mutex);double stamp=now();
++  data["id"]=std::to_string(++s.next);data["ship_id"]=std::to_string(ship->getObjectID());data["position"]=vector(position);
++  while(!s.events.empty() && (s.events.size()>=1024 || stamp-s.events.front().stamp>5))s.events.pop_front();
++  s.events.push_back({s.next,stamp,ship->getZone()->getZoneName().toCharArray(),position,data});
++ }
++public:
++ static void projectile(ShipObject* ship,const ShipProjectile* p){if(p)push(ship,p->getThisPosition(),{{"kind","projectile"},{"direction",vector(p->getDirection())},{"speed",p->getSpeed()},{"range",p->getRange()},{"projectile_type",p->getProjectileType()}});}
++ static void hit(ShipObject* ship,const Vector3& position,int type){push(ship,position,{{"kind","hit"},{"hit_type",type}});}
++ static Json snapshot(ShipObject* observer){
++  Json out=Json::array();if(!observer || !observer->getZone())return out;auto& s=store();std::lock_guard<std::mutex> lock(s.mutex);double stamp=now();
++  for(auto it=s.events.rbegin();it!=s.events.rend() && out.size()<128;++it){if(stamp-it->stamp>5)break;if(it->zone!=observer->getZone()->getZoneName().toCharArray() || it->position.squaredDistanceTo(observer->getPosition())>4096.f*4096.f)continue;auto row=it->data;row["age_seconds"]=stamp-it->stamp;out.push_back(row);}return out;
++ }
++};
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrSpaceJournal.h
+@@ -0,0 +1,25 @@
++#pragma once
++#include "server/zone/managers/player/QuestTasks.h"
++#include "server/zone/objects/waypoint/WaypointObject.h"
++// Read the existing owner-only Core3 journal and server-created quest waypoints.
++class SwgxrSpaceJournal {
++ using Json=JSONSerializationType;
++public:
++ static void snapshot(CreatureObject* c,Json& out){
++  out["missions"]=Json::array();out["waypoints"]=Json::array();auto ghost=c->getPlayerObject();if(!ghost)return;
++  auto quests=ghost->getPlayerQuestsData();auto manager=c->getZoneServer()->getPlayerManager();
++  for(int i=0;i<quests->size();++i){
++   auto crc=quests->getKeyAt(i);auto value=quests->getValueAt(i);if(value.getCompletedFlag())continue;
++   auto tasks=manager->getQuestTasks(crc);if(!tasks)continue;
++   for(int n=0;n<tasks->getNumberOfTasks() && n<16;++n){
++    if(!(value.getActiveStepBitmask()&(1<<n)))continue;auto task=tasks->getTask(n);auto title=task->getJournalEntryTitle();
++    if(!task->getIsVisible() || !title.beginsWith("@spacequest/"))continue;
++    out["missions"].push_back({{"id","spacequest:"+std::to_string(crc)+":"+std::to_string(n)},{"type","space_mission"},{"category","data"},{"name",title.toCharArray()},{"description",task->getJournalEntryDescription().toCharArray()},{"deletable",false},{"source","core3_quest_journal"},{"attributes",{{"Progress",value.getQuestCounter()},{"Quest CRC",crc},{"Task",n}}}});
++   }
++  }
++  auto zone=c->getZone();if(!zone)return;
++  for(int i=0;i<ghost->getWaypointListSize();++i){auto w=ghost->getWaypoint(i);if(!w || !w->isActive() || w->getPlanetCRC()!=zone->getZoneName().hashCode())continue;
++   out["waypoints"].push_back({{"id",std::to_string(w->getObjectID())},{"kind","waypoint"},{"name",w->getDisplayedName().toCharArray()},{"position",Json::array({w->getPositionX(),w->getPositionZ(),w->getPositionY()})}});
++  }
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/ship/ShipObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/ship/ShipObjectImplementation.cpp
+@@ -1492,6 +1492,11 @@
+ 
+ // This will be called for non AI Ships. ShipAgents use their abstracted function in ShipAiAgent
+ bool ShipObjectImplementation::isAttackableBy(TangibleObject* attackerTano) {
++	// The original Luxury Yacht is a noncombat POB, including after relog/jump.
++	if (isSorosuubSpaceYacht()) {
++		return false;
++	}
++
+ 	if (attackerTano == nullptr) {
+ 		return false;
+ 	}

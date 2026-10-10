@@ -29,11 +29,25 @@ def profile_family(balance, override):
 
 def curve(node):
     data = node.children[0].data
-    interpolation, sample, count = struct.unpack_from('<3i', data)
-    if len(data) != 12 + count*16:
+    version = node.children[0].tag
+    if version == '0002':
+        interpolation, sample, minimum, maximum, count = struct.unpack_from('<2i2fi', data)
+        offset = 20
+    elif version == '0001':
+        interpolation, sample, count = struct.unpack_from('<3i', data)
+        offset = 12
+    elif version == '0000':
+        interpolation, count = struct.unpack_from('<2i', data)
+        sample, offset = 0, 8
+    else:
+        raise ValueError('Unsupported curve version '+version)
+    if len(data) != offset + count*16:
         raise ValueError('Unsupported curve layout')
-    return {'interpolation': interpolation, 'sample': sample,
-            'points': [list(struct.unpack_from('<4f', data, 12+i*16)) for i in range(count)]}
+    points = [list(struct.unpack_from('<4f', data, offset+i*16)) for i in range(count)]
+    if version == '0002':
+        for point in points: point[2], point[3] = point[3], point[2]
+    return {'interpolation': interpolation, 'sample': sample, 'source_version': version,
+            'points': points}
 
 
 class Assets(StaticAssets):
@@ -83,10 +97,10 @@ class Assets(StaticAssets):
         if root.tag != 'PEFT': raise ValueError('Unsupported particle appearance '+root.tag)
         for emitter in root.walk('EMTR'):
             version = emitter.children[0]
-            # The supplied 0009/0011/0012 emitters share this decoded prefix
+            # The supplied 0009/0011/0012/0013 emitters share this decoded prefix
             # and their tagged curves/quad data. Version-specific extensions
             # remain opaque, byte-for-byte, rather than guessed simulation.
-            if version.tag not in ('0009', '0011', '0012'): raise ValueError('Unsupported EMTR '+version.tag)
+            if version.tag not in ('0009', '0011', '0012', '0013'): raise ValueError('Unsupported EMTR '+version.tag)
             waves = [curve(n) for n in version.children if n.tag=='WVFM']
             if len(waves)!=16: raise ValueError('Unexpected emitter curves')
             data = next(n.data for n in version.children if n.tag=='0000')

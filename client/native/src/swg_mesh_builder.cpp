@@ -197,6 +197,8 @@ bool morph_arrays(const Dictionary &source, const Array &base, Array &result) {
 } // namespace
 
 void SwgMeshBuilder::_bind_methods() {
+    ClassDB::bind_method(D_METHOD("create_instances", "mesh", "instances"), &SwgMeshBuilder::create_instances);
+    ClassDB::bind_method(D_METHOD("ray_mesh", "faces", "pose", "origin", "direction", "reach"), &SwgMeshBuilder::ray_mesh);
     ClassDB::bind_method(D_METHOD("create_mesh", "surfaces"), &SwgMeshBuilder::create_mesh);
     ClassDB::bind_method(D_METHOD("prepare_mesh", "surfaces"), &SwgMeshBuilder::prepare_mesh);
     ClassDB::bind_method(D_METHOD("create_prepared_mesh", "arrays"), &SwgMeshBuilder::create_prepared_mesh);
@@ -205,6 +207,32 @@ void SwgMeshBuilder::_bind_methods() {
     ClassDB::bind_method(D_METHOD("create_terrain_mesh", "data", "skirt_depth"), &SwgMeshBuilder::create_terrain_mesh);
     ClassDB::bind_method(D_METHOD("create_terrain_collision", "data"), &SwgMeshBuilder::create_terrain_collision);
     ClassDB::bind_method(D_METHOD("create_collision", "mesh"), &SwgMeshBuilder::create_collision);
+}
+
+Dictionary SwgMeshBuilder::ray_mesh(const PackedVector3Array &faces, const Transform3D &pose, const Vector3 &origin, const Vector3 &direction, double reach) const {
+    Dictionary result;
+    if (!origin.is_finite() || !direction.is_finite() || direction.length_squared()<0.000001 || !std::isfinite(reach) || reach<=0 || faces.size()%3) return result;
+    const Transform3D inverse=pose.affine_inverse();
+    const Vector3 from=inverse.xform(origin), ray=inverse.basis.xform(direction.normalized());
+    double nearest=reach;
+    for (int64_t i=0;i+2<faces.size();i+=3) {
+        const Vector3 a=faces[i], edge1=faces[i+1]-a, edge2=faces[i+2]-a;
+        const Vector3 cross=ray.cross(edge2);
+        const double determinant=edge1.dot(cross);
+        if (std::abs(determinant)<1e-9) continue;
+        const Vector3 offset=from-a;
+        const double u=offset.dot(cross)/determinant;
+        if (u<0 || u>1) continue;
+        const Vector3 q=offset.cross(edge1);
+        const double v=ray.dot(q)/determinant;
+        if (v<0 || u+v>1) continue;
+        const double distance=edge2.dot(q)/determinant;
+        if (distance<0 || distance>nearest) continue;
+        nearest=distance;
+        result["distance"]=distance;
+        result["position"]=origin+direction.normalized()*distance;
+    }
+    return result;
 }
 
 Dictionary SwgMeshBuilder::partition_avatar(const Dictionary &definition, const Array &hidden_bones, double threshold) const {
@@ -439,3 +467,27 @@ Ref<ArrayMesh> SwgMeshBuilder::create_avatar_mesh(const Dictionary &definition) 
 }
 
 } // namespace godot
+
+namespace godot {
+Ref<MultiMesh> SwgMeshBuilder::create_instances(const Ref<ArrayMesh> &mesh, const Array &instances) const {
+    if (mesh.is_null() || instances.size() > 100000) return Ref<MultiMesh>();
+    Ref<MultiMesh> result; result.instantiate();
+    result->set_transform_format(MultiMesh::TRANSFORM_3D);
+    result->set_mesh(mesh); result->set_instance_count(instances.size());
+    for (int i = 0; i < instances.size(); ++i) {
+        if (instances[i].get_type() != Variant::DICTIONARY) return Ref<MultiMesh>();
+        Dictionary row = instances[i];
+        Array p = row.get("position", Array()), q = row.get("quaternion", Array());
+        if (p.size() != 3 || q.size() != 4) return Ref<MultiMesh>();
+        double values[8];
+        for (int j = 0; j < 3; ++j) if (!number(p[j], values[j])) return Ref<MultiMesh>();
+        for (int j = 0; j < 4; ++j) if (!number(q[j], values[j+3])) return Ref<MultiMesh>();
+        if (!number(row.get("scale", 1.0), values[7]) || values[7] <= 0) return Ref<MultiMesh>();
+        Quaternion orientation(values[3], values[4], values[5], values[6]);
+        if (orientation.length_squared() < 0.0001) return Ref<MultiMesh>();
+        const float scale = values[7];
+        result->set_instance_transform(i, Transform3D(Basis(orientation.normalized()).scaled(Vector3(scale,scale,scale)),Vector3(values[0],values[1],values[2])));
+    }
+    return result;
+}
+}

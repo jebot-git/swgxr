@@ -27,8 +27,10 @@ var seat_origin:=Transform3D.IDENTITY
 var seat_eye_height:=0.0
 var view_environment:Environment
 var previous_environment:Environment
+var terminal_geometry:Dictionary={}
 var stars:ShaderMaterial
 var trigger_ready:=false
+var fire_armed:=false
 var recover_ready:=false
 var needs_reconcile:=false
 var control_handles:Node3D
@@ -54,7 +56,7 @@ func setup(host:Node,prefs:RefCounted)->void:
 func aboard()->bool:return is_instance_valid(scene) and is_instance_valid(scene.stage) and not ground.is_empty()
 func seated()->bool:return aboard() and station in ["pilot","passenger","gunner"]
 func reset()->void:
-	lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
+	fire_armed=false;lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
 	leave_scene();state={};ship={};revision=-1;sequence=0;walk_sequence=0;pending_mutations.clear();needs_reconcile=false;busy=false;age=100;poll=0;station="ground";inputs.reset()
 	if is_instance_valid(app):
 		epoch=app.datapad_epoch
@@ -112,7 +114,7 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	if mutation:pending_mutations.erase(key)
 	var value:Variant=response.get("state",response.get("jtl",{}))
 	var live:Variant=response.get("live_response",response.get("live"))
-	if not value is Dictionary or value.get("scope","") not in ["noncombat_yacht","noncombat_navigation"] or not value.get("enabled",false):
+	if not value is Dictionary or value.get("scope","") not in ["noncombat_yacht","noncombat_navigation","original_sectors"] or not value.get("enabled",false):
 		if action in ["walk","control"]:needs_reconcile=true;poll=0
 		return {"ok":false,"error":"Core3 returned an incomplete ship snapshot."}
 	var native_revision:int=int(live.get("sequence",revision+1)) if live is Dictionary else int(response.get("sequence",revision+1))
@@ -145,7 +147,7 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	return response
 func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	if str(value.get("source_kind","core3_jtl"))!="core3_jtl" or str(value.get("character_id",app.datapad_character_id))!=app.datapad_character_id:return false
-	if value.get("scope","") not in ["noncombat_yacht","noncombat_navigation"] or not value.get("enabled",false):return false
+	if value.get("scope","") not in ["noncombat_yacht","noncombat_navigation","original_sectors"] or not value.get("enabled",false):return false
 	if incoming_revision>=0 and incoming_revision<revision:return false
 	var incoming:Variant=value.get("ship")
 	if incoming!=null and not incoming is Dictionary:return false
@@ -163,7 +165,8 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	station=next
 	if aboard():
 		scene.observe(ship)
-		scene.update_nearby(state.get("nearby_ships",[]),ship)
+		scene.update_nearby(state.get("nearby_ships",[]),ship,state.get("nearby_ships_busy",false))
+		if is_instance_valid(scene.combat_effects):scene.combat_effects.receive(state.get("combat_events",[]))
 		if changed and is_instance_valid(wheel):wheel.close()
 		if changed or needs_reconcile or bool(ship.get("walk_corrected",false)):
 			scene.place_player(app.player,ship.get("player_position",[-.76,.43,21.14] if next=="pilot" else [0,.4,20]),int(ship.get("cell_index",1)))
@@ -180,7 +183,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	return true
 func enter_scene(value:Dictionary)->bool:
 	var created:=Scene.new();add_child(created);created.position=Vector3(0,10000,0)
-	if not created.build(str(value.get("id","")),str(value.get("template",""))):error=created.error;created.queue_free();return false
+	if not created.build(str(value.get("id","")),str(value.get("template","")),str(value.get("zone","space_tatooine"))):error=created.error;created.queue_free();return false
 	ground={"stage":app.stage,"position":app.player.global_position,"origin":app.xr_origin.global_transform,"provider":app.player.ground_provider,"camera_far":app.player.get_camera().far,"hidden":[]}
 	for key in ["stage","terrain","world_stream","ambient_npcs","environment_presentation","portal_visibility","housing","vehicles","gameplay_combat"]:
 		var node:Variant=app.get(key)
@@ -195,7 +198,7 @@ func enter_scene(value:Dictionary)->bool:
 	previous_environment=app.player.get_camera().environment
 	app.player.get_camera().far=20000.0
 	view_environment=Environment.new();view_environment.background_mode=Environment.BG_SKY;view_environment.ambient_light_source=Environment.AMBIENT_SOURCE_COLOR;view_environment.ambient_light_color=Color(.5,.6,.8);view_environment.ambient_light_energy=.6
-	var sky:=Sky.new();stars=ShaderMaterial.new();stars.shader=preload("res://space/stars.gdshader");sky.sky_material=stars;view_environment.sky=sky;app.player.get_camera().environment=view_environment
+	var sky:=Sky.new();stars=scene.exterior.sky;sky.sky_material=stars;view_environment.sky=sky;app.player.get_camera().environment=view_environment
 	RenderingServer.global_shader_parameter_set("swg_environment_tint",Color.WHITE)
 	for combat in [app.live_combat,app.gameplay_combat]:
 		if is_instance_valid(combat):combat.discard_movement_commands()
@@ -206,6 +209,7 @@ func enter_scene(value:Dictionary)->bool:
 	return true
 func leave_scene()->void:
 	show_station_targets(false)
+	terminal_geometry.clear()
 	if is_instance_valid(station_pointer):station_pointer.hide()
 	if not aboard():return
 	app.stage=ground.stage;app.player.ground_provider=ground.provider
@@ -236,6 +240,54 @@ func refresh_datapad()->void:
 		rows=rows.filter(func(row):return str(row.id)!=str(own.get("ship_id","")))
 		rows.append({"id":"return:"+str(own.get("ship_id","")),"category":"ships","type":"ship","name":"Return to your ship","description":"Leave this ship and launch your own craft nearby.","temporary_return":true,"action_label":"Return to your ship","deletable":false,"available":true})
 	app.datapad.ui.set_ships(rows)
+	app.datapad.ui.set_space_missions(state.get("missions",[]))
+	if not app.datapad.ui.hyperspace_requested.is_connected(hyperspace):
+		app.datapad.ui.hyperspace_requested.connect(hyperspace)
+		app.datapad.ui.hyperspace_abort_requested.connect(abort_hyperspace)
+	app.datapad.ui.set_sector_navigation(scene.exterior.data if aboard() else {},ship,state.get("nearby_ships",[])+state.get("waypoints",[]),scene.catalog if aboard() else {})
+	if is_instance_valid(app.datapad.get("radar")):app.datapad.radar.set_sector(scene.exterior.data if aboard() else {},ship,state.get("nearby_ships",[])+state.get("waypoints",[]))
+func hyperspace(destination:String)->void:
+	if aboard() and station=="pilot":request("hyperspace",{"destination":destination})
+func abort_hyperspace()->void:
+	if aboard() and station=="pilot":request("abort_hyperspace")
+func terminal_records()->Array:
+	var rows:Array=[]
+	if not aboard() or seated():return rows
+	for source:Dictionary in ship.get("interactions",[]):
+		if int(source.get("cell_index",0))!=scene.cell_index():continue
+		var row:=source.duplicate(true);row.position=scene.world(source.position)
+		row.pob=true;row.name=str(source.get("label","Ship terminal"));row.item_count=ship.get("item_count",0);row.item_limit=ship.get("item_limit",0)
+		row.options=[]
+		if source.get("kind","")=="house":
+			for item:Dictionary in ship.get("decorations",[]):
+				row.options.append({"id":str(item.id),"name":"Recover "+str(item.get("name",item.get("template","Item").get_file())),"description":"Room %d · return this item to your inventory"%int(item.get("cell_index",0)),"item_id":str(item.id)})
+		else:row.options=[{"id":"activate","name":row.name,"command_id":source.command_id}]
+		var key:=str(source.id)
+		if not terminal_geometry.has(key):
+			var path:=str(source.get("template",""));var shared:=path.get_base_dir().path_join("shared_"+path.get_file())
+			for node:Node in scene.stage.find_children("*","MeshInstance3D",true,false):
+				if str(node.get_meta("source_template",""))==shared and node.global_position.distance_to(row.position)<.5:
+					terminal_geometry[key]={"pick_geometry":{"faces":node.mesh.get_faces(),"bounds":node.mesh.get_aabb()},"pick_pose":node.global_transform};break
+		row.merge(terminal_geometry.get(key,{}),true);rows.append(row)
+	return rows
+func terminal_request(action:String,detail:Dictionary)->Dictionary:
+	var ui:Node=app.services.ui
+	var revision:int=ui.interaction_epoch
+	var terminal_id:=str(detail.get("terminal_id",ui.terminal.get("id","")))
+	var response:Dictionary
+	var walked:=await request("walk",{},true)
+	if not walked.get("ok",false):response=walked
+	elif action=="pob_recover":response=await request("terminal_recover",{"terminal_id":terminal_id,"item_id":str(detail.get("item_id",""))})
+	elif action=="ship_terminal_command":response=await request("command",{"interaction_id":terminal_id,"command_id":str(detail.get("command_id",""))})
+	elif ui.terminal.get("kind","")=="house":response=await request("terminal",{"terminal_id":terminal_id})
+	else:response=await request("status")
+	if action=="pob_recover" and response.get("ok",false):app.refresh_inventory()
+	if revision!=ui.interaction_epoch or ui.terminal.is_empty():return response
+	ui.set_pending(false)
+	var records:=terminal_records().filter(func(row):return str(row.id)==terminal_id)
+	if not records.is_empty():ui.terminal=records[0];ui.panel.configure(records[0],{})
+	ui.panel.message="Item returned to inventory." if action=="pob_recover" and response.get("ok",false) else "Confirmed by Core3" if response.get("ok",false) else str(response.get("error","Ship terminal request rejected."))
+	ui.panel.queue_redraw();return response
 func launch_terminal()->String:
 	if not is_instance_valid(app.services):return ""
 	for row:Dictionary in app.services.terminal_records():
@@ -333,6 +385,7 @@ func take_station(id:String)->void:
 func command_rows()->Array:
 	var rows:Array=[]
 	if not seated():return rows
+	rows.append({"id":"navigation","label":"Sector map · hyperspace planner","available":true})
 	for group in ["shield","power","droid"]:
 		var available:bool=ship.get("commands",[]).any(func(row):return str(row.get("id","")).begins_with(group))
 		if available:rows.append({"id":"group_"+group,"label":{"shield":"Shield distribution","power":"Power distribution","droid":"Droid commands"}[group],"available":true})
@@ -344,6 +397,8 @@ func command_rows()->Array:
 	if seated() and ship.get("kind","pob")=="pob":rows.append({"id":"leave","label":"Leave station","available":true})
 	return rows
 func command(id:String)->void:
+	if id=="navigation":
+		wheel.close();refresh_datapad();app.datapad.set_open(true);app.datapad.ui.show_map(true);return
 	if id.begins_with("station:"):take_station(id.trim_prefix("station:"));return
 	if id in ["boarding_targets","boarding_incoming"]:
 		var rows:Array=[]
@@ -412,9 +467,15 @@ func flight_inventory_busy()->bool:
 func controls(delta:float)->Dictionary:
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
 	var tracked:bool=bool(app.player.combat_tracking_context().tracked) and Hands.controller_tracked(left) and Hands.controller_tracked(right)
-	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or age>3:
-		inputs.reset();return inputs.neutral()
-	return inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,preferences.physical_values() if preferences.mode=="physical_hotas" else {})
+	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or (is_instance_valid(app.services) and app.services.blocks_combat()) or age>3:
+		inputs.reset();fire_armed=false;return inputs.neutral()
+	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,preferences.physical_values() if preferences.mode=="physical_hotas" else {})
+	var main:XRController3D=right if app.player.dominant_hand=="right" else left
+	var firing:bool=main.get_float("trigger")>.65
+	if preferences.mode=="physical_hotas":firing=preferences.physical_fire()
+	if not firing:fire_armed=true
+	output.primary_fire=tracked and fire_armed and firing and not ship.get("combat_excluded",true)
+	return output
 func _process(delta:float)->void:
 	if not is_instance_valid(app) or app.session_leaving:return
 	if epoch!=app.datapad_epoch:reset();return
@@ -432,18 +493,22 @@ func _process(delta:float)->void:
 			poll=.5 if not launch_stage().is_empty() else 5.0;request("status")
 		return
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
-	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · NON-COMBAT\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
+	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
+	if not ship.get("combat_excluded",true):
+		var hull:Dictionary=ship.get("hull",{});var shields:Dictionary=ship.get("shields",{});var capacitor:Dictionary=ship.get("capacitor",{})
+		readout.text+="\nHull %.0f / %.0f · Shields %.0f / %.0f · Capacitor %.0f"%[float(hull.get("current",0)),float(hull.get("maximum",0)),float(shields.get("front",0)),float(shields.get("rear",0)),float(capacitor.get("current",0))]
 	if not state.get("boarding",{}).get("incoming",[]).is_empty():readout.text+="\nBoarding request · open commands to allow or decline"
 	elif not state.get("boarding",{}).get("pending",{}).is_empty():readout.text+="\nAwaiting the other pilot’s boarding consent"
 	control_handles.visible=seated() and station=="pilot" and preferences.mode=="virtual_hotas";control_handles.global_transform=hotas_pose()
 	if ship.get("quaternion") is Array and ship.quaternion.size()==4:
+		if stars!=scene.exterior.sky:stars=scene.exterior.sky;view_environment.sky.sky_material=stars
 		stars.set_shader_parameter("ship_rotation",scene.visual_ship_pose.basis)
 	var output:=controls(delta) if seated() and station=="pilot" else inputs.neutral()
 	if seated():
 		app.xr_origin.global_transform=seat_origin;app.player.velocity=Vector3.ZERO
 		if not busy and poll<=0:
 			if needs_reconcile:poll=.5;request("status");return
-			if station=="pilot":sequence+=1;output.sequence=sequence;poll=.1;request("control",output)
+			if station=="pilot" and not ship.get("hyperspacing",false):sequence+=1;output.sequence=sequence;poll=.1;request("control",output)
 			else:poll=.5;request("status")
 	elif not busy and poll<=0:
 		poll=.25
@@ -452,6 +517,7 @@ func _process(delta:float)->void:
 	interaction()
 func interaction()->void:
 	show_station_targets(false);station_pointer.hide()
+	if is_instance_valid(app.services) and app.services.blocks_combat():trigger_ready=false;return
 	if is_instance_valid(app.get("voice_controls")) and app.voice_controls.blocks_combat():trigger_ready=false;return
 	if is_instance_valid(app.inventory) and app.inventory.blocks_services():trigger_ready=false;return
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
@@ -471,22 +537,15 @@ func interaction()->void:
 		if not target.is_empty():
 			readout.text="Take "+str(target.station.id)+" seat · Trigger"
 			if pressed and trigger_ready:trigger_ready=false;take_station(str(target.station.id))
-	if not seated() and tracked and not wheel.opened:
-		for candidate:Dictionary in ship.get("interactions",[]):
-			if int(candidate.get("cell_index",0))!=scene.cell_index():continue
-			if main.global_position.distance_to(scene.world(candidate.position))>.35:continue
-			readout.text=str(candidate.get("label","Ship control"))+" · Trigger"
-			if pressed and trigger_ready:trigger_ready=false;request("command",{"command_id":str(candidate.command_id),"interaction_id":str(candidate.id)})
-			break
 	var grips:bool=tracked and left.get_float("grip")>.65 and right.get_float("grip")>.65
 	if not grips:recover_ready=true
 	elif recover_ready and not busy and app.inventory.held_item.is_empty() and not app.inventory.is_open:
-		recover_ready=false
 		for id in scene.decorations:
 			var node:MeshInstance3D=scene.decorations[id]
 			var row:Dictionary=node.get_meta("native",{})
 			if int(row.get("cell_index",0))!=scene.cell_index():continue
 			if node.mesh.get_aabb().grow(.1).has_point(node.to_local(left.global_position)) and node.mesh.get_aabb().grow(.1).has_point(node.to_local(right.global_position)):
+				recover_ready=false
 				recover_item({"item_id":id,"left_hand":scene.source(left.global_position),"right_hand":scene.source(right.global_position)},scene.cell_index());break
 func recover_item(payload:Dictionary,cell:int)->void:
 	if seated():notice("Leave your seat before recovering items.");return

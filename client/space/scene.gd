@@ -23,14 +23,23 @@ var visual_duration:=.1
 var visual_stamp:=-1
 var nearby_poses:Dictionary={}
 var visual_velocity:=Vector3.ZERO
+var nearby_motion:Dictionary={}
+var combat_effects:Node3D
 func _process(delta:float)->void:
 	if visual_stamp<0:return
 	visual_age+=delta
 	visual_ship_pose=visual_from.interpolate_with(visual_target,minf(1.0,visual_age/visual_duration))
 	# Bounded presentation only; this pose never drives native flight or the rig.
 	visual_ship_pose.origin+=visual_velocity*clampf(visual_age-visual_duration,0,.35)
-	if is_instance_valid(exterior):exterior.transform=visual_ship_pose.affine_inverse()
+	if is_instance_valid(combat_effects):combat_effects.advance(delta,visual_ship_pose)
+	if is_instance_valid(exterior):
+		exterior.transform=visual_ship_pose.affine_inverse()
+		if exterior.has_method("observe"):exterior.observe(visual_ship_pose)
 	for id in nearby_poses:
+		if nearby_motion.has(id):
+			var m:Dictionary=nearby_motion[id];m.age+=delta
+			var pose:Transform3D=m.from.interpolate_with(m.target,minf(1.0,m.age/m.duration))
+			pose.origin+=m.velocity*clampf(m.age-m.duration,0,.35);nearby_poses[id]=pose
 		if nearby.has(id):nearby[id].transform=visual_ship_pose.affine_inverse()*nearby_poses[id]
 func observe_motion(pose:Transform3D,velocity:=Vector3.ZERO)->void:
 	# The action and shared player envelope can contain the same snapshot.
@@ -54,7 +63,7 @@ func ready_assets(template:="")->bool:
 	var path:=str(template_entry.get("descriptor",""))
 	if path.is_empty() or not FileAccess.file_exists(catalog_path.get_base_dir().path_join(path)):error="Original yacht interior stage is unavailable.";return false
 	return true
-func build(id:String,template:="")->bool:
+func build(id:String,template:="",sector:="space_tatooine")->bool:
 	if not ready_assets(template):return false
 	var source:=catalog_path.get_base_dir().path_join(str(template_entry.get("descriptor","")))
 	var data:Variant=JSON.parse_string(FileAccess.get_file_as_string(source))
@@ -63,6 +72,7 @@ func build(id:String,template:="")->bool:
 	var remapped:Dictionary=remapper.remap_ids(data,id);remapper.free()
 	var loader:=Loader.new();stage=loader.load_data(remapped,source)
 	if stage==null:error=str(loader.report.get("error","Yacht geometry could not be loaded."));return false
+	combat_effects=preload("res://space/combat_effects.gd").new();add_child(combat_effects)
 	ship_id=id;stage.name="OriginalShipCells";add_child(stage);models.configure()
 	if template_entry.get("kind","pob")!="pob":
 		cockpit=stage
@@ -70,12 +80,18 @@ func build(id:String,template:="")->bool:
 		cockpit.set_physics_process(false)
 		for body:Node in cockpit.find_children("*","StaticBody3D",true,false):body.free()
 	crew=preload("res://multiplayer/remote_players.gd").new();add_child(crew);crew.configure()
-	var space_path:=str(catalog.get("space_stage",""))
-	if not space_path.is_empty():
-		var space_loader:=Loader.new();exterior=space_loader.load_stage(catalog_path.get_base_dir().path_join(space_path))
-		if exterior!=null:
-			add_child(exterior);exterior.set_physics_process(false)
-			for body:Node in exterior.find_children("*","StaticBody3D",true,false):body.free()
+	return set_sector(sector)
+func set_sector(zone:String)->bool:
+	if is_instance_valid(exterior) and exterior.zone==zone:return true
+	var entry:Dictionary=catalog.get("sectors",{}).get(zone,{})
+	if entry.is_empty():error="Original sector data missing: "+zone;return false
+	var next:=preload("res://space/sector_scene.gd").new()
+	if not next.build(catalog_path.get_base_dir().path_join(str(entry.descriptor))):error=next.error;next.free();return false
+	if is_instance_valid(exterior):exterior.free()
+	exterior=next;add_child(exterior)
+	visual_stamp=-1
+	for id in nearby:nearby[id].queue_free()
+	nearby.clear();nearby_poses.clear();nearby_motion.clear()
 	return true
 func align_cockpit(eye_height:float)->void:
 	if not is_instance_valid(cockpit):return
@@ -92,10 +108,12 @@ func place_player(body:CharacterBody3D,point:Array,index:int)->void:
 	body.velocity=Vector3.ZERO
 	stage.seed_membership_at(body.global_position,ship_id+":"+str(index))
 func observe(ship:Dictionary)->void:
+	if ship.has("zone") and str(ship.zone).begins_with("space_"):set_sector(str(ship.zone))
 	if is_instance_valid(exterior) and ship.get("position") is Array and ship.get("quaternion") is Array:
 		var p:Array=ship.position;var q:Array=ship.quaternion
 		var pose:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
-		observe_motion(pose,pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))))
+		var v:Array=ship.get("velocity",[])
+		observe_motion(pose,Vector3(v[0],v[1],-v[2]) if v.size()==3 else pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))))
 	var keep:Dictionary={}
 	for row:Dictionary in ship.get("decorations",[]):
 		var id:=str(row.get("id",""));keep[id]=true
@@ -117,7 +135,7 @@ func update_crew(ship:Dictionary,poses:Array,owner:String,observer:Vector3)->voi
 	if ship.get("kind","pob")!="pob":crew.clear();return
 	var rows:Array=preload("res://space/crew_presentation.gd").new().normalize(ship,poses,owner,stage)
 	crew.apply_snapshot(rows,owner,observer,ship_id+":"+str(cell_index()),true)
-func update_nearby(rows:Array,ship:Dictionary)->void:
+func update_nearby(rows:Array,ship:Dictionary,busy:=false)->void:
 	if not ship.get("position") is Array or not ship.get("quaternion") is Array:return
 	var keep:Dictionary={}
 	for row:Dictionary in rows.slice(0,32):
@@ -134,6 +152,11 @@ func update_nearby(rows:Array,ship:Dictionary)->void:
 			for body:Node in node.find_children("*","StaticBody3D",true,false):body.free()
 			nearby[id]=node
 		var point:Array=row.position;var rotation:Array=row.quaternion
-		nearby_poses[id]=Transform3D(Basis(Quaternion(-rotation[0],-rotation[1],rotation[2],rotation[3]).normalized()),Vector3(point[0],point[1],-point[2]))
+		var target:=Transform3D(Basis(Quaternion(-rotation[0],-rotation[1],rotation[2],rotation[3]).normalized()),Vector3(point[0],point[1],-point[2]))
+		var stamp:=Time.get_ticks_msec();var velocity:Vector3=target.basis*Vector3(0,0,-float(row.get("speed_mps",0)))
+		if not nearby_motion.has(id):nearby_poses[id]=target
+		elif target.is_equal_approx(nearby_motion[id].target):continue
+		var previous_stamp:int=nearby_motion.get(id,{}).get("stamp",stamp-100)
+		nearby_motion[id]={"from":nearby_poses[id],"target":target,"velocity":velocity,"stamp":stamp,"age":0.0,"duration":clampf((stamp-previous_stamp)/1000.0,.05,1.5)}
 	for id in nearby.keys():
-		if not keep.has(id):nearby[id].queue_free();nearby.erase(id);nearby_poses.erase(id)
+		if not keep.has(id) and (not busy or Time.get_ticks_msec()-int(nearby_motion.get(id,{}).get("stamp",0))>1500):nearby[id].queue_free();nearby.erase(id);nearby_poses.erase(id);nearby_motion.erase(id)

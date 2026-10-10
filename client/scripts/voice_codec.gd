@@ -24,8 +24,13 @@ var _now_ms := 0
 var dropped_frames := 0
 var concealed_frames := 0
 var _capture_retry_after_ms := 0
+var input_preferences = preload("res://audio/input_preferences.gd").new()
+var _device_clock := 0.0
+var _effective_input := ""
 
 func _ready() -> void:
+	input_preferences.load_preferences()
+	refresh_input_device()
 	available = ClassDB.class_exists("TwovoipOpusEncoder") and ClassDB.class_exists("AudioStreamOpus")
 	status = "Microphone off." if available else "Install the pinned TwoVoIP voice codec."
 
@@ -85,13 +90,18 @@ func flush_transmit() -> void:
 			status = "Native voice codec reset failed."
 
 func set_input_device(device: String) -> void:
-	if device not in AudioServer.get_input_device_list():
-		status = "Audio input device is unavailable."
-		return
-	var resume := capture_enabled
+	input_preferences.device = device
+	refresh_input_device()
+
+func refresh_input_device() -> void:
+	var device: String = input_preferences.effective_device(AudioServer.get_input_device_list())
+	if device == _effective_input: return
+	# Tear down the encoder and discard buffered samples before changing inputs.
+	# Voice orchestration alone decides whether capture/transmission can resume.
 	set_capture_enabled(false)
 	AudioServer.input_device = device
-	if resume: set_capture_enabled(true)
+	_effective_input = device
+	_capture_retry_after_ms = 0
 
 static func packet_valid(payload: PackedByteArray) -> bool:
 	if payload.is_empty() or payload.size() > MAX_PACKET: return false
@@ -186,6 +196,10 @@ func _decode_one(entry: Dictionary, now: int) -> bool:
 	return true
 
 func _process(_delta: float) -> void:
+	_device_clock += _delta
+	if _device_clock >= 1.0:
+		_device_clock = 0.0
+		refresh_input_device()
 	if not available: return
 	var start := Time.get_ticks_usec()
 	_now_ms = Time.get_ticks_msec()

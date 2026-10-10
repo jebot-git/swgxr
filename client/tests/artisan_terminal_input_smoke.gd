@@ -14,8 +14,8 @@ func check(value:bool,label:String)->void:
 	checks+=1
 	if not value:failures.append(label);push_error(label)
 func _initialize()->void:call_deferred("run")
-func tracker(side:String)->XRPositionalTracker:
-	var value:=XRPositionalTracker.new();value.name="/user/hand/"+side;value.type=XRServer.TRACKER_CONTROLLER;value.hand=XRPositionalTracker.TRACKER_HAND_LEFT if side=="left" else XRPositionalTracker.TRACKER_HAND_RIGHT
+func tracker(side:String)->XRControllerTracker:
+	var value:=XRControllerTracker.new();value.name="/user/hand/"+side;value.type=XRServer.TRACKER_CONTROLLER;value.hand=XRPositionalTracker.TRACKER_HAND_LEFT if side=="left" else XRPositionalTracker.TRACKER_HAND_RIGHT
 	XRServer.add_tracker(value);trackers.append(value);return value
 func tracked(value:XRPositionalTracker,transform:Transform3D)->void:
 	for name in ["grip","aim"]:value.set_pose(name,transform,Vector3.ZERO,Vector3.ZERO,XRPose.XR_TRACKING_CONFIDENCE_HIGH)
@@ -66,7 +66,7 @@ func run()->void:
 		var camera:=Camera3D.new();host.add_child(camera);camera.global_position=physical+screen.basis.z*1.7+screen.basis.x*.65+Vector3.UP*.35;camera.look_at(record.position+Vector3.UP*.95);camera.make_current()
 		var title:=Label.new();root.add_child(title);title.position=Vector2(24,24);title.text="ARTISAN TERMINAL · ORIGINAL SOURCE MESH\nProduction input path · recorded Core3 offers · mocked tracking · XR disabled";title.add_theme_font_size_override("font_size",22)
 	await frames();right.set_input("trigger",0.0);await frames();ui._process(.016)
-	check(ui.pointer_visual.visible,"Pre-click aiming feedback is visible on original artisan screen")
+	check(not record.get("pick_geometry",{}).is_empty(),"Actual artisan casing geometry is available for mesh picking")
 	if capture:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/core2/artisan-touch-hover.png"))
@@ -79,8 +79,8 @@ func run()->void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/core2/artisan-touch-open.png"))
 	check(ui.pointed_terminal(records,host.player.global_position,physical-screen.basis.z*.10,-screen.basis.z,head_pose.origin).get("id")=="6076130","Small tracked fingertip penetration preserves front-view touch")
-	check(ui.pointed_terminal(records,host.player.global_position,physical-screen.basis.z*.30,screen.basis.z,head_pose.origin).is_empty(),"Deep hand penetration cannot activate through terminal body")
-	check(ui.pointed_terminal(records,host.player.global_position,physical-screen.basis.z*.1,screen.basis.z,physical-screen.basis.z).is_empty(),"Viewer behind original physical screen cannot activate its front")
+	check(ui.pointed_terminal(records,host.player.global_position,physical-screen.basis.z*.30,screen.basis.z,head_pose.origin).get("id")=="6076130","Original terminal casing is interactive from an intersecting ray")
+	check(ui.pointed_terminal(records,host.player.global_position,physical-screen.basis.z*.1,screen.basis.z,physical-screen.basis.z).get("id")=="6076130","Whole terminal activation is independent of the screen facing the viewer")
 	ui.close_interface();ui.set_pending(false);right.set_input("trigger",0);tracked(right,Transform3D(screen.basis,physical+screen.basis.x*2.0));await frames();ui._process(.016)
 	check(not ui.pointer_visual.visible,"Looking away removes pre-click feedback")
 	for t in trackers:XRServer.remove_tracker(t)

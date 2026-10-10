@@ -402,6 +402,10 @@ func make_ui() -> void:
 		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		audio_row.add_child(slider)
 		slider.value_changed.connect(func(value):audio_preferences.set_volume(channel,value))
+	var microphone_settings := preload("res://audio/input_settings.gd").new()
+	settings.add_child(microphone_settings)
+	microphone_settings.device_selected.connect(func(device: String):
+		if is_instance_valid(voice_chat): voice_chat.set_input_device(device))
 	if xr_requested:
 		settings.add_child(HSeparator.new())
 		make_vr_settings(settings)
@@ -1299,7 +1303,7 @@ func _process(_delta: float) -> void:
 	var aboard_ship:bool=is_instance_valid(space) and space.aboard()
 	var service_blocks: bool = (is_instance_valid(services) and services.blocks_combat()) or parcel_blocks
 	if is_instance_valid(services):
-		services.set_allowed(not aboard_ship and not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services() and not services.inventory_accessible()) and not (is_instance_valid(datapad) and datapad.is_open))
+		services.set_allowed((not aboard_ship or not space.seated()) and not diagnostic_active and (not xr_requested or xr_focused) and world_ready and not loading_stage and not menu.visible and not creator.visible and not player.feedback.life_locked and not (is_instance_valid(crafting) and crafting.is_open) and not (is_instance_valid(inventory) and inventory.blocks_services() and not services.inventory_accessible()) and not (is_instance_valid(datapad) and datapad.is_open))
 	if (entertainer_interaction_blocks() or (is_instance_valid(vendor_placement) and vendor_placement.blocks_interactions()) or (is_instance_valid(vendor_commerce) and vendor_commerce.blocks_interactions())) and is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_allowed(false)
 	if is_instance_valid(services) and is_instance_valid(services.ui):services.ui.set_inventory_focus(is_instance_valid(inventory) and inventory.blocks_services())
 	var inventory_available:bool=not parcel_blocks and not (is_instance_valid(services) and services.blocks_inventory()) and not diagnostic_active and xr_focused and world_ready and not loading_stage and not menu.visible and not creator.visible

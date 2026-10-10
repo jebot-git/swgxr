@@ -37,7 +37,7 @@ def prepare(destination, source=None, profile=PROFILE):
     private_write(destination/'capacity.env','SWGXR_MAX_NATIVE_SESSIONS=0\nSWGXR_MAX_VOICE_CLIENTS=0\nSWGXR_HTTP_CONNECTIONS='+str(profile['gateway_connections'])+'\n')
     settings = {'ZoneProcessingThreads':profile['zone_threads'],'MaxNavMeshJobs':profile['navmesh_jobs'],'LoginAllowedConnections':profile['native_connections'],'ZoneAllowedConnections':profile['native_connections']}
     if profile['space_enabled']:
-        settings.update({'SpaceZonesEnabled':'{"space_tatooine"}','SWGXR.RetailGroundOnly':'false','JTL':'{JTLEnabled=true,SwgxrTesterYachts=true,SwgxrDisableCombatSpawns=true}'})
+        settings.update({'SpaceZonesEnabled':'{'+','.join(json.dumps(p) for p in profile['space_zones'])+'}','SWGXR.RetailGroundOnly':'false','JTL':'{JTLEnabled=true,SwgxrTesterYachts=true,SwgxrDisableCombatSpawns='+('false' if profile['space_combat_spawns'] else 'true')+'}'})
         settings['JTL.SwgxrShipTemplates']='{'+','.join(json.dumps(p) for p in profile['ship_templates'])+'}'
     private_write(destination/'review-settings.lua','-- Review only; apply through the private staged config.\n'+''.join(f'Core3.{key} = {value}\n' for key,value in settings.items()))
     if 'registration_enabled' in profile:

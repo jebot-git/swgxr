@@ -37,3 +37,8 @@ func physical_values()->Dictionary:
 		if not source in connected:return {"available":false}
 		values[name]=Input.get_joy_axis(source,int(axes[name]))
 	return values
+
+func physical_fire()->bool:
+	var connected:=Input.get_connected_joypads()
+	var chosen:int=connected[0] if device<0 and not connected.is_empty() else device
+	return chosen in connected and Input.is_joy_button_pressed(chosen,JOY_BUTTON_A)

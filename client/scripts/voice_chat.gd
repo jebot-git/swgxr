@@ -75,7 +75,7 @@ func set_allowed(value: bool) -> void:
 
 func set_world_context(zone:String,ship_id:="0")->void:
 	if expected_zone==zone and expected_ship==ship_id:return
-	expected_zone=zone;expected_ship=ship_id;voice_scope="sector" if zone=="space_tatooine" else "planet"
+	expected_zone=zone;expected_ship=ship_id;voice_scope="sector" if zone.begins_with("space_") else "planet"
 	if desired_channel in ["planet","sector"]:desired_channel=voice_scope
 	context_confirmed=false;context_deadline=Time.get_ticks_msec()/1000.0+6;presence_clock=presence_interval
 	pending_channel="";granted_channels.clear();peers.clear();_pause_audio()
@@ -99,6 +99,13 @@ func set_mic_mode(value: String) -> void:
 	_emit()
 
 func set_ptt(value: bool) -> void:ptt=value and allowed and mic_mode=="ptt" and _channel_ready()
+
+func set_input_device(device: String) -> void:
+	ptt=false;voice_hold=0;transmitting=false
+	if codec!=null:
+		codec.set_transmitting(false)
+		codec.set_input_device(device)
+	_emit()
 
 func get_state() -> Dictionary:
 	return {"granted_channels":granted_channels.duplicate(),"reasons":reasons.duplicate(),

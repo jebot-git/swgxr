@@ -42,6 +42,7 @@ var navigation_surface:=-1
 var hip_timer: Label3D
 var ingredient_viewport: SubViewport
 var ingredient_images: TextureRect
+var experiment_button: Button
 var blueprint_output: CheckButton
 const KNOB_GRAB_RADIUS := 0.024
 
@@ -71,6 +72,7 @@ func setup(host: Node, inventory: Node3D) -> void:
 	if FileAccess.file_exists(icon_path): icon_catalog=JSON.parse_string(FileAccess.get_file_as_string(icon_path))
 	var holster:=Button.new();ui.add_child(holster);holster.position=Vector2(540,8);holster.size=Vector2(105,38);holster.text="Tool slot"
 	blueprint_output=CheckButton.new();ui.add_child(blueprint_output);blueprint_output.position=Vector2(20,540);blueprint_output.size=Vector2(610,42);blueprint_output.text="Create factory blueprint · 1000 runs";blueprint_output.hide()
+	experiment_button=Button.new();ui.add_child(experiment_button);experiment_button.position=Vector2(20,488);experiment_button.size=Vector2(610,42);experiment_button.text="Experiment with allocated points";experiment_button.hide();experiment_button.pressed.connect(experiment_round)
 	holster.pressed.connect(func():
 		cancel_draft()
 		bag.show_equipment_hologram(rig.get_node("XRCamera3D").global_transform))
@@ -125,7 +127,7 @@ func request(action: String, extra: Dictionary={}) -> Dictionary:
 		if result.get("inventory",{}).get("source_kind","")=="core3_inventory":
 			app.inventory_snapshot=result.inventory.duplicate(true);app.reconcile_inventory_presentations();app.update_inventory_presentation()
 		last_error="";last_outcome=""
-		if action=="finish":last_outcome=experimentation_label(int(result.get("mutation",{}).get("experimentation_result",-1)))
+		if action in ["experiment","finish"]:last_outcome=experimentation_label(int(result.get("mutation",{}).get("experimentation_result",-1)))
 		if action=="finish" and is_instance_valid(app.get("services")):app.services.poll_clock=0
 	else: last_error=str(result.get("error","Core3 did not confirm crafting. Refresh before retrying."))
 	if pending_cancel:
@@ -153,6 +155,12 @@ func activate(tool: Dictionary) -> void:
 			if result.is_empty(): bag.set_busy(false,last_error);return
 		rebuild()
 	bag.set_busy(false,last_error if not last_error.is_empty() else last_outcome)
+func experiment_round() -> void:
+	if busy or int(state.get("stage",0))!=3 or not is_open:return
+	experiment_button.disabled=true
+	var result:=await request("experiment",{"points":points})
+	if not result.is_empty():rebuild()
+	else:refresh_experiment()
 func cancel_draft() -> void:
 	set_visible_ui(false)
 	await request("cancel")
@@ -252,6 +260,7 @@ func rebuild() -> void:
 	if is_instance_valid(preview): preview.queue_free()
 	preview=null;preview_missing.visible=false
 	var stage:=int(state.get("stage",0))
+	experiment_button.visible=stage==3
 	blueprint_output.visible=stage in [3,4] and state.get("can_create_blueprint",false)
 	if stage<=2 or not blueprint_output.visible:blueprint_output.button_pressed=false
 	if stage==0: set_visible_ui(false);return
@@ -324,8 +333,9 @@ func refresh_experiment() -> void:
 	refresh_material_page()
 	var stats: Array=[]
 	for value: Dictionary in state.get("statistics",[]): stats.append({"label":"%s: %.2f"%[str(value.name),float(value.value)]})
-	ui.page_size=10 if blueprint_output.visible else 11
-	ui.configure("POINTS: %d / %d"%[int(state.get("points",0))-used,int(state.get("points",0))],stats,"Trigger creates selected output · stow refunds ingredients")
+	experiment_button.disabled=busy or used==0 or int(state.get("points",0))==0
+	ui.page_size=8
+	ui.configure("POINTS: %d / %d"%[int(state.get("points",0))-used,int(state.get("points",0))],stats,(last_outcome+" · " if not last_outcome.is_empty() else "")+"Experiment to review results · trigger finishes")
 func refresh_material_page() -> void:
 	ingredient_images.visible=materials.grid_mode
 	var models:=ingredient_viewport.get_node("Models")

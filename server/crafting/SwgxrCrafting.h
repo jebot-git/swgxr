@@ -90,6 +90,14 @@ class SwgxrCrafting : public SwgxrCraftingView {
    if(cs->getState()==2)throw std::runtime_error("Critical assembly failure; original ingredients returned");
   }catch(...){cancel(c,s);throw;}
  }
+ static void experiment(CraftingSession* cs,const Json& request,bool required=false){
+  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());auto points=request.value("points",Json::array());int total=0,rows=0;std::string exp;
+  if(!points.is_array() || points.size()>view["rows"].size())throw std::runtime_error("Invalid experimentation allocation");
+  for(size_t i=0;i<points.size();++i){if(!points[i].is_number_integer())throw std::runtime_error("Experimentation points must be integers");int n=points[i];if(n<0 || n>view["rows"][i]["point_limit"].get<int>())throw std::runtime_error("Experimentation row limit exceeded");total+=n;if(n){++rows;exp+=std::to_string(i)+" "+std::to_string(n)+" ";}}
+  if(total>view["points"].get<int>() || (total && cs->getState()!=3))throw std::runtime_error("Experimentation allowance exceeded");
+  if(required && (cs->getState()!=3 || total==0))throw std::runtime_error("Allocate experimentation points first");
+  if(rows)cs->experiment(rows,String(exp.c_str()),0);
+ }
  static void finish(CreatureObject* c,Json& s,CraftingSession* cs,CraftingTool* tool,const Json& request){
   if(cs->getState()!=3 && cs->getState()!=4)throw std::runtime_error("Assembly required before crafting");auto root=c->getInventory();
   // Escrow reservations are still counted: never promise a slot released by
@@ -98,13 +106,10 @@ class SwgxrCrafting : public SwgxrCraftingView {
   ManagedReference<ManufactureSchematic*> schematic=cs->getSchematic().get();auto datapad=c->getSlottedObject("datapad");
   if(blueprint){if(limit<1 || limit>1000 || !schematic || !schematic->allowFactoryRun() || Json::parse(cs->swgxrSnapshot().toCharArray()).value("station_id",std::string("0"))=="0")throw std::runtime_error("Factory blueprint requires an eligible recipe and crafting station");if(!datapad || datapad->getContainerObjectsSize()+schematic->getDraftSchematic()->getSize()>datapad->getContainerVolumeLimit())throw std::runtime_error("Datapad space required for blueprint");}
   else if(root==nullptr || root->getCountableObjectsRecursive()>=root->getContainerVolumeLimit())throw std::runtime_error("No inventory slot available for crafted output");
-  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());auto points=request.value("points",Json::array());int total=0,rows=0;std::string exp;
-  if(!points.is_array() || points.size()>view["rows"].size())throw std::runtime_error("Invalid experimentation allocation");
-  for(size_t i=0;i<points.size();++i){if(!points[i].is_number_integer())throw std::runtime_error("Experimentation points must be integers");int n=points[i];if(n<0 || n>view["rows"][i]["point_limit"].get<int>())throw std::runtime_error("Experimentation row limit exceeded");total+=n;if(n){++rows;exp+=std::to_string(i)+" "+std::to_string(n)+" ";}}
-  if(total>view["points"].get<int>() || (total && cs->getState()!=3))throw std::runtime_error("Experimentation allowance exceeded");
+  auto view=Json::parse(cs->swgxrSnapshot().toCharArray());
   auto colors=request.value("colors",Json::array());if(!colors.is_array() || colors.size()>view["colors"].size())throw std::runtime_error("Invalid color choices");std::string customization;
   for(size_t i=0;i<colors.size();++i){if(!colors[i].is_number_integer())throw std::runtime_error("Invalid palette index");int n=colors[i];auto v=view["colors"][i];if(n<v["minimum"].get<int>() || n>v["maximum"].get<int>())throw std::runtime_error("Color is outside learned allowance");customization+=std::to_string(v["index"].get<int>())+" "+std::to_string(n)+" ";}
-  if(rows)cs->experiment(rows,String(exp.c_str()),0);
+  experiment(cs,request);
   if(cs->getState()==3)cs->nextCraftingStage(0);
   cs->customization("",0xFF,blueprint?limit:1,String(customization.c_str()));cs->nextCraftingStage(0);
   auto m=cs->getSchematic().get();auto proto=tool->getPrototype();if(proto==nullptr || m==nullptr)throw std::runtime_error("Crafting prototype lost");
@@ -147,6 +152,7 @@ public:
      auto cs=session(c,s["draft"]);if(cs==nullptr)throw std::runtime_error("Crafting session expired");Locker lock(cs,c);c->addActiveSession(SessionFacadeType::CRAFTING,cs);
      if(action=="select"){if(cs->getState()>2)throw std::runtime_error("Cancel assembled draft before changing schematic");int index=request.at("index").get<int>();auto choices=Json::parse(cs->swgxrSnapshot().toCharArray())["schematics"];if(index<0 || index>=int(choices.size()))throw std::runtime_error("Schematic is not usable with this tool");cs->selectDraftSchematic(index);}
      else if(action=="assemble"){assemble(c,s,cs,tool,request);if(cs->getState()==4)finish(c,s,cs,tool,request);}
+     else if(action=="experiment"){experiment(cs,request,true);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
      else if(action=="finish"){finish(c,s,cs,tool,request);mutation["experimentation_result"]=Json::parse(cs->swgxrSnapshot().toCharArray())["experimentation_result"];}
      else throw std::runtime_error("Unknown crafting action");
     }

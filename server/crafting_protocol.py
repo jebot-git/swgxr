@@ -25,7 +25,7 @@ def palette(path):
  return [[r/255,g/255,b/255,a/255] for r,g,b,a in struct.iter_unpack('<4B',raw[24:24+4*count])]
 
 def command(action,data):
- if action not in ('status','open','select','assemble','finish','cancel'):raise ValueError('Unsupported crafting action')
+ if action not in ('status','open','select','assemble','experiment','finish','cancel'):raise ValueError('Unsupported crafting action')
  out={'action':action,**planet_context(data)}
  if action!='status':
   key=data.get('request_id','')
@@ -53,6 +53,10 @@ def command(action,data):
   allocations=data.get('allocations')
   if not isinstance(allocations,list) or len(allocations)>32 or any(not isinstance(s,list) or len(s)>64 or any(not isinstance(i,str) or not i.isdigit() or not 0<int(i)<2**64 for i in s) for s in allocations):raise ValueError('Invalid ingredient allocations')
   out['allocations']=allocations
+ if action=='experiment':
+  values=data.get('points',[])
+  if not isinstance(values,list) or not 0<len(values)<=32 or any(type(v) is not int or not 0<=v<=10 for v in values) or not any(values):raise ValueError('Allocate valid experimentation points')
+  out['points']=values
  if action=='finish':
   output=data.get('output','prototype')
   if output not in ('prototype','blueprint'):raise ValueError('Invalid crafting output')

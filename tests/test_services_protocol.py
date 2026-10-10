@@ -3,6 +3,26 @@ from unittest.mock import patch
 from server.services_protocol import command,snapshot
 class ServicesProtocolTests(unittest.TestCase):
  def data(self,**kw):return dict(request_id='services_test_001',position=[3527,5,-4820],terminal_id='123',**kw)
+ def test_ship_components_and_dealer_validate_reviewed_transaction(self):
+  base=self.data(ship_id='789',component_id='456',slot=12)
+  self.assertEqual(command('ship_component_install',base)['slot'],12)
+  self.assertEqual(command('ship_component_remove',base)['component_id'],'456')
+  for field,values in [('ship_id',['0','-1',True]),('component_id',['',123]),('slot',[-1,20,True,1.5])]:
+   for value in values:
+    with self.subTest(field=field,value=value),self.assertRaises(ValueError):command('ship_component_install',dict(base,**{field:value}))
+  self.assertEqual(command('ship_chassis_redeem',self.data(item_id='345',price=5000))['price'],5000)
+  for value in (True,-1,1.5,'5000',2000000001):
+   with self.assertRaises(ValueError):command('ship_chassis_redeem',self.data(item_id='345',price=value))
+ def test_pilot_choice_is_bound_to_displayed_screen(self):
+  self.assertEqual(command('pilot_begin',self.data())['action'],'pilot_begin')
+  base=self.data(option=0,screen_token='screen_001')
+  self.assertEqual(command('pilot_choose',base)['screen_token'],'screen_001')
+  for field,value in [('option',True),('option',-1),('option',128),('screen_token',''),('screen_token','changed screen')]:
+   with self.subTest(field=field),self.assertRaises(ValueError):command('pilot_choose',dict(base,**{field:value}))
+ def test_ship_component_names_use_original_string_table(self):
+  raw={'source_kind':'core3_services','character_id':'100','terminal':{'kind':'ship_outfit','options':[{'operation':'ship_component_install','slot_name':'engine','item_name':'@space_item:engine'}]}}
+  with patch('server.services_protocol.display',return_value='Ion Engine'):
+   self.assertEqual(snapshot(raw,'100')['state']['terminal']['options'][0]['name'],'Install Engine: Ion Engine')
  def test_strict_amounts(self):
   for value in (True,0,-1,1.5,2000000001,'12'):
    with self.assertRaises(ValueError):command('bank_transfer',self.data(amount=value,direction='deposit'))

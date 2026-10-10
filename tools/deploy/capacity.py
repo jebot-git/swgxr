@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 from server.planets import SUPPORTED_PLANETS
 from server.jtl_catalog import SHIP_TEMPLATES
+from server.jtl_protocol import SPACE_ZONES
 
 PROFILE = {
     'name': 'corecu-tatooine-32', 'target_players': 32, 'session_limit': 0,
@@ -21,7 +22,10 @@ JTL_TEST_PROFILE = dict(ALL_PLANETS_PROFILE, name='corecu-all-planets-jtl-test-1
     ship_templates=list(SHIP_TEMPLATES),
     space_combat_spawns=False, registration_enabled=True,
     registration_invites_required=False, registration_grants_client_access=True)
-PROFILES = {p['name']:p for p in (PROFILE, ALL_PLANETS_PROFILE, JTL_TEST_PROFILE)}
+JTL_SECTORS_PROFILE = dict(JTL_TEST_PROFILE,
+    name='corecu-original-jtl-sectors-12cpu-24gb',
+    space_zones=list(SPACE_ZONES), space_combat_spawns=True)
+PROFILES = {p['name']:p for p in (PROFILE, ALL_PLANETS_PROFILE, JTL_TEST_PROFILE, JTL_SECTORS_PROFILE)}
 
 
 def validate(value):
@@ -64,7 +68,8 @@ def configuration_status(remote):
             if len(ships)!=1 or re.findall(r'"([^"]+)"',ships[0])!=profile['ship_templates']:issues.append('Enabled ship templates do not match converted tester assets.')
             if not re.search(r'^Core3\.SWGXR\.RetailGroundOnly\s*=\s*false\s*$',config,re.M):issues.append('ShipManager initialization is still disabled by RetailGroundOnly.')
             for key in ('JTLEnabled','SwgxrTesterYachts','SwgxrDisableCombatSpawns'):
-                if not re.search(r'^Core3\.JTL\.'+key+r'\s*=\s*true\s*$',config,re.M):issues.append('JtL tester configuration missing '+key)
+                value='false' if key=='SwgxrDisableCombatSpawns' and profile['space_combat_spawns'] else 'true'
+                if not re.search(r'^Core3\.JTL\.'+key+r'\s*=\s*'+value+r'\s*$',config,re.M):issues.append('JtL tester configuration missing '+key)
         zones=re.findall(r'^activeZones\s*=\s*"([^"]*)"\s*$',resources,re.M)
         if zones!=[','.join(profile['planets'])]:issues.append('Resource planets do not match the deployment profile.')
         for name in ('SWGXR_MAX_NATIVE_SESSIONS','SWGXR_MAX_VOICE_CLIENTS'):

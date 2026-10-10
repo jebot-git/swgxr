@@ -25,8 +25,12 @@ class CraftingValidation(unittest.TestCase):
    with self.subTest(value=value),self.assertRaises(ValueError):command('finish',dict(self.base,output='blueprint',manufacture_limit=value))
   for value in (None,True,'grant'):
    with self.assertRaises(ValueError):command('finish',dict(self.base,output=value))
+ def test_experimentation_round(self):
+  self.assertEqual(command('experiment',dict(self.base,points=[1,0,2]))['points'],[1,0,2])
+  for value in ([],[0,0],[True],[-1],[11],[1.5]):
+   with self.assertRaises(ValueError):command('experiment',dict(self.base,points=value))
  def test_unknown_and_indices(self):
-  for action in ['grant','spawn','experiment','delete']:
+  for action in ['grant','spawn','delete']:
    with self.assertRaises(ValueError):command(action,self.base)
   for value in [True,-1,4096,'1']:
    with self.assertRaises(ValueError):command('select',dict(self.base,index=value))

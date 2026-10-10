@@ -18,10 +18,12 @@ try:
     from .account_auth import AccountAuth, AuthError
     from .voice_protocol import TicketAuthority
     from .client_patches import PatchStore
+    from .jtl_protocol import ACTIONS as JTL_ACTIONS
 except ImportError:  # Executable systemd entry point.
     from account_auth import AccountAuth, AuthError
     from voice_protocol import TicketAuthority
     from client_patches import PatchStore
+    from jtl_protocol import ACTIONS as JTL_ACTIONS
 
 MAX_BODY = 16384
 MAX_RESPONSE = 8 * 1024 * 1024
@@ -39,19 +41,18 @@ for prefix, actions in {
     '/gathering/corpse/': 'inspect harvest loot',
     '/gathering/': 'status survey deploy collect holster return_tool',
     '/inventory/': 'status equip unequip consume split',
-    '/services/': 'status open mission_refresh mission_accept mission_abort delivery_open delivery_pickup delivery_complete bazaar_buy bazaar_retrieve bazaar_sell bazaar_cancel bank_transfer pay crafting_station travel_purchase travel_board trainer_train skill_forget vendor_place vendor_sell vendor_buy vendor_retrieve vendor_cancel vendor_customize vendor_recover fishing_status fishing_open fishing_bait fishing_cast fishing_action fishing_stop fishing_stow fishing_collect house_status house_preview house_place house_deposit house_permission_arm house_permission house_drop house_recover house_harvester_status house_harvester_select house_harvester_active house_harvester_power house_harvester_deposit house_harvester_collect house_harvester_recover house_factory_status house_factory_blueprint house_factory_remove_blueprint house_factory_input house_factory_withdraw house_factory_collect house_factory_active house_factory_power house_factory_deposit house_factory_recover',
+    '/services/': 'status open ship_manage ship_component_install ship_component_remove ship_chassis_redeem ship_register pilot_begin pilot_choose mission_refresh mission_accept mission_abort delivery_open delivery_pickup delivery_complete bazaar_buy bazaar_retrieve bazaar_sell bazaar_cancel bank_transfer pay crafting_station travel_purchase travel_board trainer_train skill_forget vendor_place vendor_sell vendor_buy vendor_retrieve vendor_cancel vendor_customize vendor_recover fishing_status fishing_open fishing_bait fishing_cast fishing_action fishing_stop fishing_stow fishing_collect house_status house_preview house_place house_deposit house_permission_arm house_permission house_drop house_recover house_harvester_status house_harvester_select house_harvester_active house_harvester_power house_harvester_deposit house_harvester_collect house_harvester_recover house_factory_status house_factory_blueprint house_factory_remove_blueprint house_factory_input house_factory_withdraw house_factory_collect house_factory_active house_factory_power house_factory_deposit house_factory_recover',
     '/vehicles/': 'status activate call board dismount store recall pet_call pet_recall pet_store pet_command ch_status ch_tame ch_embolden ch_enrage ch_train_mount ch_train_command',
     '/entertainer/': 'status perform stop flourish register_location group_invite group_join group_leave group_bump image_open image_propose image_accept image_cancel',
     '/medic/': 'status provision select heal holster return_tool drag bandage wound_pack medical_item doctor combat_medic',
     '/scout/': 'inspect holster return_tool status forage trap grenade camp disband mask_scent discard_mask_scent burst_run sample_dna discard_sample_dna ranger_status conceal rescue area_track',
-    '/crafting/': 'status open select assemble finish cancel',
+    '/crafting/': 'status open select assemble experiment finish cancel',
 }.items():
     POST.update(prefix + action for action in actions.split())
 POST.update('/services/' + action for action in
             ('recruiter_join', 'recruiter_promote', 'recruiter_status_toggle', 'recruiter_purchase', 'contraband_answer', 'underworld_accept'))
 POST.update('/services/slicing_' + action for action in ('status', 'begin', 'complete', 'cancel'))
-POST.update('/jtl/' + action for action in ('status','launch','land','station','leave','control','walk','decorate','recover','command',
-    'crew_prepare','crew_cancel','crew_remove','crew_join','boarding_request','boarding_accept','boarding_decline','return_ship'))
+POST.update('/jtl/' + action for action in JTL_ACTIONS)
 POST.update('/services/bounty_' + action for action in ('informant', 'probe', 'seek', 'track'))
 
 

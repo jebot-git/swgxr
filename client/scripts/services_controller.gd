@@ -118,6 +118,7 @@ func identity_payload() -> Dictionary:
 	return payload
 
 func request(action: String, detail: Dictionary = {}) -> Dictionary:
+	if is_instance_valid(app.get("space")) and app.space.aboard():return await app.space.terminal_request(action,detail)
 	if action=="skill_forget" and is_instance_valid(app.get("space")) and app.space.aboard():return {"ok":false,"error":"Return to ground before forgetting skills."}
 	if action in ["jtl_launch","jtl_launch_confirm","jtl_crew_remove"] and is_instance_valid(app.get("space")):
 		var launched:Dictionary=await app.space.request({"jtl_launch":"crew_prepare","jtl_launch_confirm":"launch","jtl_crew_remove":"crew_remove"}[action],detail)
@@ -295,6 +296,7 @@ func apply_experience_snapshot(snapshot: Dictionary) -> void:
 	app.datapad.ui.set_experience(experience,true)
 
 func terminal_records(require_fresh: bool=true) -> Array:
+	if is_instance_valid(app.get("space")) and app.space.aboard():return app.space.terminal_records()
 	var parcels:Variant=app.get("mission_parcels")
 	if is_instance_valid(parcels) and parcels.blocks_interactions():return []
 	var records: Array = []
@@ -305,10 +307,12 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
 		value.position = world(record.position)
-		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant"]:
+		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","chassis_dealer"]:
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis
 			var object_pose:=Transform3D(basis,value.position)
+			value.pick_geometry=scenery.terminal_pick_geometry(record)
+			value.pick_pose=object_pose
 			value.ui_anchors=[]
 			for offset: Transform3D in scenery.screen_offsets(record):value.ui_anchors.append(object_pose*offset)
 		records.append(value)
@@ -469,6 +473,7 @@ func use_crafting_tool(tool_id: String) -> void:
 
 func _process(delta: float) -> void:
 	if not is_instance_valid(app): return
+	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	if epoch != app.datapad_epoch: reset()
 	update_party_notice(delta)
 	presence_age += delta

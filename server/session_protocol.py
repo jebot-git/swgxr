@@ -1,10 +1,10 @@
 """Validate native position persistence, never local character storage."""
 try:
  from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
- from .jtl_protocol import context as jtl_context, local_vector
+ from .jtl_protocol import context as jtl_context, local_vector, SPACE_ZONES
 except ImportError:
  from planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
- from jtl_protocol import context as jtl_context, local_vector
+ from jtl_protocol import context as jtl_context, local_vector, SPACE_ZONES
 import math,re
 
 def logout_command(data):
@@ -14,7 +14,7 @@ def logout_command(data):
  bid=data.get('building_id');cell=data.get('cell_index')
  if not isinstance(bid,str)or not re.fullmatch(r'[0-9]{1,20}',bid)or int(bid)>=2**64 or type(cell)is not int or not 0<=cell<=256 or((int(bid)==0)!=(cell==0)):raise ValueError('Valid source building and cell required')
  out=dict(action='logout',position=p,heading_radians=heading,building_id=bid,cell_index=cell)
- if data.get('zone',data.get('planet'))=='space_tatooine':
+ if data.get('zone',data.get('planet')) in SPACE_ZONES:
   local_vector(p)
   # Cell zero is an original fighter cockpit; native recovery still verifies
   # the actual seated ship or POB parent and never accepts this as world motion.

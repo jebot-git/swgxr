@@ -13,8 +13,10 @@ except ImportError:
 ACTIONS = ('status', 'launch', 'land', 'station', 'leave', 'control', 'walk',
            'decorate', 'recover', 'command', 'crew_prepare', 'crew_cancel',
            'crew_remove', 'crew_join', 'boarding_request', 'boarding_accept',
-           'boarding_decline', 'return_ship')
-SPACE_ZONES = ('space_tatooine',)
+           'boarding_decline', 'return_ship', 'hyperspace', 'abort_hyperspace',
+           'terminal', 'terminal_recover')
+SPACE_ZONES = tuple('space_'+name for name in ('corellia', 'dantooine', 'dathomir',
+    'endor', 'lok', 'naboo', 'tatooine', 'yavin4', 'light1', 'heavy1'))
 COMMANDS = ('shield_front', 'shield_rear', 'shield_balance', 'power_engines', 'power_balanced',
             'elevator_up', 'elevator_down')
 
@@ -63,8 +65,10 @@ def command(action, data):
         if type(value) is not int or not 0 < value <= 2**53 - 1:
             raise ValueError('Monotonic JtL sequence required.')
         out['sequence'] = value
-    if action in ('launch', 'crew_prepare'):
+    if action in ('launch', 'crew_prepare', 'terminal', 'terminal_recover'):
         out['terminal_id'] = identifier(data.get('terminal_id'))
+    if action == 'terminal_recover':
+        out['item_id'] = identifier(data.get('item_id'))
     if action == 'crew_prepare' and 'ship_id' in data:
         out['ship_id'] = identifier(data['ship_id'])
     if action in ('launch', 'crew_join'):
@@ -86,7 +90,15 @@ def command(action, data):
         if data.get('station_id') not in ('pilot', 'passenger'):
             raise ValueError('Original yacht station required.')
         out['station_id'] = data['station_id']
+    if action == 'hyperspace':
+        value = data.get('destination')
+        if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9_]{1,64}', value):
+            raise ValueError('Original hyperspace destination required.')
+        out['destination'] = value
     if action == 'control':
+        fire = data.get('primary_fire', False)
+        if type(fire) is not bool: raise ValueError('Boolean primary fire intent required.')
+        out['primary_fire'] = fire
         for axis in ('pitch', 'yaw', 'roll', 'throttle'):
             out[axis] = number(data.get(axis), 0 if axis == 'throttle' else -1, 1, axis)
     if action in ('walk', 'decorate'):
@@ -112,6 +124,16 @@ def command(action, data):
     return out
 
 
+def normalize_state(state):
+    try:from .datapad_protocol import display
+    except ImportError:from datapad_protocol import display
+    for row in state.get("missions",[])+state.get("waypoints",[]):
+        for field in ("name","description"):
+            value=row.get(field,"")
+            if value.startswith("@") and ":" in value:
+                table,key=value[1:].split(":",1);row[field]=display(table,key,key.replace("_"," ").title())
+    return state
+
 def snapshot(raw, oid):
     if not isinstance(raw, dict) or raw.get('source_kind') != 'core3_jtl' or raw.get('character_id') != str(oid):
         raise ValueError('Owned native JtL response required.')
@@ -119,7 +141,7 @@ def snapshot(raw, oid):
     if not isinstance(state, dict):
         raise ValueError('Native JtL snapshot required.')
     out = dict(ok=raw.get('success') is True, backend='core3', source_kind='core3_jtl',
-                character_id=str(oid), state=deepcopy(state),
+                character_id=str(oid), state=normalize_state(deepcopy(state)),
                 mutation=deepcopy({key: value for key, value in raw.items() if key != 'jtl'}))
     if not out['ok']:
         out['error_code'] = str(raw.get('error_code', 'jtl_rejected'))

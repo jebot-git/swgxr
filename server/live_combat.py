@@ -17,9 +17,11 @@ from collections import deque
 from pathlib import Path
 try:
  from .multiplayer_sync import HUB as WORLD_SYNC
+ from .jtl_protocol import SPACE_ZONES, normalize_state as normalize_jtl
  from .jtl_presence import HUB as JTL_PRESENCE
 except ImportError:
  from multiplayer_sync import HUB as WORLD_SYNC
+ from jtl_protocol import SPACE_ZONES, normalize_state as normalize_jtl
  from jtl_presence import HUB as JTL_PRESENCE
 try:
  from .character_protocol import template_names,decode_customization
@@ -154,6 +156,7 @@ class LiveCombatHub:
   # Normalize each wire copy used by mutation, session and scene consumers.
   for ship_state in (snapshot.get('jtl'),snapshot.get('player',{}).get('jtl'),result.get('mutation',{}).get('jtl')):
    if isinstance(ship_state,dict) and isinstance(ship_state.get('ship'),dict):
+    normalize_jtl(ship_state)
     actors+=ship_state['ship'].get('crew',[])
   for actor in actors:
    visual(actor)
@@ -236,7 +239,7 @@ class LiveCombatHub:
     crew['handshake_authorized']=True
     crew['handshake_receipt_only']=proof['receipt_only']
    source_context=jtl_context(data)
-  elif action=='session' and isinstance(data.get('session'),dict) and data['session'].get('action')=='logout' and data['session'].get('zone',data['session'].get('planet'))=='space_tatooine':
+  elif action=='session' and isinstance(data.get('session'),dict) and data['session'].get('action')=='logout' and data['session'].get('zone',data['session'].get('planet')) in SPACE_ZONES:
    # The native session helper restores the owned ship's actual ground return
    # and checks its persistent receipt before applying movement. Omit the outer
    # ground-zone fence so a lost logout reply can be replayed after landing.

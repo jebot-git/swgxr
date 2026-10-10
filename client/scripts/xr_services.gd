@@ -17,6 +17,7 @@ var avatar: Node3D
 var offhand := "left"
 var allowed := false
 var terminal_provider: Callable
+var mesh_picker:=SwgMeshBuilder.new()
 var remote_hands_provider: Callable
 var wallet_model_factory: Callable
 var terminal: Dictionary={}
@@ -442,12 +443,21 @@ func _process(delta: float) -> void:
 		trigger_armed=false;open_terminal(candidate)
 
 func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3, direction: Vector3, viewer: Vector3=Vector3.INF) -> Dictionary:
-	# Match the real screen planes used to place the hologram. Short narrow
-	# terminals and nearby paired terminals must not use an invented origin+1m.
+	# Any visible face of a terminal can open it; screen anchors only position UI.
 	var best: Dictionary={}
 	var best_score:=INF
 	for record: Dictionary in records:
 		if not record.get("position") is Vector3 or player_position.distance_to(record.position)>CLOSE_DISTANCE: continue
+		var geometry:Dictionary=record.get("pick_geometry",{})
+		if not geometry.is_empty():
+			var pose:Transform3D=record.pick_pose
+			var inverse:=pose.affine_inverse()
+			var bounds:AABB=geometry.bounds
+			if bounds.intersects_segment(inverse*origin,inverse*(origin+direction.normalized()*3.0))==null:continue
+			var hit:Dictionary=mesh_picker.ray_mesh(geometry.faces,pose,origin,direction,3.0)
+			if not hit.is_empty() and float(hit.distance)<best_score:
+				best_score=float(hit.distance);best=record
+			continue
 		var anchors: Array=record.get("ui_anchors",[])
 		if anchors.is_empty(): anchors=[Transform3D(Basis.IDENTITY,record.position+Vector3.UP)]
 		for anchor: Transform3D in anchors:
@@ -464,7 +474,7 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 				var eye:=viewer if viewer.is_finite() else origin
 				if anchor.basis.z.dot(eye-physical)<-0.05:continue
 				if anchor.basis.z.dot(origin-physical)<-.15:continue
-			var score:=(1.0-alignment)*10.0+distance*0.1
+			var score:=distance
 			if score<best_score: best_score=score;best=record
 	return best
 
@@ -481,6 +491,6 @@ func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3) 
 		var toward:=head-pose.origin
 		var candidate:=pose.basis.z.normalized().dot(toward.normalized())*10.0-toward.length()
 		if candidate>score:best=pose;score=candidate
-	if record.get("kind","") in ["starship","ship_crew"]:
+	if record.get("kind","") in ["starship","ship_crew","ship_control"] or record.get("pob",false):
 		best.origin.y=maxf(best.origin.y+.40,float(record.get("position",fallback_center).y)+1.65)
 	return best

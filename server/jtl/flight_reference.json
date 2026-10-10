@@ -1,0 +1,55 @@
+{
+  "revision": "949451032647e45e42c3aaef3f41b132c8af36e3",
+  "files": [
+    {
+      "path": "src/engine/shared/library/sharedGame/src/shared/dynamics/ShipDynamicsModel.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedGame/src/shared/dynamics/ShipDynamicsModel.cpp",
+      "sha256": "77bc618785ef6269a9e1d8b58ca7de742393fceca37e13036abf60e3e2ed9d9f"
+    },
+    {
+      "path": "src/engine/shared/library/sharedGame/src/shared/dynamics/ShipDynamicsModel.h",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedGame/src/shared/dynamics/ShipDynamicsModel.h",
+      "sha256": "c054f15e4cc75ffd7bcc9ea31ffa8ab711c23a0c1edb2e380931c44a6f49e76f"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/controller/PlayerShipController.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/controller/PlayerShipController.cpp",
+      "sha256": "515fb969d5058d0e155e12d0a2f78afea52d96c18893a8c7e67dca777a7cf332"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/controller/ShipController.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/controller/ShipController.cpp",
+      "sha256": "99eeee94789db34b0c5386e8735b19ea0f761e05b665cf5798005e4fba45fba8"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/controller/RemoteShipController.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/controller/RemoteShipController.cpp",
+      "sha256": "0af9638959d012bee9b117045b23253a1ae0308f96a7bb7b6bda96a47e5b5f57"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/ClientNebula.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/ClientNebula.cpp",
+      "sha256": "6458c02d55af2169e0cfcb4cf3f528b806724948ba870afeea790d1122ad4313"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/CelestialAppearance.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/CelestialAppearance.cpp",
+      "sha256": "66985ca25e68ced92052d72d8b9b2994b823cd7eb7ffdf2c280b9c1d626b8d78"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearance.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/PlanetAppearance.cpp",
+      "sha256": "d5537deca20ea94da7c7871f240ed0aa433bb29ebb9b4a4d462e061a2f990af9"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/appearance/SpaceEnvironment.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/appearance/SpaceEnvironment.cpp",
+      "sha256": "4f57baff66b8c19a0e64e1aa88d96884c31fcce64567d849e5df1d9ffa8e063b"
+    },
+    {
+      "path": "src/engine/client/library/clientTerrain/src/shared/object/CelestialObject.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientTerrain/src/shared/object/CelestialObject.cpp",
+      "sha256": "004af08ac38f733c0eb3d62ad0e3a9e824ac1fbae27fec97f8b9f4e5922f8831"
+    }
+  ]
+}

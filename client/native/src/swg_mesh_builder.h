@@ -1,10 +1,13 @@
 #pragma once
 
 #include <godot_cpp/classes/array_mesh.hpp>
+#include <godot_cpp/classes/multi_mesh.hpp>
 #include <godot_cpp/classes/concave_polygon_shape3d.hpp>
 #include <godot_cpp/classes/ref_counted.hpp>
 #include <godot_cpp/variant/array.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
+#include <godot_cpp/variant/packed_vector3_array.hpp>
+#include <godot_cpp/variant/transform3d.hpp>
 
 namespace godot {
 
@@ -17,6 +20,8 @@ protected:
     static void _bind_methods();
 
 public:
+    Ref<MultiMesh> create_instances(const Ref<ArrayMesh> &mesh, const Array &instances) const;
+    Dictionary ray_mesh(const PackedVector3Array &faces, const Transform3D &pose, const Vector3 &origin, const Vector3 &direction, double reach) const;
     Ref<ArrayMesh> create_mesh(const Array &surfaces) const;
     Dictionary prepare_mesh(const Array &surfaces) const;
     Ref<ArrayMesh> create_prepared_mesh(const Array &arrays) const;

@@ -103,8 +103,9 @@ def render_config(source, password, planets=("tatooine",), capacity=None):
         source+='\nCore3.JTL = Core3.JTL or {}\n'
         for key in ('JTLEnabled','SwgxrTesterYachts','SwgxrDisableCombatSpawns'):
             full='Core3.JTL.'+key
-            if re.search(r'(?m)^'+re.escape(full)+r'\s*=',source):source=assignment(source,full,'true')
-            else:source+=full+' = true\n'
+            value='false' if key=='SwgxrDisableCombatSpawns' and profile['space_combat_spawns'] else 'true'
+            if re.search(r'(?m)^'+re.escape(full)+r'\s*=',source):source=assignment(source,full,value)
+            else:source+=full+' = '+value+'\n'
         full='Core3.JTL.SwgxrShipTemplates'
         ships='{'+','.join(json.dumps(p) for p in profile['ship_templates'])+'}'
         if re.search(r'(?m)^'+re.escape(full)+r'\s*=',source):source=assignment(source,full,ships)

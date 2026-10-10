@@ -310,6 +310,8 @@ def read_inventory(account, oid, split=None, operation=None):
 def gameplay_session(account,data,start=False,life=False):
     if start:
         active=LIVE_COMBAT.active_for(account)
+        if active and active['process'].poll() is not None:
+            LIVE_COMBAT.close(account);active=None
         if active:
             if active.get('purpose')!='gameplay':raise LiveConflict('A combat session already owns this account')
             reply=LIVE_COMBAT.request(account,'snapshot',dict(character_id=str(data.get('character_id','')),session_id=active['id']))
@@ -433,7 +435,7 @@ def jtl_request(account, oid, action, data):
     except ValueError as error:
         JTL_PRESENCE.invalidate(account)
         out.update(crew_poses=[],crew_pose_ttl_ms=750,presentation_error=str(error))
-    if action in ('decorate','recover') and out['ok']:
+    if action in ('decorate','recover','terminal_recover') and out['ok']:
         out['inventory']=read_inventory(account,oid)
     if not out['ok']:raise NativeJtlRejected(out)
     return out

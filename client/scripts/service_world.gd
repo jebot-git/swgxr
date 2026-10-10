@@ -14,6 +14,7 @@ var terminals: Dictionary = {}
 var static_records: Dictionary = {}
 var screens: Dictionary = {}
 var models := InventoryAssets.new()
+var terminal_pick_cache:Dictionary={}
 var observer := Vector3.ZERO
 var errors: Array = []
 var elapsed := 0.0
@@ -35,7 +36,7 @@ func reset() -> void:
 	for entry in terminals.values(): entry.node.queue_free()
 	shuttles.clear()
 	terminals.clear()
-	static_ids.clear();static_records.clear();screens.clear()
+	static_ids.clear();static_records.clear();screens.clear();terminal_pick_cache.clear()
 	errors.clear()
 	elapsed = 0.0
 	last_snapshot = -100.0
@@ -274,3 +275,21 @@ func screen_offsets(record: Dictionary) -> Array:
 		# Unavailable screen data: fixed facade-relative presentation, never world-axis/billboard.
 		result.append(Transform3D(Basis(Vector3.LEFT,Vector3.UP,Vector3.FORWARD),Vector3(0,1.3,-.4)))
 	return result
+
+func terminal_pick_geometry(record:Dictionary)->Dictionary:
+	var template:=str(record.get("template",static_record(record).get("template","")))
+	if terminal_pick_cache.has(template):return terminal_pick_cache[template]
+	var mesh:ArrayMesh=models.model(template)
+	if mesh==null:
+		# Screen metadata points at the full original mesh, including its keyboard
+		# and casing. The screen plane itself is only a hologram placement anchor.
+		for screen:Dictionary in screens.get(template,[]):
+			var path:="res://../"+str(screen.get("source_path",""))
+			if FileAccess.file_exists(path):
+				var source:Dictionary=Avatar.read_json(path)
+				mesh=SwgMeshBuilder.new().create_mesh(source.get("surfaces",[]))
+				if mesh!=null:break
+	if mesh==null:return {}
+	var geometry:Dictionary={"faces":mesh.get_faces(),"bounds":mesh.get_aabb()}
+	terminal_pick_cache[template]=geometry
+	return geometry

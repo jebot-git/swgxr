@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class JtlTransactionsNative(unittest.TestCase):
  def test_native_transactions(self):
   source=(ROOT/'server/jtl/SwgxrJtl.h').read_text()
-  signatures=(' static Json data(', ' static void save(', ' static bool atTerminal(', ' static void cancelStage(', ' static Json stage(', ' static void removeFromStage(', ' static void crewAction(', ' static void boardingAction(', ' static void eject(', 'static void recoverGround(', ' static void expire(', ' static Json boardingState(', ' static Json finish(')
+  signatures=(' static bool spaceZoneName(', ' static Json data(', ' static void save(', ' static bool atTerminal(', ' static void cancelStage(', ' static Json stage(', ' static void removeFromStage(', ' static void crewAction(', ' static void boardingAction(', ' static void eject(', 'static void recoverGround(', ' static void expire(', ' static Json boardingState(', ' static Json finish(')
   methods='\n'.join(method(source,key) for key in signatures)
   launch=method(source,'  if(action=="launch"){')
   prefix=method(source,' static Json run(').split('  if(action=="crew_prepare"',1)[0].replace(' static Json run(', ' static Json receipt(',1)
@@ -17,7 +17,7 @@ class JtlTransactionsNative(unittest.TestCase):
    p=Path(temp);(p/'jtl_transactions.inc').write_text(methods)
    live=(ROOT/'vendor/Core3/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h').read_text()
    (p/'jtl_dispatch.inc').write_text('static Json action(CreatureObject*c,Session&s,const Json&request){std::string requestedVerb="jtl";'+method(live,'  if(requestedVerb=="jtl"){')+'return Json::object();}')
-   lease_methods=method(source,' struct Lease {')+';\n'+'\n'.join(method(source,key)for key in (' static std::map<uint64,Lease>& leases(', ' static std::mutex& leaseMutex(', ' static void watchdog(', ' static void attach(', ' static void touch(', ' static void detach(', ' static void disconnected('))
+   lease_methods=method(source,' static bool spaceZoneName(')+'\n'+method(source,' struct Lease {')+';\n'+'\n'.join(method(source,key)for key in (' static std::map<uint64,Lease>& leases(', ' static std::mutex& leaseMutex(', ' static void watchdog(', ' static void attach(', ' static void touch(', ' static void detach(', ' static void disconnected('))
    (p/'jtl_lease.inc').write_text(lease_methods)
    build=subprocess.run(['c++','-std=c++17','-I'+temp,str(ROOT/'tests/jtl_transactions_native.cpp'),'-o',str(p/'check')],capture_output=True,text=True,timeout=60)
    self.assertEqual(build.returncode,0,build.stderr)

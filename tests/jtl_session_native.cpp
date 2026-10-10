@@ -17,7 +17,7 @@ std::string id(Object*o){return o?std::to_string(o->getObjectID()):"0";}
 struct SwgxrPlanets{static void require(CreatureObject*c,const Json&r=Json::object()){if(c->zone.name!="tatooine")throw std::runtime_error("supported_ground_zone_required");for(auto field:{"zone","planet"})if(r.contains(field)&&r.at(field)!=c->zone.name.c_str())throw std::runtime_error("native_source_zone_mismatch");}};
 struct SwgxrPlayerSummary{static Json snapshot(CreatureObject*){return Json::object();}};
 struct SwgxrTrainers{static Json experience(CreatureObject*){return Json::object();}};
-struct SwgxrJtl{static int recoveries;static void recoverGround(CreatureObject*c){++recoveries;c->zone.name="tatooine";c->position={3528,5,-4804};}static bool aboard(CreatureObject*c){return c->zone.name=="space_tatooine";}static Json snapshot(CreatureObject*){return {{"space_active",true},{"ship",{{"player_position",{0,.4,20}},{"cell_index",1},{"cell_id","43"},{"id","42"}}}};}};int SwgxrJtl::recoveries=0;
+struct SwgxrJtl{static bool spaceZoneName(const std::string& zone){return zone=="space_tatooine" || zone=="space_naboo";}static int recoveries;static void recoverGround(CreatureObject*c){++recoveries;c->zone.name="tatooine";c->position={3528,5,-4804};}static bool aboard(CreatureObject*c){return c->zone.name=="space_tatooine";}static Json snapshot(CreatureObject*){return {{"space_active",true},{"ship",{{"player_position",{0,.4,20}},{"cell_index",1},{"cell_id","43"},{"id","42"}}}};}};int SwgxrJtl::recoveries=0;
 struct Session{bool ready=true;};
 #include "jtl_session_native.inc"
 int checks=0;void check(bool value){++checks;if(!value)throw std::runtime_error("session case "+std::to_string(checks));}

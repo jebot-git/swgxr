@@ -1,6 +1,10 @@
 extends PanelContainer
 
 signal ship_action_requested(entry: Dictionary)
+signal hyperspace_requested(destination: String)
+signal hyperspace_abort_requested
+var navigation_controls: VBoxContainer
+var projection_button: Button
 signal forget_skill_requested(skill_id: String)
 signal call_vehicle_requested(entry: Dictionary)
 signal recall_vehicle_requested(entry: Dictionary)
@@ -11,7 +15,7 @@ signal delete_entry_requested(entry: Dictionary)
 signal cancel_mission_requested(entry: Dictionary)
 signal map_expansion_requested(expanded: bool)
 signal close_requested
-const MapControl = preload("res://scripts/datapad_map.gd")
+const MapControl = preload("res://space/sector_map.gd")
 const DatapadTheme = preload("res://scripts/datapad_theme.gd")
 var planet:="tatooine"
 var manifest: Dictionary = {}
@@ -20,6 +24,7 @@ var entries: Array = []
 var filtered_entries: Array = []
 var mission_parcels: Array = []
 var bounty_missions:Array=[]
+var space_missions:Array=[]
 var harvesting_deeds:Array=[]
 var factory_blueprints:Array=[]
 var vendors: Array = []
@@ -98,6 +103,10 @@ func set_mission_parcels(values:Array)->void:
 	if values==mission_parcels:return
 	mission_parcels=values.duplicate(true)
 	set_entries(entries.filter(func(entry):return not entry.get("reference_only",false) and entry.get("type","")!="mission_parcel"))
+
+func set_space_missions(values:Array)->void:
+	if values==space_missions:return
+	space_missions=values.duplicate(true);set_entries(entries)
 
 func set_bounty_missions(values:Array)->void:
 	if values==bounty_missions:return
@@ -211,6 +220,12 @@ func build_ui() -> void:
 		expand_button.text = "Compact map" if expanded else "Expand map"
 		map_expansion_requested.emit(expanded))
 	map_tools.add_child(expand_button)
+	projection_button=make_button("View: X/Z")
+	projection_button.pressed.connect(func():map.cycle_projection();projection_button.text="View: "+["X/Z","X/Y","Z/Y"][map.projection])
+	projection_button.hide();map_tools.add_child(projection_button)
+	navigation_controls=preload("res://space/navigation_controls.gd").new();content.add_child(navigation_controls);navigation_controls.hide()
+	navigation_controls.jump_requested.connect(func(destination:String):hyperspace_requested.emit(destination))
+	navigation_controls.abort_requested.connect(func():hyperspace_abort_requested.emit())
 	coordinates = make_label("",16)
 	coordinates.modulate = Color("91bdcc")
 	column.add_child(coordinates)
@@ -334,8 +349,9 @@ func set_planet(value:String)->void:
 
 func set_entries(values: Array) -> void:
 	build_ui()
-	entries = values.filter(func(entry):return entry.get("type","") not in ["ship","mission_parcel","bounty_mission","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
+	entries = values.filter(func(entry):return entry.get("type","") not in ["ship","space_mission","mission_parcel","bounty_mission","vendor","harvesting_deed","factory_deed","manufacturing_blueprint"] and not entry.get("reference_only",false)).duplicate(true)
 	entries.append_array(ships.duplicate(true))
+	entries.append_array(space_missions.duplicate(true))
 	# PLAY baselines identify the control device; vehicle snapshots identify its
 	# actual mobile. Retain that authoritative association across waypoint and
 	# datapad refreshes, without guessing a hull from the device filename.
@@ -513,6 +529,15 @@ func select_entry(index: int) -> void:
 	update_coordinates()
 	entry_selected.emit(entry)
 
+func set_sector_navigation(data:Dictionary,ship:Dictionary,contacts:Array,catalog:Dictionary)->void:
+	build_ui();map.set_sector(data,ship,contacts)
+	navigation_controls.visible=map_visible and not data.is_empty()
+	projection_button.visible=not data.is_empty()
+	map_filters.visible=map_visible and data.is_empty()
+	waypoint_button.visible=data.is_empty()
+	map_toggle.text="Entry list" if map_visible else "Planet map" if data.is_empty() else "Sector map"
+	if not data.is_empty():navigation_controls.configure(catalog,ship)
+
 func show_map(value: bool) -> void:
 	if value and category == "skills": select_category("waypoints")
 	map_visible = value
@@ -521,13 +546,17 @@ func show_map(value: bool) -> void:
 	map_expansion_requested.emit(value)
 	map.visible = value
 	map_tools.visible = value
-	map_filters.visible = value
+	map_filters.visible = value and map.sector.is_empty()
+	navigation_controls.visible=value and not map.sector.is_empty()
+	projection_button.visible=not map.sector.is_empty()
 	list.visible = not value
 	list_status.visible = not value
-	map_toggle.text = "Entry list" if value else "Planet map"
+	map_toggle.text = "Entry list" if value else "Planet map" if map.sector.is_empty() else "Sector map"
 	update_coordinates()
 
 func update_coordinates() -> void:
+	if not map.sector.is_empty():
+		var p:Vector3=map.sector_ship;coordinates.text="Sector position   X %.0f   Y %.0f   Z %.0f"%[p.x,p.y,p.z];return
 	var selected: bool = map.has_cursor
 	var point: Vector3 = map.cursor if selected else player_position
 	coordinates.text = "%s   X %.0f   Z %.0f%s" % ["Selected map point" if selected else "Your position",point.x,point.z," · height resolved on save" if selected else ""]

@@ -35,6 +35,7 @@ class RadarCanvas extends Control:
 		draw_colored_polygon(PackedVector2Array([center+Vector2(0,-9),center+Vector2(6,6),center+Vector2(0,3),center+Vector2(-6,6)]),cyan)
 		draw_string(LABEL_FONT,Vector2(108,230),"64m",HORIZONTAL_ALIGNMENT_LEFT,-1,16,cyan)
 		draw_string(LABEL_FONT,Vector2(94,38),"%03d°"%(int(round(heading_degrees))%360),HORIZONTAL_ALIGNMENT_CENTER,68,15,cyan)
+var sector_canvas: Control
 var viewport: SubViewport
 var canvas: RadarCanvas
 var display: MeshInstance3D
@@ -53,6 +54,9 @@ func configure() -> void:
 	canvas=RadarCanvas.new(); canvas.mouse_filter=Control.MOUSE_FILTER_IGNORE
 	canvas.custom_minimum_size=Vector2(PIXELS,PIXELS); canvas.size=Vector2(PIXELS,PIXELS)
 	viewport.add_child(canvas)
+	sector_canvas=preload("res://space/sector_map.gd").new();sector_canvas.compact=true
+	sector_canvas.custom_minimum_size=Vector2.ZERO;sector_canvas.size=Vector2(PIXELS,PIXELS)
+	sector_canvas.mouse_filter=Control.MOUSE_FILTER_IGNORE;viewport.add_child(sector_canvas);sector_canvas.custom_minimum_size=Vector2.ZERO;sector_canvas.size=Vector2(PIXELS,PIXELS);sector_canvas.hide()
 	display=MeshInstance3D.new(); display.name="WristRadarHologram"
 	var quad:=QuadMesh.new(); quad.size=Vector2.ONE*DIAMETER_METERS
 	display.mesh=quad; display.position=Vector3(0,DIAMETER_METERS*0.5+0.012,0.002)
@@ -62,6 +66,10 @@ func configure() -> void:
 	material.texture_filter=BaseMaterial3D.TEXTURE_FILTER_LINEAR; material.cull_mode=BaseMaterial3D.CULL_BACK
 	display.material_override=material; add_child(display)
 	visible=false
+
+func set_sector(data:Dictionary,ship:Dictionary,contacts:Array)->void:
+	sector_canvas.set_sector(data,ship,contacts)
+	sector_canvas.visible=not data.is_empty();canvas.visible=data.is_empty()
 
 func set_active(value: bool) -> void:
 	if active==value: return
@@ -74,6 +82,8 @@ func tick(delta: float, center: Vector3, forward: Vector3, provider: Callable) -
 	elapsed+=maxf(0.0,delta)
 	if elapsed+0.000001<REFRESH_SECONDS: return
 	elapsed=0.0 # No backlog or catch-up queries after a stall.
+	if sector_canvas.visible:
+		sector_canvas.queue_redraw();viewport.render_target_update_mode=SubViewport.UPDATE_ONCE;refresh_count+=1;return
 	var contacts: Array=[]
 	if provider.is_valid():
 		query_count+=1

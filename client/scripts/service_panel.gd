@@ -76,7 +76,10 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 	if upkeep_mode and terminal.get("kind","")=="house":terminal.kind="house_deposit"
 	if terminal.get("kind","")=="vendor":terminal.kind="bazaar";terminal.market_kind="vendor"
 	if is_instance_valid(delivery_dialogue):
-		delivery_dialogue.visible=terminal.get("kind","") in ["delivery","underworld","bounty_informant"]
+		delivery_dialogue.visible=terminal.get("kind","") in ["delivery","underworld","bounty_informant","pilot_trainer"]
+		delivery_dialogue.position=Vector2(590,125) if terminal.get("kind","")=="pilot_trainer" else Vector2(40,125)
+		delivery_dialogue.size=Vector2(242,370) if terminal.get("kind","")=="pilot_trainer" else Vector2(770,270)
+		delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_STOP if terminal.get("kind","")=="pilot_trainer" else Control.MOUSE_FILTER_IGNORE
 		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
 		if terminal.get("kind","")=="underworld" and not terminal.get("eligible",false) and not str(terminal.get("blocked_reason","")).is_empty():delivery_dialogue.text+="\n\n"+str(terminal.blocked_reason)
 	if terminal.get("kind","")=="bazaar":
@@ -97,7 +100,7 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 		"trainer": rows=terminal.get("skills",[]).duplicate(true)
 		"starship": rows=terminal.get("ships",[]).duplicate(true)
 		"ship_crew": rows=terminal.get("members",[]).duplicate(true)
-		"house","bounty_droid": rows=terminal.get("options",[]).duplicate(true)
+		"house","ship_control","bounty_droid","pilot_trainer","chassis_dealer","ship_outfit": rows=terminal.get("options",[]).duplicate(true)
 	if selected>=rows.size(): selected=-1
 	offset=clampf(offset,0,maxf(0,rows.size()-8))
 	pending=false
@@ -279,6 +282,11 @@ func click_at(pixel: Vector2) -> void:
 		if BAZAAR_REFRESH.has_point(pixel): request_browse();return
 		if PAGE_PREVIOUS.has_point(pixel) and page>0: page-=1;offset=0;selected=-1;request_browse();return
 		if PAGE_NEXT.has_point(pixel) and has_more: page+=1;offset=0;selected=-1;request_browse();return
+	if REFRESH_RECT.has_point(pixel) and terminal.get("kind","")=="starship":
+		if selected>=0 and selected<rows.size():action_requested.emit("ship_manage",{"terminal_id":str(terminal.id),"ship_id":str(rows[selected].id)})
+		return
+	if REFRESH_RECT.has_point(pixel) and terminal.get("kind","")=="ship_outfit":
+		action_requested.emit("open",{"terminal_id":str(terminal.id)});return
 	if REFRESH_RECT.has_point(pixel) and terminal.get("kind","") in ["bazaar","mission","travel","trainer"]:
 		set_pending(true)
 		action_requested.emit("mission_refresh" if terminal.get("kind","")=="mission" else "open",browse_payload() if terminal.get("kind","")=="bazaar" else {"terminal_id":str(terminal.get("id",""))})
@@ -338,6 +346,12 @@ func confirm() -> void:
 	elif kind=="ship_crew":
 		if not terminal.get("is_pilot",false) or str(terminal.get("launch_id","")).is_empty():return
 		action="jtl_launch_confirm";payload.launch_id=str(terminal.launch_id)
+	elif kind=="ship_control":
+		if selected<0 or selected>=rows.size():return
+		action="ship_terminal_command";payload.command_id=rows[selected].command_id
+	elif kind=="house" and terminal.get("pob",false):
+		if selected<0 or selected>=rows.size():return
+		action="pob_recover";payload.item_id=rows[selected].item_id
 	elif kind=="house":
 		if selected<0 or selected>=rows.size():return
 		var choice:Dictionary=rows[selected]
@@ -359,6 +373,17 @@ func confirm() -> void:
 		if str(terminal.get("confirm_action",""))!="delivery_pickup":
 			message="Grip and pull the parcel from Data, present it to the recipient, and press trigger.";queue_redraw();return
 		action="delivery_pickup";payload={"npc_id":str(terminal.get("id","")),"mission_id":str(terminal.get("mission_id",""))}
+	elif kind in ["ship_outfit","chassis_dealer"]:
+		if selected<0 or selected>=rows.size():return
+		var option:Dictionary=rows[selected];action=str(option.operation)
+		for key in ["slot","component_id","item_id","price"]:
+			if option.has(key):payload[key]=option[key]
+		if kind=="ship_outfit":payload.ship_id=str(terminal.ship_id)
+	elif kind=="pilot_trainer":
+		if selected<0 or selected>=rows.size():return
+		var option:Dictionary=rows[selected]
+		action="pilot_begin" if option.get("begin",false) else "pilot_choose"
+		if action=="pilot_choose":payload.option=int(option.option);payload.screen_token=str(terminal.get("screen_token",""))
 	elif kind=="trainer":
 		if selected<0 or selected>=rows.size(): return
 		var skill: Dictionary=rows[selected]
@@ -406,7 +431,8 @@ func label_for(row: Dictionary) -> String:
 
 func detail_for(row: Dictionary) -> String:
 	var detail:=label_for(row)+"\n\n"
-	if terminal.get("kind","")=="house":detail+="Items: %d / %d\nUpkeep: %d credits\nRate: %.1f credits/hour\n\n"%[int(terminal.get("item_count",0)),int(terminal.get("item_limit",0)),int(terminal.get("maintenance",0)),float(terminal.get("maintenance_rate",0))]
+	if terminal.get("kind","")=="house" and terminal.get("pob",false):detail+="Placed items: %d / %d\n\n"%[int(terminal.get("item_count",0)),int(terminal.get("item_limit",0))]
+	elif terminal.get("kind","")=="house":detail+="Items: %d / %d\nUpkeep: %d credits\nRate: %.1f credits/hour\n\n"%[int(terminal.get("item_count",0)),int(terminal.get("item_limit",0)),int(terminal.get("maintenance",0)),float(terminal.get("maintenance_rate",0))]
 	if terminal.get("kind","")=="mission":
 		detail+="Type: "+str(row.get("type","mission")).capitalize()+"\n"
 		if not str(row.get("target","")).is_empty(): detail+="Target: "+str(row.target)+"\n"
@@ -497,7 +523,7 @@ func _draw() -> void:
 		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"No entries returned by Core3." if kind!="crafting" else "No compatible owned crafting tools returned by Core3.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
 			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
-		if kind not in ["ship_crew","travel"] and selected>=0 and selected<rows.size():
+		if kind not in ["ship_crew","travel","pilot_trainer"] and selected>=0 and selected<rows.size():
 			var row: Dictionary=rows[selected]
 			var detail:=detail_for(row)
 			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
@@ -505,15 +531,19 @@ func _draw() -> void:
 	if kind=="travel":travel_overview.draw(self,rows,selected,FONT)
 	if kind=="house_deposit":
 		draw_style_box(Holo.button(),REFRESH_RECT);draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Back",HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
-	if kind in ["bazaar","mission","travel","trainer","ship_crew"]:
+	if kind in ["bazaar","mission","travel","trainer","ship_crew","starship","ship_outfit"]:
 		draw_style_box(Holo.button("disabled" if pending else "normal"),REFRESH_RECT)
-		draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Cancel launch" if kind=="ship_crew" else ("Back to listings" if bid_mode else ("Back" if kind=="bazaar" else ("Refresh offers" if kind=="mission" else "Refresh"))),HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
+		draw_string(FONT,REFRESH_RECT.position+Vector2(10,33),"Components" if kind=="starship" else "Back to ships" if kind=="ship_outfit" else "Cancel launch" if kind=="ship_crew" else ("Back to listings" if bid_mode else ("Back" if kind=="bazaar" else ("Refresh offers" if kind=="mission" else "Refresh"))),HORIZONTAL_ALIGNMENT_CENTER,170,19,Color("d2f6ff"))
 	if kind=="bazaar" and not bid_mode:
 		for item in [{"rect":BAZAAR_REFRESH,"label":"Refresh"},{"rect":PAGE_PREVIOUS,"label":"‹"},{"rect":PAGE_NEXT,"label":"›"}]:
 			draw_style_box(Holo.button(),item.rect)
 			draw_string(FONT,item.rect.position+Vector2(5,33),item.label,HORIZONTAL_ALIGNMENT_CENTER,item.rect.size.x-10,20,Color("d2f6ff"))
 		draw_string(FONT,Vector2(590,115),"Page %d · %d listings"%[page+1,rows.size()],HORIZONTAL_ALIGNMENT_LEFT,240,14,Color("9ac7da"))
 	var button: String={"bazaar":"Purchase","mission":"Accept mission","travel":"Buy ticket","boarding":"Board shuttle","bank":"Transfer","payment":"Send credits","crafting":"Use station","trainer":"Train skill","starship":"Launch ship"}.get(kind,"Confirm")
+	if kind=="house" and terminal.get("pob",false):button="Recover item"
+	if kind=="ship_control":button="Activate"
+	if kind=="pilot_trainer":button="Reply"
+	if kind in ["chassis_dealer","ship_outfit"]:button="Confirm selection"
 	if kind=="starship":button="Prepare launch"
 	if kind=="ship_crew":button="Launch" if terminal.get("is_pilot",false) else "Waiting for pilot"
 	if kind=="underworld":button="Accept smuggling job"

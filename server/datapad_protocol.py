@@ -16,7 +16,7 @@ try:
  from .planets import SUPPORTED_PLANETS
 except ImportError:
  from planets import SUPPORTED_PLANETS
-PLANETS = list(SUPPORTED_PLANETS)
+PLANETS = list(SUPPORTED_PLANETS)+['space_'+name for name in ('corellia','dantooine','dathomir','endor','lok','naboo','tatooine','yavin4','light1','heavy1')]
 
 @lru_cache(maxsize=64)
 def labels(table):

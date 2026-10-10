@@ -21,6 +21,11 @@ def write(path, data):
     path.write_text(json.dumps(data, indent=2)+'\n')
 
 
+def catalog_directories():
+    base=ROOT/'runtime/assets'
+    return [p for p in (base/'ambient_npcs',base/'combat_population/tatooine_entities',base/'combat_population/tatooine') if (p/'catalog.json').is_file()]
+
+
 def repair_catalog(directory, importer):
     path = directory/'catalog.json'
     catalog = json.loads(path.read_text())
@@ -129,7 +134,7 @@ def audit():
                             'partial': bool(omitted)}
     repairs = []
     remaining = []
-    for directory in (ambient, ROOT/'runtime/assets/combat_population/tatooine'):
+    for directory in catalog_directories():
         current = json.loads((directory/'catalog.json').read_text())
         for key, descriptor in current['races'].items():
             for outfit in descriptor.get('default_outfit', []):
@@ -157,7 +162,7 @@ def main():
     args = parser.parse_args()
     if args.repair:
         importer = CharacterImporter(ROOT/'runtime/asset_sources/active_tre', ROOT/'runtime/assets/bounty')
-        for directory in (ROOT/'runtime/assets/ambient_npcs', ROOT/'runtime/assets/combat_population/tatooine'):
+        for directory in catalog_directories():
             repair_catalog(directory, importer)
     report = audit(); write(args.output, report)
     print(json.dumps({'conversion_audit_passed': report['conversion_audit_passed'],

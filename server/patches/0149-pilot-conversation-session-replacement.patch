@@ -1,0 +1,11 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPilotTrainers.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPilotTrainers.h
+@@ -32,7 +32,7 @@
+   auto ghost=c->getPlayerObject();auto t=conversation(npc);
+   Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
+   bool begin=request.at("action")=="pilot_begin";int selected=-1;
+-  if(begin){if(session)session->cancelSession();session=new ConversationSession(npc);c->addActiveSession(SessionFacadeType::CONVERSATION,session);ghost->setConversatingObject(npc);}
++  if(begin){if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);session=new ConversationSession(npc);c->addActiveSession(SessionFacadeType::CONVERSATION,session);ghost->setConversatingObject(npc);}
+   else{
+    auto saved=ghost->getScreenPlayData("swgxr_pilot","view");auto view=saved.isEmpty()?Json::object():Json::parse(saved.toCharArray());
+    if(!session || session->getNPC().get()!=npc || view.value("npc_id",std::string())!=id(npc) || view.value("screen_token",std::string())!=request.value("screen_token",std::string()))throw std::runtime_error("pilot_conversation_changed");

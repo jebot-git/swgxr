@@ -68,5 +68,9 @@ func run()->void:
 	check(actor.ground_state_revision==2,"Actor pose accepts recovered state with lower transport sequence")
 	actor.apply_action_event(event,2)
 	check(actor.action_event_epoch==3,"Old scene epoch cannot replace action pose")
+	c.timeline.clock_ready=true;c.timeline.server_offset=100
+	check(not c.presentation_receipt("lock",event,3).has("presented_at"),"Older server receives its existing receipt schema")
+	c.integration_timestamps=true
+	check(c.presentation_receipt("lock",event,3).presented_at==103,"Negotiated receipts carry actual client presentation time")
 	actor.free()
 	print(JSON.stringify({"passed":errors.is_empty(),"checks":checks,"errors":errors,"renderer":"dummy","live_test":false}));quit(0 if errors.is_empty() else 1)

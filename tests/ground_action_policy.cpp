@@ -22,10 +22,34 @@ int main(){
  assert(!chase.disengage(6,10,100,96,true)); // Long-range gun remains useful.
  assert(!chase.disengage(7,161,2,3,true));assert(chase.disengage(10,161,2,3,true));
  assert(!chase.disengage(11,1000,1000,3,false)); // NPC-only combat stays native.
+ // One slow cleave participant does not hold another player's ready result.
+ assert(ground::canSettle(false,false,true,false));
+ assert(!ground::canSettle(false,false,false,false));
+ assert(!ground::canSettle(false,true,true,true));
+ assert(!ground::canSettle(true,false,true,false));
+ assert(ground::canSettle(true,true,true,false));
+ std::vector<ground::Interceptor> intercepted{{8,11.1,1},{3,11.2,9},{3,11.1,8},{3,11.1,7}};
+ auto cleave=intercepted;ground::arbitrate(cleave,false);assert(cleave.size()==4);
+ ground::arbitrate(intercepted,true);assert(intercepted.size()==1&&intercepted.front().id==7);
  ground::Victim v;v.attack.start=10;v.attack.id=10;v.attack.aimLocked=true;
  assert(!v.acknowledge(10.96,1));assert(!v.receipt(11.3,true,10.2,11.3,1));assert(!v.resolve()&&v.waived);
  v={};v.attack.start=10;v.attack.aimLocked=true;assert(!v.acknowledge(10.5,1));assert(v.warning(10.5));assert(v.acknowledge(10.8,1));assert(!v.acknowledge(10.8,2));
  assert(v.receipt(11.3,true,10.2,11.3,1));assert(v.receipt(11.4,true,10.2,11.3,1));assert(!v.receipt(11.4,false,10.2,11.3,1));assert(v.ready(11.3));assert(v.resolve());assert(!v.resolve());
+ // Ordinary transport delay may arrive after delivery even though the player
+ // saw warning/lock in time. Late visibility, forged future and stale times fail.
+ ground::Victim delayed;delayed.attack.start=10;delayed.attack.aimLocked=true;
+ assert(delayed.warning(10.9,10.4));assert(delayed.acknowledge(11.15,1,10.8));
+ assert(delayed.receipt(11.55,true,10.4,11.3,1));assert(delayed.resolve());
+ ground::Victim observed;observed.attack.start=10;observed.attack.aimLocked=true;
+ assert(observed.warning(10.4));assert(observed.acknowledge(10.8,1));
+ assert(!observed.receipt(11.4,true,11.05,11.3,1));
+ assert(!observed.receipt(11.4,false,11.05,11.3,1,11.1));
+ assert(!observed.receipt(11.4,true,11.05,11.3,1,10.9));
+ assert(!observed.receipt(11.4,true,11.05,11.3,1,11.26));
+ assert(observed.receipt(11.4,true,11.05,11.3,1,11.1));assert(observed.resolve());
+ ground::Victim late;late.attack.start=10;late.attack.aimLocked=true;
+ assert(!late.warning(10.9,10.8));assert(!late.warning(10.9,11.1));assert(!late.warning(11.5,10.4));
+ assert(late.warning(10.9,10.4));assert(!late.acknowledge(11.3,1,11.0));assert(!late.acknowledge(11.3,2,10.8));
  // Production publishes warnings 150ms ahead of start. Early receipt is
  // valid presentation, but coverage must be clipped to the attack interval.
  ground::Victim early;early.attack.start=10.15;early.attack.aimLocked=true;

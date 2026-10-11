@@ -1,7 +1,7 @@
 extends RefCounted
-## Presentation-only reconciliation of passive citizens with original floors.
+## Presentation-only reconciliation of grounded humanoids with original floors.
 ## Core3 patrol coordinates can cut through interpolated stairs and ramps.
-## Only nonattackable passive citizens: combat projectile rays remain native.
+## Move rendered anatomy and its contact collider together, including guards.
 ## Never edits authority or floor-snaps arbitrary creatures.
 const MAX_LIFT:=1.5
 const MIN_PENETRATION:=0.03
@@ -63,7 +63,6 @@ func apply(actor:Node3D,row:Dictionary,terrain:Node,stage:Node3D)->void:
 	actor.report["terrain_projection"]={"native_y":source.y,"terrain_y":height,"penetration":lift,"bounded":lift<=MAX_LIFT,"sample_only_on_position_or_floor_change":true}
 	actor.set_presentation_floor_offset(lift if is_finite(lift) and lift>=MIN_PENETRATION and lift<=MAX_LIFT else 0.0)
 func eligible(actor:Node3D,row:Dictionary)->bool:
-	if int(row.get("pvp_status",-1))!=0:return false
 	if row.get("kind","")!="creature" or bool(row.get("dead",false)) or bool(row.get("incapacitated",false)) or int(row.get("posture",0))!=0:return false
 	if str(row.get("mood","")).contains("sitting"):return false
 	if not is_instance_valid(actor.visual) or not actor.visual.has_method("update_motion"):return false

@@ -117,6 +117,8 @@ var hand_targets: Dictionary = {}
 var bound_gloves: Dictionary = {}
 var desktop_swing_remaining := 0.0
 var unarmed: Dictionary = {}
+# Native equipment, not holstering alone, determines whether fists can attack.
+var native_unarmed_available:=true
 var unarmed_gloves: Dictionary = {}
 var abilities = preload("res://combat/ability_state.gd").new()
 var ability_ui: Node3D
@@ -300,7 +302,7 @@ func configure_unarmed(profile: Dictionary) -> bool:
 	return true
 
 func unarmed_engaged(side: String) -> bool:
-	return allowed and selected<0 and unarmed.has(side) and unarmed[side].swing_feedback.get("engaged",false)
+	return allowed and native_unarmed_available and selected<0 and unarmed.has(side) and unarmed[side].swing_feedback.get("engaged",false)
 
 func pet_trigger_reserved(side: String)->bool:
 	return is_instance_valid(body) and is_instance_valid(body.get("pet_controls")) and body.pet_controls.blocks_trigger(side)
@@ -310,7 +312,7 @@ func vehicle_hand_busy(side: String)->bool:
 
 func sample_unarmed(delta: float, side: String, pose: Transform3D, tracked: bool, posture: String, trigger := 0.0) -> void:
 	if not unarmed.has(side): return
-	var permitted: bool = allowed and not squad_input_captured and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and not pet_trigger_reserved(side) and selected<0 and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
+	var permitted: bool = allowed and not squad_input_captured and not dna_input_captured and not taunt_input_captured and not warcry_input_captured and not brawler_input_captured and not tka_input_captured and not swordsman_input_captured and not fencer_input_captured and not pikeman_input_captured and not pistoleer_input_captured and not carbineer_input_captured and not rifleman_input_captured and not bountyhunter_input_captured and not pet_trigger_reserved(side) and selected<0 and native_unarmed_available and tracked and not vehicle_hand_busy(side) and not (offhand_occupied and side!=dominant) and combat_actions_allowed() and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not (is_instance_valid(inventory) and inventory.interaction_active)
 	var shot: Dictionary=unarmed[side].sample_swing(delta,permitted,false,posture,swing_position(pose.origin),is_finite(trigger) and trigger>=0.5)
 	var prior:Vector3=melee_marker_previous.get(side,pose.origin)
 	melee_marker_previous[side]=pose.origin
@@ -1225,14 +1227,14 @@ func configure_warcry(context:Dictionary,callback:Callable)->void:
 func sample_overhead_warcry(delta:float,head_tracked:bool)->void:
 	warcry_input_captured=false
 	if swordsman_input_captured or fencer_input_captured or pikeman_input_captured or pistoleer_input_captured or carbineer_input_captured or rifleman_input_captured or bountyhunter_input_captured:overhead_warcry.clear();return
-	var permitted:bool=allowed and head_tracked and selected>=0 and selected<weapons.size() and warcry_authority.is_valid() and bool(warcry_context.get("learned",false)) and bool(warcry_context.get("conditions_met",false)) and float(warcry_context.get("cooldown_remaining_seconds",0))<=0 and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not vehicle_hand_busy(dominant)
+	var permitted:bool=allowed and head_tracked and ((selected>=0 and selected<weapons.size()) or (selected<0 and native_unarmed_available and unarmed.has(dominant))) and warcry_authority.is_valid() and bool(warcry_context.get("learned",false)) and bool(warcry_context.get("conditions_met",false)) and float(warcry_context.get("cooldown_remaining_seconds",0))<=0 and combat_actions_allowed() and inventory_allows_combat() and not squad_input_captured and not bountyhunter_input_captured and not dna_input_captured and not ability_ui.menu_open and not (is_instance_valid(datapad) and datapad.is_open) and not vehicle_hand_busy(dominant)
 	if not permitted or not is_instance_valid(origin):overhead_warcry.clear();return
 	var controller:XRController3D=origin.get_node(dominant.capitalize()+"Hand")
 	var support:XRController3D=origin.get_node("LeftHand" if dominant=="right" else "RightHand")
 	var forward:Vector3=-head.global_basis.z;forward.y=0
 	if forward.length_squared()<.1:overhead_warcry.clear();return
 	var basis:=Basis(Vector3.UP,atan2(-forward.x,-forward.z))
-	var hand:Dictionary={"position":controller.global_position,"relative":basis.inverse()*(controller.global_position-head.global_position),"head_y":head.global_position.y,"item_id":str(weapons[selected].state.profile.get("item_id","")),"tracked":HandInput.controller_tracked(controller),"grip":controller.get_float("grip"),"trigger":controller.get_float("trigger"),"support_trigger":support.get_float("trigger")}
+	var hand:Dictionary={"position":controller.global_position,"relative":basis.inverse()*(controller.global_position-head.global_position),"head_y":head.global_position.y,"item_id":str(active_profile().get("item_id","")),"tracked":HandInput.controller_tracked(controller),"grip":controller.get_float("grip"),"trigger":controller.get_float("trigger"),"support_trigger":support.get_float("trigger")}
 	var fired:bool=overhead_warcry.sample(delta,hand,permitted)
 	warcry_input_captured=overhead_warcry.capturing
 	if warcry_input_captured:physical_guard.clear()

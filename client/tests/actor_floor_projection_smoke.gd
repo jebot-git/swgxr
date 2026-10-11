@@ -33,7 +33,7 @@ func run()->void:
 	check(is_equal_approx(actor.collider.position.y-collider_y,1.0) and is_equal_approx(actor.label.position.y-label_y,1.0),"Visual proxy and label follow presentation")
 	for i:int in range(20):helper.apply(actor,row,terrain,stage)
 	check(helper.samples==1,"Identical snapshots reuse source sample without per-frame rays")
-	for patch:Dictionary in [{"pvp_status":1},{"posture":1},{"posture":8},{"dead":true},{"incapacitated":true},{"building_id":"42","cell_index":1},{"kind":"lair"},{"mood":"npc_sitting_chair"}]:
+	for patch:Dictionary in [{"posture":1},{"posture":8},{"dead":true},{"incapacitated":true},{"building_id":"42","cell_index":1},{"kind":"lair"},{"mood":"npc_sitting_chair"}]:
 		var excluded:=row.duplicate(true);excluded.merge(patch,true);helper.apply(actor,excluded,terrain,stage)
 		check(actor.presentation_floor_height==0,"Excluded actor retains native pose: "+str(patch))
 	# Re-entering eligible state invalidates the prior result, not just position.
@@ -95,7 +95,7 @@ func run()->void:
 		helper.bind(actor,row,terrain,stage)
 		check(absf(actor.presentation_floor_height-.15)<.002,"Outdoor citizen follows authored approach slope above terrain")
 	var combat:=row.duplicate(true);combat.pvp_status=1;helper.bind(actor,combat,terrain,stage)
-	check(not actor.presentation_floor_update.is_valid() and actor.presentation_floor_height==0,"Combat actor clears citizen callback and floor offset")
+	check(actor.presentation_floor_update.is_valid() and absf(actor.presentation_floor_height-.15)<.002,"Armed guard/combat humanoid follows the same authored stairs")
 	var ankle:int=actor.visual.skeleton.find_bone("lankle")
 	actor.visual.skeleton.set_bone_name(ankle,"nonhumanoid_foot")
 	row.position[1]=4;helper.apply(actor,row,terrain,stage);check(actor.presentation_floor_height==0,"Nonhumanoid/flying rigs excluded")

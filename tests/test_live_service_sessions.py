@@ -78,6 +78,26 @@ class ServiceSessions(unittest.TestCase):
         self.hub.guard('third')
         with self.assertRaises(LiveConflict): self.hub.guard('one')
 
+    def test_combat_receipt_bundle_and_result_query(self):
+        row=dict(kind='warning',actor_id='5',attack_id='6',aim_revision=1,presented_at=10)
+        data=dict(character_id='1',session_id='session_one',shot_id='shot_12345',item_id='99',origin=[0,1,0],direction=[0,0,1],receipt_only=True,ground_receipts=[row])
+        self.hub.request('one','fire',data)
+        command=self.hub._exchange.call_args.args[1]
+        self.assertEqual(command['ground_receipts'],dict(action='batch',receipts=[row]))
+        self.assertTrue(command['receipt_only'])
+        for change in ({'receipt_only':1},{'ground_receipts':[dict(row,victim_id='2')]}):
+            with self.assertRaises(ValueError):self.hub.request('one','fire',dict(data,**change))
+
+    def test_presented_melee_contact(self):
+        proof=dict(target_id='42',hit_position=[0,1,1],target_position=[0,0,1],observation_at=10.)
+        data=dict(character_id='1',session_id='session_one',shot_id='swing_123',item_id='99',origin=[0,1,0],direction=[0,0,1],melee_contact=proof)
+        self.hub.request('one','melee',data)
+        self.assertEqual(self.hub._exchange.call_args.args[1]['melee_contact'],proof)
+        self.hub.request('one','melee',dict(data,melee_contact={'target_id':'0'}))
+        for invalid in (dict(proof,observation_at=float('nan')),dict(proof,damage=900),dict(proof,hit_position=[0,True,1])):
+            with self.assertRaises(ValueError):self.hub.request('one','melee',dict(data,melee_contact=invalid))
+        with self.assertRaises(ValueError):self.hub.request('one','fire',data)
+
 
 class SessionCapacity(unittest.TestCase):
     def test_bounded_configuration(self):

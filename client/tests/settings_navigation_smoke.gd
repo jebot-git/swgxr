@@ -1,6 +1,11 @@
 extends SceneTree
 class MenuApp extends "res://scripts/main.gd":
 	func _ready()->void:pass
+class GazeRuntime extends RefCounted:
+	var gaze:=true
+	func is_initialized()->bool:return true
+	func is_eye_gaze_interaction_supported()->bool:return gaze
+	func is_foveation_supported()->bool:return false
 var failures:Array=[]
 var checks:=0
 func check(ok:bool,label:String)->void:
@@ -49,8 +54,28 @@ func run()->void:
 		check(root.msaa_3d==level and app.xr_viewport.msaa_3d==level and app.xr_spectator.viewport.msaa_3d==level,"MSAA applies to main, headset and spectator viewports: "+str(level))
 		var saved=preload("res://graphics/preferences.gd").new();saved.path=app.graphics_preferences.path;saved.load_preferences()
 		check(saved.msaa==level,"MSAA survives reload: "+str(level))
+	for option in range(4):
+		graphics.fixed_choice.open_popup();graphics.fixed_choice._choose(option)
+		var saved=preload("res://graphics/preferences.gd").new();saved.path=app.graphics_preferences.path;saved.load_preferences()
+		check(saved.foveation_level==option and saved.fovea_size==0,"Fixed foveation persists independently")
+	var gaze_runtime:=GazeRuntime.new();graphics.refresh_foveation(gaze_runtime)
+	check(graphics.gaze_row.visible and not graphics.fixed_row.visible,"Eye support replaces fixed control with sharp-region size")
+	for option in range(4):
+		graphics.gaze_choice.open_popup();graphics.gaze_choice._choose(option);graphics.refresh_foveation(gaze_runtime)
+		var saved=preload("res://graphics/preferences.gd").new();saved.path=app.graphics_preferences.path;saved.load_preferences()
+		check(saved.fovea_size==option and saved.foveation_level==3,"Gaze size persists without changing fixed strength")
+	gaze_runtime.gaze=false;graphics.refresh_foveation(gaze_runtime)
+	check(graphics.fixed_row.visible and not graphics.gaze_row.visible,"Loss of gaze capability restores fixed control")
+	for option in [1,0]:
+		graphics.mirror_choice.open_popup();graphics.mirror_choice._choose(option)
+		var saved=preload("res://graphics/preferences.gd").new();saved.path=app.graphics_preferences.path;saved.load_preferences()
+		check(saved.desktop_mirror==option,"Desktop mirror selection survives restart")
 	var config:=ConfigFile.new();config.set_value("graphics","msaa",999);config.save(app.graphics_preferences.path);app.graphics_preferences.load_preferences()
 	check(app.graphics_preferences.msaa==Viewport.MSAA_DISABLED,"Invalid saved MSAA safely defaults to Off")
+	for bad in [99,-1,"high",true,2.5,NAN]:
+		for key:String in ["foveation_level","fovea_size","desktop_mirror"]:config.set_value("graphics",key,bad)
+		config.save(app.graphics_preferences.path);app.graphics_preferences.load_preferences()
+		check(app.graphics_preferences.foveation_level==0 and app.graphics_preferences.fovea_size==0 and app.graphics_preferences.desktop_mirror==0,"Malformed graphics preferences safely default")
 	DirAccess.remove_absolute(app.graphics_preferences.path);root.msaa_3d=Viewport.MSAA_DISABLED
 	app.queue_free();await process_frame;await process_frame
 	print(JSON.stringify({"passed":failures.is_empty(),"checks":checks,"failures":failures,"xr":false,"tracking":"mocked","renderer":"dummy" if DisplayServer.get_name()=="headless" else RenderingServer.get_current_rendering_method()}))

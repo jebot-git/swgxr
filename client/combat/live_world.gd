@@ -160,6 +160,7 @@ func reset(reason:="Live CoreCU session unavailable.")->void:
 	generation+=1;live=false;native_ready=false;busy=false;session_id="";sequence=-1;weapon={};player_state={};queue.clear();shots.clear();next_launch_usec=0;backend_retry_usec=0
 	for actor:Node in actors.values():actor.collision_layer=0;actor.visible=false;actor.queue_free()
 	actors.clear();last_error=reason
+	if is_instance_valid(hit_feedback):hit_feedback.queue_free();hit_feedback=null
 	ambient_bindings.clear()
 	if is_instance_valid(ambient_source):ambient_source.set_live_suppressed({})
 	update_appearance_report()
@@ -283,6 +284,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 	write_status();return live and session_id==incoming
 
 func sync_native_abilities() -> void:
+	rig.native_unarmed_available=native_ready and bool(weapon.get("unarmed",false))
 	if is_instance_valid(rig.get("squad_leader")):rig.squad_leader.observe(player_state.get("squad_leader",{}),session_id+":"+str(sequence),register_squadleader,world,is_ready)
 	rig.commando_authority=register_commando
 	if rig.has_method("configure_bountyhunter"):rig.configure_bountyhunter(player_state.get("bountyhunter",{}),register_bountyhunter,str(weapon.get("item_id","")),session_id)
@@ -587,7 +589,7 @@ func register_warcry(pose:Transform3D,hand:String)->bool:
 	if not is_ready() or not context.get("learned",false) or not context.get("conditions_met",false) or float(context.get("cooldown_remaining_seconds",0))>0 or now<next_launch_usec or queue.size()>=MAX_QUEUE or shots.size()>=MAX_SHOTS:return false
 	var ham:Array=player_state.get("ham",[])
 	if ham.size()!=3 or float(ham[1])<=float(context.get("action_cost",INF)) or float(ham[2])<=float(context.get("mind_cost",INF)):return false
-	if rig.selected<0 or str(rig.weapons[rig.selected].state.profile.get("item_id",""))!=str(weapon.get("item_id","")):return false
+	if str(rig.active_profile().get("item_id",""))!=str(weapon.get("item_id","")) or (rig.selected<0 and not bool(weapon.get("unarmed",false))):return false
 	if not pose.origin.is_finite() or not pose.basis.is_finite() or hand not in ["left","right"]:return false
 	next_launch_usec=now+1000000
 	serial+=1
@@ -641,7 +643,12 @@ func register_melee(shot:Dictionary,pose:Transform3D)->Dictionary:
 	if not ability.is_empty():
 		payload.merge({"ability_id":requested,"target_id":str(shot.target_id)})
 		rig.abilities.cooldowns[requested]=float(ability.get("cooldown_seconds",0))
+	var contact:Dictionary={}
+	if requested.is_empty() and volley.is_empty() and weapon.get("melee_contact","")=="presented_v1":
+		contact=preload("res://combat/melee_contact.gd").pick(self,actors,session_id,pose,minf(float(weapon.max_range_m),2.0 if weapon.get("unarmed",false) else 4.0))
+		payload.melee_contact={"target_id":"0"} if contact.is_empty() else {"target_id":contact.target_id,"hit_position":source(contact.point),"target_position":source(contact.actor.global_position),"observation_at":float(contact.actor.record.observation_at)}
 	queue.append({"kind":"pikeman" if ability.get("native_family","")=="pikeman" else "fencer" if requested in ["arterial_cut","nerve_strike","disorienting_thrust","exposing_thrust"] else "swordsman" if requested in ["rending_cut","disrupting_blow","hamstring","decisive_strike"] else "melee","payload":payload,"shot_id":id})
+	if not contact.is_empty():queue[-1].feedback_position=contact.point
 	return immutable
 
 func melee_receipt(id:String,mutation:Dictionary)->void:
@@ -660,6 +667,7 @@ func aim_assist_candidates()->Array:
 	return candidates
 
 func prepare_combat_request(request:Dictionary)->bool:
+	if request.get("receipt_retry",0)>0:return true
 	var id:=str(request.get("shot_id",""))
 	if request.get("kind","")!="fire" or not shots.has(id):return true
 	var shot:Dictionary=shots[id].shot
@@ -671,6 +679,28 @@ func prepare_combat_request(request:Dictionary)->bool:
 		last_error="Shot cancelled while waiting for the connection."
 		return false
 	request.payload["_client_launch_usec"]=launched
+	return true
+
+func retain_pending_receipt(request:Dictionary)->void:
+	if weapon.get("combat_receipts","")!="replay_v1":return
+	var id:=str(request.get("shot_id",""))
+	if shots.has(id) and not request.has("receipt_deadline"):
+		request.receipt_deadline=Time.get_ticks_usec()+25000000
+		shots[id].expires_usec=request.receipt_deadline
+
+func retry_combat_receipt(request:Dictionary,response:Dictionary)->bool:
+	if weapon.get("combat_receipts","")!="replay_v1" or not shots.has(str(request.get("shot_id",""))):return false
+	var status:=int(response.get("http_status",0))
+	var unstarted:bool=response.get("error_code","")=="backend_busy" and response.get("mutation_started")==false
+	var uncertain:bool=(status==0 and not response.has("session_id")) or response.get("error_code","")=="native_response_timeout" or status in [502,504]
+	if not uncertain and not unstarted:return false
+	var count:=int(request.get("receipt_retry",0))
+	if count>=3 or Time.get_ticks_usec()>=int(request.get("receipt_deadline",0)):return false
+	request.receipt_retry=count+1
+	# Never re-execute an uncertain old swing. Fetch its committed result only.
+	if uncertain:request.payload.receipt_only=true
+	queue.push_front(request);backend_retry_usec=Time.get_ticks_usec()+100000*(count+1)
+	last_error="Recovering combat receipt…"
 	return true
 
 func register_shot(shot:Dictionary,pose:Transform3D,grip:Vector3)->Dictionary:
@@ -780,7 +810,7 @@ func contact(shot:Dictionary,target:Dictionary,position:Vector3,_normal:Vector3,
 		for pellet:Dictionary in shot.get("pellet_contacts",[]):contacts.append({"pellet_index":int(pellet.pellet_index),"hit_position":source(pellet.hit_position),"projectile_age_seconds":float(pellet.projectile_age_seconds)})
 		if contacts.is_empty():return
 		payload["pellet_contacts"]=contacts
-	queue.append({"kind":"impact","payload":payload,"shot_id":id})
+	queue.append({"kind":"impact","payload":payload,"shot_id":id,"feedback_position":position+_normal*.03})
 
 func rejected_fire(id:String)->void:
 	# A confirmed failed launch paid no SAC/cooldown. Replace only the local
@@ -880,10 +910,12 @@ func pump()->void:
 	var id:=str(request.get("shot_id",""))
 	if request.kind=="impact" and (not shots.has(id) or not shots[id].accepted):return
 	if not prepare_combat_request(request):return
+	retain_pending_receipt(request)
 	busy=true;var epoch:=generation
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/"+str(request.kind),request.payload)
 	if epoch!=generation:return
 	busy=false
+	if retry_combat_receipt(request,response):return
 	if settle_movement_rejection(response,request):return
 	# This explicit gate rejection guarantees that this attempt never entered
 	# Core3. Transport failures or uncertain mutations must still fail closed.
@@ -913,6 +945,37 @@ func pump()->void:
 		life_action_finished.emit(action,bool(mutation.get("success",false)),str(mutation.get("error_code",response.get("error_code",""))))
 	combat_receipt(request,response)
 
+var hit_feedback:Node3D
+func present_hit_result(request:Dictionary,mutation:Dictionary)->void:
+	if not mutation.get("success",false):return
+	if mutation.get("combat_results") is Array:
+		for result:Dictionary in mutation.combat_results:present_one_hit_result(request,result)
+		return
+	# Compatibility with servers that predate native per-target feedback.
+	if request.kind in ["impact","melee","swordsman","fencer","pikeman"]:present_one_hit_result(request,mutation)
+func present_one_hit_result(request:Dictionary,mutation:Dictionary)->void:
+	if not mutation.get("success",false) or str(mutation.get("target_id","")).is_empty():return
+	var point:=Vector3.INF
+	if str(request.payload.get("target_id",request.payload.get("melee_contact",{}).get("target_id","")))==str(mutation.target_id) and request.get("feedback_position") is Vector3:point=request.feedback_position
+	elif str(request.payload.get("target_id",""))==str(mutation.target_id) and request.payload.get("hit_position") is Array:point=world(request.payload.hit_position)
+	else:
+		var actor:Variant=actors.get(str(mutation.target_id))
+		if is_instance_valid(actor) and is_instance_valid(actor.get("collider")):
+			var shape:CollisionShape3D=actor.collider
+			var hand:Vector3=world(request.payload.origin) if request.payload.get("origin") is Array else shape.global_position
+			if shape.shape is BoxShape3D:
+				var half:Vector3=shape.shape.size*.5
+				point=shape.to_global(shape.to_local(hand).clamp(-half,half))
+			else:point=shape.global_position
+		elif mutation.get("position") is Array:
+			point=world(mutation.position)+Vector3.UP
+		elif mutation.get("before",{}).get("position") is Array:
+			# A killing receipt may remove the actor before presentation runs.
+			point=world(mutation.before.position)+Vector3.UP
+	if not point.is_finite():return
+	if not is_instance_valid(hit_feedback):hit_feedback=preload("res://combat/hit_feedback.gd").new();add_child(hit_feedback)
+	hit_feedback.present(mutation,point)
+
 func combat_receipt(request:Dictionary,response:Dictionary)->void:
 	var id:=str(request.get("shot_id",""))
 	if request.kind in ["fire","impact","melee","taunt","warcry","pikeman","fencer","swordsman","tka","brawler_buff","pistoleer","carbineer","rifleman","bountyhunter","commando","squadleader"]:
@@ -920,6 +983,7 @@ func combat_receipt(request:Dictionary,response:Dictionary)->void:
 		if not mutation.get("success",false) or str(mutation.get("shot_id",""))!=id:
 			if request.kind in ["fire","melee","swordsman","fencer","pikeman","pistoleer","carbineer","rifleman","bountyhunter","commando","squadleader"]:rejected_fire(id)
 			rejected_shots+=1;shots.erase(id);last_error=str(mutation.get("error_code",response.get("error","CoreCU rejected the shot.")));return
+		present_hit_result(request,mutation)
 		if mutation.get("volley_consumed",false):
 			if is_instance_valid(rig.get("squad_leader")):rig.squad_leader.consumed(str(request.payload.get("volley_mark_id","")))
 			confirmed_contacts+=1

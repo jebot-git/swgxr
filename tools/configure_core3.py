@@ -124,6 +124,7 @@ Core3.PlayerCreationManager = { EnableTutorial = false }
             if not (CORE/path).exists() or (CORE/path).read_bytes() != desired:
                 (CORE/path).parent.mkdir(parents=True, exist_ok=True)
                 (CORE/path).write_bytes(desired)
+    subprocess.run([sys.executable, str(ROOT / 'tools/space/pilot/install.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_corecu.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_armour_profile.py')], check=True)
     subprocess.run([sys.executable, str(ROOT / 'tools/combat/install_crafting_profile.py')], check=True)

@@ -20,11 +20,12 @@ struct String:std::string {
 };
 struct Ghost {
  bool active=true,task=true,complete=false,admin=false;
+ int taskNumber=2;String dockingTask="2";
  String quest="spacequest/inspect/corellia_privateer_15";
- String getScreenPlayData(const char*,String key){return key=="42"?quest:String();}
+ String getScreenPlayData(const char* kind,String key){if(key!="42")return String();return std::string(kind)=="swgxr_docking_task"?dockingTask:quest;}
  bool isJournalQuestActive(unsigned crc){return crc==quest.hashCode() && active;}
- bool isJournalQuestTaskActive(unsigned,int n){return n==2 && task;}
- bool isJournalQuestTaskComplete(unsigned,int n){return n==2 && complete;}
+ bool isJournalQuestTaskActive(unsigned,int n){return n==taskNumber && task;}
+ bool isJournalQuestTaskComplete(unsigned,int n){return n==taskNumber && complete;}
  bool hasGodMode(){return admin;}
 };
 struct Pilot {Ghost ghost;bool player=true;bool isPlayerCreature(){return player;}
@@ -56,6 +57,11 @@ int main(){
  p.ghost.quest="spacequest/destroy/arbitrary";assert(!Native::permission(&own,&target));
  p.ghost.quest="spacequest/rescue/example";assert(Native::permission(&own,&target));
  p.ghost.quest="spacequest/rescue_duty/example";assert(Native::permission(&own,&target));
+ p.ghost.quest="spacequest/delivery/example";assert(Native::permission(&own,&target));
+ p.ghost.dockingTask="4";assert(!Native::permission(&own,&target));
+ p.ghost.taskNumber=4;assert(Native::permission(&own,&target));
+ p.ghost.dockingTask="3";assert(!Native::permission(&own,&target));
+ p.ghost.quest="spacequest/delivery_no_pickup/example";p.ghost.dockingTask="2";p.ghost.taskNumber=2;assert(Native::permission(&own,&target));
  assert(!Native::permission(&own,&own));assert(!Native::permission(nullptr,&target));
  p.ghost.quest="";p.ghost.admin=true;assert(Native::permission(&own,&target));
 }

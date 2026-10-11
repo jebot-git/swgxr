@@ -117,9 +117,14 @@ Four timestamps estimate server-clock offset while excluding native processing
 time. The lowest-delay estimate anchors each new attack; existing countdowns do
 not jump when another clock sample arrives. A client acknowledges final aim only
 when its world is ready, XR focus is valid and the actor's original animation is
-available. It first acknowledges the warning; the server must receive that at
-least 100 ms before aim lock (600 ms before delivery for these profiles). Final
-aim acknowledgement must arrive before delivery minus 50 ms. A missing/late acknowledgement or missing valid contact coverage waives
+available. It first acknowledges a warning presented at least 100 ms before aim
+lock (600 ms before delivery for these profiles). Final aim must be presented
+before delivery minus 50 ms. Negotiation advertises `receipt_clock: presentation_v1`;
+only then does the client include `presented_at` on warning/lock receipts, using
+the synchronized server clock. The native policy allows up to one second for
+transport, never beyond settlement, and rejects future, pre-attack, late-visible
+or wrong-revision receipts. Older clients retain arrival-time validation; newer
+clients omit the field for older servers. A missing/late acknowledgement or missing valid contact coverage waives
 that victim's hit and records an outcome; it never produces an unseen fallback
 hit. This deliberately replaces the old fixture's native fallback policy.
 
@@ -194,3 +199,90 @@ The later sustained multiplayer suite still needs group threat/healing, crowded
 warnings, interiors/slopes, packet loss, ability effects, loot/death/respawn and
 original contact-pose review. Matching build receipts and package hashes identify
 the staged code. No remote deployment or headset result is implied.
+
+## Recording regression: rec1 / rec2 (2026-10-11)
+
+The captured client diagnostic window contained 128 outcomes: 122 waived for
+missing acknowledgement and six delivered (425 damage total). Warning/lock
+network arrival was being tested against the presentation deadline. The negotiated
+presentation timestamp above preserves the visible dodge window while allowing
+the acknowledgement's return journey. It does not increase damage multipliers,
+invent client contacts, or prove geographic network latency. New diagnostics
+retain bounded request RTT, native/adapter timing and timestamp-capability state.
+
+Native combat captures per-target secondary defense and actual Health/Action/Mind
+loss under a thread-local attacker-owned scope. `mutation.combat_results` feeds
+short-lived contact-point numbers and Blocked/Dodged/Countered/Deflected/Miss
+labels. Warcry emits its actual applied/resisted/ineffective result. Projectile
+contacts retain the local impact point; melee uses the nearest body collider
+surface, with native position fallback after death removes an actor. Failed
+mutations cannot produce damage text. This covers ordinary and special attacks.
+
+A holstered but still equipped pistol disables fist contact/reticles. Actually
+unequipping it restores native unarmed attacks and permits learned Warcry.
+Humanoid guards/enemies now receive the same bounded authored-floor projection
+as citizens; body, contact collider and label move together. This addresses stair
+penetration, not a verified fix for every horizontal navmesh/corner crossing.
+Active delivery mission serialization again supplies the native pickup/delivery
+phase and current waypoint instead of falling back to the terminal offer origin.
+
+Evidence under `runtime/evidence/rec-review/`: six native ordinary smuggler
+attacks with 250 ms added send delay all delivered; over 24.66 seconds Health
+fell from 3,000 to 2,513 despite regeneration. A separate native unarmed fixture
+confirms per-target HAM loss and Warcry results. Native mission navigation checks
+verify pickup, parcel acquisition, recipient waypoint and abort cleanup. Client
+dummy-renderer checks cover original Bestine slopes, receipt timing, weapon
+gating and hit text. These are isolated local tests, not remote or headset proof.
+
+## Delivery stability (2026-10-11)
+
+Patch `0151-ground-combat-delivery-stability.patch` adds negotiated capabilities;
+older clients retain their previous payload format. These changes preserve native
+RPG damage, defenses, costs and cadence. PvP and JtL are unchanged.
+
+1. `contact_evidence: sample_v1` preserves an actually observed positive contact
+   across missing frames. Short sweeps cover at most 75 ms and 1.5 m between two
+   valid tracked samples. Gaps or missing tracking cannot prove a miss or invent
+   a hit. `contact_at` uses the attack's immutable native-clock anchor.
+2. `combat_receipts: replay_v1` caches the native mutation by verb and shot ID,
+   bound to its canonical intent and native session (512 entries, 30 seconds).
+   A lost-reply query uses `receipt_only`, never re-executes an unknown attack,
+   and returns a fresh snapshot with the original mutation. Client recovery has
+   three retries and a 25-second limit; an explicit unstarted busy rejection may
+   retry the original command. Reconnect/session replacement does not recover
+   old results. Ground receipt responses expose rejection reasons and bounded
+   retryability; retries retain original presentation/contact timestamps.
+3. `receipt_bundle: ground_v1` permits pending ground receipts to ride combat
+   requests. Standalone urgent receipts retain FIFO order. Unsent same-session,
+   same-room heartbeats coalesce, while room changes and arrival acknowledgements
+   remain separate. An in-flight request cannot indefinitely defer a new batch.
+   Diagnostics separate client queue, adapter queue/rate wait, bridge round trip
+   and native action time; request rate limits remain unchanged.
+4. `melee_contact: presented_v1` makes ordinary melee select the rendered native
+   actor collider, with world-wall occlusion. The request includes the exact
+   native observation timestamp, presented target and contact positions. Native
+   session history bounds age, origin, reach, direction, displacement and room;
+   a later server target position no longer retargets or discards that contact.
+   An explicit whiff cannot select another server target. Ability and volley
+   targeting remain their existing explicit native paths. Movement history is
+   bounded to 64 observations / 2.5 seconds, with two-second proof age limits.
+5. After the preceding native checks passed, cleave/targeted victims gained
+   independent once-only settlement. Single-interceptor lanes wait for all
+   eligible reports or the existing deadline, select smallest distance along
+   the locked lane, and break ties by contact time then actor ID. They do not
+   select by network arrival order. Positive timestamped contacts require a
+   native LOS observation within 120 ms and floor-height agreement within 1.25 m
+   of the historical victim position, in the same zone/cell. Missing historical
+   geometry fails closed; legacy contacts retain their compatibility LOS path
+   with an added height bound. This is bounded client-authority plausibility,
+   not validation of an untrusted client's complete tracking trajectory.
+
+Focused evidence is stored under `runtime/evidence/ground-stability-review/`.
+The native fixture scripts are `combat_stability_smoke.py` (moved-target melee,
+replay identity, unchanged replay costs/HAM and bundled receipts),
+`ground_damage_smoke.py --positive-evidence --strikes 1` (one native delivery
+from partial coverage), and `ground_settlement_smoke.py` (two native sessions,
+synthetic stationary contact receipts). Headless client tests use the dummy
+renderer with XR disabled. Damage tuning, prolonged combat, remote latency and
+headset validation remain separate future work; this pass does not release or
+deploy the patch to the remote server or Downloads client.

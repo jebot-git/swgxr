@@ -16,11 +16,21 @@ class GroundActionTests(unittest.TestCase):
   with self.assertRaises(ValueError):command(dict(action='batch',receipts=[lock]*33))
   self.assertEqual(command(dict(action='negotiate',protocol=2,catalog_revision='a'*64))['protocol'],2)
   with self.assertRaises(ValueError):command(dict(action='negotiate',protocol=2,catalog_revision='old'))
+ def test_presentation_time_is_finite_bounded_shape_and_not_contact_authority(self):
+  lock=dict(kind='lock',actor_id='5',attack_id='6',aim_revision=1,presented_at=10.5)
+  self.assertEqual(command(dict(action='batch',receipts=[lock]))['receipts'],[lock])
+  for value in (math.nan,math.inf,-1,True,'10.5'):
+   with self.assertRaises(ValueError):command(dict(action='batch',receipts=[dict(lock,presented_at=value)]))
  def test_integration_event_contract(self):
   row=dict(protocol=2,state_revision=1,sequence=500,id='5',target_id='6',encounter_id='5',attack_id='10',phase='windup',role='ranged',cell_id='0',server_now=10,start=10,delivery_at=11.4,active_at=11.733,end_at=11.9,animation_end_at=12.4,recover_at=13.8,animation='action_ground_pistol',range=64,radius=.45,cosine=.5,origin=[0,0,0],direction=[0,0,1],aim_revision=1,aim_locked=False,lock_at=10.9,age_ms=0,eligible_victim_ids=['6'],hit_policy='first_contact')
   self.assertEqual(len(events(dict(action_events=[row]),{'5':dict(cell_id='0')},0)),1)
   for change in ({'hit_policy':'piercing_lane'},{'state_revision':True},{'animation':'arbitrary'},{'range':100}):
    self.assertEqual(events(dict(action_events=[dict(row,**change)]),{'5':dict(cell_id='0')},0),[])
+ def test_positive_contact_sample(self):
+  row=dict(kind='contact',actor_id='5',attack_id='6',aim_revision=1,contact=True,contact_at=10.5,coverage_start=10,coverage_end=11,sample_position=[0,0,0])
+  self.assertEqual(command(dict(action='batch',receipts=[row]))['receipts'],[row])
+  for change in ({'contact':False},{'contact_at':float('inf')},{'contact_at':True},{'contact_at':-1}):
+   with self.assertRaises(ValueError):command(dict(action='batch',receipts=[dict(row,**change)]))
  def test_special_geometry_and_explicit_victim(self):
   row=dict(protocol=2,state_revision=1,sequence=1,id='5',target_id='6',encounter_id='5',attack_id='10',phase='windup',role='ranged',cell_id='0',server_now=10,start=10,delivery_at=12,active_at=12.3,end_at=12.5,animation_end_at=13,recover_at=15,animation='action_ground_special_'+'a'*24,range=32,radius=.45,cosine=.5,origin=[0,0,0],geometry_origin=[0,0,0],direction=[0,0,1],aim_revision=1,aim_locked=False,lock_at=11.5,age_ms=0,eligible_victim_ids=['6'],hit_policy='targeted',shape='targeted',special=True,target_required=True)
   visible={'5':dict(cell_id='0')}

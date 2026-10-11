@@ -52,6 +52,8 @@ var vr_settings = VRSettings.new()
 var graphics_preferences=preload("res://graphics/preferences.gd").new()
 var xr_viewport: SubViewport
 var xr_spectator: CanvasLayer
+var xr_foveation:Node
+var desktop_mirror:Node
 var calibration_status: Label
 var datapad: Node3D
 var inventory: Node3D
@@ -462,6 +464,12 @@ func apply_graphics_settings()->void:
 	var viewports:Array=[get_viewport(),xr_viewport]
 	if is_instance_valid(xr_spectator):viewports.append(xr_spectator.viewport)
 	graphics_preferences.apply(viewports)
+	if is_instance_valid(xr_foveation):xr_foveation.apply_preferences()
+	if is_instance_valid(desktop_mirror):desktop_mirror.set_mode(graphics_preferences.desktop_mirror,args.has("no-spectator"))
+	if is_instance_valid(portal_visibility):
+		portal_visibility.spectator=xr_spectator.camera if is_instance_valid(xr_spectator) and xr_spectator.enabled else null
+	if is_instance_valid(space) and is_instance_valid(space.portal_view):
+		space.portal_view.spectator=xr_spectator.camera if is_instance_valid(xr_spectator) and xr_spectator.enabled else null
 
 func make_vr_settings(box: VBoxContainer) -> void:
 	var row := HBoxContainer.new()
@@ -588,6 +596,8 @@ var native_http=preload("res://scripts/persistent_http.gd").new()
 var presentation_http=preload("res://scripts/persistent_http.gd").new()
 var native_api_queue:Array[int]=[]
 var native_api_ticket:=0
+var native_api_urgent:Dictionary={}
+var native_api_heartbeats:Dictionary={}
 var native_api_observations:Array=[]
 var native_api_log_stamp:=0
 func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
@@ -595,18 +605,35 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	# separate cached state and must not wait behind native transactions.
 	var native_call:=not path.begins_with("/auth/") and not path.begins_with("/voice/") and path not in ["/session/sync","/services/presence","/performance"]
 	if not native_call:return await _api_dispatch(method,path,body)
+	var heartbeat_key:=""
+	if path in ["/session/update","/combat/session/update"] and not body.has("transport_ack"):
+		heartbeat_key=JSON.stringify([path,body.get("session_id",""),body.get("zone",""),body.get("building_id","0"),body.get("cell_index",0)])
+		var previous:Dictionary=native_api_heartbeats.get(heartbeat_key,{})
+		if not previous.is_empty() and not previous.dispatched:
+			previous.body=body.duplicate(true)
+			while not previous.done:await get_tree().process_frame
+			return previous.result
 	var enqueued:=Time.get_ticks_msec()
 	var epoch:=datapad_epoch;var ticket:=native_api_ticket;native_api_ticket+=1
+	var heartbeat_row:Dictionary={"body":body,"dispatched":false,"done":false,"result":{}}
+	if not heartbeat_key.is_empty():native_api_heartbeats[heartbeat_key]=heartbeat_row
 	if path=="/combat/session/action_combat" and body.get("action_combat",{}).get("action","") in ["contact","batch"] and not native_api_queue.is_empty():
-		native_api_queue.insert(1,ticket)
+		var index:=1
+		while index<native_api_queue.size() and native_api_urgent.has(native_api_queue[index]):index+=1
+		native_api_queue.insert(index,ticket);native_api_urgent[ticket]=true
 	else:native_api_queue.append(ticket)
 	var waited:=false;var deadline:=Time.get_ticks_msec()+15000
 	while native_api_queue[0]!=ticket:
 		waited=true
 		if epoch!=datapad_epoch or Time.get_ticks_msec()>deadline:
 			native_api_queue.erase(ticket)
+			native_api_urgent.erase(ticket)
+			heartbeat_row.done=true;heartbeat_row.result={"ok":false,"cancelled":true}
+			if not heartbeat_key.is_empty():native_api_heartbeats.erase(heartbeat_key)
 			return {"ok":false,"cancelled":true,"error":"Native request expired before dispatch; retry the action."}
 		await get_tree().process_frame
+	heartbeat_row.dispatched=true
+	if not heartbeat_key.is_empty():body=heartbeat_row.body;native_api_heartbeats.erase(heartbeat_key)
 	var heartbeat:=path in ["/session/update","/combat/session/update"] and not body.has("transport_ack")
 	if waited and body is Dictionary and body.get("position") is Array and not path.begins_with("/jtl/") and (not body.has("movement_revision") or heartbeat) and world_ready:
 		# Refresh the locomotion envelope, retaining item/target/hand intent. A
@@ -623,7 +650,13 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 			# movement. Actions and arrival acknowledgements retain their fence.
 			if heartbeat:body.erase("movement_revision")
 	var dispatched:=Time.get_ticks_msec()
+	var action_controller:Variant=multiplayer_sync.get("action_combat") if is_instance_valid(multiplayer_sync) else null
+	var bundled:Array=[];var bundle_epoch:=0
+	if path.begins_with("/combat/session/") and path.get_slice("/",3) in ["fire","impact","melee","taunt","warcry","pikeman","fencer","swordsman","tka","brawler_buff","pistoleer","carbineer","rifleman","commando","bountyhunter","squadleader"] and is_instance_valid(action_controller):
+		bundled=action_controller.take_bundled_receipts();bundle_epoch=action_controller.generation
+		if not bundled.is_empty():body=body.duplicate(true);body.ground_receipts=bundled
 	var result:=await _api_dispatch(method,path,body,true)
+	if not bundled.is_empty() and is_instance_valid(action_controller):action_controller.finish_bundled_receipts(bundled,result,float(dispatched)/1000,bundle_epoch)
 	var finished:=Time.get_ticks_msec()
 	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"movement_corrected":result.get("_movement_correction_consumed",false)})
 	for field in ["adapter_queue_ms","adapter_rate_wait_ms","native_bridge_roundtrip_ms","native_action_ms"]:
@@ -634,6 +667,8 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 		var file:=FileAccess.open(str(args["runtime-profile"]).path_join("network.json"),FileAccess.WRITE)
 		if file!=null:file.store_string(JSON.stringify({"capacity":256,"requests":native_api_observations}))
 	native_api_queue.erase(ticket)
+	native_api_urgent.erase(ticket)
+	heartbeat_row.done=true;heartbeat_row.result=result
 	return result
 
 func _api_dispatch(method: HTTPClient.Method, path: String, body := {}, persistent:=false) -> Dictionary:
@@ -1675,8 +1710,11 @@ func initialize_xr() -> bool:
 	xr_spectator = load("res://xr/spectator.tscn").instantiate()
 	add_child(xr_spectator)
 	xr_spectator.configure(xr_origin, player)
+	desktop_mirror=preload("res://graphics/desktop_mirror.gd").new();add_child(desktop_mirror)
+	desktop_mirror.configure(get_window(),xr_viewport,xr_spectator)
+	xr_foveation=preload("res://graphics/xr_foveation.gd").new();add_child(xr_foveation)
+	xr_foveation.configure(xr_viewport,xr_origin,graphics_preferences)
 	apply_graphics_settings()
-	xr_spectator.enabled = not args.has("no-spectator")
 	datapad = load("res://scripts/xr_datapad.gd").new()
 	add_child(datapad)
 	datapad.configure(xr_origin,player,vr_settings.offhand)
@@ -1733,8 +1771,8 @@ func initialize_xr() -> bool:
 	corpse_gathering=load("res://scripts/corpse_gathering_controller.gd").new()
 	add_child(corpse_gathering)
 	corpse_gathering.configure(self,inventory)
-	# Stereo goes only to the headset viewport. The desktop draws the mono
-	# spectator texture and never selects a different camera for the HMD.
+	# Stereo stays in its own viewport. Desktop either draws the observer or
+	# blits the submitted left eye; neither selects another HMD camera.
 	get_viewport().use_xr = false
 	get_viewport().disable_3d = true
 	# No desktop mouse capture in XR: pointers route input to the UI viewport.

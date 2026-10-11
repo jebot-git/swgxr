@@ -166,6 +166,7 @@ func _process(delta: float) -> void:
 	if not app.world_ready:return
 	if is_instance_valid(app.get("space")) and app.space.aboard():return
 	var combat:Variant=app.get("gameplay_combat")
+	if is_instance_valid(combat) and combat.has_method("has_receipt_recovery") and combat.has_receipt_recovery():return
 	# Stale combat cannot submit its commands. Give the owned heartbeat priority
 	# so that the queued gestures cannot prevent their own authority recovery.
 	if is_instance_valid(combat) and combat.has_pending_commands() and not authority_expired():return

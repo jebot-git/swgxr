@@ -45,4 +45,19 @@ func run()->void:
 	host.send("/services/status",pose);host.send("/combat/session/update",stamped)
 	for i in range(10):await process_frame
 	check(host.received[-1].body.position==[0,0,0] and host.received[-1].body.movement_revision==5,"Arrival acknowledgement retains exact destination and authority")
+	var count:=host.received.size()
+	host.send("/services/status",pose)
+	host.send("/session/update",pose)
+	var fresh:=pose.duplicate(true);fresh.position=[3,0,0]
+	host.send("/session/update",fresh)
+	for i in range(15):await process_frame
+	check(host.received.size()==count+2,"Two unsent same-session heartbeats share one native mutation")
+	count=host.received.size()
+	host.send("/services/status",pose)
+	host.send("/services/house_recover",pose)
+	host.send("/combat/session/action_combat",{"action_combat":{"action":"batch"},"order":1})
+	host.send("/combat/session/action_combat",{"action_combat":{"action":"batch"},"order":2})
+	for i in range(20):await process_frame
+	check(host.received[count+1].body.order==1 and host.received[count+2].body.order==2,"Deadline-sensitive receipts bypass queued background work in FIFO order")
+	check(host.maximum==1 and host.native_api_queue.is_empty(),"Coalescing and priority never overlap native mutations")
 	host.free();print(JSON.stringify({"errors":errors,"native":"mocked","renderer":"dummy"}));quit(0 if errors.is_empty() else 1)

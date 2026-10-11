@@ -18,6 +18,12 @@ def command(value):
             if not isinstance(row, dict) or row.get('kind') not in ('warning', 'lock', 'contact'):
                 raise ValueError('Invalid ground receipt')
             if row['kind'] == 'contact': keys |= {'contact', 'coverage_start', 'coverage_end', 'sample_position'}
+            if row['kind'] == 'contact' and 'contact_at' in row:
+                keys.add('contact_at')
+                if row.get('contact') is not True or type(row['contact_at']) not in (int,float) or not math.isfinite(row['contact_at']) or row['contact_at'] < 0: raise ValueError('Invalid positive contact time')
+            if row['kind'] != 'contact' and 'presented_at' in row:
+                keys.add('presented_at')
+                if type(row['presented_at']) not in (int,float) or not math.isfinite(row['presented_at']) or row['presented_at'] < 0: raise ValueError('Invalid presentation time')
             if set(row) != keys: raise ValueError('Unexpected ground receipt fields')
             for key in ('actor_id', 'attack_id'):
                 v = row[key]

@@ -63,6 +63,11 @@ the menu, to scroll. The open dropdown takes priority over the page underneath.
 Desktop mouse-wheel scrolling is also supported. Changing tabs, closing the menu
 or losing focus closes open lists and cancels drag gestures.
 
+**Settings → Graphics** includes saved fixed or eye-tracked foveation controls
+and a desktop mirror selector: third-person or the standard OpenXR left-eye
+view. Foveation defaults to Off; availability depends on the headset, runtime
+and GPU. See [XR graphics settings and validation](docs/XR_GRAPHICS.md).
+
 Delivery and crafting missions share a parcel handoff. Approach the giving NPC,
 press the main-hand trigger, and confirm in the holographic dialogue. Crafting
 missions first provide their original schematic and components; build the required

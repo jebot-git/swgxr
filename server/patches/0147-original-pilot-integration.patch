@@ -1,0 +1,808 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPilotTrainers.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPilotTrainers.h
+@@ -10,14 +10,13 @@
+  static std::string id(SceneObject* s){return std::to_string(s->getObjectID());}
+  static ConversationTemplate* conversation(SceneObject* npc){
+   if(!npc || !npc->isAiAgent())return nullptr;
+-  auto mobile=npc->asAiAgent()->getCreatureTemplate();
+-  return mobile?CreatureTemplateManager::instance()->getConversationTemplate(mobile->getConversationTemplate()):nullptr;
++  return CreatureTemplateManager::instance()->getConversationTemplate(npc->asAiAgent()->getConvoTemplateCRC());
+  }
+ public:
+  static bool supports(SceneObject* npc){
+   auto t=conversation(npc);if(!t)return false;
+   static const std::set<std::string> handlers={"fernYarrowConvoHandler","guilloParootchieConvoHandler","ioTsomcrenConvoHandler","j1p0ConvoHandler","kessYarrowConvoHandler","kultonWoodleConvoHandler","moochDavoneyConvoHandler","ralMundiConvoHandler","raneYarrowConvoHandler","tarthJaxxConvoHandler","vincieKalhoonConvoHandler","imperialBrokerConvoHandler","ramnaConvoHandler","rheaConvoHandler","rikkhConvoHandler","turoldineConvoHandler","gilBurtinConvoHandler","dingeConvoHandler","duliosConvoHandler","kaydineConvoHandler","aqzowConvoHandler","kreezoConvoHandler","viopaConvoHandler","vrakConvoHandler","jPaiBrekConvoHandler"};
+-  return handlers.count(text(t->getLuaClassHandler()))!=0;
++  return handlers.count(text(t->getLuaClassHandler()))!=0 || t->getLuaClassHandler().beginsWith("swgxrPilotSource_");
+  }
+  static void describe(CreatureObject* c,SceneObject* npc,Json& out){
+   auto stored=c->getPlayerObject()->getScreenPlayData("swgxr_pilot","view");
+@@ -40,13 +39,13 @@
+    auto screen=session->getLastConversationScreen();selected=request.at("option").get<int>();
+    if(!screen || selected<0 || selected>=screen->getOptionCount())throw std::runtime_error("pilot_conversation_option_unavailable");
+   }
+-  Reference<LuaConversationObserver*> observer=new LuaConversationObserver(npc->asAiAgent()->getCreatureTemplate()->getConversationTemplate());
++  Reference<LuaConversationObserver*> observer=new LuaConversationObserver(npc->asAiAgent()->getConvoTemplateCRC());
+   Reference<ConversationScreen*> screen=observer->getNextConversationScreen(c,selected,npc);
+   if(screen)screen=observer->runScreenHandlers(c,npc,selected,screen);
+   Json view={{"npc_id",id(npc)},{"screen_token",request.at("request_id")},{"options",Json::array()},{"dialogue","Conversation finished."}};
+   if(screen){
+-   view["dialogue"]=text(screen->getDialogText()->getFullPath());view["screen_id"]=text(screen->getScreenID());
+-   for(int i=0;i<screen->getOptionCount();++i)view["options"].push_back({{"name",text(screen->getOptionText(i))},{"option",i}});
++   view["dialogue"]=screen->getCustomDialogText().isEmpty()?text(screen->getDialogText()->getFullPath()):text(screen->getCustomDialogText().toString());view["screen_id"]=text(screen->getScreenID());
++   for(int i=0;i<screen->getOptionCount();++i)view["options"].push_back({{"name",(screen->getOption(i)->getCustomOption().isEmpty()?text(screen->getOptionText(i)):text(screen->getOption(i)->getCustomOption().toString()))},{"option",i}});
+    screen->sendTo(c,npc);
+   }else{if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);}
+   if(view["options"].empty())view["options"].push_back({{"name","Speak again"},{"begin",true}});
+--- a/MMOCoreORB/src/server/zone/objects/creature/conversation/ConversationScreen.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/conversation/ConversationScreen.h
+@@ -364,6 +364,8 @@
+ 		this->stopConversation = stopConversation;
+ 	}
+ 
++	inline const UnicodeString& getCustomDialogText() const { return customText; }
++
+ 	inline StringIdChatParameter* getDialogText() {
+ 		return &dialogText;
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/LuaCreatureObject.cpp
+@@ -1434,7 +1434,8 @@
+ }
+ 
+ int LuaCreatureObject::hasCertifiedShip(lua_State* L) {
+-	bool skipYacht = lua_toboolean(L, -1);
++	bool skipYacht = lua_toboolean(L, 2);
++	bool skipStarter = lua_gettop(L) >= 3 && lua_toboolean(L, 3);
+ 
+ 	auto datapad = realObject->getDatapad();
+ 	bool hasShip = false;
+@@ -1469,6 +1470,10 @@
+ 				continue;
+ 			}
+ 
++			if (skipStarter) {
++                auto path = ship->getObjectTemplate()->getFullTemplateString();
++                if (path.contains("/player_basic_") || path.contains("/player_prototype_")) continue;
++            }
+ 			hasShip = true;
+ 			break;
+ 		}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDocking.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDocking.h
+@@ -16,9 +16,14 @@
+   auto owner=target->asShipAiAgent()->getMissionOwnerID();
+   if(owner && owner!=pilot->getObjectID())return false;
+   auto quest=ghost->getScreenPlayData("swgxr_docking",String::valueOf(target->getObjectID()));
+-  if(!quest.beginsWith("spacequest/inspect/") && !quest.beginsWith("spacequest/rescue/") && !quest.beginsWith("spacequest/rescue_duty/"))return false;
+-  auto crc=quest.hashCode();
+-  return ghost->isJournalQuestActive(crc) && ghost->isJournalQuestTaskActive(crc,2) && !ghost->isJournalQuestTaskComplete(crc,2);
++  if(!quest.beginsWith("spacequest/inspect/") && !quest.beginsWith("spacequest/rescue/") && !quest.beginsWith("spacequest/rescue_duty/") && !quest.beginsWith("spacequest/delivery/") && !quest.beginsWith("spacequest/delivery_no_pickup/"))return false;
++  auto crc=quest.hashCode();int task=2;
++  if(quest.beginsWith("spacequest/delivery/")) {
++   auto saved=ghost->getScreenPlayData("swgxr_docking_task",String::valueOf(target->getObjectID()));
++   if(saved!="2" && saved!="4")return false;
++   task=saved=="4"?4:2;
++  }
++  return ghost->isJournalQuestActive(crc) && ghost->isJournalQuestTaskActive(crc,task) && !ghost->isJournalQuestTaskComplete(crc,task);
+  }
+  static bool permission(ShipObject* ship,ShipObject* target) {
+   if(missionPermission(ship,target))return true;
+--- a/MMOCoreORB/bin/scripts/utils/space_helpers.lua
++++ b/MMOCoreORB/bin/scripts/utils/space_helpers.lua
+@@ -853,7 +853,7 @@
+ 		return
+ 	end
+ 
+-	local isDutyMission = string.find(questName, "_duty")
++	local isDutyMission = string.find(questType, "_duty", 1, true)
+ 
+ 	if (isDutyMission) then
+ 		local hasDuty = false
+--- a/MMOCoreORB/bin/scripts/screenplays/space/screenplays.lua
++++ b/MMOCoreORB/bin/scripts/screenplays/space/screenplays.lua
+@@ -150,3 +150,6 @@
+ 
+ -- Spawning Sub Folder
+ includeFile("space/spawning/screenplays.lua")
++
++-- Generated original pilot programs and native mission objectives.
++includeFile("space/swgxr_pilot/registration.lua")
+--- a/MMOCoreORB/bin/scripts/mobile/conversations/space/space_conversations.lua
++++ b/MMOCoreORB/bin/scripts/mobile/conversations/space/space_conversations.lua
+@@ -91,4 +91,5 @@
+ 
+ -- Black Epsilon Squadron
+ -- Imperial Inquisition Squadron
+--- Storm Squadron
+\ No newline at end of file
++-- Storm Squadron
++includeFile("conversations/space/swgxr_pilot.lua")
+--- a/MMOCoreORB/bin/scripts/mobile/space/akal_colzet.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/akal_colzet.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_imperial_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/oberhaur.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/oberhaur.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_imperial_trainer_2",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/alozen.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/alozen.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_imperial_trainer_2b",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/denner.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/denner.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_imperial_tier3",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/kilnstrider.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/kilnstrider.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_imperial_tier4",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/hakassha_sireen.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/hakassha_sireen.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_corellia_imperial_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/prisk_kith_vys.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/prisk_kith_vys.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_corellia_imperial_trainer_2",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/haymir_rendundi.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/haymir_rendundi.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_corellia_imperial_tier3",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/insurgent.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/insurgent.lua
+@@ -1,4 +1,5 @@
+ insurgent = Creature:new {
++ conversationTemplate = "swgxr_pilot_corellia_imperial_tier4",
+ 	objectName = "@npc_spawner_n:insurgent",
+ 	socialGroup = "imperial",
+ 	faction = "imperial",
+--- a/MMOCoreORB/bin/scripts/mobile/space/barn_sinkko.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/barn_sinkko.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_imperial_trainer_1",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/fa_zoll.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/fa_zoll.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_imperial_trainer_2",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/vrke.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/vrke.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_imperial_tier3",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/barlow.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/barlow.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_imperial_tier3_barlow",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/jace_yiaso.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/jace_yiaso.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_imperial_tier4",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/nial_declann.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/nial_declann.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_imperial_master_trainer",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/rhea.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/rhea.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "rhea_convo_template",
++	conversationTemplate = "swgxr_pilot_corellia_privateer_trainer",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/rikkh.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/rikkh.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "rikkh_convo_template",
++	conversationTemplate = "swgxr_pilot_corellia_privateer_trainer_2",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/ramna.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/ramna.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "ramna_convo_template",
++	conversationTemplate = "swgxr_pilot_corellia_privateer_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/adwan_turoldine.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/adwan_turoldine.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "turoldine_convo_template",
++	conversationTemplate = "swgxr_pilot_corellia_privateer_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/dinge.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/dinge.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "dinge_convo_template",
++	conversationTemplate = "swgxr_pilot_naboo_privateer_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/kaydine.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/kaydine.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "kaydine_convo_template",
++	conversationTemplate = "swgxr_pilot_naboo_privateer_trainer_2",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/dulios.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/dulios.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "dulios_convo_template",
++	conversationTemplate = "swgxr_pilot_naboo_privateer_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/diness_imler.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/diness_imler.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_privateer_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/dravis.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/dravis.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_privateer_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/talon_karrde.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/talon_karrde.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",--TODO: convert to a JTL 'Smuggler Alliance' PILOT TRAINER for 'Tier 2' missions
++	conversationTemplate = "swgxr_pilot_tatooine_privateer_trainer_2",--TODO: convert to a JTL 'Smuggler Alliance' PILOT TRAINER for 'Tier 2' missions
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/shamdon_kree.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/shamdon_kree.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_privateer_trainer_shamdon",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/beissa.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/beissa.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_privateer_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/nirame_sakute.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/nirame_sakute.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_privateer_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/kreezo.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/kreezo.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "kreezo_convo",
++	conversationTemplate = "swgxr_pilot_corellia_rebel_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/viopa.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/viopa.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "viopa_convo",
++	conversationTemplate = "swgxr_pilot_lok_rebel_trainer_2",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/vrak.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/vrak.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "vrak_convo",
++	conversationTemplate = "swgxr_pilot_lok_rebel_trainer_2_smuggler",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/aqzow.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/aqzow.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "aqzow_convo",
++	conversationTemplate = "swgxr_pilot_corellia_rebel_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/warvog_arkon.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/warvog_arkon.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_corellia_rebel_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/da_la_socuna.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/da_la_socuna.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_rebel_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/eker.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/eker.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_yavin_rebel_trainer_2",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/arnecio_ulvaw_op.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/arnecio_ulvaw_op.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_rebel_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/ufwol.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/ufwol.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_tatooine_rebel_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/v3_fx.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/v3_fx.lua
+@@ -35,7 +35,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_rebel_trainer_1",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/kiizete.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/kiizete.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_rebel_tier1_kiizete",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/vrovel.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/vrovel.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_dantooine_rebel_trainer_2",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/ezkiel.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/ezkiel.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_rebel_tier3",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/extok_evin.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/extok_evin.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_naboo_rebel_tier4",
+ 
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/willham_burke.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/willham_burke.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_rebel_master_trainer",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- /dev/null
++++ b/MMOCoreORB/bin/scripts/mobile/conversations/space/swgxr_pilot.lua
+@@ -0,0 +1,215 @@
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_imperial_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_imperial_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_imperial_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_imperial_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_imperial_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_imperial_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_imperial_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_imperial_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_privateer_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_privateer_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_privateer_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_privateer_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_privateer_trainer",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_privateer_trainer",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_privateer_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_privateer_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_rebel_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_rebel_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_rebel_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_rebel_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_corellia_rebel_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_corellia_rebel_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_dantooine_rebel_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_dantooine_rebel_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_imperial_master_trainer",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_imperial_master_trainer",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_lok_rebel_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_lok_rebel_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_lok_rebel_trainer_2_smuggler",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_lok_rebel_trainer_2_smuggler",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_imperial_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_imperial_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_imperial_tier3_barlow",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_imperial_tier3_barlow",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_imperial_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_imperial_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_imperial_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_imperial_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_imperial_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_imperial_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_privateer_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_privateer_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_privateer_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_privateer_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_privateer_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_privateer_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_privateer_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_privateer_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_rebel_tier1_kiizete",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_rebel_tier1_kiizete",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_rebel_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_rebel_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_rebel_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_rebel_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_naboo_rebel_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_naboo_rebel_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_rebel_master_trainer",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_rebel_master_trainer",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_imperial_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_imperial_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_imperial_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_imperial_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_imperial_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_imperial_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_imperial_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_imperial_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_imperial_trainer_2b",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_imperial_trainer_2b",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_privateer_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_privateer_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_privateer_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_privateer_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_privateer_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_privateer_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_privateer_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_privateer_trainer_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_privateer_trainer_shamdon",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_privateer_trainer_shamdon",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_rebel_tier3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_rebel_tier3",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_rebel_tier4",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_rebel_tier4",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_tatooine_rebel_trainer_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_tatooine_rebel_trainer_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_yavin_rebel_trainer_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_yavin_rebel_trainer_2",template)
++end

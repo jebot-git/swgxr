@@ -135,9 +135,8 @@ class LiveCombatHub:
      try:self._record(active,command,result,time.monotonic()-started)
      except OSError:pass # Diagnostic storage cannot invalidate an already committed action.
      resolved=self._resolve(result)
-     if command.get('action')=='action_combat':
-      resolved['adapter_rate_wait_ms']=round(max(0,delay)*1000,3)
-      resolved['native_bridge_roundtrip_ms']=round((time.monotonic()-posted)*1000,3)
+     resolved['adapter_rate_wait_ms']=round(max(0,delay)*1000,3)
+     resolved['native_bridge_roundtrip_ms']=round((time.monotonic()-posted)*1000,3)
      # An uncertain receipt has no new authoritative state. Preserve the last
      # world/voice snapshot and keep the owned child available for a heartbeat.
      if resolved.get('error_code')=='native_response_timeout' or resolved.get('compact'):return resolved
@@ -232,7 +231,7 @@ class LiveCombatHub:
    admitted=time.monotonic()
    if self.active_for(account) is not active:raise LiveConflict('Live session changed before request admission.')
    result=self._request_owned(account,action,data)
-   if action=='action_combat':result['adapter_queue_ms']=round((admitted-enqueued)*1000,3)
+   result['adapter_queue_ms']=round((admitted-enqueued)*1000,3)
    return result
  def _request_owned(self,account,action,data):
   account=account.lower()
@@ -271,6 +270,14 @@ class LiveCombatHub:
   for key in fields:
    if key not in data and key!='heading_radians':raise ValueError('Missing '+key)
    command['life_action' if action=='life' and key=='action' else key]=data.get(key,0)
+  if 'ground_receipts' in data:
+   if action not in ('fire','impact','melee','taunt','warcry','pikeman','fencer','swordsman','tka','brawler_buff','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader'):raise ValueError('Invalid ground receipt bundle owner.')
+   try:from .action_combat import command as action_command
+   except ImportError:from action_combat import command as action_command
+   command['ground_receipts']=action_command(dict(action='batch',receipts=data['ground_receipts']))
+  if 'receipt_only' in data:
+   if type(data['receipt_only']) is not bool or 'shot_id' not in fields:raise ValueError('Invalid combat receipt query.')
+   command['receipt_only']=data['receipt_only']
   if 'movement_revision' in data:
    revision=data['movement_revision']
    if type(revision) is not int or not 0<=revision<=2**53-1:raise ValueError('Invalid movement_revision.')
@@ -353,6 +360,19 @@ class LiveCombatHub:
     command['target_id']=data['target_id']
   if action=='tka' and data.get('ability_id') not in ('tka_sweep','tka_half_spin','tka_volley','indomitable_focus'):raise ValueError('Unsupported Teras Kasi ability.')
   if action=='brawler_buff' and data.get('ability_id') not in ('center_of_being','berserk'):raise ValueError('Unsupported Brawler buff.')
+  if 'melee_contact' in data:
+   proof=data['melee_contact']
+   if action!='melee' or data.get('ability_id') or 'volley_mark_id' in data or not isinstance(proof,dict):raise ValueError('Invalid ordinary melee contact.')
+   target=proof.get('target_id')
+   if not isinstance(target,str) or not target.isascii() or not target.isdecimal() or not 0<=int(target)<2**64:raise ValueError('Invalid melee contact identity.')
+   expected={'target_id'} if target=='0' else {'target_id','hit_position','target_position','observation_at'}
+   if set(proof)!=expected:raise ValueError('Invalid melee contact fields.')
+   if target!='0':
+    for name in ('hit_position','target_position'):
+     point=proof[name]
+     if not isinstance(point,list) or len(point)!=3 or any(type(v) not in (int,float) or not math.isfinite(v) or abs(v)>20000 for v in point):raise ValueError('Invalid melee contact point.')
+    if type(proof['observation_at']) not in (int,float) or not math.isfinite(proof['observation_at']) or proof['observation_at']<=0:raise ValueError('Invalid melee observation.')
+   command['melee_contact']=proof
   if action=='melee' and 'ability_id' in data:
    if data['ability_id'] not in ('knockdown_strike','unarmed_stun','unarmed_blind','polearm_stun','challenging_strike'):raise ValueError('Unsupported native melee ability.')
    if not data.get('target_id'):raise ValueError('Melee ability requires target_id.')

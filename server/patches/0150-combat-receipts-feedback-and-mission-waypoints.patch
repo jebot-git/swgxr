@@ -1,0 +1,190 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GroundActionPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GroundActionPolicy.h
+@@ -34,8 +34,14 @@
+ struct Victim {
+  action::Attack attack;
+  bool warned=false,acknowledged=false,waived=false;
+- bool warning(double now){if(now>attack.lockAt()-.1)return false;warned=true;return true;}
+- bool acknowledge(double now,uint64_t revision){if(!warned||!attack.aimLocked||attack.aimRevision!=revision||now>attack.deliveryAt()-.05)return false;acknowledged=true;return true;}
++ // Presentation time is client-authoritative, just like sampled contact. A
++ // delayed HTTP acknowledgement must not erase a warning actually seen on time.
++ // Bound clock skew/transport age and retain the original visibility deadlines.
++ bool presentation(double now,double shown) const {return std::isfinite(shown)&&shown>=attack.start-.3&&shown<=now+.05&&now-shown<=1.0&&now<=attack.deadline()&&!attack.cancelled&&!attack.settled;}
++ bool warning(double now,double shown){if(!presentation(now,shown)||shown>attack.lockAt()-.1)return false;warned=true;return true;}
++ bool warning(double now){return warning(now,now);}
++ bool acknowledge(double now,uint64_t revision,double shown){if(!warned||!attack.aimLocked||attack.aimRevision!=revision||!presentation(now,shown)||shown<attack.lockAt()-.05||shown>attack.deliveryAt()-.05)return false;acknowledged=true;return true;}
++ bool acknowledge(double now,uint64_t revision){return acknowledge(now,revision,now);}
+  bool receipt(double now,bool hit,double begin,double end,uint64_t revision){
+   if(!acknowledged||waived)return false;
+   if(attack.reported)return attack.aimRevision==revision&&attack.hit==hit;
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
+@@ -157,7 +157,7 @@
+   if(op=="negotiate"){
+    bool ok=enabled()&&!catalog().is_null()&&q.value("protocol",0)==2&&q.value("catalog_revision",std::string())==catalog().value("revision",std::string("missing"));
+    if(ok){std::lock_guard<std::mutex> l(mutex());for(auto i=peers().begin();i!=peers().end();)if(i->second.expires<now())i=peers().erase(i);else ++i;if(peers().size()>=256&&!peers().count(c->getObjectID()))throw std::runtime_error("ground_capacity");peers()[c->getObjectID()]={c,now()+15};}
+-   return {{"success",ok},{"protocol",2},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
++   return {{"success",ok},{"protocol",2},{"receipt_clock","presentation_v1"},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
+   }
+   if(op!="batch"||!q.contains("receipts")||!q.at("receipts").is_array()||q.at("receipts").size()>32)throw std::runtime_error("ground_batch_invalid");
+   if(!capable(c->getObjectID()))throw std::runtime_error("ground_capability_required");
+@@ -169,8 +169,8 @@
+    if(s){Locker guard(&s->mutex,c);auto v=s->victims.find(c->getObjectID());
+     if(std::to_string(s->attack.id)==row.at("attack_id").get<std::string>()&&v!=s->victims.end()&&!s->attack.cancelled){
+      auto& state=v->second.state;sync(v->second,s->attack);auto rev=row.at("aim_revision").get<uint64>();
+-     if(row.at("kind")=="warning")result["accepted"]=state.warning(now());
+-     else if(row.at("kind")=="lock")result["accepted"]=state.acknowledge(now(),rev);
++     if(row.at("kind")=="warning")result["accepted"]=state.warning(now(),row.value("presented_at",now()));
++     else if(row.at("kind")=="lock")result["accepted"]=state.acknowledge(now(),rev,row.value("presented_at",now()));
+      else{
+       Vec feet=row.at("sample_position").get<Vec>();bool plausible=corecu::action::finite(feet)&&corecu::action::distance(feet,point(c))<=4;
+       bool hit=row.at("contact").get<bool>();if(hit)plausible=plausible&&v->second.lineClear&&s->attack.contact(feet);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrWarcry.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrWarcry.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include "WarcryPolicy.h"
++#include "CombatFeedback.h"
+ #include <vector>
+ #include <algorithm>
+ #include "CoreCuCombat.h"
+@@ -13,10 +14,10 @@
+  }
+ public:
+  static bool learned(CreatureObject* c){auto p=c->getPlayerObject();return p && c->hasSkill("combat_brawler_novice") && p->hasAbility("warcry1") && p->hasAbility("intimidate1");}
+- static bool weapon(CreatureObject* c){auto w=c->getWeapon();return w && !w->isUnarmedWeapon() && (w->isMeleeWeapon() || w->isRangedWeapon()) && w->isCertifiedFor(c);}
++ static bool weapon(CreatureObject* c){auto w=c->getWeapon();return w && (w->isUnarmedWeapon() || w->isMeleeWeapon() || w->isRangedWeapon()) && w->isCertifiedFor(c);}
+  static double cooldown(CreatureObject* c){auto t=c->getCooldownTime("corecu_warcry");return t?std::max(0.,-t->miliDifference()/1000.):0.;}
+  static Json snapshot(CreatureObject* c){return {{"learned",learned(c)},{"conditions_met",weapon(c) && !c->isDead() && !c->isIncapacitated() && !c->isRidingMount() && c->getPosture()==0},{"cooldown_remaining_seconds",cooldown(c)},{"action_cost",corecu::warcry::ActionCost},{"mind_cost",corecu::warcry::MindCost},{"interval_seconds",1.}};}
+- static Json ability(CreatureObject* c){auto row=snapshot(c);row["id"]="warcry";row["label"]="Warcry";row["description"]="Raise your held weapon above your head, lower it slightly and pump it upward. Delays attacks and reduces enemy damage in a forward cone. Replaces Warcry and Intimidate.";row["activation"]="overhead_weapon_pump";row["category"]="gesture";row["trigger_description"]="Hold grip with both triggers released. Raise the weapon above your head, lower it slightly, then pump upward while facing enemies.";row["weapon_requirement"]="A certified held melee or ranged weapon; unavailable unarmed.";row["ultimate"]=false;row["cooldown_seconds"]=corecu::warcry::Cooldown;row["max_range_m"]=corecu::warcry::Range;row["base_sac"]={{"health",0},{"action",corecu::warcry::ActionCost},{"mind",corecu::warcry::MindCost}};return row;}
++ static Json ability(CreatureObject* c){auto row=snapshot(c);row["id"]="warcry";row["label"]="Warcry";row["description"]="Raise your fist or held weapon above your head, lower it slightly and pump it upward. Delays attacks and reduces enemy damage in a forward cone. Replaces Warcry and Intimidate.";row["activation"]="overhead_weapon_pump";row["category"]="gesture";row["trigger_description"]="Hold grip with both triggers released. Raise your fist or weapon above your head, lower it slightly, then pump upward while facing enemies.";row["weapon_requirement"]="Unarmed, or a certified held melee or ranged weapon.";row["ultimate"]=false;row["cooldown_seconds"]=corecu::warcry::Cooldown;row["max_range_m"]=corecu::warcry::Range;row["base_sac"]={{"health",0},{"action",corecu::warcry::ActionCost},{"mind",corecu::warcry::MindCost}};return row;}
+  static Json run(CreatureObject* c,const Json& request){
+   if(!learned(c))throw std::runtime_error("native_warcry_not_learned");
+   if(!snapshot(c).at("conditions_met").get<bool>() || std::to_string(c->getWeapon()->getObjectID())!=request.at("item_id").get<std::string>())throw std::runtime_error("native_warcry_unavailable");
+@@ -36,12 +37,14 @@
+   for(auto a:targets){if(attempted>=corecu::warcry::MaxTargets)break;Locker lock(a,c);if(!eligible(c,a,feet,d))continue;++attempted;
+    CombatManager::instance()->startCombat(a,c);
+    double resistance=CoreCuCombat::rating(a,corecu::Intimidate,a->getSkillMod("intimidate_defense"));
+-   if(System::random(99)>=corecu::statusChance(100,resistance))continue;
++   auto point=a->getWorldPosition();std::array<double,3> contact{{point.getX(),point.getZ(),point.getY()}};
++   if(System::random(99)>=corecu::statusChance(100,resistance)){corecu::feedback::record(c->getObjectID(),a->getObjectID(),"resisted",0,contact);continue;}
+    bool applied=false;
+    if(a->getSkillMod("private_damage_divisor_intimidate")<=0){ManagedReference<Buff*> buff=new Buff(a,STRING_HASHCODE("swgxr_warcry"),corecu::statusDuration(corecu::warcry::duration(master),resistance),BuffType::STATE);Locker lockBuff(buff,a);buff->setSkillModifier("private_damage_divisor_intimidate",corecu::warcry::Reduction);a->addBuff(buff);applied=true;}
+    double delayResistance=CoreCuCombat::rating(a,corecu::Snare,a->getSkillMod("warcry_defense"));
+    if(System::random(99)<corecu::statusChance(100,delayResistance))applied=a->setNextAttackDelay(c,"swgxr_warcry",0,corecu::statusDuration(corecu::warcry::delay(master),delayResistance)) || applied;
+    if(applied){a->addCooldown("corecu_control_recovery",8000);++affected;}
++   corecu::feedback::record(c->getObjectID(),a->getObjectID(),applied?"applied":"ineffective",0,contact);
+   }
+   return {{"success",true},{"shot_id",request.at("shot_id")},{"affected",affected},{"attempted",attempted},{"interval_seconds",1.}};
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -28,6 +28,9 @@
+ #include "server/zone/objects/tangible/tool/CraftingStation.h"
+ #include "server/zone/objects/tangible/ticket/TicketObject.h"
+ #include "server/zone/objects/mission/MissionObject.h"
++#include "server/zone/objects/mission/DeliverMissionObjective.h"
++#include "server/zone/objects/mission/HuntingMissionObjective.h"
++#include "server/zone/objects/waypoint/WaypointObject.h"
+ #include "server/zone/objects/transaction/TransactionLog.h"
+ #include "server/zone/objects/player/sui/callbacks/TravelCouponUseSuiCallback.h"
+ // Thin authenticated presentation bridge. Objects, prices, mission objectives,
+@@ -51,7 +54,18 @@
+   auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand(name);if(cmd==nullptr)throw std::runtime_error("native_command_unavailable");int code=cmd->doQueueCommand(c,target,UnicodeString(String(args.c_str())));if(code!=QueueCommand::SUCCESS)throw std::runtime_error(std::string("native_")+name+"_rejected_"+std::to_string(code));return code;
+  }
+  static bool supportedMission(MissionObject* m){auto type=m->getTypeAsString();return type=="destroy" || type=="hunting" || type=="recon" || type=="deliver" || type=="crafting" || type=="survey" || SwgxrBounty::eligible(m);}
+- static Json mission(MissionObject* m,bool active){Json out={{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"faction",m->getFaction()==Factions::FACTIONIMPERIAL?"imperial":m->getFaction()==Factions::FACTIONREBEL?"rebel":"neutral"},{"faction_points",{{"imperial",m->getRewardFactionPointsImperial()},{"rebel",m->getRewardFactionPointsRebel()}}},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};if(m->getTypeCRC()==MissionTypes::BOUNTY){out["bounty"]=SwgxrBounty::describe(m,active);out["planet"]=out["bounty"]["waypoint"]["planet"];out["position"]=out["bounty"]["waypoint"]["position"];}return out;}
++ static Json mission(MissionObject* m,bool active){Json out={{"id",id(m)},{"name",str(m->getMissionTitle()->toString())},{"description",str(m->getMissionDescription()->toString())},{"target",str(m->getTargetName())},{"reward",m->getRewardCredits()},{"faction",m->getFaction()==Factions::FACTIONIMPERIAL?"imperial":m->getFaction()==Factions::FACTIONREBEL?"rebel":"neutral"},{"faction_points",{{"imperial",m->getRewardFactionPointsImperial()},{"rebel",m->getRewardFactionPointsRebel()}}},{"difficulty",m->getDifficultyDisplay()},{"type",str(m->getTypeAsString())},{"planet",str(m->getStartPlanet())},{"position",Json::array({m->getStartPositionX(),0,m->getStartPositionY()})},{"active",active},{"supported",supportedMission(m)},{"blocked_reason",supportedMission(m)?"":"This original mission needs an interaction not yet available in the VR prototype."}};if(m->getTypeCRC()==MissionTypes::BOUNTY){out["bounty"]=SwgxrBounty::describe(m,active);out["planet"]=out["bounty"]["waypoint"]["planet"];out["position"]=out["bounty"]["waypoint"]["position"];}if(active){
++   out["status"]="In progress";
++   auto objective=m->getMissionObjective();
++   auto delivery=dynamic_cast<DeliverMissionObjective*>(objective);
++   if(delivery!=nullptr){int phase=delivery->getObjectiveStatus();out["status"]=phase==DeliverMissionObjective::INITSTATUS?"Collect parcel":phase==DeliverMissionObjective::PICKEDUPSTATUS?"Deliver parcel":"Delivery completed";out["progress"]=phase==DeliverMissionObjective::INITSTATUS?"Awaiting pickup":phase==DeliverMissionObjective::PICKEDUPSTATUS?"Parcel collected; travel to recipient":"Parcel delivered";}
++   auto hunting=dynamic_cast<HuntingMissionObjective*>(objective);
++   if(hunting!=nullptr){int total=15*m->getDifficultyLevel(),remaining=std::max(0,hunting->getTargetsRemaining());out["progress"]=std::to_string(std::max(0,total-remaining))+" / "+std::to_string(total)+" targets defeated";}
++   auto waypoint=m->getWaypointToMission();
++   if(waypoint!=nullptr){std::string planet;for(auto name:{"tatooine","naboo","corellia","rori","talus","dantooine","dathomir","endor","lok","yavin4"})if(String(name).hashCode()==waypoint->getPlanetCRC())planet=name;
++    if(!planet.empty())out["waypoint"]={{"id",id(waypoint)},{"planet",planet},{"position",Json::array({waypoint->getPositionX(),waypoint->getPositionZ(),waypoint->getPositionY()})},{"active",waypoint->isActive()},{"source","core3_mission_waypoint"}};
++   }
++  }return out;}
+  static Json missions(CreatureObject* c,bool active){Json a=Json::array();auto bag=c->getSlottedObject(active?"datapad":"mission_bag");if(bag!=nullptr)for(int i=0;i<bag->getContainerObjectsSize() && a.size()<64;++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getTypeCRC()!=0 && m->getRewardCredits()>0)a.push_back(mission(m,active));}return a;}
+  static Json listings(CreatureObject* c,const Json& r){Json rows=Json::array();int matched=0,offset=r.value("page",0)*100,category=r.value("category_id",0);auto scope=r.value("search_scope",std::string("galaxy"));if(scope!="local" && scope!="planet" && scope!="galaxy" && scope!="vendor")throw std::runtime_error("invalid_bazaar_search_scope");auto manager=c->getZoneServer()->getAuctionManager();ManagedReference<SceneObject*> terminalObject;if(r.contains("terminal_id"))terminalObject=c->getZoneServer()->getObject(oid(r,"terminal_id"));auto lists=terminalObject!=nullptr && terminalObject->isVendor()?manager->getAuctionMap()->getVendorTerminalData("","",terminalObject):manager->getAuctionMap()->getBazaarTerminalData("","",nullptr);if(terminalObject!=nullptr && terminalObject->isBazaarTerminal()){auto vendors=manager->getAuctionMap()->getVendorTerminalData("","",nullptr);for(int j=0;j<vendors.size();++j)lists.put(vendors.get(j));}for(int i=0;i<lists.size() && rows.size()<101;++i){auto list=lists.get(i);ReadLocker guard(list);for(int j=0;j<list->size() && rows.size()<101;++j){auto a=list->get(j);if(a==nullptr || (a->getStatus()!=AuctionItem::FORSALE && a->getBuyerID()!=c->getObjectID() && a->getOwnerID()!=c->getObjectID()))continue;auto sellingVendor=c->getZoneServer()->getObject(a->getVendorID());bool local=terminalObject!=nullptr && terminalObject->getObjectID()==a->getVendorID();if(!a->isOnBazaar()){if(sellingVendor==nullptr || sellingVendor->getZone()==nullptr)continue;auto data=sellingVendor->getDataObjectComponent();auto vd=data && data->get() && data->get()->isVendorData()?cast<VendorDataComponent*>(data->get()):nullptr;if(!vd || vd->isSwgxrStored() || (!local && !vd->isVendorSearchEnabled()))continue;}if(!a->isSwgxrGalacticSearch() && (terminalObject==nullptr || a->getVendorID()!=terminalObject->getObjectID()) && a->getOwnerID()!=c->getObjectID() && a->getBuyerID()!=c->getObjectID())continue;if(scope=="local" && !local)continue;if(scope=="planet" && (sellingVendor==nullptr || sellingVendor->getZone()!=c->getZone()))continue;if(scope=="vendor" && a->isOnBazaar())continue;if(!manager->checkItemCategory(category,a))continue;if(matched++<offset)continue;rows.push_back({{"id",std::to_string(a->getAuctionedItemObjectID())},{"name",str(a->getItemName())},{"description",str(a->getItemDescription())},{"price",a->getPrice()},{"category_id",a->getItemType()},{"auction",a->isAuction()},{"status",a->getStatus()},{"owner_id",std::to_string(a->getOwnerID())},{"buyer_id",std::to_string(a->getBuyerID())},{"vendor_id",std::to_string(a->getVendorID())},{"expires",a->getExpireTime()},{"min_bid",a->getPrice()+1},{"galactic_search",a->isSwgxrGalacticSearch()},{"location",sellingVendor!=nullptr && sellingVendor->getZone()!=nullptr?str(sellingVendor->getZone()->getZoneName())+" / "+str(sellingVendor->getDisplayedName()):""},{"buy_eligible",(a->isOnBazaar() || local) && a->getStatus()==AuctionItem::FORSALE && a->getOwnerID()!=c->getObjectID()},{"retrieve_eligible",(a->isOnBazaar() || local) && (a->getStatus()==AuctionItem::SOLD?a->getBuyerID()==c->getObjectID():a->getStatus()==AuctionItem::EXPIRED && a->getOwnerID()==c->getObjectID())}});}}return rows;}
+  static Json tickets(CreatureObject* c,const Json& travel){Json out=Json::array();auto inv=c->getInventory();if(inv==nullptr)return out;for(int i=0;i<inv->getContainerObjectsSize();++i){auto ticket=inv->getContainerObject(i).castTo<TicketObject*>();if(ticket==nullptr)continue;out.push_back({{"id",id(ticket)},{"departure",str(ticket->getDeparturePoint())},{"departure_planet",str(ticket->getDeparturePlanet())},{"arrival",str(ticket->getArrivalPoint())},{"planet",str(ticket->getArrivalPlanet())},{"destination_planet",str(ticket->getArrivalPlanet())},{"usable",ticket->getDeparturePlanet()==c->getZone()->getZoneName() && str(ticket->getDeparturePoint())==travel.value("departure",std::string()) && SwgxrPlanets::supported(ticket->getArrivalPlanet()) && c->getZoneServer()->getZone(ticket->getArrivalPlanet())!=nullptr}});}return out;}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,3 +1,4 @@
++#include "CombatFeedback.h"
+ #include "SwgxrGroundCombat.h"
+ #include "MeleePolicy.h"
+ #include "SwgxrActionCombat.h"
+@@ -552,7 +553,15 @@
+    sessions.emplace(c->getObjectID(),fresh);SwgxrJtl::attach(c,token);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrJtl::touch(c,token);SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+-  if(verb!="start" && verb!="stop")try{out["mutation"]=volleyAction(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
++  if(verb!="start" && verb!="stop")try{corecu::feedback::Scope feedback(c->getObjectID());out["mutation"]=volleyAction(c,session,request);
++   if(!feedback.value.results.empty()){
++    auto& mutation=out["mutation"];mutation["combat_results"]=Json::array();
++    for(const auto& entry:feedback.value.results){const auto& r=entry.second;auto targetID=std::to_string(entry.first);
++     mutation["combat_results"].push_back({{"target_id",targetID},{"resolution",r.resolution},{"damage",r.damage},{"position",r.position},{"success",true}});
++     if(mutation.value("target_id",std::string())==targetID)mutation["resolution"]=r.resolution;
++    }
++   }
++  }catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+   if(verb=="action_combat"){out["compact"]=true;out["native_action_ms"]=(now()-stamp)*1000;return out;}
+   if(verb=="stop"){SwgxrActionCombat::stop(c);SwgxrJtl::detach(c);}out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
+  }
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatFeedback.h
+@@ -0,0 +1,19 @@
++#pragma once
++#include <cstdint>
++#include <map>
++#include <array>
++#include <string>
++namespace corecu { namespace feedback {
++// Capture native secondary-defense results during one authenticated attack.
++// Thread-local scoped ownership prevents other players/counterattacks leaking in.
++struct Result {std::string resolution;int damage=0;std::array<double,3> position{{0,0,0}};};
++struct Capture {uint64_t attacker;std::map<uint64_t,Result> results;};
++inline Capture*& current(){static thread_local Capture* value=nullptr;return value;}
++struct Scope {
++ Capture value;Capture* previous;
++ explicit Scope(uint64_t attacker):value{attacker,{}},previous(current()){current()=&value;}
++ ~Scope(){current()=previous;}
++ std::string result(uint64_t target) const {auto i=value.results.find(target);return i==value.results.end()?"":i->second.resolution;}
++};
++inline void record(uint64_t attacker,uint64_t defender,const char* result,int damage=0,std::array<double,3> position={{0,0,0}}){auto c=current();if(c&&c->attacker==attacker){auto& r=c->results[defender];r.resolution=result;r.damage+=damage;r.position=position;}}
++} }
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/CombatFeedback.h"
+ #include "server/zone/objects/creature/commands/GroundActionPolicy.h"
+ #include "server/zone/objects/creature/commands/ActionCombatPolicy.h"
+ #include "server/zone/objects/creature/commands/SwgxrBountyHunterModifiers.h"
+@@ -454,6 +455,8 @@
+ 	}
+ 
+ 	int hitVal = HIT;
++	bool physicallyBlocked = false;
++ const std::array<int,3> feedbackBefore{{defender->getHAM(0),defender->getHAM(3),defender->getHAM(6)}};
+ 	uint8 hitLocation = 0;
+ 
+ 	float damageMultiplier = data.getDamageMultiplier();
+@@ -506,6 +509,7 @@
+ 	if (!volleyStrike && !data.isStateOnlyAttack() && !data.isForceAttack() && !data.getCommand()->isAreaAction() && !data.getCommand()->isConeAction() && damageMultiplier > corecu::guard::multiplier(defender->getWeapon()->isUnarmedWeapon())) {
+ 		const double guard = SwgxrPhysicalGuard::resolve(defender, attacker, weapon, damage);
+ 		if (guard < 1) {
++			physicallyBlocked = true;
+ 			if (hitVal != BLOCK) doBlock(attacker, weapon, defender, damage);
+ 			damageMultiplier = std::min(double(damageMultiplier), guard);
+ 		}
+@@ -547,6 +551,8 @@
+ 	targetHitList->setHit(hitVal);
+ 	targetHitList->setDamageMultiplier(damageMultiplier);
+ 	targetHitList->setHitLocation(hitLocation);
++ int feedbackDamage=0;for(int pool=0;pool<3;++pool)feedbackDamage+=std::max(0,feedbackBefore[pool]-defender->getHAM(pool*3));auto feedbackPoint=defender->getWorldPosition();
++ corecu::feedback::record(attacker->getObjectID(),defender->getObjectID(),physicallyBlocked||hitVal==BLOCK?"blocked":hitVal==DODGE?"dodged":hitVal==COUNTER?"countered":hitVal==RICOCHET?"deflected":hitVal==MISS?"miss":"hit",feedbackDamage,{{feedbackPoint.getX(),feedbackPoint.getZ(),feedbackPoint.getY()}});
+ 
+ 	return damage;
+ }

@@ -14,6 +14,14 @@ def sha(path):
 
 def inputs(root):
     paths=sorted(set((root/'server/patches').glob('*.patch')) | set((root/'server/combat').glob('*.h')) | set((root/'server/combat').glob('*.json')) | set((root/'tools/combat').glob('install_*.py')))
+    paths += sorted((root/'server/jtl').glob('*.h')) + sorted((root/'server/jtl/pilot').glob('*.*')) + sorted((root/'tools/space/pilot').glob('*.py'))
+    manifest=root/'runtime/server/pilot-source/installed.json'
+    paths += [manifest]
+    if manifest.exists():
+        for entry in json.loads(manifest.read_text())['files']:
+            path=root/'vendor/Core3'/entry['path']
+            if sha(path)!=entry['sha256']:raise ValueError('Installed pilot bundle differs from its manifest: '+entry['path'])
+            paths.append(path)
     paths += [root/'tools/configure_core3.py',root/'tools/server/build.sh',root/'tools/server/native_build_receipt.py']
     return {'upstream':subprocess.check_output(['git','-C',str(root/'vendor/Core3'),'rev-parse','HEAD'],text=True).strip(),
             'engine3':subprocess.check_output(['git','-C',str(root/'vendor/Core3/MMOCoreORB/utils/engine3'),'rev-parse','HEAD'],text=True).strip(),

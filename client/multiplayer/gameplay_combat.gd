@@ -5,7 +5,7 @@ var session:Node
 var sync:Node
 var blocked_revision:=-1
 func attach(host:Node,combat_rig:Node3D,gameplay:Node,replication:Node)->void:
-	app=host;rig=combat_rig;session=gameplay;sync=replication;stage=app.stage;player=app.player
+	app=host;rig=combat_rig;rig.native_unarmed_available=false;session=gameplay;sync=replication;stage=app.stage;player=app.player
 	owner_account=app.datapad_account;owner_character=app.datapad_character_id
 	rig.authority_gate=is_ready;rig.shot_authority=register_shot;rig.aim_assist_candidates=aim_assist_candidates
 	rig.rounds_sim.authoritative_contact.connect(contact)
@@ -13,7 +13,7 @@ func attach(host:Node,combat_rig:Node3D,gameplay:Node,replication:Node)->void:
 	refresh_authority()
 func refresh_authority()->void:
 	if not is_instance_valid(session) or not session.live or session.character_id!=owner_character or not is_instance_valid(sync):
-		live=false;native_ready=false;return
+		live=false;native_ready=false;rig.native_unarmed_available=false;return
 	if session_id!=session.session_id:
 		cancel_showdown()
 		generation+=1;queue.clear();shots.clear();next_launch_usec=0;blocked_revision=-1;abilities_revision=-1
@@ -46,22 +46,26 @@ func valid_weapon(value:Dictionary)->bool:
 	if bool(value.get("unarmed",false)) and rig.get("unarmed") is Dictionary:return not rig.unarmed.is_empty()
 	return rig.weapons.any(func(entry):return str(entry.state.profile.get("item_id",""))==str(value.item_id) )
 func has_pending_commands()->bool:return busy or not queue.is_empty()
+func has_receipt_recovery()->bool:
+	return not queue.is_empty() and queue[0].get("payload",{}).get("receipt_only",false)
 func is_ready()->bool:
 	return is_instance_valid(session) and not app.session_leaving and app.world_ready and super.is_ready()
 func pump()->void:
-	if busy or not live or queue.is_empty() or session.busy:return
-	if session.authority_expired():fail("CoreCU authority expired; queued combat gestures discarded.");return
+	if busy or not live or queue.is_empty() or session.busy or Time.get_ticks_usec()<backend_retry_usec:return
+	if session.authority_expired() and not queue[0].get("payload",{}).get("receipt_only",false):fail("CoreCU authority expired; queued combat gestures discarded.");return
 	if app.has_method("native_requests_in_flight") and app.native_requests_in_flight()>0:return
 	var request:Dictionary=queue.pop_front()
 	var id:=str(request.get("shot_id",""))
 	if not shots.has(id) or Time.get_ticks_usec()>int(shots[id].expires_usec):shots.erase(id);return
 	if request.kind=="impact" and not shots[id].accepted:return
 	if not prepare_combat_request(request):return
+	retain_pending_receipt(request)
 	busy=true
 	var epoch:=generation
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/"+str(request.kind),request.payload)
 	if epoch!=generation:return
 	busy=false
+	if retry_combat_receipt(request,response):return
 	if settle_movement_rejection(response,request):
 		session.next_update=0
 		session.last_position=Vector3.INF
@@ -87,7 +91,9 @@ func _process(_delta:float)->void:
 	for id in shots.keys():
 		if Time.get_ticks_usec()>int(shots[id].expires_usec):shots.erase(id)
 	if elapsed_since_snapshot>=SESSION_TIMEOUT:
-		fail("CoreCU authority expired; queued combat gestures discarded.");return
+		if busy:return
+		if queue.is_empty() or not queue[0].get("payload",{}).get("receipt_only",false):
+			fail("CoreCU authority expired; queued combat gestures discarded.");return
 	pump()
 func _exit_tree()->void:
 	if is_instance_valid(rig):

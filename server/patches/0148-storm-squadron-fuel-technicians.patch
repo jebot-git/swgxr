@@ -1,0 +1,54 @@
+--- a/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_nym_technician_1",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech_2.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech_2.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_nym_technician_2",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech_3.lua
++++ b/MMOCoreORB/bin/scripts/mobile/space/nym_fuel_tech_3.lua
+@@ -33,7 +33,7 @@
+ 	-- Unarmed should be put on secondary unless the mobile doesn't use weapons, in which case "unarmed" should be put primary and "none" as secondary
+ 	primaryWeapon = "unarmed",
+ 	secondaryWeapon = "none",
+-	conversationTemplate = "",
++	conversationTemplate = "swgxr_pilot_nym_technician_3",
+ 	
+ 	-- primaryAttacks and secondaryAttacks should be separate skill groups specific to the weapon type listed in primaryWeapon and secondaryWeapon
+ 	-- Use merge() to merge groups in creatureskills.lua together. If a weapon is set to "none", set the attacks variable to empty brackets
+--- a/MMOCoreORB/bin/scripts/mobile/conversations/space/swgxr_pilot.lua
++++ b/MMOCoreORB/bin/scripts/mobile/conversations/space/swgxr_pilot.lua
+@@ -213,3 +213,18 @@
+  template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
+  addConversationTemplate("swgxr_pilot_yavin_rebel_trainer_2",template)
+ end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_nym_technician_1",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_nym_technician_1",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_nym_technician_2",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_nym_technician_2",template)
++end
++do
++ local template=ConvoTemplate:new {initialScreen="source",templateType="Lua",luaClassHandler="swgxrPilotSource_nym_technician_3",screens={}}
++ template:addScreen(ConvoScreen:new {id="source",leftDialog="",stopConversation="false",options={}})
++ addConversationTemplate("swgxr_pilot_nym_technician_3",template)
++end

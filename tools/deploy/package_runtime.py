@@ -49,7 +49,7 @@ def main():
     catalogs = vehicle_catalog_status(ROOT)
     if not catalogs['passed']: raise SystemExit('; '.join(catalogs['errors']))
     native = 'vendor/Core3/MMOCoreORB/bin/'
-    paths = ['server', 'tools/deploy', 'client/combat/balance.json',
+    paths = ['server', 'tools/deploy', 'docs/PILOT_MISSIONS.md', 'client/combat/balance.json',
              *REQUIRED_ASSET_CATALOGS,
              'runtime/assets/mos_eisley/scene.json',
              'tools/combat/export_catalog.py']
@@ -59,7 +59,7 @@ def main():
         paths=[p for p in paths if not p.startswith('tools/')]+['tools','tests','docs/VPS_DEPLOYMENT.md',
             'runtime/assets/inventory/catalog.json','runtime/assets/ambient_npcs/catalog.json']
     else:
-        paths+=['runtime/server/native-build.json']
+        paths+=['runtime/server/native-build.json','runtime/server/pilot-source/installed.json','runtime/server/pilot-source/conversion.json','runtime/server/pilot-source/quests.json','runtime/server/pilot-source/dialogue.json']
         paths += [native + p for p in ('corecu', 'core3', 'core3client', 'conf', 'scripts', 'terrain', 'custom_scripts')]
     for relative in paths:
         source, destination = ROOT / relative, target / relative

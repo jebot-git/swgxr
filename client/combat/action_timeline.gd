@@ -9,6 +9,7 @@ var receipts:=0
 var aim_updates:=0
 var aim_locks:=0
 var late_locks:=0
+var contact_evidence:=false
 func clear()->void:
 	attacks.clear();retired.clear()
 func key(event:Dictionary)->String:
@@ -33,7 +34,7 @@ func ingest(event:Dictionary,local_now:float,transit:float=0.0)->void:
 		retire(id);return
 	if attacks.size()>=64:return
 	var server_now:=local_now+server_offset if event.get("protocol",1)==2 and clock_ready else float(event.server_now)+float(event.age_ms)/1000.0+clampf(transit,0,.5)
-	attacks[id]={"event":event.duplicate(true),"local_anchor":local_now,"server_anchor":server_now,"last_sample":server_now,"covered":server_now<=float(event.active_at),"hit":false,"sent":false,"coverage_start":maxf(server_now,float(event.start)),"sample_position":[0,0,0]}
+	attacks[id]={"event":event.duplicate(true),"local_anchor":local_now,"server_anchor":server_now,"last_sample":server_now,"last_position":Vector3.INF,"last_valid":false,"covered":server_now<=float(event.active_at),"hit":false,"contact_at":0.0,"sent":false,"coverage_start":maxf(server_now,float(event.start)),"sample_position":[0,0,0]}
 	if event.get("aim_locked",false):
 		aim_locks+=1
 		if server_now>float(event.get("delivery_at",event.active_at)):
@@ -57,6 +58,9 @@ static func contact(event:Dictionary,feet:Vector3)->bool:
 	if shape in ["circle","targeted"]:return true
 	if shape=="lane":return along>=-.35 and absf(p.x*d.z-p.z*d.x)<=float(event.radius)+.35
 	return distance<=.35 or along>=float(event.cosine)*maxf(0,distance-.35)
+func observe_contact(entry:Dictionary,event:Dictionary,point:Vector3,stamp:float)->void:
+	if entry.hit or not contact(event,point):return
+	entry.hit=true;entry.contact_at=stamp;entry.sample_position=[point.x,point.y,point.z]
 func sample(local_now:float,feet:Vector3,owner:String,valid:bool=true)->Array:
 	var result:Array=[]
 	for id:String in attacks.keys():
@@ -67,15 +71,30 @@ func sample(local_now:float,feet:Vector3,owner:String,valid:bool=true)->Array:
 		if stamp>=float(event.active_at) and float(entry.last_sample)<=float(event.end_at):
 			if not valid or stamp-float(entry.last_sample)>.075:entry.covered=false
 			if event.has("aim_revision") and not event.aim_locked:entry.covered=false
-			if stamp<=float(event.end_at):
-				if not entry.hit:entry.sample_position=[feet.x,feet.y,feet.z]
-				entry.hit=entry.hit or contact(event,feet)
+			var locked:bool=not event.has("aim_revision") or event.aim_locked
+			if valid and locked:
+				# Only bridge short, continuous tracking intervals. A loading/focus
+				# gap cannot fabricate contact, but cannot erase an observed hit.
+				var gap:float=stamp-float(entry.last_sample)
+				if contact_evidence and entry.last_valid and gap>0 and gap<=.075 and feet.distance_to(entry.last_position)<=1.5:
+					var begin:float=maxf(float(entry.last_sample),float(event.active_at))
+					var end:float=minf(stamp,float(event.end_at))
+					if begin<=end:
+						var steps:=maxi(1,int(ceil(feet.distance_to(entry.last_position)/.025)))
+						for i in steps+1:
+							var at:float=lerpf(begin,end,float(i)/steps)
+							observe_contact(entry,event,entry.last_position.lerp(feet,(at-float(entry.last_sample))/gap),at)
+				if stamp<=float(event.end_at):
+					if not entry.hit:entry.sample_position=[feet.x,feet.y,feet.z]
+					observe_contact(entry,event,feet,stamp)
 		entry.last_sample=stamp
+		entry.last_position=feet;entry.last_valid=valid
 		if stamp>=float(event.end_at)+.025:
 			entry.sent=true
-			if not entry.covered or event.phase in ["recovery","cancelled"]:continue
+			if (not entry.covered and not (contact_evidence and entry.hit)) or event.phase in ["recovery","cancelled"]:continue
 			result.append({"action":"contact","encounter_id":str(event.encounter_id),"actor_id":str(event.id),"attack_id":str(event.attack_id),"aim_revision":int(event.get("aim_revision",1)),"contact":bool(entry.hit),"coverage_start":float(entry.coverage_start),"coverage_end":stamp})
 			if event.get("protocol",1)==2:result[-1]["protocol"]=2;result[-1]["sample_position"]=entry.sample_position
+			if event.get("protocol",1)==2 and contact_evidence and entry.hit:result[-1]["contact_at"]=entry.contact_at
 			receipts+=1
 	return result
 

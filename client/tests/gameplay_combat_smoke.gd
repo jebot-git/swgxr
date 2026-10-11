@@ -13,6 +13,7 @@ class Rig extends Node3D:
 	var commando_authority:Callable
 	var weapons:Array=[]
 	var unarmed:Dictionary={}
+	var native_unarmed_available:=false
 	var haptics:Array=[]
 	func action_haptic(kind:String,hand:="")->void:haptics.append([kind,hand])
 	var rounds_sim:Rounds
@@ -43,6 +44,7 @@ class Host extends Node:
 	var reject:=false
 	var foreign:=false
 	var occupied:=false
+	var lose_next_reply:=false
 	var response_weapon:Dictionary={}
 	var melee_hit:=true
 	var taunt_applied:=true
@@ -52,6 +54,7 @@ class Host extends Node:
 	func api(_method:HTTPClient.Method,path:String,payload:Dictionary)->Dictionary:
 		calls.append({"path":path,"payload":payload.duplicate(true)})
 		await get_tree().process_frame
+		if lose_next_reply:lose_next_reply=false;return {"ok":false,"request_timeout":true}
 		var result:=envelope()
 		result.source_kind="core3_gameplay_session" if path=="/session/update" else "core3_live_combat";result.sequence=gameplay_session.sequence+1
 		result.mutation={"success":not reject,"shot_id":payload.get("shot_id",""),"error_code":"native_rejected" if reject else ""}
@@ -235,6 +238,15 @@ func run()->void:
 	bridge.next_launch_usec=0;bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO)
 	session.last_confirmed_ms=Time.get_ticks_msec()-4100;bridge._process(.01)
 	check(not bridge.has_pending_commands() and not bridge.is_ready() and session.live,"Combat-first process ordering also clears stale commands without releasing the RPG owner")
+	var recovered:=app.envelope();recovered.sequence=session.sequence+1;recovered.snapshot.weapon.combat_receipts="replay_v1"
+	session.accept(recovered);bridge.refresh_authority();bridge.next_launch_usec=0
+	app.lose_next_reply=true;launched=bridge.register_shot(shot,Transform3D.IDENTITY,Vector3.ZERO);await bridge.pump()
+	check(bridge.has_receipt_recovery() and bridge.shots.has(launched.shot_id),"Lost negotiated reply retains the pending shot for result recovery")
+	check(bridge.queue[0].payload.receipt_only and bridge.queue[0].payload.shot_id==launched.shot_id,"Recovery uses same shot identity and cannot re-execute an uncertain mutation")
+	session.last_confirmed_ms=Time.get_ticks_msec()-4100;session.next_update=0;session._process(.01)
+	check(bridge.has_receipt_recovery(),"Heartbeat expiry does not discard a bounded result-only recovery")
+	bridge.backend_retry_usec=0;await bridge.pump()
+	check(bridge.shots[launched.shot_id].accepted and bridge.queue.is_empty(),"Recovered native result settles the original shot")
 	app.free();await process_frame
 	var report:Dictionary={"checks":checks,"errors":errors,"mocked_transport":true,"reused_native_shot_protocol":true,"live_xr":false}
 	FileAccess.open("res://../runtime/evidence/gameplay-combat-client.json",FileAccess.WRITE).store_string(JSON.stringify(report))

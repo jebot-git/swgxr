@@ -6,6 +6,8 @@ class Menu extends Node3D:
 	func close()->void:menu_open=false
 class Weapon extends RefCounted:
 	var profile:Dictionary={"item_id":"42"}
+	var swing_feedback:Dictionary={"engaged":true}
+	func certified()->bool:return true
 class Host extends Node:
 	func source_position_at(p:Vector3)->Vector3:return Vector3(p.x,p.y,-p.z)
 var checks:=0
@@ -51,6 +53,16 @@ func run()->void:
 	check(not live.register_warcry(head.global_transform,"right"),"SAC gate rejects insufficient resources")
 	live.player_state.ham[1]=1000;live.weapon.item_id="43"
 	check(not live.register_warcry(head.global_transform,"right"),"Stale equipped-weapon snapshot rejected")
+	var fist:=Weapon.new();fist.profile={"item_id":"99","unarmed":true};rig.unarmed={"right":fist};rig.selected=-1
+	rig.native_unarmed_available=false
+	check(not rig.unarmed_engaged("right"),"Holstered pistol cannot show an unarmed attack reticle")
+	live.weapon={"item_id":"42","unarmed":false,"certified":true};live.next_launch_usec=0
+	check(not live.register_warcry(head.global_transform,"right"),"Holstered pistol cannot route fist warcry")
+	rig.native_unarmed_available=true;rig.warcry_context=context.duplicate(true);rig.overhead_warcry.clear();calls.clear()
+	pump(rig);check(calls.size()==1,"Native unarmed equipment permits raised-fist warcry gesture")
+	live.weapon={"item_id":"99","unarmed":true,"certified":true};live.next_launch_usec=0
+	check(live.register_warcry(head.global_transform,"right") and live.queue.back().payload.item_id=="99","Unarmed warcry submits the native fist identity")
+	rig.selected=0;rig.unarmed.clear();live.weapon={"item_id":"42","unarmed":false,"certified":true};live.next_launch_usec=0
 	var buffs:Dictionary={"center_of_being":context.duplicate(true),"berserk":context.duplicate(true)}
 	live.player_state.brawler_buffs=buffs;live.next_launch_usec=0
 	check(live.register_brawler_buff("center_of_being","left"),"CoB queues native self-buff without a targeting slot")

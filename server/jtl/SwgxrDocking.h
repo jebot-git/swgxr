@@ -16,9 +16,14 @@ public:
   auto owner=target->asShipAiAgent()->getMissionOwnerID();
   if(owner && owner!=pilot->getObjectID())return false;
   auto quest=ghost->getScreenPlayData("swgxr_docking",String::valueOf(target->getObjectID()));
-  if(!quest.beginsWith("spacequest/inspect/") && !quest.beginsWith("spacequest/rescue/") && !quest.beginsWith("spacequest/rescue_duty/"))return false;
-  auto crc=quest.hashCode();
-  return ghost->isJournalQuestActive(crc) && ghost->isJournalQuestTaskActive(crc,2) && !ghost->isJournalQuestTaskComplete(crc,2);
+  if(!quest.beginsWith("spacequest/inspect/") && !quest.beginsWith("spacequest/rescue/") && !quest.beginsWith("spacequest/rescue_duty/") && !quest.beginsWith("spacequest/delivery/") && !quest.beginsWith("spacequest/delivery_no_pickup/"))return false;
+  auto crc=quest.hashCode();int task=2;
+  if(quest.beginsWith("spacequest/delivery/")) {
+   auto saved=ghost->getScreenPlayData("swgxr_docking_task",String::valueOf(target->getObjectID()));
+   if(saved!="2" && saved!="4")return false;
+   task=saved=="4"?4:2;
+  }
+  return ghost->isJournalQuestActive(crc) && ghost->isJournalQuestTaskActive(crc,task) && !ghost->isJournalQuestTaskComplete(crc,task);
  }
  static bool permission(ShipObject* ship,ShipObject* target) {
   if(missionPermission(ship,target))return true;

@@ -57,6 +57,23 @@ func run() -> void:
 	mirror.update_camera(1.0)
 	assert(mirror.collision_limited and mirror.camera.global_position.z < 1.2)
 	assert(head.global_transform.is_equal_approx(pose) and head.current and rig.global_transform==Transform3D.IDENTITY)
+	var router=preload("res://graphics/desktop_mirror.gd").new();root.add_child(router)
+	router.configure(root,xr,mirror)
+	var old_root_xr:=root.use_xr
+	var old_xr:=xr.use_xr
+	router.set_mode(1)
+	var prior_requests:=mirror.render_requests
+	for i in range(90):mirror.request_render(1.0/90)
+	assert(router.standard and not mirror.enabled and not mirror.visible)
+	assert(mirror.render_requests==prior_requests and mirror.viewport.render_target_update_mode==SubViewport.UPDATE_DISABLED)
+	assert(root.use_xr==old_root_xr and xr.use_xr==old_xr and xr.get_camera_3d()==head and head.global_transform.is_equal_approx(pose))
+	router.set_mode(0)
+	mirror.request_render(1.0)
+	assert(not router.standard and mirror.enabled and mirror.visible and mirror.render_requests==prior_requests+1)
+	router.set_mode(1,true)
+	assert(not router.standard and not mirror.enabled)
+	router.set_mode(0)
+	router.queue_free()
 	wall.queue_free()
 	await process_frame
 	if capture:
@@ -89,6 +106,9 @@ func run() -> void:
 		mirror.viewport.get_texture().get_image().save_png(path)
 		print("SPECTATOR_CAPTURE "+path)
 	var report={"test":"xr_independent_desktop_spectator","passed":true,"headset_pose_and_camera_unchanged":true,"full_avatar_layers":true,"shared_world_single_mono_view":true,"cap_30_requests_per_90_ticks":true,"disabled_no_renders":true,"wall_clearance":true,"resolution":str(mirror.viewport.size),"hardware_tested":false}
+	report["mirror_mode_switching"]=true
+	report["standard_mirror_stops_spectator_renders"]=true
+	report["no_spectator_overrides_both_modes"]=true
 	FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/xr-spectator-smoke.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
 	print(JSON.stringify(report))
 	mirror.queue_free()

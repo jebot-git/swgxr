@@ -1,0 +1,2735 @@
+{
+  "commit": "e3aac29b55b46fec2ce2b1518db80a8f70d798a5",
+  "files": [
+    {
+      "path": "buildout/space_corellia.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_corellia.tab",
+      "sha256": "cd48912afb5baf09125d7c5087b5c1137c99bcefed9816dc44e1523429ebd88c"
+    },
+    {
+      "path": "buildout/space_dantooine.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_dantooine.tab",
+      "sha256": "6cf29e095988d36740fdb5a452b4df38a2bd9689bdb883dce7472ffc4a8ee75d"
+    },
+    {
+      "path": "buildout/space_dathomir.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_dathomir.tab",
+      "sha256": "e407c87c166af4eca3ab82d3e9dba033fc394cce75f82e9cbe2dc1fd2a90d4fd"
+    },
+    {
+      "path": "buildout/space_endor.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_endor.tab",
+      "sha256": "e00ebbd7279ec53c764da01c86843f2513a62b860d54eb41d2a8647b8098c4dc"
+    },
+    {
+      "path": "buildout/space_heavy1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_heavy1.tab",
+      "sha256": "2d21b1b266b0789e5c90a07ec79ee3b0e0d3f760c84e9166b79db67ebeb23222"
+    },
+    {
+      "path": "buildout/space_kashyyyk.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_kashyyyk.tab",
+      "sha256": "a1c10504928171c285d992afc748d6d9921d6827cb7ada17b205f9bbc745a305"
+    },
+    {
+      "path": "buildout/space_light1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_light1.tab",
+      "sha256": "8b0023c02b20498f15a6977f3c44f6e00b9d4f4c2a633f064731fe87cd662fd2"
+    },
+    {
+      "path": "buildout/space_lok.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_lok.tab",
+      "sha256": "bdb12ada5ba8030834ce8980adfa161b7bff15a4daf32a6391213a11c2639a63"
+    },
+    {
+      "path": "buildout/space_naboo.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_naboo.tab",
+      "sha256": "54ccbdd99fa6148139bdf494cd861963801d3e9f87c61079224a1bf6ec002018"
+    },
+    {
+      "path": "buildout/space_nova_orion.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_nova_orion.tab",
+      "sha256": "59c09742754ba82fccadecdfb15b8a0bd4ef95f89d3cc918a473a783bbe3588f"
+    },
+    {
+      "path": "buildout/space_npe_falcon.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_npe_falcon.tab",
+      "sha256": "4cfd6ae9b6dc46c9c37141087718b9da4f4497b1f2136f9b0f520eb2d02f3265"
+    },
+    {
+      "path": "buildout/space_npe_falcon_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_npe_falcon_2.tab",
+      "sha256": "f3586200d34b31664cf71c871c691c4f4ba0feff329f8413dff1ae2c7dded0cd"
+    },
+    {
+      "path": "buildout/space_npe_falcon_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_npe_falcon_3.tab",
+      "sha256": "f3586200d34b31664cf71c871c691c4f4ba0feff329f8413dff1ae2c7dded0cd"
+    },
+    {
+      "path": "buildout/space_ord_mantell.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell.tab",
+      "sha256": "973c2d5b477cf39d66a815ca42fbc71ee96558b38f1114081b4cc16f92d66f2b"
+    },
+    {
+      "path": "buildout/space_ord_mantell_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell_2.tab",
+      "sha256": "cf2d86393dc14f442b3bb70d0343d476da7c5c083d16c28aeaf3025cd16f9940"
+    },
+    {
+      "path": "buildout/space_ord_mantell_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell_3.tab",
+      "sha256": "973c2d5b477cf39d66a815ca42fbc71ee96558b38f1114081b4cc16f92d66f2b"
+    },
+    {
+      "path": "buildout/space_ord_mantell_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell_4.tab",
+      "sha256": "973c2d5b477cf39d66a815ca42fbc71ee96558b38f1114081b4cc16f92d66f2b"
+    },
+    {
+      "path": "buildout/space_ord_mantell_5.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell_5.tab",
+      "sha256": "973c2d5b477cf39d66a815ca42fbc71ee96558b38f1114081b4cc16f92d66f2b"
+    },
+    {
+      "path": "buildout/space_ord_mantell_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_ord_mantell_6.tab",
+      "sha256": "973c2d5b477cf39d66a815ca42fbc71ee96558b38f1114081b4cc16f92d66f2b"
+    },
+    {
+      "path": "buildout/space_tatooine.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_tatooine.tab",
+      "sha256": "080f199befd70b0bce31caa7a22ab5a294aae2a737ef771bd9fed53d96a9580b"
+    },
+    {
+      "path": "buildout/space_yavin4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/space_zones/buildout/space_yavin4.tab",
+      "sha256": "5fbace5c85bd7974b33b992274c7ddac407b50e5329fb05526c50393d1777d70"
+    },
+    {
+      "path": "corellia_imperial_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_imperial_tier3.java",
+      "sha256": "2c49901aff7e4eac11edcedb9a91e4e342a82945a84314d57ae3eea856eecd6c"
+    },
+    {
+      "path": "corellia_imperial_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_imperial_tier4.java",
+      "sha256": "eaa69e6401fbc532a4d09a715ed22a3990e93e6695c502b4115ac809a63aa617"
+    },
+    {
+      "path": "corellia_imperial_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_imperial_trainer_1.java",
+      "sha256": "465683ffc5dea491dfb4d4382873892b06da98fb7be22409e4c2b90f9fa85789"
+    },
+    {
+      "path": "corellia_imperial_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_imperial_trainer_2.java",
+      "sha256": "b86c7c6569f9c595c9c80e303c0340e4c1a42c99aec8948ce46036c1913dc9e4"
+    },
+    {
+      "path": "corellia_privateer_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_privateer_tier3.java",
+      "sha256": "b6f959454b65b3801a63217b5c9d25a0a394b434a7f9c4c19fbd2501429c2d7a"
+    },
+    {
+      "path": "corellia_privateer_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_privateer_tier4.java",
+      "sha256": "fee82f8cc5ba252f2ba7a82ee3ab88f5a20353b470d14d52339d47aee6268974"
+    },
+    {
+      "path": "corellia_privateer_trainer.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_privateer_trainer.java",
+      "sha256": "6a1d193728062dcf1e36d2246b9ecb466122afff100bf630e6a13f46a2d1d984"
+    },
+    {
+      "path": "corellia_privateer_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_privateer_trainer_2.java",
+      "sha256": "21deb884ac78d36dc97c784040acf396389571aba8c4398cf3663e924d00281a"
+    },
+    {
+      "path": "corellia_rebel_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_rebel_tier3.java",
+      "sha256": "20697b7a9ce7e094baffdde0f64f599af0807612afb6700eeaeeaff34eff0e32"
+    },
+    {
+      "path": "corellia_rebel_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_rebel_tier4.java",
+      "sha256": "9f5261e90c36c8045793f68f27e758f416a8e5ee4f46ac33e19de7482e8a21b6"
+    },
+    {
+      "path": "corellia_rebel_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/corellia_rebel_trainer_1.java",
+      "sha256": "6893870975646026ce8cdedc7fd99432a7c3e2f63ac904cdc4333ca7817cfb74"
+    },
+    {
+      "path": "dantooine_rebel_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/dantooine_rebel_trainer_2.java",
+      "sha256": "c1bb8cb34c5bbe89f353b6e0a3663e160425f9329bf8b6088e54b83c3065fee4"
+    },
+    {
+      "path": "imperial_master_trainer.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/imperial_master_trainer.java",
+      "sha256": "bba30a954d1063a957d7c56b1a170b3fb3bda4af4c21e9944271e8234e4fda82"
+    },
+    {
+      "path": "lok_rebel_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/lok_rebel_trainer_2.java",
+      "sha256": "326b45efb2558a6e0c2abacd31aa293fc3f5405edf4a73c1d0a492d06ece8930"
+    },
+    {
+      "path": "lok_rebel_trainer_2_smuggler.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/lok_rebel_trainer_2_smuggler.java",
+      "sha256": "6e3418f160b12ab6f9f0b08db94237259cc5da392d87edef3cd601a48d371e0a"
+    },
+    {
+      "path": "naboo_imperial_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_imperial_tier3.java",
+      "sha256": "ed6094befe9d5c36fba9785d11113f11e3445bf1086ac012b29b5f7efc8a1b6f"
+    },
+    {
+      "path": "naboo_imperial_tier3_barlow.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_imperial_tier3_barlow.java",
+      "sha256": "ba97100a1d12b26ef6c25da7199d9b497b27302745433abe54cab4acde9199c1"
+    },
+    {
+      "path": "naboo_imperial_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_imperial_tier4.java",
+      "sha256": "22441b45534d6d3a2c3662160eb2112cf079a9b5ff676260aed992d3d1178865"
+    },
+    {
+      "path": "naboo_imperial_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_imperial_trainer_1.java",
+      "sha256": "a135d33d0008a9a6db8c2d294f56de58c21a352bff0b20d27ca8d843eb9b4459"
+    },
+    {
+      "path": "naboo_imperial_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_imperial_trainer_2.java",
+      "sha256": "df5b687ae771d5b2c7712c5776115db599ddafd44956caca81598fad7cfc28cb"
+    },
+    {
+      "path": "naboo_privateer_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_privateer_tier3.java",
+      "sha256": "28a5080c644ec2f580161c86f2d75c2c53537ba9c3035642a3bd20641b2d00d9"
+    },
+    {
+      "path": "naboo_privateer_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_privateer_tier4.java",
+      "sha256": "81c56f071bdcd76669795167d2a708fd21e2112ef1546d177444918f2273f79f"
+    },
+    {
+      "path": "naboo_privateer_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_privateer_trainer_1.java",
+      "sha256": "11a25be7b9adc73f3d023ccb8b4d4fcd6238403e6838d4a9b6955f8c24092091"
+    },
+    {
+      "path": "naboo_privateer_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_privateer_trainer_2.java",
+      "sha256": "d80d9018d8eddb1e8aba8e1b8c9daa0c11cd30a128cb4e01dc04549c7f825f18"
+    },
+    {
+      "path": "naboo_rebel_tier1_kiizete.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_rebel_tier1_kiizete.java",
+      "sha256": "53cd630503a650ca5a474b5aa46ce8ca6472eb6c6fb53bfb515c63c91086ecd8"
+    },
+    {
+      "path": "naboo_rebel_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_rebel_tier3.java",
+      "sha256": "e7888d5fa4ea916d59895237c04bab312c8f96ef241c9f32e0ad0751b2cb42cf"
+    },
+    {
+      "path": "naboo_rebel_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_rebel_tier4.java",
+      "sha256": "2b2c6b30f48969442069598577bad80c2d36f325365ea2540b314db6ca51c1b7"
+    },
+    {
+      "path": "naboo_rebel_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/naboo_rebel_trainer_1.java",
+      "sha256": "16cf8f465c0274caaf69ee715092f0865d244727333fdab6773b7be46aa25835"
+    },
+    {
+      "path": "nym_technician_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/nym_technician_1.java",
+      "sha256": "d47d3e7f031d702703d922b011b6af18ff46ed714364a0c331fe052b17d3b7cd"
+    },
+    {
+      "path": "nym_technician_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/nym_technician_2.java",
+      "sha256": "279a16a9d38f3fa1f008e5abbe1f46e816ae13461455855390fb9a366838b727"
+    },
+    {
+      "path": "nym_technician_3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/nym_technician_3.java",
+      "sha256": "20883ed1ec198c12d97ca7428605d8bfcc2dbd7e81b2a9394ecdcc6573984e66"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_12.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_12.tab",
+      "sha256": "b7227d3e57671fbdd51d14c2607da6ca1a2fede5103c0ad3aca00fa1fe61082b"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_14.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_14.tab",
+      "sha256": "91afc84ad6d5df1b5336951f69faa6112e045c2a0222bf322a5744e3d866a0b6"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_17.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_17.tab",
+      "sha256": "7b3bf7e5ae0385993327193f2694b98cdf18eaefc73315482a246d1f88e0a5a1"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_4.tab",
+      "sha256": "6bb7e7df3ee9eaaadacdc147305072ca6b3998182477157172caedfd744f7acc"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_tier3_3_a.tab",
+      "sha256": "5402a9c888dce63e43444328065aafe7f351945acd4e52045233d630cd5d2be9"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_tier3_4_a.tab",
+      "sha256": "1439b8daf49f730704c2dfec934952456a4140672dfce23422658c7b7c40ae30"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_tier3_4_c.tab",
+      "sha256": "99be29fbf481a15cee2651bf6e726594e7131081138c058dafa129b64a487cc4"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_tier4_4.tab",
+      "sha256": "503b70c1692b0c4897bcfc884dc100e74c4a7170bdcbeae5979a084064e48a1d"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_imperial_tier4_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_imperial_tier4_4_d.tab",
+      "sha256": "02fdeb14addd416b465718e344e389f85714db41933d96204ad601340030a492"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier1_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier1_4a.tab",
+      "sha256": "43d9e1cd8798f7647d6462d1867160b1e99f5306b40be61100994a095a03cd5f"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier2_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier2_4a.tab",
+      "sha256": "1f2f1ecf31348281e65a35c0e55bf9167b50e9dddc2dc3f53a2edd608441ed3b"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier3_3d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier3_3d.tab",
+      "sha256": "facf154322bd8169359a5c52dacc4e8a00efe46987a84da96d05e0438845cf8b"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier3_4.tab",
+      "sha256": "6432f6ea23803079e2b6c47c063bbbe47e4c5ffa7da6abcbcb862fd7aa995acd"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_1b.tab",
+      "sha256": "1a19a200d97304905ac1143c622d1dcd9b7baec69be0c0a28d803612a2d7bcbb"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_2a.tab",
+      "sha256": "7db12c40b70fd77b8ca82e1b5f3da7def7d4c5facc876717242bbaaf8b0f3ef9"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_3b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_3b.tab",
+      "sha256": "9730ae1c94b7870e8bbdde57707de0038277cdeb55895d34a75a98b9f97fd744"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_4a.tab",
+      "sha256": "b657b724e1ad926ed948c346f1beb973b9b6b6b2d327d61846bb6a4b4ea93a17"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_4b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_4b.tab",
+      "sha256": "7ec00670f0875c39e969a297379e2f5146baf04836cb5b439e2032444a2be77d"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_privateer_tier4_4d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_privateer_tier4_4d.tab",
+      "sha256": "3b91e28fe4ce65c66e6e90d663d552486a08db183978c92a57d273f149d22ccc"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_4.tab",
+      "sha256": "ff7c52e4433c779712eb6c13bf93af314887f623ec947e74786bc442c44fe8c5"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_tier3_1_c.tab",
+      "sha256": "6d61ce9702c2c73533ff9a91aa7a2bf1b39018dd55889168e1fa2631759e5213"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_tier3_3_a.tab",
+      "sha256": "6cca715468603b91eba70d745c906ebbb93c1b8002d32adf14e25503754c0066"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_tier3_4.tab",
+      "sha256": "2c13bb3661d0ab2eeaa344db33d7033b090a4aef8a3eb7f840088f3514cc066c"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_tier4_2.tab",
+      "sha256": "0ac90630ba1512596745a316d49a1ef9cbd9ab6a9805ffb079be7fd857a7e05d"
+    },
+    {
+      "path": "quest_tables/assassinate/corellia_rebel_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/corellia_rebel_tier4_4_a.tab",
+      "sha256": "182cbe80f168b21d5e242b7bb60f56487bcea6d1e8708d1ac395b1c29beb8a3d"
+    },
+    {
+      "path": "quest_tables/assassinate/imperial_ss_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/imperial_ss_3.tab",
+      "sha256": "4affada22db4ae5e532e06f561e152cd835f1e7f6cbaa17d61c1a5f3bf8afc45"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_4.tab",
+      "sha256": "4319d8414c96b88f261a42362328bec64298ee530c759cc1e2c6bff3509da55e"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier2_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier2_4.tab",
+      "sha256": "72a6f0c716ea39194236d29ba15471021948d225ca5d0b685931acd090ea8e24"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier3_4.tab",
+      "sha256": "4488ffe808196a1b22c8b6f98c0c11c5dcbcb74422cfacfeeb7fd23c522a54d5"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier3_4_c.tab",
+      "sha256": "76f29004043deed1e6dcdf1ad02ebb85d6adb024b5fed782eeb6a12d46621ab1"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier4_3_b.tab",
+      "sha256": "a0e05d7fa4388c07e6350744974aa51e0fe12cde55202e1e738a7257cf11fbb5"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier4_4_b.tab",
+      "sha256": "394d9d38cf0fbf4c478c092bacf855899883eedac1de5a222037020b6c2e051c"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_imperial_tier4_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_imperial_tier4_4_c.tab",
+      "sha256": "c6ed564c6e1ef76cfdebed455e4f8fb5d0721a0bce05abf8939c5568399e0a7a"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier1_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier1_4a.tab",
+      "sha256": "c6d47ba141a787c82f16cec706ad1ec569bc72231e709bf8a9dc877e8bd453c5"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier2_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier2_1a.tab",
+      "sha256": "3d770d2089366fd4bc045444128a0d528f3852703cd7afaa6470139372e1bed9"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier2_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier2_1b.tab",
+      "sha256": "0c2e9e1a7c04824cee48c2da2095fbefadc88fa45b8846b6bbf87607329420cb"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier2_1c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier2_1c.tab",
+      "sha256": "476747f636364b2fa5ee9b4a7c33e8e061360669c2b2da1bf2b5011a7e4f0af6"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier3_1d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier3_1d.tab",
+      "sha256": "dd312c865ac462f9fe9ac54dbb54a79d188107c85ef384e56b1e26df87030fd7"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier3_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier3_4a.tab",
+      "sha256": "98eb942cda5ea2562ee02937d419065d5dbf1f3deaa584d93a58f4e1c9d84b46"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_privateer_tier3_4f.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_privateer_tier3_4f.tab",
+      "sha256": "8c44d9df17662b3b56f9608a300a342ebb407295d6d22221038d80ea4841bf23"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_4.tab",
+      "sha256": "41432255c61081759e17402a0ba5a46c4c46212fc87d824ebeb2303b51538312"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier3_1.tab",
+      "sha256": "fcd1d927e10c2f8e0fa2a40bd42e4b7c42332369a5893d8f277fc08ec3a8fe93"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier3_3_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier3_3_d.tab",
+      "sha256": "304c7cbc9c6df55e6a1be87b57fac83398c4da54d3c99e89c973cca4d3df0e7a"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier4_1_a.tab",
+      "sha256": "05fd88b38e597ac876aec795ba6f4ecc72f84e42df59f2dc23599aaf1057b0a5"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier4_2.tab",
+      "sha256": "0334e0c0b6c44f2d4ba75c235db987bd0223b57f0d8fa0cc65a0945f6fadf932"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier4_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier4_2_c.tab",
+      "sha256": "c7223b5308d2c7da1c1d6d85b47d47244558c838d434bf8f08aa1af383736644"
+    },
+    {
+      "path": "quest_tables/assassinate/naboo_rebel_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/naboo_rebel_tier4_3_a.tab",
+      "sha256": "33a08e3bf6b65d3c1f5f7161ed4e4f0a7e1c40dd01f9abc6193bcda782fcd5ba"
+    },
+    {
+      "path": "quest_tables/assassinate/tat_priv_quest_trans.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tat_priv_quest_trans.tab",
+      "sha256": "4f1941ea3cfb16641403673517ed45f1321e862809129869c1c879dd5a0db600"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_4.tab",
+      "sha256": "d1920b22291e7bd7f46a3a4d8a6f2ce53e2b379d1b6bee7427ca3e7fd1971632"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_tier3_4.tab",
+      "sha256": "b1ddd16b9f505fef0a69cff943a03750d174aafa0e52678caebd1cac8319a4c6"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_tier3_4_c.tab",
+      "sha256": "7993c0b34a85be79b661e4eeb8348ad1bfbbc05dc5fae599c719e9545cb701ce"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_tier4_4.tab",
+      "sha256": "6fdc2f824187b164d0ea92269add21830628dc469bd64f6d765c9644391f7629"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_tier4_4_a.tab",
+      "sha256": "c132a9b144fdd38896193362cb1faf0f8be8f102070ec8b171496ddb544e81a8"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_imperial_tier4_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_imperial_tier4_4_c.tab",
+      "sha256": "dc13fc0cd38057d0f5c528351bdf4b1e216ef1837f8b77baaeac0e70b7610e7f"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier1_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier1_4a.tab",
+      "sha256": "d8fd28529ef1dfe82a5197446bf39c957c5a517b6dd34be1741c24cb0b2c762d"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier2_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier2_1a.tab",
+      "sha256": "799fca87fd75d4ab2489a6f6b13db12bbabbb17e6dc908439be44e54b05eda87"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier2_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier2_2a.tab",
+      "sha256": "211e7133712ed6ff2c64cec167f966468e7140645af4f5bfcc5c6ca574ecac8e"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier2_3a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier2_3a.tab",
+      "sha256": "6b88930eb14385abe1df21a2ecf4a9f098d3da515f7f670df956b87762d0d5ee"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier3_1_a.tab",
+      "sha256": "4523ee17fbb7a87e242bdceff6dce46095d83dcb992f7a1f0d3cbf79ee10d016"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier3_1_b.tab",
+      "sha256": "bc18a9a2ad0e807f0ccbf23f6673f3f5b7dedb06863d1f70c26c801923761a61"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier3_1_c.tab",
+      "sha256": "675ac934bdab1f3b8e17339d5d2f20d271ae89088c55a4d4485d674af6a1005f"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier4_3b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier4_3b.tab",
+      "sha256": "dc7c677e6720bec14bb44349b422ead52cf3bc34e9544731cbf0ec82c419d8dc"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier4_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier4_4a.tab",
+      "sha256": "7000b6a9e3ff0be6c1d2bd436dc4191a358fd90cae472c0161515bfad7cd212e"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier4_4b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier4_4b.tab",
+      "sha256": "a45c765946eb4ffe4d886df6ff5e991f18f7a2a03f9e8b3e342a71759656394e"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_privateer_tier4_4c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_privateer_tier4_4c.tab",
+      "sha256": "5177f695e8a9d03ac3f7adfa88b01c32d2917d824e8d3f06ebbf9dbd8941edcf"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_4.tab",
+      "sha256": "4ec9fd44221edcb94d91892d379aac8a47bb90b73bde4c11a744b993b3251dfd"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier3_2_b.tab",
+      "sha256": "2d56e26da2cbddefb5ff5888ed716a6f59f50c470c42fcf54b4531656e2478dd"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier3_4.tab",
+      "sha256": "d14e126c6bc71423a1d67c43d8eebb465564e0b4a804ca2dbe293c208c238d04"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier4_1_a.tab",
+      "sha256": "2fc581926977312d6413c090b794fbbc7080bb0dcd80bc5674d9f4937b6511a8"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier4_3_a.tab",
+      "sha256": "a7635e9c06e0cc68276983179f8efbcaf03b2267386702d71593db86197afb4a"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier4_3_b.tab",
+      "sha256": "232f8bd68293d1cd63a59f70f2626c9e17807b2803373f65dcf6b538db1ab6d7"
+    },
+    {
+      "path": "quest_tables/assassinate/tatooine_rebel_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/tatooine_rebel_tier4_4.tab",
+      "sha256": "6570ed3415fce5b9dcd51fc0a38bbeba58f7ba1f9a67115eb0f898722d50b552"
+    },
+    {
+      "path": "quest_tables/assassinate/viopa_rebel_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/assassinate/viopa_rebel_4.tab",
+      "sha256": "ce69edd37ae6e33f54d424ff875220239a1d79a05d8efb3792e8e119a2b9176a"
+    },
+    {
+      "path": "quest_tables/delivery/corellia_privateer_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/corellia_privateer_tier3_2_b.tab",
+      "sha256": "b5415187c00e19fc8f82c4e574c784bd88c17f6eb43f857e9b0ec5da5afa1eaf"
+    },
+    {
+      "path": "quest_tables/delivery/corellia_privateer_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/corellia_privateer_tier3_3.tab",
+      "sha256": "a9d393a9efbe488753f38a23edd0d0d6539534db6858b5301b57c94de790032b"
+    },
+    {
+      "path": "quest_tables/delivery/corellia_rebel_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/corellia_rebel_tier3_2_a.tab",
+      "sha256": "db72b482c2e6a475757c7dc27e5e06ccaa6276ce64054a6539dd396908b6a7a6"
+    },
+    {
+      "path": "quest_tables/delivery/corellia_rebel_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/corellia_rebel_tier3_3.tab",
+      "sha256": "c37f56f99f1850a2e4138ab7d0ce87f72b1bb7143077f5d8fea6eb1918eae85a"
+    },
+    {
+      "path": "quest_tables/delivery/naboo_imperial_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/naboo_imperial_tier3_2_b.tab",
+      "sha256": "cb1a9afc047588f0d0345348ac24a38add42dbccdfd842d8026767ccb9f96e84"
+    },
+    {
+      "path": "quest_tables/delivery/naboo_imperial_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/naboo_imperial_tier3_3.tab",
+      "sha256": "657c2933e1e620247a124bdb677ddb7baa5cc7aa1cfb0d2f62776d73353ad6ee"
+    },
+    {
+      "path": "quest_tables/delivery/naboo_privateer_tier4_3a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/naboo_privateer_tier4_3a.tab",
+      "sha256": "8ffaf4631d764153098eb3963536e37dc5ad7d725ae9668a0601f5531958886e"
+    },
+    {
+      "path": "quest_tables/delivery/naboo_rebel_tier3_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/naboo_rebel_tier3_4_d.tab",
+      "sha256": "948f2f1343eeabb3e9d73c1839e40becc7c89ecefadfbdedb099c2b352847c11"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_imperial_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_imperial_tier3_3.tab",
+      "sha256": "9ce66256a6057c6427a4ac91c27465427191e11f35a22072bb457078c2934180"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_imperial_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_imperial_tier4_2_b.tab",
+      "sha256": "125176f1aca40519bbcb6aaf1b80e062e6685f4be52abf1da2343456945a423d"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_privateer_tier4_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_privateer_tier4_1a.tab",
+      "sha256": "4aa3d280812ffd01232b85633365098662c2832e9849c99cc9fbc2b14c48fbbf"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_rebel_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_rebel_tier3_1_a.tab",
+      "sha256": "887f7eae27c681a1196acd7a5df5abcb2029dae67aee089dee787021d6d3ff39"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_rebel_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_rebel_tier3_3.tab",
+      "sha256": "facf0ebbb0ff0d4c16528614560f50be3f0ee3dd55d441c07c6a0c315469688d"
+    },
+    {
+      "path": "quest_tables/delivery/tatooine_rebel_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery/tatooine_rebel_tier4_2_a.tab",
+      "sha256": "26c73dc21507be9fccb99451a792f35aef163b8c4c2a121bb09aff48b9420ed0"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/corellia_imperial_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/corellia_imperial_tier3_1_b.tab",
+      "sha256": "4c189a616b6c299e67124ce80df6bbfb07650f5248694c7133128fb7d9e9edfc"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/corellia_imperial_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/corellia_imperial_tier4_2_b.tab",
+      "sha256": "820c911e2c602e5c61cbb368427e3f23e2fc237bb58a594242461c8b09660431"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/corellia_privateer_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/corellia_privateer_tier3_4_c.tab",
+      "sha256": "22d3b12239daa6d39b0df274bc645b48d8a3ca84a5443580a1304aba60e71e0e"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/corellia_rebel_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/corellia_rebel_tier4_2_a.tab",
+      "sha256": "4471863e488e4db0855993ef0f402b6d4a0dab719df42569e98802bb84981af0"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_imperial_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_imperial_tier3_1_b.tab",
+      "sha256": "f6a23db572aba0ca4072dd17f16442ad71823b62b80e4f46701faa92612c12c8"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_imperial_tier3_3_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_imperial_tier3_3_d.tab",
+      "sha256": "b7989a1935fdffca3fa7e7af3c7342404dfe3bc9ba63ca1b787b4513fdd1d046"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_imperial_tier4_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_imperial_tier4_1_c.tab",
+      "sha256": "d4cb937f5ac95c4007c679234e1675218cb853e7caf3aa8f6281156029249657"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_imperial_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_imperial_tier4_3_a.tab",
+      "sha256": "1c724edf4ae68668ea205a1669c26fea74912c1be5a669bbee28b65635a0cff1"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_privateer_tier3_3b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_privateer_tier3_3b.tab",
+      "sha256": "756c44fa25d534c3699591276061b59103eec71819c4039bc68545a832fe07af"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_rebel_tier3_1_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_rebel_tier3_1_d.tab",
+      "sha256": "792f2bb472acfa203e32d417558541687d33621c321de0d5db06be8270ca5431"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/naboo_rebel_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/naboo_rebel_tier4_3_b.tab",
+      "sha256": "4f8de24fab25e37dcd2ab0c263980f10e0c8492772437f2ec9bd807cc0ca5eb9"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_imperial_tier3_1_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_imperial_tier3_1_d.tab",
+      "sha256": "e1a62a64d06eab9d80563487b8b4f22dcd09509b06253997addc1311d940b8fe"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_imperial_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_imperial_tier3_2_c.tab",
+      "sha256": "108fcf47dea20252b9845acdd8ae1141ae58092c06e565676fe8e18951749b43"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_imperial_tier4_1_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_imperial_tier4_1_d.tab",
+      "sha256": "8fd64567e39e6f5e1a84989089d097eed562e6a9f2eff725fb78207407e57a39"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_imperial_tier4_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_imperial_tier4_2_c.tab",
+      "sha256": "768af3eaa8e08e8a4e0b916f6a232c96293f0252238e25498c994696a66aa2f1"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_privateer_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_privateer_tier3_3.tab",
+      "sha256": "a57ea639fb9ff358cd873f9221b10aa428224f2a82444618c5c44bbecfb497b3"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_privateer_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_privateer_tier3_3_a.tab",
+      "sha256": "1fa467e815a9ff25513f50d10aceec8dc790ac7e229cdbdc432aa50389c18e9b"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_privateer_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_privateer_tier3_3_b.tab",
+      "sha256": "16c807b21785a1261bd8f07e9eb2317e1801c304a1e50b5182baa768279b2c46"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_privateer_tier4_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_privateer_tier4_1b.tab",
+      "sha256": "218724cd8f74a6b9795fd61843c5d18332bc5f2ecfa35dcc3089f516f6b38e9b"
+    },
+    {
+      "path": "quest_tables/delivery_no_pickup/tatooine_rebel_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/delivery_no_pickup/tatooine_rebel_tier3_4_c.tab",
+      "sha256": "dd33ef61588362c5c26deed3e04f1cfea1fb26c890c70ca78a263a64789f85cd"
+    },
+    {
+      "path": "quest_tables/destroy/corellia_imperial_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/corellia_imperial_2.tab",
+      "sha256": "bf71f3d1002edd8a5e09ec34de0c2513f8eceb0e21ccc369977bbf5f7b2409f1"
+    },
+    {
+      "path": "quest_tables/destroy/corellia_privateer_13a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/corellia_privateer_13a.tab",
+      "sha256": "378a971bc3e6136ca40c772ba2ca8c9c7aecbb4b6974016ed07c3b1980aad74f"
+    },
+    {
+      "path": "quest_tables/destroy/corellia_privateer_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/corellia_privateer_2.tab",
+      "sha256": "e5013c8e7139dfcfc192491e59284c4e141806d0fea006bed9297e04de3fea55"
+    },
+    {
+      "path": "quest_tables/destroy/corellia_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/corellia_rebel_2.tab",
+      "sha256": "674544b1ed92958dfb6676b8c6346531526ca4942c2ca04df03f2e1e950205a5"
+    },
+    {
+      "path": "quest_tables/destroy/master_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/master_imperial_1.tab",
+      "sha256": "c44cd7f5aa198cb61a39f4b64293a022641ce675a0eefaad4de278684dc47a88"
+    },
+    {
+      "path": "quest_tables/destroy/master_imperial_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/master_imperial_2.tab",
+      "sha256": "7909f5aef98a26b8a814be52f066c04e8b625349cede7927c1404934d19e49b2"
+    },
+    {
+      "path": "quest_tables/destroy/master_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/master_rebel_1.tab",
+      "sha256": "ee5088154db280381eb07a848dc38e0eda907aeac50634413414bf5ea381ef64"
+    },
+    {
+      "path": "quest_tables/destroy/master_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/master_rebel_2.tab",
+      "sha256": "f502af85609c6a79e8631a5ac4f736759a4e0b3b982b4dc260cd7f017c0bee58"
+    },
+    {
+      "path": "quest_tables/destroy/naboo_imperial_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/naboo_imperial_2.tab",
+      "sha256": "210d623d07bb51f5bf2c8121d3236b019bd5cd852acdc300b2a424124561cb69"
+    },
+    {
+      "path": "quest_tables/destroy/naboo_privateer_13.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/naboo_privateer_13.tab",
+      "sha256": "15563816aa86df892e430f79fe5a0fc15decd01d903dbf9a60a24ea913540409"
+    },
+    {
+      "path": "quest_tables/destroy/naboo_privateer_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/naboo_privateer_2.tab",
+      "sha256": "ffac2a4a1b2ef9cf25468e1c4ab3081afe36c8f15f0eddb4308323264580da50"
+    },
+    {
+      "path": "quest_tables/destroy/naboo_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/naboo_rebel_2.tab",
+      "sha256": "9fcfeb619c1bf94ad1c0642016ca2166b4460fd550153b749632a993ee166979"
+    },
+    {
+      "path": "quest_tables/destroy/tatooine_imperial_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/tatooine_imperial_2.tab",
+      "sha256": "196ad2d90723cf701820057a458fb3c18c1d475f91c31f91db2e9fc20fc9289a"
+    },
+    {
+      "path": "quest_tables/destroy/tatooine_imperial_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/tatooine_imperial_tier3_3_b.tab",
+      "sha256": "9f85623118fd3d48b2c077145c4cde6bcf9a2a3a59a2271b3ab59a154dc5e17b"
+    },
+    {
+      "path": "quest_tables/destroy/tatooine_privateer_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/tatooine_privateer_2.tab",
+      "sha256": "fb183f82b67e08789ddb50c3fdf9842b6679f5668a81d4d54440041a974aace2"
+    },
+    {
+      "path": "quest_tables/destroy/tatooine_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy/tatooine_rebel_3.tab",
+      "sha256": "8ff3fc383efbc6e4087ec767bb48ecc88015f22a3ecce55efebf43ca6ce2642d"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_imperial_10.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_imperial_10.tab",
+      "sha256": "b98422e5bb1e0edb3d638ff91ac43e3ebc3b6b80377fc49cccd25b6962b7ee4d"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_imperial_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_imperial_6.tab",
+      "sha256": "74bcd0e6832474740a3fdfbb5f0f2b7dc7ebff46020fbe2d8891dd6c2b31fc34"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_imperial_8.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_imperial_8.tab",
+      "sha256": "2aeebcc3e2da17cb5d58d26e3508785192596467031b41abf9d27c2b775f674a"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_imperial_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_imperial_tier4_1.tab",
+      "sha256": "bcdcdf2c0a22e5b5d6f49ac5b28a3ee6aa35ef3df7f6bcab5c4e427c4af2b852"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_privateer_11.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_privateer_11.tab",
+      "sha256": "a5712399b65aeb717912e14e82fe0979358618d906e1a95215103387ce56836e"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_privateer_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_privateer_6.tab",
+      "sha256": "e2a8bf0938a2a44aaa9f86a356181caebfb2805369405434b3d18ddcdd89af26"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_privateer_9.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_privateer_9.tab",
+      "sha256": "815fc850f245a4bba171b0bb8aefe5001813c997bc6ee6586309817f76ae5c69"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_privateer_tier4_1.tab",
+      "sha256": "f161387d8f2a6c725fc6e5ca645cd432f79481bb4781928532ef8f1988bff5d3"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_rebel_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_rebel_6.tab",
+      "sha256": "f1ac1e37bb39a717189a8a174813c50f713a60e3b760da6a1c5e0b41ca54a9e8"
+    },
+    {
+      "path": "quest_tables/destroy_duty/corellia_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/corellia_rebel_tier4_1.tab",
+      "sha256": "d00d8c224752ec4e29dc6c3338d1375c161d59e7d977dea78759b9518501ab76"
+    },
+    {
+      "path": "quest_tables/destroy_duty/lok_imperial_ss_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/lok_imperial_ss_1a.tab",
+      "sha256": "b830a9e6562c4c74c1170395a74502418e0a4cf889c7f12dbfaa001c31df1202"
+    },
+    {
+      "path": "quest_tables/destroy_duty/lok_imperial_ss_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/lok_imperial_ss_2a.tab",
+      "sha256": "fbef841ab9e580fd983ae85f9bba085d47945b5af1f02ec3c19b69aaa1ce1e8f"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_imperial_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_imperial_6.tab",
+      "sha256": "bbb9f8c677255e0c84f3f2727f7e7c47db6979b6a35f042b527e14ba0adb4cc6"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_imperial_tier2_destroyduty.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_imperial_tier2_destroyduty.tab",
+      "sha256": "d0a2920b0de2d4bd574c5ff81f371c9e60167e0bdce427d2fb6b1424989542fb"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_imperial_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_imperial_tier4_1.tab",
+      "sha256": "0e922bcec9fe2c5cc6769f4043a55ef8220ab7f5ccf3de58404af1fd90b8d0e1"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_privateer_11.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_privateer_11.tab",
+      "sha256": "d6084462bbb7ba0a2691ccc612abb14ebb92498ffc8233ec83e81b2f1720882a"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_privateer_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_privateer_6.tab",
+      "sha256": "4e35023e7a8f855cc0da1a82548e26548bc97693167daa3f3d733cd88f59fea4"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_privateer_tier4_1.tab",
+      "sha256": "2d07c8fde4ddd990f571b58205f7523fde58f2ab07184eedc1e03404b579f356"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_rebel_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_rebel_6.tab",
+      "sha256": "cdf75d62c9958cec530205509575a3af7372d9d5483aabe7927ba06b01c80b4d"
+    },
+    {
+      "path": "quest_tables/destroy_duty/naboo_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/naboo_rebel_tier4_1.tab",
+      "sha256": "dff4aac312b3d09d13d25c9c85d6f36a593cc31a5ce3ed849df531e6d533b3a4"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_imperial_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_imperial_6.tab",
+      "sha256": "84b47d43ab16711050337f4f1f6a1562dea34f26ae55b79fb8fba79ad719b53e"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_imperial_tier4_destroyduty_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_imperial_tier4_destroyduty_1.tab",
+      "sha256": "64aeb7e536aeb47deff7e4a25bc4ad1bc767eaf322d735eeb325d067a6b9f66f"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_privateer_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_privateer_6.tab",
+      "sha256": "f0585ad90a022e3b88a57c457b0b3926c1dcf9e0a630a4035f67c2ea9a985471"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_privateer_8.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_privateer_8.tab",
+      "sha256": "cb94583fa9ec1df0106867bdb019f18d5151ae3cde38f1cbc84b0523e8d63319"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_privateer_tier2_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_privateer_tier2_1.tab",
+      "sha256": "3f7ccb45ff1d96e0eb9de43da47a1f1fad2aa041af4877343f7ae28a4454cbe3"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_privateer_tier4_1.tab",
+      "sha256": "20ce51ae80b7be861059d0ab830bb548ab074c83c1955f2814a611dc680be18b"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_rebel_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_rebel_6.tab",
+      "sha256": "9d5da540f57585a3d42860585797b68178e46d899a8f3f5516240e59ace64ad3"
+    },
+    {
+      "path": "quest_tables/destroy_duty/tatooine_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/tatooine_rebel_tier4_1.tab",
+      "sha256": "91be717d6d80175dd19139ca74a801652e9a87ff97830b20f1db56f73680fcbf"
+    },
+    {
+      "path": "quest_tables/destroy_duty/viopa_rebel_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/viopa_rebel_6.tab",
+      "sha256": "227cf1997d8ad68d9518d0a3cb087e19618fa75103943a55b59ccd8f3ff07535"
+    },
+    {
+      "path": "quest_tables/destroy_duty/vortex_mission_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/vortex_mission_6.tab",
+      "sha256": "9deae27877bb57ffd1cbdddd7d1d49c1e4b2280d5ee5faa2c09e481689b7c687"
+    },
+    {
+      "path": "quest_tables/destroy_duty/yavin_rebel_9.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_duty/yavin_rebel_9.tab",
+      "sha256": "06693fe6ec6a6437b07688f543a5174db28cc2535ab66a349556142e778ae52f"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_imperial_1.tab",
+      "sha256": "49f5414c12c6036667b5d12b267af849925e109d6f1a771c39dce611786fa1ca"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_imperial_15_split.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_imperial_15_split.tab",
+      "sha256": "5e749d0d92e7bba8fd46681b94792290ff1ecc17f2a70a85991667fa72e3d0fa"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_imperial_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_imperial_tier4_4_b.tab",
+      "sha256": "c4cf8f73463707160b29b778d8bc6a79bb9b974345e31f0500d2bdff172e7e92"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_privateer_1.tab",
+      "sha256": "896888285696c4447fd14597b4e7f93e059b438f180c00801d55f128ee3161e0"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_privateer_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_privateer_tier3_1_c.tab",
+      "sha256": "130ec798bbe81fd474b607104adf056d0db8d4c3744f00576756510fd8913761"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_privateer_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_privateer_tier3_2_c.tab",
+      "sha256": "a456681092acc596b2e09aaf61d16641104e2e83e35e9152504f7648a9c1036d"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_privateer_tier4_1c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_privateer_tier4_1c.tab",
+      "sha256": "27a292b1a7f85e8e65b375cc75544009bcb207a9de96b5a665c88c22927eb30c"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_privateer_tier4_4c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_privateer_tier4_4c.tab",
+      "sha256": "e74dfd87c40f807ef212bbe5e52e5a05bc6edf4eb8446de1eb0a0effdf4cdc73"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_rebel_1.tab",
+      "sha256": "3eafa2d6665c3b7deb56ac00613b19212ba890b3d7878bf50f5b8bd932da02e3"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_rebel_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_rebel_tier3_1_b.tab",
+      "sha256": "c852ab520f6b9685d7ad8068d225e356893f343135dc8465aa7acd1457485d9d"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/corellia_rebel_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/corellia_rebel_tier3_4_b.tab",
+      "sha256": "54b4cf71a60a583c3772ec89e0ea58056c6e7ea976620d978a1ef3bf69c1ff61"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_imperial_1.tab",
+      "sha256": "fea2b18cb3d2de86d793b5ab5dd45f4b22b984052acfc39804e22db18a176995"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_imperial_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_imperial_tier3_3_a.tab",
+      "sha256": "da879405cb1074ae1bc1e791e7df563f486baaae9f28ca8e40ccf15027427b79"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_imperial_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_imperial_tier4_1_b.tab",
+      "sha256": "55b8892fc06eaea23a6e73447ff264d4273fdedf59e43a6b31e130812dd5c70c"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_imperial_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_imperial_tier4_2_b.tab",
+      "sha256": "115ebce74da2788d19342db279ec9a49baebc87bdb79b4fbfae8f87b28a71be8"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_1.tab",
+      "sha256": "cbee9eb4fab8bf7a3696e01624e9c1f7f3292314d94a2ebe35d5b6997a6474df"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_1c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_1c.tab",
+      "sha256": "971be01c78a06482550a9db475fb82e4476c24dfd4b056df8d19347dda09542a"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_2c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_2c.tab",
+      "sha256": "73bfe19fed4392dc46dbab083a5d303959f21a9f05ab93fce9ef4f6ecac6bdba"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_3e.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_3e.tab",
+      "sha256": "62e036b6eafecd5aea0a9f0e936d0dc87ffdd6e0eebc4bd30d3f40384d587d99"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_4c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_4c.tab",
+      "sha256": "31d2f2938b72fc97729763e9841219de1e80723664c50c951c5b8e8dda96b154"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_4d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_4d.tab",
+      "sha256": "d902b434db7303cc694bb14984469752dc7ea838818e39bc0a033796ccb54bf1"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier3_4e.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier3_4e.tab",
+      "sha256": "ce4675592161ea8cd274d2dd1d7fd9f99a7d59d0c40065589bfc70f06979d828"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier4_2b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier4_2b.tab",
+      "sha256": "b19108c7c3592847b214c54fca387c5b7c10a66dec6c30e7908b00208ebbd7b3"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_privateer_tier4_2d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_privateer_tier4_2d.tab",
+      "sha256": "99a83cd5dc374c89b86195821c9910c4770e6f9776f39866e1b1cbfa19129967"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_rebel_1.tab",
+      "sha256": "8ac8563a9ea3272fcee25ecae62cf404032cf599dd1fb93db4c26b64e03e5fe8"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_rebel_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_rebel_tier3_2_c.tab",
+      "sha256": "9ac6d17836728fbce6439c1670525ff3c0ac62263c8056eb8a0209b4c7758bdd"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_rebel_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_rebel_tier3_3_a.tab",
+      "sha256": "d5b87637679347c1eeb6e43b04ca0967bd60aa16d40f92399f715c465211d174"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/naboo_rebel_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/naboo_rebel_tier4_2_b.tab",
+      "sha256": "bd4793b9121490412ca142b32ceeaf9b951923f68fc5da07b0d37c5a937e2c7e"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_imperial_1.tab",
+      "sha256": "7ea9db0afd3da8ddce82531b971c143107f53a068019367fbe9c53dc68485955"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_imperial_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_imperial_tier3_2_a.tab",
+      "sha256": "70a4e1f33cc8c4c80faf1099c9c737b541338597c987bb1962e59c10529e824c"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_imperial_tier3_3_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_imperial_tier3_3_d.tab",
+      "sha256": "aaab586462116b933253d535cc5bc0093b2b7cfd4f1cf0532ed51f898082b780"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_imperial_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_imperial_tier4_1_a.tab",
+      "sha256": "0bad83bc7c95a7c4d08d355e5c2dc523c60cb0a8f034662000b05b1ff9b8cda4"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_privateer_1.tab",
+      "sha256": "1a22a19b039d15bdecc1e6c333380e6d8b993594cdb609549b47515659edebbb"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_privateer_tier3_1_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_privateer_tier3_1_d.tab",
+      "sha256": "c656a9effc17ca983d5cf4b457e80bfede932651b1c66d704b76f106c343bd91"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_privateer_tier4_3c_sa.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_privateer_tier4_3c_sa.tab",
+      "sha256": "25cda10f2c87f0c5066c480ca0f9439d5a0353887b3fd5ae0e8376bb7b97b574"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_rebel_1.tab",
+      "sha256": "3971c2ded98a73330d4a0af2b308ab2532fd3fffa1547c3893d36019b1fe24b7"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_rebel_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_rebel_tier3_2_a.tab",
+      "sha256": "d19358f6df4a6740c874d963fe4349a09c965bec282f5b2ee8da054437292165"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_rebel_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_rebel_tier3_4_b.tab",
+      "sha256": "b9cc08156d2d8f7f0d62ac88f84109f7360ab24daca3bd56f5226faa6e689e21"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/tatooine_rebel_tier4_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/tatooine_rebel_tier4_1_c.tab",
+      "sha256": "8f01c5a08f5ada2fe521a6ad79324dca3c01bfd5afff5761731ea9a9729c287c"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/viopa_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/viopa_rebel_1.tab",
+      "sha256": "6e58735e3164d340b88c1697494a71766c1b7b0bf94f8722171774f0261d0377"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/vortex_mission_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/vortex_mission_1.tab",
+      "sha256": "52517861f8b8ddf1217a9da26319dfd4275a9e0a6a176ce659c60b1ed5d11ce7"
+    },
+    {
+      "path": "quest_tables/destroy_surpriseattack/yavin_rebel_15.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/destroy_surpriseattack/yavin_rebel_15.tab",
+      "sha256": "e0a9ae04c739c0546868e471a83447b92d83f5029e3bd0122fffb6bc20d0393e"
+    },
+    {
+      "path": "quest_tables/escort/corellia_imperial_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_imperial_3.tab",
+      "sha256": "baeb6cc8381c01dc4de5418b5845a970f65cfdc46707bada91be294b87152104"
+    },
+    {
+      "path": "quest_tables/escort/corellia_imperial_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_imperial_tier3_2_b.tab",
+      "sha256": "b71505572012d20c54112cb973c2d1e27a616c72ab12ce58c1520a67b4eba724"
+    },
+    {
+      "path": "quest_tables/escort/corellia_imperial_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_imperial_tier4_3.tab",
+      "sha256": "03fff491130f751ab6e0e2838241079b941527dbdf8f220ffa441baf0419b532"
+    },
+    {
+      "path": "quest_tables/escort/corellia_privateer_14.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_privateer_14.tab",
+      "sha256": "3282207b0b1a8fbad0cfae029da0c7c3712be22d5df344f931445bb2420d7239"
+    },
+    {
+      "path": "quest_tables/escort/corellia_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_privateer_3.tab",
+      "sha256": "6838db33063a659eb0227f9366d99fa1197d59d43e5b972419cfa4b8901f1b4b"
+    },
+    {
+      "path": "quest_tables/escort/corellia_privateer_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_privateer_tier3_1_b.tab",
+      "sha256": "91b4c8e01ef79e0171d4212d6bad18e49a6005b213ac52e229efd0865a4b2ce1"
+    },
+    {
+      "path": "quest_tables/escort/corellia_privateer_tier3_3_pre_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_privateer_tier3_3_pre_a.tab",
+      "sha256": "f682a4c805e5f9d08ab87096c29adc450f6ea090005fd8361d9b253756169e3a"
+    },
+    {
+      "path": "quest_tables/escort/corellia_privateer_tier4_2b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_privateer_tier4_2b.tab",
+      "sha256": "94a3399e16d20bc06816133bb8e73481e8dfa3a1f8b33b9cefbea681d5d0339b"
+    },
+    {
+      "path": "quest_tables/escort/corellia_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_rebel_3.tab",
+      "sha256": "c8a25c57ec90f45a2f7ce15a90ce8be91dbc9da466c113c2c30886afbdc3adc8"
+    },
+    {
+      "path": "quest_tables/escort/corellia_rebel_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_rebel_tier3_2_c.tab",
+      "sha256": "6529c7efbcdf0e47fb54ca6c21341bb31e0169796896dccf675d0e2289e0e92d"
+    },
+    {
+      "path": "quest_tables/escort/corellia_rebel_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/corellia_rebel_tier3_3_c.tab",
+      "sha256": "ca1ed19b086d7bfbedf543b198545fc1b7a6bc2ebab414314fc694e87d1af747"
+    },
+    {
+      "path": "quest_tables/escort/imperial_ss_5.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/imperial_ss_5.tab",
+      "sha256": "ceba6612cf46f20e026b2e733a07908674a0423ffd90772e0a8ebcac4673e310"
+    },
+    {
+      "path": "quest_tables/escort/naboo_imperial_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_imperial_3.tab",
+      "sha256": "327e9c79aa4f34037172d5f478575e2a18dcdebf055fe088df931bb39dad2868"
+    },
+    {
+      "path": "quest_tables/escort/naboo_imperial_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_imperial_tier3_4_a.tab",
+      "sha256": "9b7c4522a85413ffaac7a10820c8a53b2ba67e2d1abc2f03a775169b9851aea1"
+    },
+    {
+      "path": "quest_tables/escort/naboo_imperial_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_imperial_tier4_4.tab",
+      "sha256": "a64c8d69b220e515769e0cf1da1df2eaefd113bbdbcd88b58eebf20454356b2e"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_15.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_15.tab",
+      "sha256": "1536aaeb7f90675299e8de269eda9badb85e4d9a85f5f2809add5596406a406a"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_3.tab",
+      "sha256": "63a26eb8f6f8e8f631395720ccd0c5ad166f535ba029993648e30ccb113aec1d"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_tier3_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_tier3_2a.tab",
+      "sha256": "cec17ac1713477fa8e2bfbbeb4eebde4821fe7b12e23aa0c47ff47f0f68496de"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_tier4_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_tier4_1a.tab",
+      "sha256": "a53ba0190e70eff64379fd2b74555d3be9437cda56e3805ab81eb76680231d0b"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_tier4_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_tier4_1b.tab",
+      "sha256": "d7db960b68d2309fb3f10575743ebd1e9ad77a75636a7c7dd5bd9b589fd2923c"
+    },
+    {
+      "path": "quest_tables/escort/naboo_privateer_tier4_4b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_privateer_tier4_4b.tab",
+      "sha256": "35ca90ccf580dba5a54bf2569f086869c752762c8ca6bbe2a75615e01fda9742"
+    },
+    {
+      "path": "quest_tables/escort/naboo_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_rebel_3.tab",
+      "sha256": "f5edb44acb610af1832035cd35c66ee724b08ac98b8f5121a335e853f3054b3e"
+    },
+    {
+      "path": "quest_tables/escort/naboo_rebel_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_rebel_tier3_1_a.tab",
+      "sha256": "011f2b99c5d18fc948ad9a49481eea39855b55bb21eed9e298d1c9be6b38c0f1"
+    },
+    {
+      "path": "quest_tables/escort/naboo_rebel_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/naboo_rebel_tier4_1_b.tab",
+      "sha256": "e6de9de8d07346f5fa71de4e533454296f9a452385be91090526f4cf74de70fb"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_imperial_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_imperial_3.tab",
+      "sha256": "c641789a53e4f8c392bcd9b402534151ed7bb97ee1a2869fc0063ad3c3fa0791"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_imperial_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_imperial_tier3_1.tab",
+      "sha256": "05908697f8f407cd68a3eb237bad9a1496a26198561f68132e99e2bf8633a04d"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_imperial_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_imperial_tier3_3_a.tab",
+      "sha256": "65fdfc088e12b8e269784c74d7add274233253f54f511f2600d989ad4bdad1ca"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_imperial_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_imperial_tier4_3.tab",
+      "sha256": "e519f0eb5d349954cb1b8d0d6f37cb08239c34008596e60d24f67322b8032893"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_privateer_3.tab",
+      "sha256": "6539ad527c29dd443c7a4070914ec92e1c45c82cd0e091f7c6a69a62941fe30e"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_privateer_tier2_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_privateer_tier2_4a.tab",
+      "sha256": "ea836bdd9dbd35be9933def2bdeffba2f628d222f771bebb2420760204edd6f7"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_privateer_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_privateer_tier3_3_c.tab",
+      "sha256": "1a6c2b28f4e9815882b6f04a9d32f6af88b26fce9bab7fbe63f575d1a4686526"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_rebel_2.tab",
+      "sha256": "ca3a690501dbcbe38685f30cd88c58fe5fab9dd74ce710d5fc7af5e726bae1c1"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_rebel_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_rebel_tier3_1_c.tab",
+      "sha256": "1919884719008488e91d2daa41f1e897fac6096b6a5aea4a5321a0d1e9a5aa3c"
+    },
+    {
+      "path": "quest_tables/escort/tatooine_rebel_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/tatooine_rebel_tier3_3_b.tab",
+      "sha256": "d51438ac78e3b4ac5ef32dd46ddb60260b08b4564cea60f1ce5f6eefcb7dd5b9"
+    },
+    {
+      "path": "quest_tables/escort/viopa_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/viopa_rebel_2.tab",
+      "sha256": "d969552487d57f4b62f59e3bcd8397ab14ecc855d275d1f58234527fd0f158ea"
+    },
+    {
+      "path": "quest_tables/escort/vortex_mission_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/vortex_mission_1.tab",
+      "sha256": "fc536fff5f43b2f1ceb9979589b7ef90ae34323e05bba754213c7cb6a08a82dd"
+    },
+    {
+      "path": "quest_tables/escort/vortex_mission_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/vortex_mission_2.tab",
+      "sha256": "d8912d9d82228bd073d18fc9090fee03ec539055f6586fdb5b2ed5e455ecf5aa"
+    },
+    {
+      "path": "quest_tables/escort/yavin_rebel_13.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/yavin_rebel_13.tab",
+      "sha256": "3b3d958f624631059c5a26d9341b56dec0dc4bf676693eee992fdcc6298237e2"
+    },
+    {
+      "path": "quest_tables/escort/yavin_rebel_16.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort/yavin_rebel_16.tab",
+      "sha256": "9591eb1ac044fd016b43ff1d82a85ecc7c37f100bab8531d0257091ce2408a9b"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_imperial_11.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_imperial_11.tab",
+      "sha256": "8f8ce42feb6b1d2ba565e63cb3a0be32b5a9e7410413b3ae521859be7f2b9447"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_imperial_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_imperial_7.tab",
+      "sha256": "8771f29b816f2bf5d8caa4c7d85c0f93883915df156383a3947c811305b230c7"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_imperial_9.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_imperial_9.tab",
+      "sha256": "2d89ecbb2e2421cb251cb9b1b9d26b2f34e943fab872c7a6fd6f22aee0454f27"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_imperial_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_imperial_tier4_2.tab",
+      "sha256": "37270a01bcb1339166548e9fcf64966214ec6827a3e8c9368ad273da94d34542"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_privateer_10.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_privateer_10.tab",
+      "sha256": "1fabe9a834fad4578f2f8c8f5991ddb840ba2f155e8d07b09c7654eba3f66dde"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_privateer_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_privateer_7.tab",
+      "sha256": "3bab1aaf3a35d1bb80f3e63b11f61a5364620250ac235e6d7b0209caa0f399f2"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_privateer_tier4_1.tab",
+      "sha256": "603ac39d4d7100810c928d5cb5d17c959f9f5d01f0287915222b539a1f8cb6c6"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_rebel_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_rebel_7.tab",
+      "sha256": "639fc52bc3e9a0aef2e64035e3e8d1c76f633e27e680eb0fa9118e234b8352c3"
+    },
+    {
+      "path": "quest_tables/escort_duty/corellia_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/corellia_rebel_tier4_1.tab",
+      "sha256": "ebf5a6fc04f9b0eb44bf6621fdccd1e6e134e8c88a5269d87a6512c335a9f134"
+    },
+    {
+      "path": "quest_tables/escort_duty/lok_imperial_ss_1c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/lok_imperial_ss_1c.tab",
+      "sha256": "e4ded3534b716097dab6e25fbf1a31f299cc3cd8abaf3e85830a534e7fa54e37"
+    },
+    {
+      "path": "quest_tables/escort_duty/lok_imperial_ss_2c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/lok_imperial_ss_2c.tab",
+      "sha256": "39fa08052431e0a11bde83bb2ef4e7f03da4d4cf2b7dc962a7f915cf7650ca5c"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_imperial_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_imperial_7.tab",
+      "sha256": "83e72bdfc91dd1287eb54de2b305eed395d295bb969b5f59d4d953057f7842ce"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_imperial_tier2_escortduty.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_imperial_tier2_escortduty.tab",
+      "sha256": "68e5125c8fee1e8f0b37df56d599607ae588febcf41635da9509e6c096579bb0"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_imperial_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_imperial_tier4_2.tab",
+      "sha256": "97d2a5e178e1ba14b4190c09ffc6c5123730e6d40bc2d088bea3f1cfc384ccdc"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_privateer_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_privateer_7.tab",
+      "sha256": "4b3cd9bbf2e7ed985a640df2472a377dc806eba2578e62e28e5d26a436b929fa"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_privateer_9.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_privateer_9.tab",
+      "sha256": "da5d4e900bff993854f3b5f5cf611551ffad413f917fa91b8a77c0779d29db62"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_privateer_tier4_1.tab",
+      "sha256": "530ba7db42b083c466c7039be53ff3e8364ba1a4966ddf860e4bcadf96ab51a6"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_rebel_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_rebel_7.tab",
+      "sha256": "39f4c636886441f564d5c47f658d32ccc97195c2b1088d039542c97b998ce958"
+    },
+    {
+      "path": "quest_tables/escort_duty/naboo_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/naboo_rebel_tier4_1.tab",
+      "sha256": "1823c2b332c38168ebbdadcd19cfb6d0575bc06e6bbb76d11b5ca4f63173b7ee"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_imperial_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_imperial_7.tab",
+      "sha256": "dbc3e0e3379c190bb75cb0a8cdbdb2db6fdcb160364dcdebd2e2ab7c361ad437"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_imperial_tier4_escortduty_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_imperial_tier4_escortduty_1.tab",
+      "sha256": "9ba8970b29bd4ace971238751aa9a077f5683affa1e784bb793bd79f0112b2c9"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_privateer_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_privateer_7.tab",
+      "sha256": "e84f5840b85c5b7791826b1ec13007c6dd043e46077bfd64dd17c0b500ec2b7c"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_privateer_tier2_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_privateer_tier2_1.tab",
+      "sha256": "1e65f74c78827bd46fa9fce4f0243b9f4cd58cbbf60de5099b1f325917dbc7c4"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_privateer_tier4_1.tab",
+      "sha256": "2bb0c80c2eda53d7c25f858cce62476ed132a3d98c2b82ebaf3ffd86dd2d6864"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_rebel_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_rebel_7.tab",
+      "sha256": "aa619a81fe4c0d80884d7b4a44a35e075469976e4a8da816a72a0e5ddcb76213"
+    },
+    {
+      "path": "quest_tables/escort_duty/tatooine_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/tatooine_rebel_tier4_1.tab",
+      "sha256": "9283fb763a7127c15e1e853dd7d8fa83f42519355e6a9dbf36dcc55d175dfb28"
+    },
+    {
+      "path": "quest_tables/escort_duty/viopa_rebel_5.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/viopa_rebel_5.tab",
+      "sha256": "01648846c2d2b3978db65b73338ad6ad3e24c12db372443c46ec56b53f2003dc"
+    },
+    {
+      "path": "quest_tables/escort_duty/vortex_mission_5.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/vortex_mission_5.tab",
+      "sha256": "0c54f8ca33672bee63624ceca22d5da4ef958087192fcf9fd9722f5267b4950d"
+    },
+    {
+      "path": "quest_tables/escort_duty/yavin_rebel_10.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/escort_duty/yavin_rebel_10.tab",
+      "sha256": "3f47c43a151915673e615faec5a45569992afa550dea94083e3b681547838bab"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_imperial_13.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_imperial_13.tab",
+      "sha256": "28e7f40fcca3772f71901a3a3bca3e3ef9b559fb1705bb64392c18b367e432cc"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_imperial_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_imperial_tier3_1_a.tab",
+      "sha256": "92143bfb5b61a8e6dab8cd53722c33c0e775a198ec6165c20febb6fefa793656"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_imperial_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_imperial_tier4_1_a.tab",
+      "sha256": "675cf4306b2dd28e25a250313ec6964b9e15d8325b0caea568a3fc34c005b8d0"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_imperial_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_imperial_tier4_2_a.tab",
+      "sha256": "7020d082e6952b91a9eaff2c6a6a69d11f3e345e9d0e6b727605441a93e0979a"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_imperial_tier4_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_imperial_tier4_3_c.tab",
+      "sha256": "a3dabe633a7a1624fce995e55ebca747b579f17dcfed5c3a70cf549d0e8cbefc"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_privateer_15.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_privateer_15.tab",
+      "sha256": "4a2e7dfbd8e4023a6a84e7ba6da3cdf0c8e181a1bdb2855302cb4e3a1133d3b8"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_privateer_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_privateer_tier3_2.tab",
+      "sha256": "9ae33d9166a3d374f4a2a8c21da42a4525e18863b8a9c67e4f4f80e262f7bcc1"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_privateer_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_privateer_tier3_4_b.tab",
+      "sha256": "5a284ad14692781ecd7073554df34735ba3a6138584a3aafb58c0825b8c833f4"
+    },
+    {
+      "path": "quest_tables/inspect/corellia_rebel_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/corellia_rebel_tier3_2.tab",
+      "sha256": "089c6632bf7f28585278291ed4613d62006ba0b182241a53f07b7d1444775578"
+    },
+    {
+      "path": "quest_tables/inspect/imperial_ss_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/imperial_ss_1.tab",
+      "sha256": "34ea15b58435fffdf5bf99c07f261dfc811554781ca9ffaaf529089108c41022"
+    },
+    {
+      "path": "quest_tables/inspect/imperial_ss_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/imperial_ss_4.tab",
+      "sha256": "a7f993846b5e57645eca60e343928954ada12180a28456fcbaec08976b99b005"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_imperial_tier2_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_imperial_tier2_1.tab",
+      "sha256": "4e03ac2a353d1bb8897eb757b1516b6b6b71d20d1d36afef4033f8507e0ef822"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_imperial_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_imperial_tier3_1_a.tab",
+      "sha256": "adcdea8ddca60f5d64bd62041b05128373de0fd2fade694c111fe71142cefe0f"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_imperial_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_imperial_tier3_2.tab",
+      "sha256": "a5c25abb3bcb0ccb5441f9f01837a082a4b3465c76ea292296372e585db87fb6"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_imperial_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_imperial_tier3_3_c.tab",
+      "sha256": "634c7b133175a1ecbe911fa603f81cd0001e3ac46fe03804fc4d8540a9489016"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_imperial_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_imperial_tier4_1_a.tab",
+      "sha256": "6ea30cede6f9de5b46467719753a48f87751ba201cb33512fc761846d9f8c50e"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_privateer_tier3_3a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_privateer_tier3_3a.tab",
+      "sha256": "f296267c803725a6b16a41c9c2496a96a264838a0d1e23ac39a8fa751c4c2248"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_privateer_tier4_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_privateer_tier4_2a.tab",
+      "sha256": "a0cf043edbf943da32e05f55c233e21f4ef4d221af51763232d624bc204d4fca"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_rebel_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_rebel_tier3_1_c.tab",
+      "sha256": "c17a3ea7cb46116fd6bb143dc6d85af4f2213e5edf97c7e7972df391c18c5111"
+    },
+    {
+      "path": "quest_tables/inspect/naboo_rebel_tier3_2_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/naboo_rebel_tier3_2_d.tab",
+      "sha256": "5364180047c3086a237998c24f4717d7d7efc1365275409006d94eaf53cc0f87"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_imperial_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_imperial_tier3_1_b.tab",
+      "sha256": "00dc40adbb3a86a202b4e5b0569c8524e24d39c4df14b1025409f0b892c6a6e4"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_imperial_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_imperial_tier3_2.tab",
+      "sha256": "9a45379f092a2c1a15521167a570a012122122ed26e31e648ccacff849366d58"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_imperial_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_imperial_tier3_2_b.tab",
+      "sha256": "61bbabdc20ac6b7890ba4545787a5452cc3678535ca9e7d767cd8f9bb850be17"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_imperial_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_imperial_tier3_4_b.tab",
+      "sha256": "be8bf71b02bdcd00ea80647e8916aab6bc36b91cbb1560f1d2cd38acfd939c49"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_imperial_tier4_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_imperial_tier4_1_c.tab",
+      "sha256": "ab4acfecf6399541427c3f6cdd9d20c863810f787d88720d59bb088e5e48ebfd"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_privateer_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_privateer_tier3_2.tab",
+      "sha256": "2332ac80fe4e12f57aeafb06d3c904e648bcf2124a4e6091991fbdbe7bb5463b"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_privateer_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_privateer_tier3_2_a.tab",
+      "sha256": "d936c67861d470e4e5dea7ac4eb21f60d49dc194087323b891d495de883f395e"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_privateer_tier4_3a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_privateer_tier4_3a.tab",
+      "sha256": "6ce9727477b404c6bfdc985c5c9461072c3665ffbb12d2acfe28e67c6b68aee6"
+    },
+    {
+      "path": "quest_tables/inspect/tatooine_rebel_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/tatooine_rebel_tier3_2.tab",
+      "sha256": "4071126a8df8e127465a91a1a10b8c96b934312246366a43bf8566c0da33bd15"
+    },
+    {
+      "path": "quest_tables/inspect/viopa_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/viopa_rebel_1.tab",
+      "sha256": "ae3bd78cb3f4001882975a85588d316f3c1588177a705c8397abef0bc0841e80"
+    },
+    {
+      "path": "quest_tables/inspect/vortex_mission_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/vortex_mission_1.tab",
+      "sha256": "3995723e2c8da9ab6b89f79d8ee6c85d5f032d805e7b5b9f269aca06e2b943ff"
+    },
+    {
+      "path": "quest_tables/inspect/vortex_mission_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/vortex_mission_4.tab",
+      "sha256": "bd6982a733c9b3fff8e056d3d8b22b625360b24ef1d23bd13555c400f9d93caf"
+    },
+    {
+      "path": "quest_tables/inspect/yavin_rebel_14.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/yavin_rebel_14.tab",
+      "sha256": "822a0b7a0582f5cec68d171e9c649a4f4fe5b3254217f928e0058057335fa882"
+    },
+    {
+      "path": "quest_tables/inspect/yavin_rebel_15.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/inspect/yavin_rebel_15.tab",
+      "sha256": "6f50a22ab5511d62f8f5e8324e98d58ac39662b353b103cb92f19bf66e6f8207"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_imperial_1.tab",
+      "sha256": "f0945ac33d6150976ee864cb7b4bbbe342772e1291afeea8689e9f86e4a744ea"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_imperial_15.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_imperial_15.tab",
+      "sha256": "69d76d1de05a00202b88fc3aff865abfcd21698eacae1b3fd56ac3a46b3b07ad"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_imperial_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_imperial_tier3_1.tab",
+      "sha256": "370c7cec9704703efd9d5b6567f3c222ee671b6d743d32607ddc4f9e9d345a94"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_imperial_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_imperial_tier4_1.tab",
+      "sha256": "a2428388d88d581e51006e7525b79fabb9b9bfb2250190956914545802ad7c4e"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_imperial_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_imperial_tier4_3_b.tab",
+      "sha256": "1a2795ca4b3416eeffc5e98b1f3cccb186e9015f40bd9f0e8de697af0eb2a52b"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_privateer_1.tab",
+      "sha256": "a34cb4351ac2f26f2244063359d17b48e1c4ee17c190e77f2bc080e5f760a355"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_privateer_3.tab",
+      "sha256": "5e99601fb6adc3dcc7c8d51698688eaa959b3ef76e02927492e0a41a7a901d5c"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_privateer_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_privateer_tier3_1_a.tab",
+      "sha256": "6a51b1339618d89f8d16b8442df75948f047537092f67057c323b532952799a7"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_privateer_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_privateer_tier3_3_a.tab",
+      "sha256": "7f4eb94c36d88f39c95d58419ad474d8b55067e3713b20c1bb75f76a92aceb23"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_privateer_tier4_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_privateer_tier4_1a.tab",
+      "sha256": "64351074449878d14caacdad202de8b4bab2eeaa5129680003880693dee4ae04"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_rebel_1.tab",
+      "sha256": "03bbe5c7311d6b48c5c80d04ab19d262cd932972658e2490fda2ac5ed32b03ea"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_rebel_3.tab",
+      "sha256": "bb074dd311b01c51e4be92cedda33fdd931d41adb1af2981f88f56b52e6ebc37"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_rebel_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_rebel_tier3_1_a.tab",
+      "sha256": "a411b74a1cb80fa472cf5a4660aeb268ee467bc4ebfe57afaaa8dc52ef5209a7"
+    },
+    {
+      "path": "quest_tables/patrol/corellia_rebel_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/corellia_rebel_tier3_4_a.tab",
+      "sha256": "fd8062080fbb626314815686b32bbaccf8d899dcee82a3812c912b06eee06155"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_imperial_1.tab",
+      "sha256": "2447cca35f893e93ada7212d3211eeec61424c25a78cffcea3533f9f48471f95"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_imperial_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_imperial_3.tab",
+      "sha256": "6d2733fe0e89442521b2d2b1a9bbe5c4186ec53df80e1a9f43cce10f3a7f37ec"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_imperial_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_imperial_tier4_1.tab",
+      "sha256": "1fb376cc87e7df2d9f8944f214bdf77c1901a4ce3882aaac460a54a429327af9"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_privateer_1.tab",
+      "sha256": "f8b795e042fe5956975e3602db9a98e3bde456c4785e235b80c9f6f6b7ea6247"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_privateer_3.tab",
+      "sha256": "0f90417f87d2e05c9b108a8fa49fcd428fe84feac85dbd6d259989a73a7d120f"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_privateer_tier3_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_privateer_tier3_1b.tab",
+      "sha256": "b4b1213e456f562897f90e68bc9681055dd243609df635d7ac6cfba0c637b8fb"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_privateer_tier4_2c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_privateer_tier4_2c.tab",
+      "sha256": "a4e606e66a0135456d0082e5929451c884978c7dc6c3fae8bd4e9a7c239deea7"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_privateer_tier4_3b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_privateer_tier4_3b.tab",
+      "sha256": "bfe92398a83e59089314a58c1d692ce1af58bd232cc7c737b9f1e19abacade2c"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_1.tab",
+      "sha256": "2966ca426f491e2f185787dd4b7731ca9347498b562988d8065377fbbb41675c"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_3.tab",
+      "sha256": "249a21308110a782d9acd1385a8e3247a1ecb8c5b29bf80fea89c5143401b09a"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_tier3_2_b.tab",
+      "sha256": "cd72d5c4b2494305d05c083b325763a9d0b7b2a29d8fea9f89f7a4baa92478cd"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_tier3_3.tab",
+      "sha256": "6ff8f7b6dc8ffea03ad167d1e9e221b936d38ed38ddf3e9c94913acf5f7665b8"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_tier3_3_c.tab",
+      "sha256": "1773f90e4ee922d0d39ad03b0739b2a3f0ba5ac209cadc83d20d2dba6fb685ac"
+    },
+    {
+      "path": "quest_tables/patrol/naboo_rebel_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/naboo_rebel_tier3_4_a.tab",
+      "sha256": "b1602606cdcdaceb87131da0f1608d7d6752f36cd1a142a81d233fbfd8311da5"
+    },
+    {
+      "path": "quest_tables/patrol/tat_priv_quest_trans.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tat_priv_quest_trans.tab",
+      "sha256": "e60d6fd58465989e0f4b84901f889df7dec1e03949d2c0eac26a52c5624b0bc7"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_imperial_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_imperial_1.tab",
+      "sha256": "dab55ae1f3d2a2b6678fce4ebec2ad9ee70dc472fe17af4c1f033521e2abdd56"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_imperial_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_imperial_3.tab",
+      "sha256": "a9016958f256350b5d4ffcf00161036787ceb14ea5dfed648ac292c13fd973ef"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_imperial_tier3_2_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_imperial_tier3_2_d.tab",
+      "sha256": "31d1790017be40733e6abb51d67df3b715ebd77f3c56f1b743febf74df08a9be"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_imperial_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_imperial_tier4_1.tab",
+      "sha256": "34d57b8b78473437be8e94c38e6ed1708faeb9cc996b528ca9dfd247f52d936b"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_privateer_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_privateer_1.tab",
+      "sha256": "3423566e07fe2388eca08eaca3120c0cd4d40b893cd1cb1cfd6c64536e1adaf8"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_privateer_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_privateer_3.tab",
+      "sha256": "11cde0d262de2ad2ce985929f9cf26c702c0753479b3e93a2229361afc046ee5"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_privateer_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_privateer_tier3_4.tab",
+      "sha256": "3c1ccd9b6475ede844439f5830dbdf3786190357ceda8fe8d5d69ceff7bff42f"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_privateer_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_privateer_tier3_4_c.tab",
+      "sha256": "db7df2c235cad3d90bfe323168068c55a7e20d73b880a3854784e761dd68c3cf"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_rebel_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_rebel_1.tab",
+      "sha256": "4b6b7bbece2501b74c3c41a19f4e80ccde8f54003fe29bbdaeedb533d3d14a03"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_rebel_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_rebel_2.tab",
+      "sha256": "1f598127f4a54c4183f618202ed245e36bd11ccf5231b1ac3b4d3b88f96b838d"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_rebel_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_rebel_tier3_4_a.tab",
+      "sha256": "50ff4de4fae03c0dd2e37b8ea3c4ad77f15d7d5652eb3c405e7b978410a6302c"
+    },
+    {
+      "path": "quest_tables/patrol/tatooine_rebel_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/patrol/tatooine_rebel_tier4_1_b.tab",
+      "sha256": "9572fc22d9d9dfa0d5593a883ab793fd2503afebb3a6cf68372c119339e246e4"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_16.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_16.tab",
+      "sha256": "c1bb11669148da6a61a82875f78afea942b5fd547e95e03f8697094100e9dedc"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_tier3_1_c.tab",
+      "sha256": "1005e7dfca0653b7a9a6668d3f0277814d98157fd061a585cf64078998507775"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_tier3_2.tab",
+      "sha256": "06ebbbf12321c67d5e182f0905e9ae9b0d96c78c770462793f887810d91d1157"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_tier3_4.tab",
+      "sha256": "38ca8fa049b09d6700cb20c2cd5d8c67cbfededc7b87567d0c7e4dceba58e715"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_tier4_2.tab",
+      "sha256": "ab40589d58fc2017f02cf4b8691a8fed4a4ff19fc878e1b7d45e79cfdf4f7c32"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_imperial_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_imperial_tier4_4_a.tab",
+      "sha256": "97001ccdb685bea9ba4e359365d3aa44426b8df09c4c0e2d8df8ea76ef6db319"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_privateer_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_privateer_tier3_1.tab",
+      "sha256": "fc470e3d75ad196330c3e14df0443d77b29aea2aaf926f8f69dbe4061bb1f3f4"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_rebel_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_rebel_tier3_1.tab",
+      "sha256": "feef0bc324d52ea0718e86cd92aaa832a56a2bd8abb131e89b8a2ceef6a0cf36"
+    },
+    {
+      "path": "quest_tables/recovery/corellia_rebel_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/corellia_rebel_tier4_4.tab",
+      "sha256": "317afebdc7ab6ace399d4853a0ce0857e9b99082cea5ba7edc1b6e43cecfc405"
+    },
+    {
+      "path": "quest_tables/recovery/imperial_ss_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/imperial_ss_2.tab",
+      "sha256": "00d728608f2cfd0a619fff1edb09b60f499bef901dfc59ae16f8cd54e2406ffc"
+    },
+    {
+      "path": "quest_tables/recovery/imperial_ss_6.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/imperial_ss_6.tab",
+      "sha256": "ffd51a67a842897e8e5142d4fea0c746ab5887be93be1143b7b604f42b4c64b3"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier2_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier2_3.tab",
+      "sha256": "9b4072d5ac188fd1dddc8ae1f0e61c5dc99f748a0d16f35398cea77355218f58"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier3_1.tab",
+      "sha256": "33d3987a9a0127fb280d62cbd963bda96eb39e70ed06e70c27a1eb628cbff7cf"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier3_2_c.tab",
+      "sha256": "9f0c4f7757c77930055d725e5aea6f691cfdb5a054f52282e49324a2ee8ee107"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier4_2.tab",
+      "sha256": "8899118cbf59f1f584730bfecbf9853ffd5b447f5c9a26aaa5c36cda7a452f68"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier4_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier4_2_c.tab",
+      "sha256": "0134c64ce7b6d9c72c92734ffcb30fddc00f9526bb0fc51fe590c1e477fc1887"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_imperial_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_imperial_tier4_4_a.tab",
+      "sha256": "c2f28f959e4d5c7801acb43698c751e686703e8f47fb7f4117fa2c95f43289af"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_privateer_14.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_privateer_14.tab",
+      "sha256": "c9149ba0165aa577cd6219a30aa9daa80767e03a54ae67de44763adec1103f38"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_privateer_tier3_1a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_privateer_tier3_1a.tab",
+      "sha256": "a0c2315beae449321f64a60d7cefb130034b2cd6f9c21090fc975282450d2daf"
+    },
+    {
+      "path": "quest_tables/recovery/naboo_rebel_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/naboo_rebel_tier3_4_c.tab",
+      "sha256": "3c87b2b8548f787d135deff2f737b8b57dbe18d5aa7ef891acb780dead9629bd"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_imperial_tier3_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_imperial_tier3_1_a.tab",
+      "sha256": "e28a6bcd68bb6da5195e6fcd80e2517571e497a40ee8f1f3db9f8ad1844db36d"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_imperial_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_imperial_tier4_2.tab",
+      "sha256": "912f415d07d5a5daaa3e4572f0365182edef70c3001459a30a384e77e3b17e60"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_imperial_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_imperial_tier4_2_a.tab",
+      "sha256": "35faab89281f2f7325958a3e38fe864ed36d621465c55fbd6a7b449a3e6f738c"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_imperial_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_imperial_tier4_4_b.tab",
+      "sha256": "1bab0d2545ca4386cbbc40337519dd4429958fda1cb2513167fb041486b81018"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_privateer_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_privateer_tier3_1.tab",
+      "sha256": "6bf390fd0c71d42bc30a9b9aa86b3e6834299461b8d61ce3d323689b9ad4e3fd"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_privateer_tier4_2a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_privateer_tier4_2a.tab",
+      "sha256": "f3db23ef5632b581b2563eb1101fbfa77cffdfd0bf9fae1ce9144723b767f46d"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_privateer_tier4_2b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_privateer_tier4_2b.tab",
+      "sha256": "09625b6d5f54b89e8ef771bfe94ba636870e140f108d85063b8043a5573674a7"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_privateer_tier4_3c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_privateer_tier4_3c.tab",
+      "sha256": "3ac8927578ddb7a6c5f984b90b3a9aaae466da9ba2f6442db5af9071f42ad4a2"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_rebel_tier3_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_rebel_tier3_1.tab",
+      "sha256": "748aa2239ca1f72fceed95d2e3ceb4fc7715033afb608f80f569d85eb00cc533"
+    },
+    {
+      "path": "quest_tables/recovery/tatooine_rebel_tier4_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/tatooine_rebel_tier4_2.tab",
+      "sha256": "41a2e88d0ca3fd2547fedd9526a257dc17fa51a9f1f135338d5b86976ec25712"
+    },
+    {
+      "path": "quest_tables/recovery/viopa_rebel_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/viopa_rebel_3.tab",
+      "sha256": "7e1ac82b515fc2fd8121b1f20ac386ee3b21f20354d7bcd0e66f06e193117d70"
+    },
+    {
+      "path": "quest_tables/recovery/vortex_mission_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery/vortex_mission_3.tab",
+      "sha256": "ea0e6c15fc639cc6c38d563bf5788b55b33afcfceddaad69bfe60bdf13d13b6c"
+    },
+    {
+      "path": "quest_tables/recovery_duty/corellia_imperial_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/corellia_imperial_tier4_3.tab",
+      "sha256": "231684167915bc09297a409d0347b7580a04951dc93d86162e7e50d0b34a195c"
+    },
+    {
+      "path": "quest_tables/recovery_duty/corellia_privateer_12.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/corellia_privateer_12.tab",
+      "sha256": "735c6414d31b8ad8eccdb9ef1ee09c80397c2f8a21094378f64833ea61a1a6f7"
+    },
+    {
+      "path": "quest_tables/recovery_duty/corellia_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/corellia_privateer_tier4_1.tab",
+      "sha256": "89e53abaadf267a229ca81565a13725ca8d1e62c42ea8490efc40661efa5a1ec"
+    },
+    {
+      "path": "quest_tables/recovery_duty/corellia_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/corellia_rebel_tier4_1.tab",
+      "sha256": "79cf3ddd911e8a6b324e41f57b1f81352ecabf7e17312da09118750b8ef69a44"
+    },
+    {
+      "path": "quest_tables/recovery_duty/lok_imperial_ss_1b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/lok_imperial_ss_1b.tab",
+      "sha256": "c2b2e4b9a43c1a474b08054dc9cbd73109007f8d1d3e73a003d603b0bded78a5"
+    },
+    {
+      "path": "quest_tables/recovery_duty/lok_imperial_ss_2b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/lok_imperial_ss_2b.tab",
+      "sha256": "c154a6ce085374d952356d0c09eb50336e494d0d9d972c5154b7f20ad27d81df"
+    },
+    {
+      "path": "quest_tables/recovery_duty/naboo_imperial_tier2_recoveryduty.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/naboo_imperial_tier2_recoveryduty.tab",
+      "sha256": "537066688ecc9ec5d3ebd48ffd26fb6d0ecd56473252497932a4aec78b18ac75"
+    },
+    {
+      "path": "quest_tables/recovery_duty/naboo_imperial_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/naboo_imperial_tier4_3.tab",
+      "sha256": "c3faa1a658bda78d788ff49f6023401f079bb278317d8c760b9b0a306c44b5f3"
+    },
+    {
+      "path": "quest_tables/recovery_duty/naboo_privateer_10.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/naboo_privateer_10.tab",
+      "sha256": "7563931a43411496b93994ea236e48e955de8b1705c4a7fd439422094009b069"
+    },
+    {
+      "path": "quest_tables/recovery_duty/naboo_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/naboo_privateer_tier4_1.tab",
+      "sha256": "1406f2a4c173f18ea15ff0f455d7dcb419a2ef9d4291ff464ad98d7f6c229f29"
+    },
+    {
+      "path": "quest_tables/recovery_duty/naboo_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/naboo_rebel_tier4_1.tab",
+      "sha256": "2a7b1365137f1034c6e4801ab899602ae2c8a2dd995eeca8e21ccca7814dacef"
+    },
+    {
+      "path": "quest_tables/recovery_duty/tatooine_imperial_tier4_recoveryduty_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/tatooine_imperial_tier4_recoveryduty_1.tab",
+      "sha256": "7e5a9a40ebe9e86d1bec77d3448baea8c90c6ac356f061526f04c3b3e5450e02"
+    },
+    {
+      "path": "quest_tables/recovery_duty/tatooine_privateer_5.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/tatooine_privateer_5.tab",
+      "sha256": "20bc5c1cfb99e8b11f08a7793588bae73f56f91a0a7f9c67c8fca5aa396f976f"
+    },
+    {
+      "path": "quest_tables/recovery_duty/tatooine_privateer_tier2_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/tatooine_privateer_tier2_1.tab",
+      "sha256": "55b034345aa2025854d510faabe106cb6fcc9e0d3f3924b4d05de36528ddcabd"
+    },
+    {
+      "path": "quest_tables/recovery_duty/tatooine_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/tatooine_privateer_tier4_1.tab",
+      "sha256": "bdd7bb47857c6899d80a9e61cb388a197164cf75972571702a9d960d6598f5c3"
+    },
+    {
+      "path": "quest_tables/recovery_duty/tatooine_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/tatooine_rebel_tier4_1.tab",
+      "sha256": "74038a7028643c8aeca0f46f33e5f476ad972b4d22e3b2128befcba0267d1ddd"
+    },
+    {
+      "path": "quest_tables/recovery_duty/viopa_rebel_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/viopa_rebel_7.tab",
+      "sha256": "9f4787981b985ac4ea5deed5723a2947f13d56a9a3bf47d55aebd7c46ce9d210"
+    },
+    {
+      "path": "quest_tables/recovery_duty/vortex_mission_7.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/vortex_mission_7.tab",
+      "sha256": "76b64b0d483f1e25368743d347826b48d04d0cd3e0edd5895fdc77d5d82211b7"
+    },
+    {
+      "path": "quest_tables/recovery_duty/yavin_rebel_12.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/recovery_duty/yavin_rebel_12.tab",
+      "sha256": "605f224cebbd28bbdc81f33dd265d90a3cf6746e2281f86dc6cb0ebc7597c028"
+    },
+    {
+      "path": "quest_tables/rescue/corellia_imperial_tier3_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/corellia_imperial_tier3_3.tab",
+      "sha256": "9827c9bfeca8e07d6b877a60a2e1e36de47eb9cda060757dd4230fffb6653eef"
+    },
+    {
+      "path": "quest_tables/rescue/corellia_imperial_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/corellia_imperial_tier4_3_a.tab",
+      "sha256": "888c4876f3b7d6906d286260054fcf0d10ceaf2d6dc2358833bc81d9b2681f76"
+    },
+    {
+      "path": "quest_tables/rescue/corellia_rebel_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/corellia_rebel_tier4_2_b.tab",
+      "sha256": "1b3210f69648b5de7f5f04c8ec71259372e78486439e71458ba91861d0e5128b"
+    },
+    {
+      "path": "quest_tables/rescue/corellia_rebel_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/corellia_rebel_tier4_4_b.tab",
+      "sha256": "fe390877734085d5fa60842a209fe4210ec9dce82f09175fb9618bf5b5f6c262"
+    },
+    {
+      "path": "quest_tables/rescue/naboo_imperial_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/naboo_imperial_tier3_3_b.tab",
+      "sha256": "228752fd94bf3c820b0059b41059c7aa8fd3547b31c9f9dcc5e59a159b6b4c01"
+    },
+    {
+      "path": "quest_tables/rescue/naboo_imperial_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/naboo_imperial_tier4_2_a.tab",
+      "sha256": "aca0c5b0b428191fce895934575a8ca499aab79d2f6ecc14314031959449140e"
+    },
+    {
+      "path": "quest_tables/rescue/naboo_privateer_tier3_2e.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/naboo_privateer_tier3_2e.tab",
+      "sha256": "78adcdc39f3d02e5bb76d6a25cd784a5e1d134eba84c995fd16e03a0ca8ff81a"
+    },
+    {
+      "path": "quest_tables/rescue/naboo_rebel_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/naboo_rebel_tier3_2_a.tab",
+      "sha256": "ef4a56a441461c05c7d39ab67195e0fc683aeb818ec783940ade9eebeb957f3d"
+    },
+    {
+      "path": "quest_tables/rescue/naboo_rebel_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/naboo_rebel_tier4_3.tab",
+      "sha256": "4c284eca529b53b984d6e133c7bdabe5672dd693706cc8d0c412e2d3a79fa5e6"
+    },
+    {
+      "path": "quest_tables/rescue/tatooine_imperial_tier3_1_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/tatooine_imperial_tier3_1_c.tab",
+      "sha256": "a9f162b214c358134d1c41cb0b42a82f697495dd6d7f82b286f8ce98d5df34dd"
+    },
+    {
+      "path": "quest_tables/rescue/tatooine_imperial_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/tatooine_imperial_tier3_4_a.tab",
+      "sha256": "a542bccee487917b8f891b0a97427864be6b79a724d2fd6ce86fdb972d7fab26"
+    },
+    {
+      "path": "quest_tables/rescue/tatooine_imperial_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/tatooine_imperial_tier4_3_a.tab",
+      "sha256": "d656395004b0b6690077a1eb36d6c32c7f93f3d969d534384649c5dc4819178e"
+    },
+    {
+      "path": "quest_tables/rescue/tatooine_privateer_tier3_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue/tatooine_privateer_tier3_4_d.tab",
+      "sha256": "ae1278b5b3a3fe36c0dc0699e62bc846f7245e7f06ff6d00a61096923555db11"
+    },
+    {
+      "path": "quest_tables/rescue_duty/corellia_imperial_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/corellia_imperial_tier4_4.tab",
+      "sha256": "a696739ea80dc8d6a06c28f5148a5d7d0ca08c4190e839e87ed7b98c5b36dfe6"
+    },
+    {
+      "path": "quest_tables/rescue_duty/corellia_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/corellia_privateer_tier4_1.tab",
+      "sha256": "546c568af3b57994e17ce292f2de4e35baf3c0e245a866a5adcd48eb28221342"
+    },
+    {
+      "path": "quest_tables/rescue_duty/corellia_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/corellia_rebel_tier4_1.tab",
+      "sha256": "16b86fba7e45d66420fc5d371c96a53f1a6f6b203ec8ac25a5c348f50c7d32fc"
+    },
+    {
+      "path": "quest_tables/rescue_duty/naboo_imperial_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/naboo_imperial_tier4_4.tab",
+      "sha256": "6ff1a44bc75ca7acdd92573220e1614fff2b9f1e37e02670f0fc4ce0e1e132f3"
+    },
+    {
+      "path": "quest_tables/rescue_duty/naboo_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/naboo_privateer_tier4_1.tab",
+      "sha256": "a382c1ef2c79097ae2fc596afad70a660ed4a19938176cd372863bcbac1ac2d0"
+    },
+    {
+      "path": "quest_tables/rescue_duty/naboo_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/naboo_rebel_tier4_1.tab",
+      "sha256": "4de7eb7be39a76fa78fa9cd71cee4b37e8381e583421fba60539aad1b3c8fa5d"
+    },
+    {
+      "path": "quest_tables/rescue_duty/tatooine_imperial_tier4_rescueduty_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/tatooine_imperial_tier4_rescueduty_1.tab",
+      "sha256": "cf094a420823e3552c06b31a1f8cca80055d5eb7aebc3cabbd91f20f01aaad30"
+    },
+    {
+      "path": "quest_tables/rescue_duty/tatooine_privateer_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/tatooine_privateer_tier4_1.tab",
+      "sha256": "cc6e8b7674f22d91fe5d4a59ec817deac2ea52f0546b8f0c15d7eb56a59e370f"
+    },
+    {
+      "path": "quest_tables/rescue_duty/tatooine_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/rescue_duty/tatooine_rebel_tier4_1.tab",
+      "sha256": "bccab478ddff3ad8cc88466f5e380c482cff8dfd17f610247e7045e181158a22"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_imperial_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_imperial_tier3_2_c.tab",
+      "sha256": "83e33d5153135bbe2829e69bfb122c49f20474ef3105ffc7b51be8d60f3a33e0"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_imperial_tier4_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_imperial_tier4_4_c.tab",
+      "sha256": "3cee4c6ff6b022ebee6c32dfda0a80509959625a8db6c43a4780d718163a8f7b"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_privateer_tier4_3a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_privateer_tier4_3a.tab",
+      "sha256": "13b478894e4142cb7f2fd4af289f09d1e646b2e9949f23289e6c35dd0a70c973"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_privateer_tier4_3c_lose.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_privateer_tier4_3c_lose.tab",
+      "sha256": "c936e74ec71d23494edbb7f2dea243ae4ae4955e0c6740fef6eef53829365a33"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_privateer_tier4_3c_win.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_privateer_tier4_3c_win.tab",
+      "sha256": "dfeaa5060e89ddf1edda88ff058b815efa1cf605a1119df1f2980e055483c7b3"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier3_1_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier3_1_d.tab",
+      "sha256": "1a97c2ecccee93c0e831c26b204ac5a599a97c183ecad64b4b9f458e94561b55"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier3_3_b.tab",
+      "sha256": "22ff6301124ebaa6459cbd5be09e10bd78b4185e339d16010db7fa15966172f9"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier3_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier3_4_c.tab",
+      "sha256": "3fcde8a3349ee33a306459d25d9d7d9442138a241424cbbe9c7f51be200c9cad"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier4_1_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier4_1_a.tab",
+      "sha256": "9ffb8bfadf99031e1f88ac1ee272b4fc7e137146ae89b32043c5863b21bf13ae"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier4_1_b.tab",
+      "sha256": "8cbd89e950e5038413ac497088ec80be40f72dfb36d749a2d42d10a40f75cffd"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier4_3.tab",
+      "sha256": "dc665ee0a3feb446f251c4ce9ac74e75d293aaca736545a59477e3529530cc6c"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier4_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier4_3_a.tab",
+      "sha256": "6c85e5760ed59dc11ccb0f45a8e117e620375888f11607be5d392a80d872ac98"
+    },
+    {
+      "path": "quest_tables/space_battle/corellia_rebel_tier4_4_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/corellia_rebel_tier4_4_c.tab",
+      "sha256": "2389a85dc9af3726470f92f8cd09269ae742ecc05edf16f3c16c3a88d192f401"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_imperial_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_imperial_tier3_4_b.tab",
+      "sha256": "a9dd9c3e537a84464be010beb94f5ad9d1c8feda11ccb50174824f7521f0ccce"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_imperial_tier4_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_imperial_tier4_4_d.tab",
+      "sha256": "541b89d7fce45f6ede227c831aed9b265b859d4bc0c132e2e4b8732876ce3610"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_privateer_tier3_2d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_privateer_tier3_2d.tab",
+      "sha256": "51afb1ec342a019af8e4d2d1b5f62e23f6f19ee5df3fd837ce3742ca8d1ae0ab"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_privateer_tier3_4b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_privateer_tier3_4b.tab",
+      "sha256": "a4618eead6e9aa97ac549d9e93f9fe8bb669fc5f15008c4202e9514a4b29ef81"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_privateer_tier4_4a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_privateer_tier4_4a.tab",
+      "sha256": "415ec80b00f00807be56dd7bc2f5d09aa7b0111b71d2c1d174adfa098beac6f3"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_privateer_tier4_4c_lose.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_privateer_tier4_4c_lose.tab",
+      "sha256": "6d473b64a332015e2828e4b3cffbb786383250fd98aaaa306a381c36165f398c"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_privateer_tier4_4c_win.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_privateer_tier4_4c_win.tab",
+      "sha256": "ebcfbf69409ce294ab03f13970c19a0407fbe110018c83c751c31bf2ca9113cd"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_rebel_tier3_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_rebel_tier3_2.tab",
+      "sha256": "46812aaabab2ad6b6e8e0c3d75dddfbb3619aa8688b17e2bc7d4395d3bbbe3f6"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_rebel_tier3_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_rebel_tier3_4.tab",
+      "sha256": "4ba3caf4d95e1aed8ab92271ae5317aeea2b4276651044f84f0d43adb7e4d612"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_rebel_tier4_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_rebel_tier4_2_a.tab",
+      "sha256": "3e214acc9dca2ade5cbf2b1f720a34b3a60d1e2ee7f8d5b8d7c3622c46b3a4ff"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_rebel_tier4_4.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_rebel_tier4_4.tab",
+      "sha256": "cb353adc21bbc025d8938fb76a144b8077616730211f2689e16efef9e22a9004"
+    },
+    {
+      "path": "quest_tables/space_battle/naboo_rebel_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/naboo_rebel_tier4_4_a.tab",
+      "sha256": "cbe65cb7441fefdc062f81491fa9c002da441a05cd3f7abdef791ffc5567e157"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_imperial_tier3_2_e.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_imperial_tier3_2_e.tab",
+      "sha256": "52cdca93bdb8cf7149625aa83e6a5e4dc3f0b7f62f0809b3007cab51903552be"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_imperial_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_imperial_tier4_1_b.tab",
+      "sha256": "3f93cb693f1aab8f480ee6ca8c958db2f5a9f9a53a35da5c3b2282e6dddcdada"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_imperial_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_imperial_tier4_3_b.tab",
+      "sha256": "d74a0425f2a144a9d67517e65e9271245a77b2277dde01f10161994dcc616d86"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_privateer_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_privateer_tier3_4_a.tab",
+      "sha256": "18d5bcce2099058a0d236464d767746778ccadbe066fffb4ad79a537e1193467"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_privateer_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_privateer_tier3_4_b.tab",
+      "sha256": "a953e70b09d3c7067bc643415645e5318fba9690169aaed5a58dd7acba20f94a"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier3_2_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier3_2_c.tab",
+      "sha256": "7db691fb3729c8a286485f9ae37f4e787078f32137adf71ce8a782ae79674cf4"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier3_3_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier3_3_a.tab",
+      "sha256": "c8810fe65aa6466d6780809d12e2a80e34b96396a6473b265a550ac43ee55a31"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier3_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier3_4_d.tab",
+      "sha256": "5b0469760a587afca664a1b563b7f06edaa0474f7704da6c49008d4ed2bff211"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier4_1.tab",
+      "sha256": "d44c848a264fee9bea505d4e9ac41fa56c8d3ff881b8d7a8261cd8df1c021c2e"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier4_3.tab",
+      "sha256": "f3047fdc94c13398de31a36106ab7571cbf398f34a76f7cb0f7da6c1b056fc29"
+    },
+    {
+      "path": "quest_tables/space_battle/tatooine_rebel_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/space_battle/tatooine_rebel_tier4_4_b.tab",
+      "sha256": "951379084a9de7f687f13bfd1901a18ee8bc4d0528ceb61854ad986639941c67"
+    },
+    {
+      "path": "quest_tables/survival/corellia_imperial_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_imperial_tier3_2_a.tab",
+      "sha256": "0ae7dc86ba02aecb6eb3631b1f21a20875c179b0b4f59504c35b539b559811ed"
+    },
+    {
+      "path": "quest_tables/survival/corellia_imperial_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_imperial_tier3_4_b.tab",
+      "sha256": "a98ed20a6fb28fa7b7fde410b42ebb05dc0936d6bf5e742dbf75e6338f9188ba"
+    },
+    {
+      "path": "quest_tables/survival/corellia_imperial_tier4_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_imperial_tier4_1_b.tab",
+      "sha256": "2ac3e3ff43d642cd28c56066b8e59a7ec3f67e50bec89d8e99dc6402cfb5b754"
+    },
+    {
+      "path": "quest_tables/survival/corellia_privateer_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_privateer_tier3_2_a.tab",
+      "sha256": "37d212fd09b3186e93e72f867783e475e7bb3de293066ae6b12c4ea2444d1d40"
+    },
+    {
+      "path": "quest_tables/survival/corellia_privateer_tier3_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_privateer_tier3_4_a.tab",
+      "sha256": "5e35a5dd4dbd9213fbf9c1f98d1c465eb2d32ad6b196609979aadd31f10d58f0"
+    },
+    {
+      "path": "quest_tables/survival/corellia_rebel_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_rebel_tier3_2_b.tab",
+      "sha256": "e615beb734fde02f8a2a37c451150ea19cfb3462cfafd136ed70932541f53945"
+    },
+    {
+      "path": "quest_tables/survival/corellia_rebel_tier3_4_d.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_rebel_tier3_4_d.tab",
+      "sha256": "2d15b47ccedbb3cc654819d4273c5f5d7c2cfd064d7fc7078b8cdfea1eec40aa"
+    },
+    {
+      "path": "quest_tables/survival/corellia_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_rebel_tier4_1.tab",
+      "sha256": "728ea0900cfd185096ad2989e3f7909d2370f760383ca7b093c1214d255a6cb5"
+    },
+    {
+      "path": "quest_tables/survival/corellia_rebel_tier4_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_rebel_tier4_3_b.tab",
+      "sha256": "a59501fc7ca2ac89e29f30dfb90392a78c7789f7931b29e3449c7d266d9eb64f"
+    },
+    {
+      "path": "quest_tables/survival/corellia_tier2_final.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/corellia_tier2_final.tab",
+      "sha256": "771830e2c9fadbc218b64ad959c6fc8557858c00c191b823cb4517434dc0ba35"
+    },
+    {
+      "path": "quest_tables/survival/naboo_imperial_tier2_2.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_imperial_tier2_2.tab",
+      "sha256": "b39ebfad45ad4a453a07e450ca8e9346c9e5e366b690f8d5f573cb0a9427f367"
+    },
+    {
+      "path": "quest_tables/survival/naboo_imperial_tier3_2_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_imperial_tier3_2_a.tab",
+      "sha256": "fbdb1bb3d1125b03478db19a7901f291a5d018d48313d68c860eea8a2764d9d1"
+    },
+    {
+      "path": "quest_tables/survival/naboo_imperial_tier4_3.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_imperial_tier4_3.tab",
+      "sha256": "dae877fb81f7089bf6ad5ffe6b7075fa1c8af58c4d24dfa37aad33fd9dcce69e"
+    },
+    {
+      "path": "quest_tables/survival/naboo_privateer_tier3_3c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_privateer_tier3_3c.tab",
+      "sha256": "3ac1189b83248b1774d815fa81080c9d5b97b17399e0221cc45a3f4616ef9fff"
+    },
+    {
+      "path": "quest_tables/survival/naboo_privateer_tier4_3c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_privateer_tier4_3c.tab",
+      "sha256": "9afd9aeb6365c5ae2ea4de50ebdc7c55172ed5a0868e7c54901c03a61ed44006"
+    },
+    {
+      "path": "quest_tables/survival/naboo_rebel_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_rebel_tier3_1_b.tab",
+      "sha256": "21a1e4e1a93d04d298e7bee3d66f9df10d3c15178a08d535312ff7f4811d6fad"
+    },
+    {
+      "path": "quest_tables/survival/naboo_rebel_tier3_3_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_rebel_tier3_3_b.tab",
+      "sha256": "776a1857c0c4d88e3484df1e8eca0b7fa7f110ef3506abb8cad8d2dba05f02fc"
+    },
+    {
+      "path": "quest_tables/survival/naboo_rebel_tier3_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_rebel_tier3_4_b.tab",
+      "sha256": "f4809c39c2782a6ba0f3eacf552a5975efac15fb3baba4f70b23a1cca1bda60f"
+    },
+    {
+      "path": "quest_tables/survival/naboo_rebel_tier4_1.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_rebel_tier4_1.tab",
+      "sha256": "f1dd85827adcd798d5be37cf807a9f641e5c960513b7496f069cad09f6d37b98"
+    },
+    {
+      "path": "quest_tables/survival/naboo_rebel_tier4_4_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/naboo_rebel_tier4_4_b.tab",
+      "sha256": "3ac464d541394560e5e86825aaf6397a960181a184e09ebcf5cca760ea9dc78d"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_imperial_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_imperial_tier3_3_c.tab",
+      "sha256": "5a5a0e1435e45117dfc9aebabd34f4363f5ae84648ed6c443abbf41e686241e5"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_privateer_tier3_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_privateer_tier3_2_b.tab",
+      "sha256": "00e829b9d5019abafe2a827e67a6aef1902a772ee852a6a445ef90743770778b"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_privateer_tier4_2c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_privateer_tier4_2c.tab",
+      "sha256": "98140716e5b99b972bd7e71ac7df706bdf51b45ea8f023fe67332dd450e6fc9f"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_rebel_tier3_1_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_rebel_tier3_1_b.tab",
+      "sha256": "00f94db36efc28766c51e659ec79455df414fbfb15977fa22a83f0b969387e4f"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_rebel_tier3_3_c.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_rebel_tier3_3_c.tab",
+      "sha256": "53052d2bf8d0a71dfd8988f7f069f7176ce1c476f0d171addd98bb4269b398fe"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_rebel_tier4_2_b.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_rebel_tier4_2_b.tab",
+      "sha256": "c3ba3a933457ad05ad98b81788102a07cced8e37bc61972b715cea84b0f11a7e"
+    },
+    {
+      "path": "quest_tables/survival/tatooine_rebel_tier4_4_a.tab",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/datatables/spacequest/survival/tatooine_rebel_tier4_4_a.tab",
+      "sha256": "61eeb4fd2e25af2aea6526cf399b2b164dbd86fde6abb0cd68cabd10e06039f9"
+    },
+    {
+      "path": "rebel_master_trainer.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/rebel_master_trainer.java",
+      "sha256": "4b1de9b89cf00fabe99322886473b0c39c74d7d4942ca4b0a6b9e6bedccbdff4"
+    },
+    {
+      "path": "space_flags.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/library/space_flags.java",
+      "sha256": "ab01d26b0b8543bc60b67b65445c76723af920a57a7c0cf132322fe6a0426a57"
+    },
+    {
+      "path": "space_quest.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/library/space_quest.java",
+      "sha256": "b8fa3b0ac99572b76baac9b5da955bb02e850044a0e88d77ce2ccad6235a3745"
+    },
+    {
+      "path": "space_skill.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/library/space_skill.java",
+      "sha256": "f256a3def1a2105ffc1ad369ef42b4a860c0604a158e2dd1bcb5d62c0b1f13d1"
+    },
+    {
+      "path": "tatooine_imperial_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_tier3.java",
+      "sha256": "99667b7048c8d397047990e77494da28b294602930e2f344acc98b7247b273e6"
+    },
+    {
+      "path": "tatooine_imperial_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_tier4.java",
+      "sha256": "650c9094965c2a43930f80bd6aa8050dc62f64700d126ae440a66e7a8a786e89"
+    },
+    {
+      "path": "tatooine_imperial_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_trainer_1.java",
+      "sha256": "c50823b3aae114e9d5f1bfc00c5656f281d135192530e860b835ec1bcc32dee5"
+    },
+    {
+      "path": "tatooine_imperial_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_trainer_2.java",
+      "sha256": "d776347439948c25a39ce3aaabb07795188ddec5ead9e143a5d8a092fcf4b704"
+    },
+    {
+      "path": "tatooine_imperial_trainer_2b.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_trainer_2b.java",
+      "sha256": "1c08d1116545723f0df82d0b2d028d180baa115ef130ea4140890b3b78bc4ee4"
+    },
+    {
+      "path": "tatooine_privateer_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_privateer_tier3.java",
+      "sha256": "848f445c0fe361ccc29f13c1e89a687aa13f7efef2dee3a0f802e24dabd6b4d5"
+    },
+    {
+      "path": "tatooine_privateer_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_privateer_tier4.java",
+      "sha256": "126f258b95ebcb2ed4f3d25b24e00b9069f01fcdd806dd7a37dd81159145ae3d"
+    },
+    {
+      "path": "tatooine_privateer_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_privateer_trainer_1.java",
+      "sha256": "65da1864e6e2e7ab811dadd576d8d9247d1b2811847c274bb99c052dcb17753a"
+    },
+    {
+      "path": "tatooine_privateer_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_privateer_trainer_2.java",
+      "sha256": "3bc0b3fc74cb34cbf74eefd58787525aec8676ed26098408ba0a7fb41c3cbfaa"
+    },
+    {
+      "path": "tatooine_privateer_trainer_shamdon.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_privateer_trainer_shamdon.java",
+      "sha256": "1f4089a449f457b88306f62e0b91a7f1c3996e35bdf37d453cb4d17ef789007b"
+    },
+    {
+      "path": "tatooine_rebel_tier3.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_rebel_tier3.java",
+      "sha256": "661b145a73f1c49dd3b53bcbe27ef3fd8806e754eeeeead8793a75e274fe8267"
+    },
+    {
+      "path": "tatooine_rebel_tier4.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_rebel_tier4.java",
+      "sha256": "8a731de7721ca9b8978d2ca302006e80f7830506d2ee351c17fa2f0655e7de92"
+    },
+    {
+      "path": "tatooine_rebel_trainer_1.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_rebel_trainer_1.java",
+      "sha256": "6574048c51d6d882bbe8ddee2a2f3ea0741ad2ca052c4182fb4b48181fceced4"
+    },
+    {
+      "path": "transfer_auth.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/space/characters/transfer_auth.java",
+      "sha256": "1142137cb4f6619756030a2a651e05fc8f7ea8ae4a3e6bdbbaf8c8f4801f35a6"
+    },
+    {
+      "path": "yavin_rebel_trainer_2.java",
+      "url": "https://raw.githubusercontent.com/SWG-Source/dsrc/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/yavin_rebel_trainer_2.java",
+      "sha256": "50f7f05d2fbfb14edc4989d830792503ef2e7ddaecadb8c72d413986eeccb020"
+    }
+  ]
+}

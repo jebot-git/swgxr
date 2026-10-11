@@ -1,4 +1,5 @@
 #pragma once
+#include "CombatMovementHistory.h"
 #include "GroundActionPolicy.h"
 #include "server/zone/Zone.h"
 #include "server/zone/objects/creature/ai/AiAgent.h"
@@ -15,7 +16,7 @@
 class SwgxrGroundCombat {
  using Json=JSONSerializationType;using Vec=corecu::action::Vec;using Attack=corecu::action::Attack;using Role=corecu::action::Role;using Shape=corecu::action::Shape;
  struct Peer {ManagedWeakReference<CreatureObject*> actor;double expires=0;};
- struct Victim {ManagedWeakReference<CreatureObject*> actor;corecu::ground::Victim state;Vec sample{};bool lineClear=false;};
+ struct Victim {corecu::history::History history;ManagedWeakReference<CreatureObject*> actor;corecu::ground::Victim state;Vec sample{};bool lineClear=false,settled=false;double contactAt=0;};
  struct Strike {
   Mutex mutex;ManagedWeakReference<AiAgent*> actor;ManagedWeakReference<CreatureObject*> target;
   ManagedReference<WeaponObject*> weapon,heldWeapon;const CombatQueueCommand* command=nullptr;std::shared_ptr<CreatureAttackData> data;double attackReach=0;bool special=false,targeted=false,impactCentered=false,animationFallback=false;
@@ -86,24 +87,32 @@ class SwgxrGroundCombat {
    }
    a.prepare(stamp,point(target));face(actor,a.aim);
   }
-  for(auto& v:s->victims){sync(v.second,a);if(stamp>=a.activeAt()&&stamp<=a.endAt()){auto c=v.second.actor.get();if(c){Locker other(c,actor);if(eligible(c,actor,s->cell)&&CollisionManager::checkLineOfSight(actor,c))v.second.lineClear=true;}}}
+  for(auto& item:s->victims){auto& v=item.second;sync(v,a);auto c=v.actor.get();if(!c)continue;Locker other(c,actor);
+   bool clear=eligible(c,actor,s->cell)&&CollisionManager::checkLineOfSight(actor,c);
+   v.history.observe(stamp,point(c),c->getZone()?c->getZone()->getObjectID():0,c->getParentID(),clear);
+   if(stamp>=a.activeAt()&&stamp<=a.endAt()&&clear)v.lineClear=true;
+  }
   if(stamp>=a.deliveryAt()&&!s->paid){
    s->paid=CombatManager::instance()->applyProjectileLaunchCost(actor,s->weapon,*s->data);
    if(!s->paid){cancel(actor,*s);schedule(s);return;}publish(actor,*s,"active");
   }else if(stamp-s->published>=.1)publish(actor,*s,s->paid?"active":"windup");
-  bool ready=stamp>=a.endAt();for(auto& v:s->victims)ready=ready&&v.second.state.ready(stamp);
-  if(ready){
-   std::vector<std::pair<double,uint64>> hits;
+  bool allReady=stamp>=a.endAt();for(auto& v:s->victims)allReady=allReady&&v.second.state.ready(stamp);
+  const bool firstContact=s->profile.at("hit_policy")=="first_contact";
+  if(stamp>=a.endAt()){
+   std::vector<corecu::ground::Interceptor> hits;
    for(auto& item:s->victims){auto c=item.second.actor.get();auto& v=item.second.state;
+    if(!corecu::ground::canSettle(firstContact,allReady,v.ready(stamp),item.second.settled))continue;
+    item.second.settled=true;
     if(!c){v.waived=true;continue;}Locker other(c,actor);
     if(!eligible(c,actor,s->cell)){v.waived=true;continue;}
-    bool hit=v.resolve();{std::lock_guard<std::mutex> l(mutex());analytics().push_back({{"actor_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"delivered",false},{"damage",0},{"warned",v.warned},{"victim_id",std::to_string(item.first)},{"contact",hit},{"waived",v.waived},{"acknowledged",v.acknowledged},{"reported",v.attack.reported}});if(analytics().size()>512)analytics().erase(analytics().begin());}
-    if(hit)hits.push_back({(item.second.sample[0]-a.origin[0])*a.aim[0]+(item.second.sample[2]-a.origin[2])*a.aim[2],item.first});
+    bool hit=v.resolve();{std::lock_guard<std::mutex> l(mutex());analytics().push_back({{"actor_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"delivered",false},{"damage",0},{"warned",v.warned},{"victim_id",std::to_string(item.first)},{"contact",hit},{"waived",v.waived},{"acknowledged",v.acknowledged},{"reported",v.attack.reported},{"settled_at",stamp},{"contact_at",item.second.contactAt},{"hit_policy",s->profile.at("hit_policy")}});if(analytics().size()>512)analytics().erase(analytics().begin());}
+    if(hit)hits.push_back({(item.second.sample[0]-a.origin[0])*a.aim[0]+(item.second.sample[2]-a.origin[2])*a.aim[2],item.second.contactAt,item.first});
    }
-   std::sort(hits.begin(),hits.end());if(s->profile.at("hit_policy")=="first_contact"&&hits.size()>1)hits.resize(1);
+   corecu::ground::arbitrate(hits,firstContact);
    corecu::ground::ResolveScope once(actor->getObjectID());
-   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
-   s->done=true;a.settled=true;publish(actor,*s,"recovery");
+   for(auto& hit:hits){auto c=s->victims[hit.id].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
+   bool settled=true;for(auto& item:s->victims)settled=settled&&item.second.settled;
+   if(settled){s->done=true;a.settled=true;publish(actor,*s,"recovery");}
   }
   schedule(s);
  }
@@ -157,27 +166,33 @@ public:
   if(op=="negotiate"){
    bool ok=enabled()&&!catalog().is_null()&&q.value("protocol",0)==2&&q.value("catalog_revision",std::string())==catalog().value("revision",std::string("missing"));
    if(ok){std::lock_guard<std::mutex> l(mutex());for(auto i=peers().begin();i!=peers().end();)if(i->second.expires<now())i=peers().erase(i);else ++i;if(peers().size()>=256&&!peers().count(c->getObjectID()))throw std::runtime_error("ground_capacity");peers()[c->getObjectID()]={c,now()+15};}
-   return {{"success",ok},{"protocol",2},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
+   return {{"success",ok},{"protocol",2},{"receipt_clock","presentation_v1"},{"contact_evidence","sample_v1"},{"receipt_bundle","ground_v1"},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
   }
   if(op!="batch"||!q.contains("receipts")||!q.at("receipts").is_array()||q.at("receipts").size()>32)throw std::runtime_error("ground_batch_invalid");
   if(!capable(c->getObjectID()))throw std::runtime_error("ground_capability_required");
   {std::lock_guard<std::mutex> l(mutex());peers()[c->getObjectID()].expires=now()+15;}
   Json results=Json::array();
   for(const auto& row:q.at("receipts")){
-   Json result={{"actor_id",row.at("actor_id")},{"attack_id",row.at("attack_id")},{"kind",row.at("kind")},{"accepted",false}};
+   Json result={{"actor_id",row.at("actor_id")},{"attack_id",row.at("attack_id")},{"kind",row.at("kind")},{"accepted",false},{"reason","unknown_attack"},{"retryable",false}};
    auto s=find(std::stoull(row.at("actor_id").get<std::string>()));
    if(s){Locker guard(&s->mutex,c);auto v=s->victims.find(c->getObjectID());
     if(std::to_string(s->attack.id)==row.at("attack_id").get<std::string>()&&v!=s->victims.end()&&!s->attack.cancelled){
      auto& state=v->second.state;sync(v->second,s->attack);auto rev=row.at("aim_revision").get<uint64>();
-     if(row.at("kind")=="warning")result["accepted"]=state.warning(now());
-     else if(row.at("kind")=="lock")result["accepted"]=state.acknowledge(now(),rev);
+     if(row.at("kind")=="warning"){result["accepted"]=state.warned||state.warning(now(),row.value("presented_at",now()));result["reason"]="warning_timing";}
+     else if(row.at("kind")=="lock"){result["accepted"]=(state.acknowledged&&rev==state.attack.aimRevision)||state.acknowledge(now(),rev,row.value("presented_at",now()));result["reason"]=!state.warned?"warning_pending":!state.attack.aimLocked?"lock_pending":"lock_timing_or_revision";result["retryable"]=(!state.warned||!state.attack.aimLocked)&&now()<s->attack.deadline();}
      else{
-      Vec feet=row.at("sample_position").get<Vec>();bool plausible=corecu::action::finite(feet)&&corecu::action::distance(feet,point(c))<=4;
-      bool hit=row.at("contact").get<bool>();if(hit)plausible=plausible&&v->second.lineClear&&s->attack.contact(feet);
-      if(plausible){bool first=!state.attack.reported;result["accepted"]=state.receipt(now(),hit,row.at("coverage_start"),row.at("coverage_end"),rev);if(first&&result["accepted"]==true)v->second.sample=feet;}
+      result["reason"]="sample_geometry_or_position";
+      Vec feet=row.at("sample_position").get<Vec>();bool plausible=corecu::action::finite(feet)&&(row.contains("contact_at")?v->second.history.matches(feet,row.at("contact_at"),now(),c->getZone()?c->getZone()->getObjectID():0,c->getParentID()):corecu::action::distance(feet,point(c))<=4);
+      bool hit=row.at("contact").get<bool>();if(hit){
+       bool contactGeometry=row.contains("contact_at")?v->second.history.contact(feet,row.at("contact_at"),now(),c->getZone()?c->getZone()->getObjectID():0,c->getParentID()):(v->second.lineClear&&std::abs(feet[1]-point(c)[1])<=1.25);
+       plausible=plausible&&contactGeometry&&s->attack.contact(feet);
+      }
+      if(!v->second.lineClear&&hit&&now()<=s->attack.endAt()){result["reason"]="line_of_sight_pending";result["retryable"]=true;}
+      if(plausible){result["reason"]=!state.acknowledged?"acknowledgement_pending":"coverage_or_deadline";result["retryable"]=!state.acknowledged&&now()<s->attack.deadline();bool first=!state.attack.reported;result["accepted"]=state.receipt(now(),hit,row.at("coverage_start"),row.at("coverage_end"),rev,row.value("contact_at",std::numeric_limits<double>::quiet_NaN()));if(first&&result["accepted"]==true){v->second.sample=feet;v->second.contactAt=row.value("contact_at",s->attack.activeAt());}}
      }
     }
    }
+   if(result["accepted"]==true){result["reason"]="accepted";result["retryable"]=false;}
    results.push_back(result);
   }
   std::vector<std::shared_ptr<Strike>> active;{std::lock_guard<std::mutex> l(mutex());for(auto& s:strikes())active.push_back(s.second);}

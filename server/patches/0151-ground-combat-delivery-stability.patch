@@ -1,0 +1,334 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,4 +1,6 @@
+ #include "CombatFeedback.h"
++#include "CombatReceiptCache.h"
++#include "CombatMovementHistory.h"
+ #include "SwgxrGroundCombat.h"
+ #include "MeleePolicy.h"
+ #include "SwgxrActionCombat.h"
+@@ -39,10 +41,16 @@
+ #include <map>
+ #include "system/thread/Mutex.h"
+ #include "ProjectileContactPolicy.h"
++class SwgxrContactMeleeCommand : public SwgxrPreparedRangedCommand {
++ bool confirmed;
++public:
++ SwgxrContactMeleeCommand(const CombatQueueCommand& command,bool contact):SwgxrPreparedRangedCommand(command),confirmed(contact){}
++ bool usesClientProjectileContact() const override{return confirmed;}
++};
+ class SwgxrLiveCombat {
+  using Json=JSONSerializationType;
+  struct Shot {int damageType=0,armorPiercing=0;std::string item,ability,target,volley;double multiplier=1,nearRange=0,idealRange=0,nearModifier=0,idealModifier=0,farModifier=0;int firingPosture=0;Json origin,direction;double time=0,range=0,minDamage=0,maxDamage=0;bool spent=false,rifleman=false,scatter=false,lightning=false;std::string guidedTarget;double normalizedDamage=0;uint64 zone=0;};
+- struct Session {corecu::bountyhunter::Arm bountyArm;std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;std::map<std::string,corecu::pistoleer::Volley> volleys;uint64 lair=0;bool ready=false,ordinaryCadence=false;std::string ordinaryItem;Json transport=Json::object();};
++ struct Session {std::map<uint64,corecu::history::History> observed;corecu::history::History playerHistory;corecu::receipts::Cache<Json> receipts;corecu::bountyhunter::Arm bountyArm;std::string token;uint64 sequence=0;double lastSeen=0,nextFire=0;std::map<std::string,Shot> shots;std::map<std::string,corecu::pistoleer::Volley> volleys;uint64 lair=0;bool ready=false,ordinaryCadence=false;std::string ordinaryItem;Json transport=Json::object();};
+  static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"";}
+  static Json vector(const Json& p,bool direction=false){if(!p.is_array() || p.size()!=3)throw std::runtime_error("invalid_vector");for(int i=0;i<3;++i)if(!p[i].is_number() || !std::isfinite(p[i].get<double>()) || std::abs(p[i].get<double>())>(direction?2:i==1?2048:8192))throw std::runtime_error("invalid_vector");return p;}
+@@ -72,8 +80,14 @@
+   double x=local.getX()-center[0].get<double>()*scale,y=local.getY()-center[1].get<double>()*scale,z=local.getZ()-center[2].get<double>()*scale;
+   double radius=bounds["radius"].get<double>()*scale+bounds["margin"].get<double>();return x*x+y*y+z*z<=radius*radius;
+  }
++ static void observe(CreatureObject* observer,TangibleObject* o,Session& session,double at){
++  auto p=o->getWorldPosition();for(auto i=session.observed.begin();i!=session.observed.end();)if(i->second.samples.empty()||at-i->second.samples.back().at>2.5)i=session.observed.erase(i);else ++i;
++  if(session.observed.size()<256||session.observed.count(o->getObjectID()))session.observed[o->getObjectID()].observe(at,{{p.getX(),p.getZ(),p.getY()}},o->getZone()?o->getZone()->getObjectID():0,o->getParentID());
++  auto own=observer->getWorldPosition();session.playerHistory.observe(at,{{own.getX(),own.getZ(),own.getY()}},observer->getZone()?observer->getZone()->getObjectID():0,observer->getParentID());
++ }
+  static Json actor(CreatureObject* observer,TangibleObject* o,Session& session){
+-  Json out={{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
++  const double observedAt=now();observe(observer,o,session,observedAt);
++  Json out={{"observation_at",observedAt},{"id",id(o)},{"kind",o->isLairObject()?"lair":"creature"},{"template",std::string(o->getObjectTemplate()->getFullTemplateString().toCharArray())},{"client_crc",o->getClientObjectCRC()},{"name",std::string(o->getDisplayedName().toCharArray())},{"position",position(o)},{"heading_radians",o->getDirectionAngle()*3.14159265358979323846/180.0},{"scale",1.0},{"dead",o->isDestroyed()},{"health",std::max(0,o->getMaxCondition()-o->getConditionDamage())},{"max_health",o->getMaxCondition()},{"pvp_status",o->getPvpStatusBitmask()},{"lair_id",o->isLairObject()?id(o):""},{"passive",true}};
+   if(o->isAiAgent()){auto ai=static_cast<AiAgent*>(o);out["dead"]=ai->isDead();out["incapacitated"]=ai->isIncapacitated();out["posture"]=int(ai->getPosture());for(auto ability:{"suppression_fire","warning_shot","controlled_burst","bleeding_shot"})out["ability_target_available"][ability]=SwgxrMarksman::targetReady(ai,ability);for(auto ability:{"double_tap","disarming_shot","showdown"})out["ability_target_available"][ability]=SwgxrPistoleer::targetReady(ai);for(auto ability:{"crippling_shot","wild_shot","charge_shot"})out["ability_target_available"][ability]=SwgxrCarbineer::targetReady(ai);for(auto ability:{"lethal_shot","piercing_shot","flurry_shot","surprise_shot","sniper_shot"}){if(std::string(ability)!="lethal_shot" || SwgxrRifleman::headUpgrade(observer))out["ability_target_available"][ability]=SwgxrRifleman::targetReady(ai);}for(auto ability:{"eye_shot","confusion_shot","underhand_shot","fast_blast"})out["ability_target_available"][ability]=SwgxrBountyHunter::targetReady(ai,ability);for(auto ability:{"focused_discharge","acid_spray"})out["ability_target_available"][ability]=SwgxrRifleman::targetReady(ai);out["melee_control_available"]=!ai->isPet() && ai->checkCooldownRecovery("corecu_control_recovery");out["knockdown_available"]=ai->checkKnockdownRecovery() && !ai->isKnockedDown();out["health"]=ai->getHAM(0);out["max_health"]=ai->getMaxHAM(0);out["ham"]=ham(ai);out["max_ham"]=ham(ai,true);out["scale"]=ai->getHeight(false);out["level"]=ai->getLevel();out["boss"]=CoreCuCombat::boss(ai);out["effective_max_health"]=ai->getMaxHAM(0)-ai->getWounds(0);out["fractured_armour"]=ai->hasBuff(STRING_HASHCODE("swgxr_fractured_armour"));out["passive"]=!ai->isAggressiveTo(observer);out["in_combat"]=ai->isInCombat();out["lair_template_crc"]=ai->getLairTemplateCRC();auto home=ai->getHomeObject().get();if(home!=nullptr && home->isLairObject())out["lair_id"]=id(home);}
+   if(SwgxrHeralds::supports(o)){auto home=o->asAiAgent()->getHomeLocation()->getWorldPosition();out["herald_home_position"]=Json::array({home.getX(),home.getZ(),home.getY()});}
+   out["aggressive"]=o->isAiAgent() && o->asAiAgent()->isAggressiveTo(observer);out["attackable"]=o->isAttackableBy(observer);out["droid"]=o->isCreatureObject() && o->asCreatureObject()->isDroidObject();
+@@ -153,7 +167,7 @@
+   if(weapon && SwgxrCommando::supported(weapon)){auto heavy=SwgxrCommando::profile(c);for(auto it=heavy.begin();it!=heavy.end();++it)profile[it.key()]=it.value();}
+   if(weapon){auto hunter=SwgxrBountyHunter::weaponProfile(c);for(auto it=hunter.begin();it!=hunter.end();++it)profile[it.key()]=it.value();}
+   Json out={{"transport",session.transport},{"ready",session.ready},{"full",true},{"actors",actors},{"truncated",truncated},{"radius_m",128},{"test_lair_id",session.lair?std::to_string(session.lair):""},{"player",{{"position",position(c)},{"in_combat",c->isInCombat()},{"on_load_screen",c->getPlayerObject()->isOnLoadScreen()},{"invulnerable",c->isInvulnerable()},{"ham",Json::array({std::max(0,c->getHAM(0)),std::max(0,c->getHAM(3)),std::max(0,c->getHAM(6))})},{"raw_ham",ham(c)},{"max_ham",ham(c,true)},{"dead",c->isDead()},{"incapacitated",c->isIncapacitated()},{"posture",int(c->getPosture())},{"wounds",Json::array({c->getWounds(0),c->getWounds(3),c->getWounds(6)})},{"shock_wounds",c->getShockWounds()},{"weapon_item_id",id(weapon)},{"target_id",std::to_string(c->getTargetID())},{"experience",SwgxrTrainers::experience(c)},{"experience_complete",true}}},{"weapon",profile}};
+-  if(!profile.is_null()){auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
++  if(!profile.is_null()){out["weapon"]["combat_receipts"]="replay_v1";out["weapon"]["melee_contact"]="presented_v1";auto catalog=SwgxrSmuggler::abilities(c);out["weapon"]["ability_catalog"]=catalog;out["weapon"]["ability_loadout"]=SwgxrCombatLoadout::snapshot(c,catalog);out["weapon"]["abilities"]=SwgxrCombatLoadout::equipped(c,catalog);}
+   out["jtl"]=SwgxrJtl::snapshot(c);out["player"]["jtl"]=out["jtl"];out["player"]["space_active"]=false;
+   out["player"]["player_summary"]=SwgxrPlayerSummary::snapshot(c);
+   out["player"]["taunt"]=SwgxrTaunt::snapshot(c);
+@@ -393,13 +407,30 @@
+     if(SwgxrBrawler::cooldown(c,ability)>0)throw std::runtime_error("native_melee_ability_cooldown");
+    }else if(!boundTarget.empty() && !corecu::volley::target(c->getObjectID()))throw std::runtime_error("target_requires_melee_ability");
+    auto origin=vector(request.at("origin")),direction=vector(request.at("direction"),true);
+-   if(distance(origin,position(c))>2.5)throw std::runtime_error("invalid_melee_origin");
++   const bool clientContact=request.contains("melee_contact");
++   if(!clientContact&&distance(origin,position(c))>2.5)throw std::runtime_error("invalid_melee_origin");
+    double norm=distance(direction,Json::array({0,0,0}));if(norm<.95 || norm>1.05)throw std::runtime_error("invalid_melee_direction");
+    corecu::melee::Vec o{},d{};for(int axis=0;axis<3;++axis){o[axis]=origin[axis].get<double>();d[axis]=direction[axis].get<double>()/norm;}
+    double range=corecu::melee::reach(weapon->getMaxRange(),weapon->isUnarmedWeapon());
+    SortedVector<TreeEntry*> nearby(32,32);auto center=c->getWorldPosition();c->getZone()->getInRangeObjects(center.getX(),center.getZ(),center.getY(),range+3,&nearby,true);
+    ManagedReference<TangibleObject*> chosen=nullptr;double best=1e9;
+-   for(int i=0;i<nearby.size();++i){auto object=static_cast<SceneObject*>(nearby.get(i));if(object==c || (!object->isAiAgent() && !object->isLairObject()))continue;
++   if(clientContact){
++    if(!ability.empty()||corecu::volley::target(c->getObjectID()))throw std::runtime_error("melee_contact_requires_ordinary_swing");
++    const auto& proof=request.at("melee_contact");auto targetID=proof.at("target_id").get<std::string>();result["contact_authority"]="client";
++    if(targetID!="0"){
++     auto object=c->getZoneServer()->getObject(std::stoull(targetID));
++     if(!object||(!object->isAiAgent()&&!object->isLairObject())||object->getZone()!=c->getZone()||object->getParentID()!=c->getParentID())throw std::runtime_error("melee_contact_target_unavailable");
++     Locker targetLock(object,c);auto contact=vector(proof.at("hit_position")),presented=vector(proof.at("target_position"));double observedAt=proof.at("observation_at").get<double>();
++     auto history=s.observed.find(object->getObjectID());auto sample=history==s.observed.end()?nullptr:history->second.nearest(observedAt,stamp,c->getZone()->getObjectID(),c->getParentID(),.005);
++     if(!sample||!s.playerHistory.matches(o,observedAt,stamp,c->getZone()->getObjectID(),c->getParentID(),2.75))throw std::runtime_error("melee_observation_expired");
++     corecu::history::Vec shown{{presented[0].get<double>(),presented[1].get<double>(),presented[2].get<double>()}};
++     auto bounds=impactBounds(object);double body=std::min(6.,bounds["radius"].get<double>()*bounds["scale"].get<double>()+1.5);
++     if(corecu::history::History::distance(shown,sample->point)>3.||distance(origin,contact)>range+.35||distance(contact,presented)>body)throw std::runtime_error("melee_contact_geometry");
++     double along=0,travel=distance(origin,contact);for(int axis=0;axis<3;++axis)along+=(contact[axis].get<double>()-origin[axis].get<double>())*d[axis];
++     if(along<0||std::sqrt(std::max(0.,travel*travel-along*along))>.15+along*corecu::melee::HALF_ANGLE_TAN)throw std::runtime_error("melee_contact_direction");
++     auto target=object->asTangibleObject();if(!target||!target->isAttackableBy(c)||target->isDestroyed()||(object->isAiAgent()&&object->asAiAgent()->isDead()))throw std::runtime_error("melee_contact_target_unavailable");chosen=target;
++    }
++   }else for(int i=0;i<nearby.size();++i){auto object=static_cast<SceneObject*>(nearby.get(i));if(object==c || (!object->isAiAgent() && !object->isLairObject()))continue;
+     if(!ability.empty() && (!object->isAiAgent() || id(object)!=boundTarget))continue;
+     Locker targetLock(object,c);auto target=object->asTangibleObject();
+     if(!ability.empty() && (object->asAiAgent()->isIncapacitated() || object->asAiAgent()->isPet() || (SwgxrBrawler::control(ability) && !object->asAiAgent()->checkCooldownRecovery("corecu_control_recovery"))))continue;
+@@ -424,11 +455,11 @@
+    result["ham_cost_committed"]=true;result["hit"]=false;result["damage"]=0;result["target_id"]="";
+    if(chosen==nullptr)return result;
+    Locker targetLock(chosen,c);
+-   if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || !c->isInRange(chosen,range) || (!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID())&&!CollisionManager::checkLineOfSight(c,chosen)))return result;
++   if(chosen->getZone()!=c->getZone() || chosen->isDestroyed() || !chosen->isAttackableBy(c) || (!clientContact&&(!c->isInRange(chosen,range) || (!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID())&&!CollisionManager::checkLineOfSight(c,chosen)))))return result;
+    auto finalPosition=position(chosen);auto finalBounds=impactBounds(chosen);double finalRadius=std::min(.6,finalBounds["radius"].get<double>()*finalBounds["scale"].get<double>());
+    if(!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()) && !ability.empty() && !SwgxrBrawler::facing(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}}))return result;
+-   if(!corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()) && ability.empty() && corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
+-   SwgxrPreparedRangedCommand prepaid(*command);if(SwgxrBrawler::control(ability))SwgxrBrawler::boundEffects(prepaid);if(ability=="challenging_strike"){prepaid.setDamageMultiplier(.75);prepaid.setPoolsToDamage(1);}prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
++   if(!clientContact && !corecu::volley::guaranteed(c->getObjectID(),chosen->getObjectID()) && ability.empty() && corecu::melee::score(o,d,{{finalPosition[0].get<double>(),finalPosition[1].get<double>(),finalPosition[2].get<double>()}},finalRadius,2*finalRadius,range)<0)return result;
++   SwgxrContactMeleeCommand prepaid(*command,clientContact);if(SwgxrBrawler::control(ability))SwgxrBrawler::boundEffects(prepaid);if(ability=="challenging_strike"){prepaid.setDamageMultiplier(.75);prepaid.setPoolsToDamage(1);}prepaid.setHealthCostMultiplier(0);prepaid.setActionCostMultiplier(0);prepaid.setMindCostMultiplier(0);prepaid.setForceCostMultiplier(0);
+    Json before=actor(c,chosen,s);c->setTargetID(0,true);int code=prepaid.doCombatAction(c,chosen->getObjectID(),"",weapon);c->setTargetID(0,true);Json after=actor(c,chosen,s);
+    result["native_result"]=code;result["success"]=code==QueueCommand::SUCCESS;result["target_id"]=id(chosen);result["before"]=before;result["after"]=after;
+    int dealt=before["health"].get<int>()-after["health"].get<int>();if(before.contains("ham"))for(int pool=0;pool<3;++pool)dealt=std::max(dealt,before["ham"][pool].get<int>()-after["ham"][pool].get<int>());
+@@ -553,7 +584,17 @@
+    sessions.emplace(c->getObjectID(),fresh);SwgxrJtl::attach(c,token);auto timer=c->getCooldownTime("incapTimer");SwgxrLiveRecovery::attach(c->getObjectID(),timer?std::max(1.0,-timer->miliDifference()/1000.0):1.0);
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrJtl::touch(c,token);SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+-  if(verb!="start" && verb!="stop")try{corecu::feedback::Scope feedback(c->getObjectID());out["mutation"]=volleyAction(c,session,request);
++  if(request.contains("ground_receipts"))try{out["ground_receipts"]=SwgxrGroundCombat::run(c,request.at("ground_receipts"));}catch(const std::exception& e){out["ground_receipts"]={{"success",false},{"error_code",std::string(e.what())}};}
++  if(verb!="start" && verb!="stop"){
++   const auto shot=request.value("shot_id",std::string());bool replayable=key(shot) && (verb=="fire"||verb=="impact"||verb=="melee"||verb=="taunt"||verb=="warcry"||verb=="swordsman"||verb=="pikeman"||verb=="fencer"||verb=="tka"||verb=="brawler_buff"||verb=="pistoleer"||verb=="carbineer"||verb=="rifleman"||verb=="commando"||verb=="bountyhunter"||verb=="squadleader");
++   auto canonical=request;
++   for(auto field:{"ground_receipts","receipt_only","request_id","movement_revision","position","heading_radians","launch_age_seconds","guard_pose","smuggler_pose","medic_pose"})canonical.erase(field);
++   auto receiptKey=verb+":"+shot,intent=canonical.dump();const Json* saved=nullptr;
++   try{if(replayable)saved=session.receipts.find(receiptKey,intent,stamp);}catch(const std::exception& e){out["mutation"]={{"success",false},{"shot_id",shot},{"error_code",std::string(e.what())}};out["snapshot"]=snapshot(c,session);return out;}
++   if(!saved && replayable && request.value("receipt_only",false)){out["mutation"]={{"success",false},{"shot_id",shot},{"error_code","combat_receipt_missing"}};out["snapshot"]=snapshot(c,session);return out;}
++   if(saved){out["mutation"]=*saved;out["mutation"]["receipt_replayed"]=true;}
++   else{
++  try{corecu::feedback::Scope feedback(c->getObjectID());out["mutation"]=volleyAction(c,session,request);
+    if(!feedback.value.results.empty()){
+     auto& mutation=out["mutation"];mutation["combat_results"]=Json::array();
+     for(const auto& entry:feedback.value.results){const auto& r=entry.second;auto targetID=std::to_string(entry.first);
+@@ -562,6 +603,10 @@
+     }
+    }
+   }catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
++
++    if(replayable){out["mutation"]["shot_id"]=shot;session.receipts.put(receiptKey,intent,out["mutation"],stamp);}
++   }
++  }
+   if(verb=="action_combat"){out["compact"]=true;out["native_action_ms"]=(now()-stamp)*1000;return out;}
+   if(verb=="stop"){SwgxrActionCombat::stop(c);SwgxrJtl::detach(c);}out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
+  }
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
+@@ -1,4 +1,5 @@
+ #pragma once
++#include "CombatMovementHistory.h"
+ #include "GroundActionPolicy.h"
+ #include "server/zone/Zone.h"
+ #include "server/zone/objects/creature/ai/AiAgent.h"
+@@ -15,7 +16,7 @@
+ class SwgxrGroundCombat {
+  using Json=JSONSerializationType;using Vec=corecu::action::Vec;using Attack=corecu::action::Attack;using Role=corecu::action::Role;using Shape=corecu::action::Shape;
+  struct Peer {ManagedWeakReference<CreatureObject*> actor;double expires=0;};
+- struct Victim {ManagedWeakReference<CreatureObject*> actor;corecu::ground::Victim state;Vec sample{};bool lineClear=false;};
++ struct Victim {corecu::history::History history;ManagedWeakReference<CreatureObject*> actor;corecu::ground::Victim state;Vec sample{};bool lineClear=false,settled=false;double contactAt=0;};
+  struct Strike {
+   Mutex mutex;ManagedWeakReference<AiAgent*> actor;ManagedWeakReference<CreatureObject*> target;
+   ManagedReference<WeaponObject*> weapon,heldWeapon;const CombatQueueCommand* command=nullptr;std::shared_ptr<CreatureAttackData> data;double attackReach=0;bool special=false,targeted=false,impactCentered=false,animationFallback=false;
+@@ -86,24 +87,32 @@
+    }
+    a.prepare(stamp,point(target));face(actor,a.aim);
+   }
+-  for(auto& v:s->victims){sync(v.second,a);if(stamp>=a.activeAt()&&stamp<=a.endAt()){auto c=v.second.actor.get();if(c){Locker other(c,actor);if(eligible(c,actor,s->cell)&&CollisionManager::checkLineOfSight(actor,c))v.second.lineClear=true;}}}
++  for(auto& item:s->victims){auto& v=item.second;sync(v,a);auto c=v.actor.get();if(!c)continue;Locker other(c,actor);
++   bool clear=eligible(c,actor,s->cell)&&CollisionManager::checkLineOfSight(actor,c);
++   v.history.observe(stamp,point(c),c->getZone()?c->getZone()->getObjectID():0,c->getParentID(),clear);
++   if(stamp>=a.activeAt()&&stamp<=a.endAt()&&clear)v.lineClear=true;
++  }
+   if(stamp>=a.deliveryAt()&&!s->paid){
+    s->paid=CombatManager::instance()->applyProjectileLaunchCost(actor,s->weapon,*s->data);
+    if(!s->paid){cancel(actor,*s);schedule(s);return;}publish(actor,*s,"active");
+   }else if(stamp-s->published>=.1)publish(actor,*s,s->paid?"active":"windup");
+-  bool ready=stamp>=a.endAt();for(auto& v:s->victims)ready=ready&&v.second.state.ready(stamp);
+-  if(ready){
+-   std::vector<std::pair<double,uint64>> hits;
++  bool allReady=stamp>=a.endAt();for(auto& v:s->victims)allReady=allReady&&v.second.state.ready(stamp);
++  const bool firstContact=s->profile.at("hit_policy")=="first_contact";
++  if(stamp>=a.endAt()){
++   std::vector<corecu::ground::Interceptor> hits;
+    for(auto& item:s->victims){auto c=item.second.actor.get();auto& v=item.second.state;
++    if(!corecu::ground::canSettle(firstContact,allReady,v.ready(stamp),item.second.settled))continue;
++    item.second.settled=true;
+     if(!c){v.waived=true;continue;}Locker other(c,actor);
+     if(!eligible(c,actor,s->cell)){v.waived=true;continue;}
+-    bool hit=v.resolve();{std::lock_guard<std::mutex> l(mutex());analytics().push_back({{"actor_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"delivered",false},{"damage",0},{"warned",v.warned},{"victim_id",std::to_string(item.first)},{"contact",hit},{"waived",v.waived},{"acknowledged",v.acknowledged},{"reported",v.attack.reported}});if(analytics().size()>512)analytics().erase(analytics().begin());}
+-    if(hit)hits.push_back({(item.second.sample[0]-a.origin[0])*a.aim[0]+(item.second.sample[2]-a.origin[2])*a.aim[2],item.first});
++    bool hit=v.resolve();{std::lock_guard<std::mutex> l(mutex());analytics().push_back({{"actor_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"delivered",false},{"damage",0},{"warned",v.warned},{"victim_id",std::to_string(item.first)},{"contact",hit},{"waived",v.waived},{"acknowledged",v.acknowledged},{"reported",v.attack.reported},{"settled_at",stamp},{"contact_at",item.second.contactAt},{"hit_policy",s->profile.at("hit_policy")}});if(analytics().size()>512)analytics().erase(analytics().begin());}
++    if(hit)hits.push_back({(item.second.sample[0]-a.origin[0])*a.aim[0]+(item.second.sample[2]-a.origin[2])*a.aim[2],item.second.contactAt,item.first});
+    }
+-   std::sort(hits.begin(),hits.end());if(s->profile.at("hit_policy")=="first_contact"&&hits.size()>1)hits.resize(1);
++   corecu::ground::arbitrate(hits,firstContact);
+    corecu::ground::ResolveScope once(actor->getObjectID());
+-   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
+-   s->done=true;a.settled=true;publish(actor,*s,"recovery");
++   for(auto& hit:hits){auto c=s->victims[hit.id].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
++   bool settled=true;for(auto& item:s->victims)settled=settled&&item.second.settled;
++   if(settled){s->done=true;a.settled=true;publish(actor,*s,"recovery");}
+   }
+   schedule(s);
+  }
+@@ -157,27 +166,33 @@
+   if(op=="negotiate"){
+    bool ok=enabled()&&!catalog().is_null()&&q.value("protocol",0)==2&&q.value("catalog_revision",std::string())==catalog().value("revision",std::string("missing"));
+    if(ok){std::lock_guard<std::mutex> l(mutex());for(auto i=peers().begin();i!=peers().end();)if(i->second.expires<now())i=peers().erase(i);else ++i;if(peers().size()>=256&&!peers().count(c->getObjectID()))throw std::runtime_error("ground_capacity");peers()[c->getObjectID()]={c,now()+15};}
+-   return {{"success",ok},{"protocol",2},{"receipt_clock","presentation_v1"},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
++   return {{"success",ok},{"protocol",2},{"receipt_clock","presentation_v1"},{"contact_evidence","sample_v1"},{"receipt_bundle","ground_v1"},{"server_received",received},{"server_sent",now()},{"scope",mode()}};
+   }
+   if(op!="batch"||!q.contains("receipts")||!q.at("receipts").is_array()||q.at("receipts").size()>32)throw std::runtime_error("ground_batch_invalid");
+   if(!capable(c->getObjectID()))throw std::runtime_error("ground_capability_required");
+   {std::lock_guard<std::mutex> l(mutex());peers()[c->getObjectID()].expires=now()+15;}
+   Json results=Json::array();
+   for(const auto& row:q.at("receipts")){
+-   Json result={{"actor_id",row.at("actor_id")},{"attack_id",row.at("attack_id")},{"kind",row.at("kind")},{"accepted",false}};
++   Json result={{"actor_id",row.at("actor_id")},{"attack_id",row.at("attack_id")},{"kind",row.at("kind")},{"accepted",false},{"reason","unknown_attack"},{"retryable",false}};
+    auto s=find(std::stoull(row.at("actor_id").get<std::string>()));
+    if(s){Locker guard(&s->mutex,c);auto v=s->victims.find(c->getObjectID());
+     if(std::to_string(s->attack.id)==row.at("attack_id").get<std::string>()&&v!=s->victims.end()&&!s->attack.cancelled){
+      auto& state=v->second.state;sync(v->second,s->attack);auto rev=row.at("aim_revision").get<uint64>();
+-     if(row.at("kind")=="warning")result["accepted"]=state.warning(now(),row.value("presented_at",now()));
+-     else if(row.at("kind")=="lock")result["accepted"]=state.acknowledge(now(),rev,row.value("presented_at",now()));
++     if(row.at("kind")=="warning"){result["accepted"]=state.warned||state.warning(now(),row.value("presented_at",now()));result["reason"]="warning_timing";}
++     else if(row.at("kind")=="lock"){result["accepted"]=(state.acknowledged&&rev==state.attack.aimRevision)||state.acknowledge(now(),rev,row.value("presented_at",now()));result["reason"]=!state.warned?"warning_pending":!state.attack.aimLocked?"lock_pending":"lock_timing_or_revision";result["retryable"]=(!state.warned||!state.attack.aimLocked)&&now()<s->attack.deadline();}
+      else{
+-      Vec feet=row.at("sample_position").get<Vec>();bool plausible=corecu::action::finite(feet)&&corecu::action::distance(feet,point(c))<=4;
+-      bool hit=row.at("contact").get<bool>();if(hit)plausible=plausible&&v->second.lineClear&&s->attack.contact(feet);
+-      if(plausible){bool first=!state.attack.reported;result["accepted"]=state.receipt(now(),hit,row.at("coverage_start"),row.at("coverage_end"),rev);if(first&&result["accepted"]==true)v->second.sample=feet;}
++      result["reason"]="sample_geometry_or_position";
++      Vec feet=row.at("sample_position").get<Vec>();bool plausible=corecu::action::finite(feet)&&(row.contains("contact_at")?v->second.history.matches(feet,row.at("contact_at"),now(),c->getZone()?c->getZone()->getObjectID():0,c->getParentID()):corecu::action::distance(feet,point(c))<=4);
++      bool hit=row.at("contact").get<bool>();if(hit){
++       bool contactGeometry=row.contains("contact_at")?v->second.history.contact(feet,row.at("contact_at"),now(),c->getZone()?c->getZone()->getObjectID():0,c->getParentID()):(v->second.lineClear&&std::abs(feet[1]-point(c)[1])<=1.25);
++       plausible=plausible&&contactGeometry&&s->attack.contact(feet);
++      }
++      if(!v->second.lineClear&&hit&&now()<=s->attack.endAt()){result["reason"]="line_of_sight_pending";result["retryable"]=true;}
++      if(plausible){result["reason"]=!state.acknowledged?"acknowledgement_pending":"coverage_or_deadline";result["retryable"]=!state.acknowledged&&now()<s->attack.deadline();bool first=!state.attack.reported;result["accepted"]=state.receipt(now(),hit,row.at("coverage_start"),row.at("coverage_end"),rev,row.value("contact_at",std::numeric_limits<double>::quiet_NaN()));if(first&&result["accepted"]==true){v->second.sample=feet;v->second.contactAt=row.value("contact_at",s->attack.activeAt());}}
+      }
+     }
+    }
++   if(result["accepted"]==true){result["reason"]="accepted";result["retryable"]=false;}
+    results.push_back(result);
+   }
+   std::vector<std::shared_ptr<Strike>> active;{std::lock_guard<std::mutex> l(mutex());for(auto& s:strikes())active.push_back(s.second);}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/GroundActionPolicy.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GroundActionPolicy.h
+@@ -2,6 +2,9 @@
+ #include "ActionCombatPolicy.h"
+ #include <string>
+ #include <limits>
++#include <vector>
++#include <algorithm>
++#include <tuple>
+ namespace corecu { namespace ground {
+ constexpr int protocol=2;
+ constexpr double centerX=3528,centerZ=-4804,radius=1500;
+@@ -42,9 +45,15 @@
+  bool warning(double now){return warning(now,now);}
+  bool acknowledge(double now,uint64_t revision,double shown){if(!warned||!attack.aimLocked||attack.aimRevision!=revision||!presentation(now,shown)||shown<attack.lockAt()-.05||shown>attack.deliveryAt()-.05)return false;acknowledged=true;return true;}
+  bool acknowledge(double now,uint64_t revision){return acknowledge(now,revision,now);}
+- bool receipt(double now,bool hit,double begin,double end,uint64_t revision){
++ bool receipt(double now,bool hit,double begin,double end,uint64_t revision,double contactAt=std::numeric_limits<double>::quiet_NaN()){
+   if(!acknowledged||waived)return false;
+   if(attack.reported)return attack.aimRevision==revision&&attack.hit==hit;
++  if(!std::isnan(contactAt)){
++   if(!hit||!std::isfinite(contactAt)||contactAt<attack.activeAt()||contactAt>attack.endAt()||contactAt>end||begin>contactAt||begin<attack.start)return false;
++   // A positive observed sample needs no continuous proof of absence. Keep
++   // the same acknowledgement, revision, settlement and receipt-age fences.
++   return attack.receipt(now,true,attack.activeAt(),end,revision);
++  }
+   return attack.receipt(now,hit,begin,end,revision);
+  }
+  bool ready(double now) const {return now>=attack.endAt()&&(attack.reported||now>=attack.deadline());}
+@@ -52,6 +61,14 @@
+  // Record separately: a client-authority policy, not proof against a lying client.
+  bool resolve(){if(!acknowledged||!attack.reported){waived=true;attack.cancelled=true;}return attack.resolve();}
+ };
++// Cleaves settle independently. Single-interceptor lanes wait for all eligible
++// reports (or the shared deadline), then choose nearest along the locked lane.
++inline bool canSettle(bool firstContact,bool allReady,bool victimReady,bool settled){return !settled&&victimReady&&(!firstContact||allReady);}
++struct Interceptor {double distance,contactAt;uint64_t id;};
++inline void arbitrate(std::vector<Interceptor>& hits,bool firstContact){
++ std::sort(hits.begin(),hits.end(),[](const Interceptor& a,const Interceptor& b){return std::tie(a.distance,a.contactAt,a.id)<std::tie(b.distance,b.contactAt,b.id);});
++ if(firstContact&&hits.size()>1)hits.resize(1);
++}
+ // Costs are charged once at delivery; each defender receives one native outcome.
+ inline uint64_t& resolvingActor(){static thread_local uint64_t v=0;return v;}
+ inline bool resolving(uint64_t actor){return actor!=0&&actor==resolvingActor();}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatReceiptCache.h
+@@ -0,0 +1,22 @@
++#pragma once
++#include <map>
++#include <string>
++#include <stdexcept>
++namespace corecu { namespace receipts {
++// Per authenticated native session; never shared across player/session identity.
++// Replay mutations with a fresh snapshot, without repeating costs or damage.
++template<class Value> struct Cache {
++ struct Entry {double at;std::string intent;Value result;};
++ std::map<std::string,Entry> rows;
++ void prune(double now){for(auto i=rows.begin();i!=rows.end();)if(now-i->second.at>30)i=rows.erase(i);else ++i;}
++ const Value* find(const std::string& key,const std::string& intent,double now){
++  prune(now);auto i=rows.find(key);if(i==rows.end())return nullptr;
++  if(i->second.intent!=intent)throw std::runtime_error("combat_receipt_conflict");
++  return &i->second.result;
++ }
++ void put(const std::string& key,const std::string& intent,const Value& result,double now){
++  prune(now);if(rows.size()>=512){auto oldest=rows.begin();for(auto i=rows.begin();i!=rows.end();++i)if(i->second.at<oldest->second.at)oldest=i;rows.erase(oldest);}
++  rows.emplace(key,Entry{now,intent,result});
++ }
++};
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/CombatMovementHistory.h
+@@ -0,0 +1,32 @@
++#pragma once
++#include <array>
++#include <deque>
++#include <cmath>
++#include <cstdint>
++namespace corecu { namespace history {
++using Vec=std::array<double,3>;
++struct Sample {double at;Vec point;uint64_t zone,cell;bool lineClear;};
++struct History {
++ std::deque<Sample> samples;
++ void observe(double at,Vec point,uint64_t zone,uint64_t cell,bool lineClear=true){
++  if(!samples.empty() && (samples.back().zone!=zone || samples.back().cell!=cell || distance(samples.back().point,point)>32))samples.clear();
++  if(!samples.empty()&&at<samples.back().at)return;
++  samples.push_back({at,point,zone,cell,lineClear});while(samples.size()>64||(!samples.empty()&&at-samples.front().at>2.5))samples.pop_front();
++ }
++ static double distance(Vec a,Vec b){double sum=0;for(int i=0;i<3;++i){double d=a[i]-b[i];sum+=d*d;}return std::sqrt(sum);}
++ const Sample* nearest(double at,double now,uint64_t zone,uint64_t cell,double tolerance=.35) const {
++  if(!std::isfinite(at)||at>now+.05||now-at>2.)return nullptr;
++  const Sample* found=nullptr;double delta=tolerance;
++  for(const auto& p:samples)if(p.zone==zone&&p.cell==cell&&std::abs(p.at-at)<=delta){found=&p;delta=std::abs(p.at-at);}
++  return found;
++ }
++ bool contact(Vec point,double at,double now,uint64_t zone,uint64_t cell) const {
++  auto p=nearest(at,now,zone,cell,.12);
++  // Same native floor at contact time; allow uneven ground and animation height.
++  return p&&p->lineClear&&distance(point,p->point)<=4.&&std::abs(point[1]-p->point[1])<=1.25;
++ }
++ bool matches(Vec point,double at,double now,uint64_t zone,uint64_t cell,double radius=4.) const {
++  auto p=nearest(at,now,zone,cell);return p&&distance(point,p->point)<=radius;
++ }
++};
++}}

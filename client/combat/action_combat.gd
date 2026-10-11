@@ -11,7 +11,9 @@ var generation:=0
 var confirmed:=0
 var rejected:=0
 var observations:Array=[]
+var integration_bundle:=false
 var integration_ready:=false
+var integration_timestamps:=false
 var integration_pending:Array=[]
 var lock_sent:Dictionary={}
 var integration_retry:=0.0
@@ -23,6 +25,8 @@ var cue_textures:Dictionary={}
 var targeted_cue:Sprite3D
 var diagnostic_stamp:=0.0
 var integration_receipts:Array=[]
+var integration_timings:Array=[]
+var receipt_retries:Dictionary={}
 
 func setup(host:Node,source:Node)->void:
 	app=host;sync=source
@@ -32,7 +36,9 @@ func setup(host:Node,source:Node)->void:
 		if catalog is Dictionary:catalog_revision=str(catalog.get("revision",""))
 func clear()->void:
 	generation+=1;timeline.clear();pending.clear();sending=false
-	integration_receipts.clear();integration_outcomes.clear();integration_ready=false;integration_pending.clear();lock_sent.clear();integration_retry=0;integration_busy=false;action_clock=preload("res://combat/action_clock.gd").new();timeline.clock_ready=false
+	timeline.contact_evidence=false;integration_bundle=false
+	receipt_retries.clear()
+	integration_receipts.clear();integration_timings.clear();integration_outcomes.clear();integration_ready=false;integration_timestamps=false;integration_pending.clear();lock_sent.clear();integration_retry=0;integration_busy=false;action_clock=preload("res://combat/action_clock.gd").new();timeline.clock_ready=false
 	for mesh:MeshInstance3D in visuals.values():mesh.queue_free()
 	visuals.clear()
 	if is_instance_valid(targeted_cue):targeted_cue.queue_free()
@@ -44,13 +50,29 @@ func accept(events:Array,rtt:float)->void:
 		if event.get("protocol",1)==2 and event.phase=="windup" and sync.owner_character in event.get("eligible_victim_ids",[]) and integration_ready and can_present(event):
 			var warning_key:=timeline.key(event)+":warning"
 			if not lock_sent.has(warning_key):
-				lock_sent[warning_key]=true;integration_pending.append({"kind":"warning","actor_id":str(event.id),"attack_id":str(event.attack_id),"aim_revision":int(event.aim_revision)})
+				lock_sent[warning_key]=true;integration_pending.append(presentation_receipt("warning",event,stamp))
 		if event.get("protocol",1)==2 and event.get("aim_locked",false) and sync.owner_character in event.get("eligible_victim_ids",[]) and event.phase=="windup":
 			var key:=timeline.key(event)+":"+str(event.aim_revision)
 			if not lock_sent.has(key) and integration_ready and can_present(event):
 				lock_sent[key]=true
-				integration_pending.append({"kind":"lock","actor_id":str(event.id),"attack_id":str(event.attack_id),"aim_revision":int(event.aim_revision)})
+				integration_pending.append(presentation_receipt("lock",event,stamp))
 				if lock_sent.size()>256:lock_sent.erase(lock_sent.keys()[0])
+func presentation_receipt(kind:String,event:Dictionary,stamp:float)->Dictionary:
+	var row:Dictionary={"kind":kind,"actor_id":str(event.id),"attack_id":str(event.attack_id),"aim_revision":int(event.aim_revision)}
+	if integration_timestamps and timeline.clock_ready:
+		var entry:Dictionary=timeline.attacks.get(timeline.key(event),{})
+		row["presented_at"]=timeline.server_time(entry,stamp) if not entry.is_empty() else stamp+timeline.server_offset
+	return row
+func receipt_key(row:Dictionary)->String:
+	return str(row.actor_id)+":"+str(row.attack_id)+":"+str(row.kind)+":"+str(row.get("aim_revision",0))
+func retry_integration_receipt(row:Dictionary)->void:
+	var key:=receipt_key(row);var count:=int(receipt_retries.get(key,0))
+	var entry:Dictionary=timeline.attacks.get(str(row.actor_id)+":"+str(row.attack_id),{})
+	if count>=3 or entry.is_empty() or timeline.server_time(entry,Time.get_ticks_usec()/1000000.0)>float(entry.event.end_at)+.65:return
+	if integration_pending.any(func(p):return receipt_key(p)==key):return
+	if integration_pending.size()<256:
+		receipt_retries[key]=count+1;integration_pending.append(row)
+	if receipt_retries.size()>256:receipt_retries.erase(receipt_retries.keys()[0])
 func draw_warning(event:Dictionary)->MeshInstance3D:
 	var mesh:=ImmediateMesh.new();var material:=StandardMaterial3D.new()
 	material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -159,7 +181,11 @@ func _process(_delta:float)->void:
 		visuals[id].visible=valid and event.phase!="cancelled" and timeline.server_time(row,stamp)<=maxf(float(event.end_at),float(event.get("animation_end_at",event.end_at)))
 	update_targeted_cue(valid and explicit_threat,threat_progress)
 	if not sending and not pending.is_empty():send_contact()
-	if not integration_busy and not catalog_revision.is_empty() and stamp>=integration_retry and (not integration_ready or not integration_pending.is_empty() or stamp>=integration_retry+2):send_integration()
+	if not integration_busy and not catalog_revision.is_empty() and stamp>=integration_retry and (not integration_ready or not integration_pending.is_empty() or stamp>=integration_retry+2):
+		var combat:Variant=app.get("gameplay_combat")
+		# An already dispatched command cannot take this batch. Queue receipts now
+		# instead of waiting for a slow combat response to finish.
+		if not integration_bundle or not is_instance_valid(combat) or combat.busy or not combat.has_pending_commands():send_integration()
 func update_cues(instance: MeshInstance3D, tracking: bool, danger: bool, locked: bool) -> void:
 	var target: Sprite3D=instance.get_node("TargetCue/Target")
 	var path: Sprite3D=instance.get_node("TargetCue/Danger")
@@ -222,10 +248,17 @@ func send_integration()->void:
 	var payload:Dictionary={"account":app.datapad_account,"character_id":sync.owner_character,"session_id":sync.owner_session,"action_combat":intent}
 	var reply:Dictionary=await app.api(HTTPClient.METHOD_POST,"/combat/session/action_combat",payload)
 	if epoch!=generation:return
+	finish_integration(batch,reply,started)
+func finish_integration(batch:Array,reply:Dictionary,started:float)->void:
 	integration_busy=false;var finished:=Time.get_ticks_usec()/1000000.0;var mutation:Dictionary=reply.get("mutation",{})
 	if mutation.get("success",false) and mutation.get("protocol",0)==2:
 		integration_ready=true;integration_retry=finished+.025
+		if mutation.has("receipt_clock"):integration_timestamps=mutation.receipt_clock=="presentation_v1"
+		if mutation.has("contact_evidence"):timeline.contact_evidence=mutation.contact_evidence=="sample_v1"
+		if mutation.has("receipt_bundle"):integration_bundle=mutation.receipt_bundle=="ground_v1"
 		var rtt:=finished-started
+		integration_timings.append({"rtt_ms":rtt*1000,"native_ms":reply.get("native_action_ms",0),"queue_ms":reply.get("adapter_queue_ms",0),"batch_size":batch.size()})
+		if integration_timings.size()>128:integration_timings.pop_front()
 		# Prefer the least queued clock exchange. Keep each attack's clock anchor
 		# immutable, so later estimates cannot make a visible countdown jump.
 		if action_clock.observe(started,float(mutation.server_received),float(mutation.server_sent),finished):
@@ -236,6 +269,9 @@ func send_integration()->void:
 			if is_instance_valid(projection):sync.apply_motion({"source_kind":"core3_motion_v1","epoch":sync.motion_epoch,"action_events":events},projection.actors)
 		integration_outcomes=mutation.get("outcomes",[])
 		for result:Dictionary in mutation.get("receipts",[]):
+			if not result.accepted and result.get("retryable",false):
+				for row:Dictionary in batch:
+					if str(row.actor_id)==str(result.actor_id) and str(row.attack_id)==str(result.attack_id) and row.kind==result.kind:retry_integration_receipt(row)
 			integration_receipts.append(result.duplicate(true))
 			if integration_receipts.size()>128:integration_receipts.pop_front()
 			if result.kind=="contact":
@@ -244,11 +280,24 @@ func send_integration()->void:
 		if finished-diagnostic_stamp>=2 and (not integration_receipts.is_empty() or not integration_outcomes.is_empty()):
 			diagnostic_stamp=finished
 			var file:=FileAccess.open("user://combat-diagnostics.json",FileAccess.WRITE)
-			if file!=null:file.store_string(JSON.stringify({"schema":1,"updated_at":Time.get_unix_time_from_system(),"clock_ready":timeline.clock_ready,"late_warnings":timeline.rejected_late,"late_locks":timeline.late_locks,"contact_reports":timeline.receipts,"receipts":integration_receipts,"outcomes":integration_outcomes},"  "))
+			if file!=null:file.store_string(JSON.stringify({"schema":1,"updated_at":Time.get_unix_time_from_system(),"clock_ready":timeline.clock_ready,"late_warnings":timeline.rejected_late,"late_locks":timeline.late_locks,"contact_reports":timeline.receipts,"receipts":integration_receipts,"outcomes":integration_outcomes,"timings":integration_timings,"presentation_timestamps":integration_timestamps},"  "))
 	else:
 		integration_retry=finished+(.1 if integration_ready else 10)
 		# Exactly-once native receipts permit bounded retries after a lost reply.
 		if integration_ready:
 			for row:Dictionary in batch:
-				if integration_pending.size()<256:integration_pending.append(row)
+				retry_integration_receipt(row)
 		if mutation.get("error_code","")=="ground_capability_required":integration_ready=false
+
+func take_bundled_receipts()->Array:
+	if not integration_bundle or not integration_ready or integration_busy or integration_pending.is_empty():return []
+	integration_busy=true
+	var rows:Array=[]
+	while not integration_pending.is_empty() and rows.size()<32:rows.append(integration_pending.pop_front())
+	return rows
+func finish_bundled_receipts(rows:Array,reply:Dictionary,started:float,epoch:int)->void:
+	if epoch!=generation:return
+	var wrapped:Dictionary={"mutation":reply.get("ground_receipts",{})}
+	for field in ["native_action_ms","adapter_queue_ms","adapter_rate_wait_ms","native_bridge_roundtrip_ms"]:
+		if reply.has(field):wrapped[field]=reply[field]
+	finish_integration(rows,wrapped,started)

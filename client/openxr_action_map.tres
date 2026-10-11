@@ -1,4 +1,10 @@
-[gd_resource type="OpenXRActionMap" load_steps=404 format=3 uid="uid://cv1tl7assnmqv"]
+[gd_resource type="OpenXRActionMap" load_steps=407 format=3 uid="uid://cv1tl7assnmqv"]
+
+[sub_resource type="OpenXRAction" id="SWGXREyeGaze"]
+resource_name = "eye_gaze_pose"
+localized_name = "Eye gaze"
+action_type = 3
+toplevel_paths = PackedStringArray("/user/eyes_ext")
 
 [sub_resource type="OpenXRAction" id="OpenXRAction_yifcd"]
 resource_name = "trigger"
@@ -145,7 +151,7 @@ toplevel_paths = PackedStringArray("/user/hand/left", "/user/hand/right")
 [sub_resource type="OpenXRActionSet" id="OpenXRActionSet_hc02c"]
 resource_name = "godot"
 localized_name = "Godot action set"
-actions = [SubResource("OpenXRAction_yifcd"), SubResource("OpenXRAction_d0pni"), SubResource("OpenXRAction_gdvbe"), SubResource("OpenXRAction_u273q"), SubResource("OpenXRAction_i5up3"), SubResource("OpenXRAction_2q8nn"), SubResource("OpenXRAction_mgaer"), SubResource("OpenXRAction_x2ltk"), SubResource("OpenXRAction_52a4b"), SubResource("OpenXRAction_4m6bg"), SubResource("OpenXRAction_30lu2"), SubResource("OpenXRAction_m1gc0"), SubResource("OpenXRAction_t725j"), SubResource("OpenXRAction_11d6b"), SubResource("OpenXRAction_rju0c"), SubResource("OpenXRAction_k16im"), SubResource("OpenXRAction_puvt0"), SubResource("OpenXRAction_cjtwq"), SubResource("OpenXRAction_wp0gf"), SubResource("OpenXRAction_6cxc5"), SubResource("OpenXRAction_1qblt"), SubResource("OpenXRAction_c3bvs"), SubResource("OpenXRAction_tbcxk"), SubResource("OpenXRAction_thumbrest_touch")]
+actions = [SubResource("SWGXREyeGaze"), SubResource("OpenXRAction_yifcd"), SubResource("OpenXRAction_d0pni"), SubResource("OpenXRAction_gdvbe"), SubResource("OpenXRAction_u273q"), SubResource("OpenXRAction_i5up3"), SubResource("OpenXRAction_2q8nn"), SubResource("OpenXRAction_mgaer"), SubResource("OpenXRAction_x2ltk"), SubResource("OpenXRAction_52a4b"), SubResource("OpenXRAction_4m6bg"), SubResource("OpenXRAction_30lu2"), SubResource("OpenXRAction_m1gc0"), SubResource("OpenXRAction_t725j"), SubResource("OpenXRAction_11d6b"), SubResource("OpenXRAction_rju0c"), SubResource("OpenXRAction_k16im"), SubResource("OpenXRAction_puvt0"), SubResource("OpenXRAction_cjtwq"), SubResource("OpenXRAction_wp0gf"), SubResource("OpenXRAction_6cxc5"), SubResource("OpenXRAction_1qblt"), SubResource("OpenXRAction_c3bvs"), SubResource("OpenXRAction_tbcxk"), SubResource("OpenXRAction_thumbrest_touch")]
 
 [sub_resource type="OpenXRIPBinding" id="OpenXRIPBinding_6ivru"]
 action = SubResource("OpenXRAction_wp0gf")
@@ -1659,6 +1665,14 @@ binding_path = "/user/hand/right/input/b/touch"
 interaction_profile_path = "/interaction_profiles/bytedance/pico4_controller"
 bindings = [SubResource("OpenXRIPBinding_gsob2"), SubResource("OpenXRIPBinding_145o5"), SubResource("OpenXRIPBinding_p8l30"), SubResource("OpenXRIPBinding_qwnvq"), SubResource("OpenXRIPBinding_1o618"), SubResource("OpenXRIPBinding_k8gkf"), SubResource("OpenXRIPBinding_7atrr"), SubResource("OpenXRIPBinding_nc7nm"), SubResource("OpenXRIPBinding_u48na"), SubResource("OpenXRIPBinding_qo7i1"), SubResource("OpenXRIPBinding_spwgl"), SubResource("OpenXRIPBinding_6v1vi"), SubResource("OpenXRIPBinding_fwqq1"), SubResource("OpenXRIPBinding_felwo"), SubResource("OpenXRIPBinding_okaja"), SubResource("OpenXRIPBinding_nim4l"), SubResource("OpenXRIPBinding_7rbtf"), SubResource("OpenXRIPBinding_vivrk"), SubResource("OpenXRIPBinding_1xhyi"), SubResource("OpenXRIPBinding_kfc2j"), SubResource("OpenXRIPBinding_osn8p"), SubResource("OpenXRIPBinding_o7rx2"), SubResource("OpenXRIPBinding_egnh2"), SubResource("OpenXRIPBinding_qdg3g"), SubResource("OpenXRIPBinding_1m4jk"), SubResource("OpenXRIPBinding_mq2is"), SubResource("OpenXRIPBinding_j4oh5"), SubResource("OpenXRIPBinding_ldfim"), SubResource("OpenXRIPBinding_m7usb"), SubResource("OpenXRIPBinding_kby14")]
 
+[sub_resource type="OpenXRIPBinding" id="SWGXREyeGazeBinding"]
+action = SubResource("SWGXREyeGaze")
+binding_path = "/user/eyes_ext/input/gaze_ext/pose"
+
+[sub_resource type="OpenXRInteractionProfile" id="SWGXREyeGazeProfile"]
+interaction_profile_path = "/interaction_profiles/ext/eye_gaze_interaction"
+bindings = [SubResource("SWGXREyeGazeBinding")]
+
 [resource]
 action_sets = [SubResource("OpenXRActionSet_hc02c")]
-interaction_profiles = [SubResource("OpenXRInteractionProfile_q4jv5"), SubResource("OpenXRInteractionProfile_gh0s5"), SubResource("OpenXRInteractionProfile_hk3uy"), SubResource("OpenXRInteractionProfile_ci0m3"), SubResource("OpenXRInteractionProfile_8ffkv"), SubResource("OpenXRInteractionProfile_s65fn"), SubResource("OpenXRInteractionProfile_7w34y"), SubResource("OpenXRInteractionProfile_a7xw5"), SubResource("OpenXRInteractionProfile_rsga2"), SubResource("OpenXRInteractionProfile_t3axk"), SubResource("OpenXRInteractionProfile_2ydwc"), SubResource("OpenXRInteractionProfile_1qtbb")]
+interaction_profiles = [SubResource("SWGXREyeGazeProfile"), SubResource("OpenXRInteractionProfile_q4jv5"), SubResource("OpenXRInteractionProfile_gh0s5"), SubResource("OpenXRInteractionProfile_hk3uy"), SubResource("OpenXRInteractionProfile_ci0m3"), SubResource("OpenXRInteractionProfile_8ffkv"), SubResource("OpenXRInteractionProfile_s65fn"), SubResource("OpenXRInteractionProfile_7w34y"), SubResource("OpenXRInteractionProfile_a7xw5"), SubResource("OpenXRInteractionProfile_rsga2"), SubResource("OpenXRInteractionProfile_t3axk"), SubResource("OpenXRInteractionProfile_2ydwc"), SubResource("OpenXRInteractionProfile_1qtbb")]

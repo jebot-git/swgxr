@@ -7,6 +7,7 @@ import platform
 from pathlib import Path
 import subprocess
 import sys
+import time
 import zipfile
 try:
     from . import test_client_launcher as launcher
@@ -16,6 +17,20 @@ try:
     from .tester_data import ensure_data
 except ImportError:
     from tester_data import ensure_data
+
+
+def launch_diagnostics(root):
+    """Keep the latest eight sessions separate from Godot's shared user log."""
+    logs = root/'runtime/client/logs'
+    logs.mkdir(parents=True, exist_ok=True)
+    # Only remove files owned by this launcher; unrelated user logs stay intact.
+    sessions = sorted((path for path in logs.glob('session-*.json') if not path.name.endswith('.network.json')), key=lambda path:path.name)
+    for old in sessions[:-7]:
+        for suffix in ('.json', '.log', '.network.json'):
+            old.with_suffix(suffix).unlink(missing_ok=True)
+    receipt = logs/('session-'+str(time.time_ns())+'.json')
+    receipt.write_text(json.dumps({'state':'running','started_unix':time.time()})+'\n')
+    return receipt
 
 
 def main():
@@ -73,12 +88,17 @@ def main():
             public=json.loads((root/'server.json').read_text());public['ca_certificate']=(root/'server-ca.pem').as_posix()
             runtime=root/'runtime/client';runtime.mkdir(parents=True,exist_ok=True)
             profile=runtime/'connection.json';profile.write_text(json.dumps(public)+'\n')
-            command=[str(root/'engine'/state['engine']),'--rendering-method','forward_plus','--rendering-driver','vulkan']
+            receipt=launch_diagnostics(root)
+            command=[str(root/'engine'/state['engine']),'--rendering-method','forward_plus','--rendering-driver','vulkan','--log-file',str(receipt.with_suffix('.log'))]
             if args.desktop:command+=['--xr-mode','off']
-            command+=['--','--connection-profile='+str(profile)]
+            command+=['--','--connection-profile='+str(profile),'--network-log='+str(receipt.with_suffix('.network.json'))]
             if args.desktop:command+=['--desktop']
             env=os.environ.copy();env.pop('OBS_VKCAPTURE',None);env.update(DISABLE_XR_APILAYER_NOVENDOR_OBSMirror='1',DISABLE_OBS_VKCAPTURE='1')
-            return subprocess.run(command,cwd=root/state["working_directory"],env=env,check=False).returncode
+            code=subprocess.run(command,cwd=root/state["working_directory"],env=env,check=False).returncode
+            result=json.loads(receipt.read_text());result.update(state='closed',exit_code=code,finished_unix=time.time())
+            receipt.write_text(json.dumps(result)+'\n')
+            print('Client exit '+str(code)+'; diagnostics: '+str(receipt.parent),flush=True)
+            return code
     except (ValueError,OSError,KeyError,EOFError,subprocess.CalledProcessError,zipfile.BadZipFile) as exc:
         print('Cannot start SWGXR: '+str(exc),file=sys.stderr);return 2
 

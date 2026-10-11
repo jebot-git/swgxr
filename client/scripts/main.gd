@@ -658,13 +658,14 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	var result:=await _api_dispatch(method,path,body,true)
 	if not bundled.is_empty() and is_instance_valid(action_controller):action_controller.finish_bundled_receipts(bundled,result,float(dispatched)/1000,bundle_epoch)
 	var finished:=Time.get_ticks_msec()
-	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"movement_corrected":result.get("_movement_correction_consumed",false)})
+	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"error":result.get("error",""),"http_status":result.get("http_status",0),"movement_corrected":result.get("_movement_correction_consumed",false)})
 	for field in ["adapter_queue_ms","adapter_rate_wait_ms","native_bridge_roundtrip_ms","native_action_ms"]:
 		if result.has(field):native_api_observations[-1][field]=result[field]
 	while native_api_observations.size()>256:native_api_observations.pop_front()
-	if args.has("runtime-profile") and finished-native_api_log_stamp>=1000:
+	if (args.has("runtime-profile") or args.has("network-log")) and (finished-native_api_log_stamp>=1000 or not result.get("ok",false)):
 		native_api_log_stamp=finished
-		var file:=FileAccess.open(str(args["runtime-profile"]).path_join("network.json"),FileAccess.WRITE)
+		var log_path:=str(args.get("network-log",str(args.get("runtime-profile","")).path_join("network.json")))
+		var file:=FileAccess.open(log_path,FileAccess.WRITE)
 		if file!=null:file.store_string(JSON.stringify({"capacity":256,"requests":native_api_observations}))
 	native_api_queue.erase(ticket)
 	native_api_urgent.erase(ticket)

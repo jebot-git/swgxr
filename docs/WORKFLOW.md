@@ -1945,3 +1945,33 @@ cards and dry instructional tone. It covers everyday mechanics, all ten ground
 worlds and introductory JTL, with player-facing narration, subtitles, chapter
 markers and provenance. Fresh planet vistas use desktop Vulkan with XR off.
 No tutorial video or proprietary media is added to the public repository.
+
+
+2026-10-11 post-test.17 harvest/junk/forage investigation (prepared, unreleased):
+
+- The public gateway omitted `junk_sell`; it now routes authenticated sales.
+  The same audit found and restored `ship_ammo_load`. A protocol-to-gateway
+  contract check catches future service omissions. All 30 gateway tests pass.
+- Foraging accepts independent hands, alternating scoops, and low forward/back
+  or sideways shoveling, with a deliberate travel threshold, timeout, and
+  withdrawal latch. The 35-check headless gesture suite includes idle-before-
+  gesture, head rotation, locomotion, and tracking jitter rejection.
+- The reported “crash” was clarified as a running client losing gameplay
+  actions. The screenshot shows “Unexpected native gameplay envelope.”
+  That generic recovery error masked HTTP and compact native timeout errors;
+  the client now retains the underlying reason. Launcher session logs retain
+  bounded request diagnostics and exit status for the next reproduction.
+- Remote CoreCU stayed active with zero systemd restarts since deployment;
+  native logging continued normally. No local Godot coredump was found.
+  The actual initiating disconnect remains unconfirmed. Do not describe this
+  as a fixed harvest crash.
+- `tools/server/corpse_live_smoke.py` passes through the normal gameplay
+  session: native meat/hide/bone harvest, receipt replay, fresh inventory,
+  loot and continued heartbeats. Harvest round trips were 650–672 ms locally
+  including the inventory read. The disposable source-creature fixture does
+  not assert a combat/death test or remote latency measurement.
+- Additional headless checks: gameplay session 26, corpse controller 21,
+  menu lifecycle 6; launcher Python tests 5. Updated the stale loot-coin test
+  to assert node removal instead of indexing the removed coin. No headset
+  launch, deployment or release was performed for these changes. Private
+  evidence: `runtime/evidence/harvest-junk-forage/`.

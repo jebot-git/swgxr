@@ -50,6 +50,25 @@ func run() -> void:
 		var y:=0.8+0.05*sin(i/90.0*TAU*2);var result: Dictionary=gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3(-0.2,y,0),Vector3(0.2,y,0),y,y,true)
 		if result.forage:digs+=1
 	check(digs==0,"Air gestures cannot forage")
+	for mode in ["one_hand", "alternating", "shovel", "sideways", "head_turn", "walking_low", "jitter_low"]:
+		gesture.reset();digs=0
+		for i in range(720):
+			if i<270:
+				gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3.ZERO,Vector3.ZERO,.25,.8,true)
+				continue
+			var t:=(i-270)/90.0
+			var head:=Transform3D(Basis.IDENTITY,Vector3(0,.8,0))
+			var x:=-.2
+			var ly:=.225+.075*sin(t*TAU*2)
+			var ry:=.225-.075*sin(t*TAU*2) if mode=="alternating" else .8
+			var z:=-.3
+			if mode in ["shovel","walking_low","jitter_low"]:
+				ly=.20;z+=sin(t*TAU*2)*(.1 if mode!="jitter_low" else .02)
+			if mode=="sideways":ly=.20;x+=sin(t*TAU*2)*.1
+			if mode=="head_turn":ly=.20;head.basis=Basis(Vector3.UP,sin(t*TAU*2)*.8)
+			if mode=="walking_low": head.origin.z=z+.3
+			if gesture.sample(1.0/90,head,Vector3(x,ly,z),Vector3(.2,ry,-.3),ly,ry,true).forage:digs+=1
+		check(digs==(0 if mode in ["walking_low","jitter_low","head_turn"] else 1),"Forage trace "+mode+" recognizes deliberate strokes only and latches")
 	gesture.reset()
 	for i in range(20):
 		gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3.ZERO,Vector3.ZERO,1,1,true)

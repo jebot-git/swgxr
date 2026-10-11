@@ -73,7 +73,7 @@ func run() -> void:
 	check(service.visuals.coins[corpse.id].visible,"Eligible confirmed corpse retains coin before successful loot")
 	app.reply={"ok":true,"source_kind":"core3_corpse_loot","character_id":app.datapad_character_id,"corpse":emptied,"mutation":{"success":true},"inventory":after}
 	result=await service.perform("loot",corpse)
-	check(not result.is_empty() and not service.visuals.coins[corpse.id].visible,"Successful Loot All hides coin immediately without waiting for polling")
+	check(not result.is_empty() and not service.visuals.coins.has(corpse.id),"Successful Loot All hides coin immediately without waiting for polling")
 	app.change_epoch=true; app.reply={"ok":true,"source_kind":"core3_corpse_loot","character_id":app.datapad_character_id,"corpse":corpse,"mutation":{"success":true},"inventory":before}
 	result=await service.perform("loot",corpse)
 	check(result.is_empty() and app.inventory_snapshot==after,"Late old-character mutation was adopted")

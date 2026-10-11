@@ -8,15 +8,14 @@ var have_previous:=false
 var run_side:=0
 var run_count:=0
 var run_time:=0.0
-var dig_low:=false
-var dig_bottom:=INF
+var dig_hands: Array[Dictionary]=[{},{}]
 var dig_count:=0
 var dig_time:=0.0
 var dig_latched:=false
 var throw_samples: Array=[]
 var clock:=0.0
 func reset() -> void:
-	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_low=false;dig_latched=false;throw_samples.clear()
+	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_hands=[{},{}];dig_latched=false;throw_samples.clear()
 func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, ground_left: float, ground_right: float, tracked: bool) -> Dictionary:
 	var out: Dictionary={"burst_run":false,"forage":false}
 	if not tracked or not head.is_finite() or not left.is_finite() or not right.is_finite() or not is_finite(delta) or delta<=0 or delta>0.15: reset();return out
@@ -34,19 +33,53 @@ func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, grou
 		if run_side!=0 and run_time<0.12: run_count=0
 		run_side=next;run_time=0;run_count+=1
 		if run_count>=6: out.burst_run=true;run_count=0
-	var near:=is_finite(ground_left) and is_finite(ground_right) and ground_left>=-0.08 and ground_right>=-0.08 and ground_left<DIG_NEAR and ground_right<DIG_NEAR
-	if not near:
-		dig_count=0;dig_latched=false;dig_low=false
+	var near_left:=ground_near(ground_left)
+	var near_right:=ground_near(ground_right)
+	if not near_left and not near_right:
+		dig_count=0;dig_latched=false;dig_hands=[{},{}]
 	elif not dig_latched:
-		if dig_time>1.2: dig_count=0;dig_low=false
-		var height: float=(ground_left+ground_right)/2
-		# Controller origins sit above the fingertips and cannot safely touch a real floor.
-		if height<DIG_LOW and not dig_low: dig_low=true;dig_bottom=height;dig_time=0
-		elif dig_low and height-dig_bottom>=0.08:
-			dig_low=false;dig_count+=1;dig_time=0
+		# Each hand completes its own strokes: alternating scoops must not cancel
+		# each other, and the other hand may stay comfortably above the ground.
+		if dig_time>1.2: dig_count=0;dig_hands=[{},{}];dig_time=0
+		var stroke_left:=dig_stroke(0,left-head.origin,ground_left,near_left)
+		var stroke_right:=dig_stroke(1,right-head.origin,ground_right,near_right)
+		if stroke_left or stroke_right:
+			dig_count+=1;dig_time=0
 			if dig_count>=3: out.forage=true;dig_latched=true;dig_count=0
-		elif dig_low: dig_bottom=minf(dig_bottom,height)
 	return out
+func ground_near(height: float) -> bool:
+	return is_finite(height) and height>=-0.08 and height<DIG_NEAR
+func dig_stroke(index: int, point: Vector3, height: float, near: bool) -> bool:
+	if not near:
+		dig_hands[index]={};return false
+	var hand: Dictionary=dig_hands[index]
+	if hand.is_empty():
+		hand.merge({"bottom":point.y,"low":height<DIG_LOW,"horizontal":[{"min":point.x,"max":point.x,"back":false},{"min":point.z,"max":point.z,"back":false}],"time":clock})
+	# Head-relative movement rejects body translation and floor-height changes.
+	var scoop:=false
+	if height<DIG_LOW and not hand.low:
+		hand.low=true;hand.bottom=point.y
+	elif hand.low and point.y-float(hand.bottom)>=0.08:
+		hand.low=false;scoop=true
+	elif hand.low: hand.bottom=minf(float(hand.bottom),point.y)
+	# A low shovel sweeps out and back at least 14 cm, without requiring the
+	# controller to touch the floor. Small tracking jitter cannot complete it.
+	for axis in range(2):
+		var travel:Dictionary=hand.horizontal[axis]
+		var value:float=point.x if axis==0 else point.z
+		if height>0.30:
+			travel.back=false;travel.max=value;travel.min=value
+		elif not travel.back:
+			travel.max=maxf(float(travel.max),value)
+			if float(travel.max)-value>=0.14:
+				travel.back=true;travel.min=value
+		else:
+			travel.min=minf(float(travel.min),value)
+			if value-float(travel.min)>=0.14:
+				scoop=true;travel.back=false;travel.max=value
+	if scoop and clock-float(hand.time)>=0.18:
+		hand.time=clock;return true
+	return false
 func sample_throw(delta: float, head: Transform3D, hand: Vector3, held: bool) -> void:
 	if not held or delta<=0 or delta>0.15: throw_samples.clear();return
 	var point:=head.affine_inverse()*hand

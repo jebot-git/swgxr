@@ -116,6 +116,23 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.request('POST','/enter','{"account":"bob"}')[0],403)
         self.assertEqual(self.request(path='/characters?account=bob')[0],403)
         self.assertEqual(self.request('POST','/enter','{"account":null}')[0],403)
+    def test_service_gateway_contract(self):
+        from server.services_protocol import ACTIONS
+        self.assertFalse({'/services/'+action for action in ACTIONS}-gateway.POST)
+
+    def test_junk_sale_routes_through_authenticated_gateway(self):
+        payload = dict(character_id='123', target_id='456', item_id='789',
+                       request_id='junk-sale-001', position=[0, 0, 0])
+        path = '/services/junk_sell'
+        code, body = self.request('POST', path, json.dumps(payload))
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(body)['body'], dict(payload, account='alice'))
+        admitted = len(self.upstream.seen)
+        self.assertEqual(self.request('POST', path, json.dumps(payload), token=None,
+                                     headers={'Content-Type':'application/json'})[0], 401)
+        self.assertEqual(self.request('POST', path, json.dumps(dict(payload, account='bob')))[0], 403)
+        self.assertEqual(len(self.upstream.seen), admitted)
+
     def test_owned_melee_route(self):
         data=dict(character_id='123',session_id='owned',shot_id='s1',item_id='456',origin=[0,1,0],direction=[0,0,1])
         code,body=self.request('POST','/combat/session/melee',json.dumps(data))

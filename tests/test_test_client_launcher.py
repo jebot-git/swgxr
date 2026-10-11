@@ -48,6 +48,21 @@ class LauncherTests(unittest.TestCase):
                 time.sleep(.05)
             self.assertTrue((root/'launched').exists())
 
+    def test_diagnostics_keep_eight_sessions_and_preserve_unrelated_logs(self):
+        from tools.client.start_test_client import launch_diagnostics
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary)
+            first=launch_diagnostics(root)
+            unrelated=first.parent/'notes.log';unrelated.write_text('keep')
+            for _ in range(10):
+                receipt=launch_diagnostics(root)
+                receipt.with_suffix('.log').write_text('engine')
+                receipt.with_suffix('.network.json').write_text('{}')
+            self.assertFalse(first.exists())
+            self.assertEqual(len(list(first.parent.glob('*.log'))),9)
+            self.assertEqual(len(list(first.parent.glob('*.network.json'))),8)
+            self.assertEqual(unrelated.read_text(),'keep')
+
     def test_menu_updates_does_not_launch_engine(self):
         with patch('builtins.input',return_value='4'), patch('tools.client.update_test_client.update') as updater:
             self.assertIsNone(launcher.menu(Path('/client')))

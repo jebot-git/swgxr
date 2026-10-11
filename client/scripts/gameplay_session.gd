@@ -76,6 +76,11 @@ func accept(result: Dictionary, starting:=false) -> bool:
 func accept_native_response(result: Dictionary) -> bool:
 	# Shared service commands return the underlying native envelope. Consume only
 	# its owned player/transport state, never combat actors or weapon projection.
+	# Recovery can itself receive an HTTP/transport rejection. Preserve its
+	# actual cause instead of replacing every failure with an envelope error.
+	if not result.get("ok",result.get("session_live",false)) or (not result.has("snapshot") and not str(result.get("error_code","")).is_empty()):
+		last_error=str(result.get("error",result.get("error_code","CoreCU recovery request was not confirmed.")))
+		return false
 	if not live or result.get("backend")!="core3" or result.get("source_kind")!="core3_live_combat":
 		last_error="Unexpected native gameplay envelope.";return false
 	var snapshot: Variant=result.get("snapshot")

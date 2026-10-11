@@ -286,3 +286,12 @@ synthetic stationary contact receipts). Headless client tests use the dummy
 renderer with XR disabled. Damage tuning, prolonged combat, remote latency and
 headset validation remain separate future work; this pass does not release or
 deploy the patch to the remote server or Downloads client.
+
+### Deployment follow-up
+
+The user-authorized test.17 deployment on 2026-10-11 installed patch 0151 on the
+live realm after backup and verified native readiness/capability negotiation.
+Linux/Windows packages and incremental bundles from test.13–16 were published;
+the closed Downloads client was updated. See `docs/VPS_DEPLOYMENT.md` for hashes
+and receipts. This deployment does not add prolonged damage/balance or headset
+validation to the focused results above.

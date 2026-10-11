@@ -1041,3 +1041,37 @@ was needed. Before deployment, 50 Python regression tests and the native build
 receipt passed; survey behavior had passed 15 local native checks and six restart
 persistence checks. The old VPS remains offline.
 Receipts: `runtime/deploy/survey-limits-live/{applied,audit-after,tls-health-after}.json`.
+
+## Ground delivery stability / test.17 — 2026-10-11
+
+Released `v2026.10.11-test.17` from `700db8694745eb07cd1b12df6887d2f255887dba`
+with the prepared pilot integration and XR graphics options. The live
+`87.106.27.237` realm received a 134-file delta, including native patches through
+0151 and the generated pilot runtime. Private configuration, existing asset
+catalogs, realm databases and scheduled restart policy were retained. The running
+native executable SHA-256 is
+`2212b84326f3604323509fcefecd4d66a0b10c49e1a6fc97a195bc201183818f`.
+
+The first attempt automatically restored the old runtime when an executable
+hash probe was denied inside the container. Host-level executable verification
+passed before the retry. Graceful native shutdown and fresh SQL, BerkeleyDB,
+authentication, configuration and old-file backups preceded installation; the
+successful attempt's backup is
+`/home/blux/swgxr/runtime/deploy/stability-live-20261011/backup-retry-1`.
+No database rewind occurred. Native readiness, all installed hashes, the running
+executable, negotiated ground evidence/bundle capabilities and unchanged counts
+of 21 accounts / 19 characters passed. CoreCU, adapter, gateway and voice are
+active; the daily restart remains enabled at 05:00 UTC. Public TLS verification
+and unauthenticated gateway rejection passed before publishing.
+
+Linux and Windows full clients and a separate `-patches` release support verified
+incremental updates from test.13–16. Every reconstructed package validated; from
+test.16 the bundles are 20,984,610 bytes (Linux) and 20,841,935 bytes (Windows).
+GitHub asset digests match local files. The closed Downloads Linux client was
+updated incrementally with assets and connection settings preserved and a local
+transaction backup. No headset was launched. Windows package checks used Wine
+and the dummy renderer, not native Windows or OpenXR hardware.
+
+Evidence: `runtime/deploy/stability-live-20261011/complete.json` and
+`runtime/releases/test17-20261011/{VALIDATION,LOCAL_INSTALL,PATCH_VALIDATION}.json`.
+Damage balancing and prolonged combat remain future testing work.

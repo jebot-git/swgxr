@@ -27,9 +27,15 @@ func run() -> void:
 		var world := read_json(path)
 		for descriptor: Dictionary in world.chunks.values():
 			var chunk := read_json(path.get_base_dir().path_join(str(descriptor.path)))
+			var ground := SwgGroundSupport.new()
+			ground.configure([{"cells":chunk.cells}])
+			var cloning_cells := {}
+			for entry: Dictionary in chunk.instances:
+				if "cloning" in str(entry.get("source_template", "")):
+					cloning_cells[str(entry.get("cell_id", ""))] = true
 			for id: String in chunk.cells:
 				var cell: Dictionary = chunk.cells[id]
-				if not cell.get("is_exterior", false) or not "cloning" in str(cell.get("source_pob", "")): continue
+				if not cell.get("is_exterior", false) or not cloning_cells.has(id): continue
 				buildings += 1
 				var building := Node3D.new()
 				root.add_child(building)
@@ -55,11 +61,19 @@ func run() -> void:
 					var normal := (point(a,3)-point(a)).cross(point(a,6)-point(a)).normalized()
 					normal.y = 0
 					normal = normal.normalized()
+					# Some small facilities have a raised doorstep above the POB
+					# aperture bottom. Sweep at the authored walking surface,
+					# not with the capsule embedded in that real step.
+					var support_height := -INF
+					for offset in [-.1,.1]:
+						var support: Dictionary = ground.sample_support(center+normal*offset,[id,str(portal.leads_to)],.2,1.3)
+						if support.get("valid",false): support_height = maxf(support_height,float(support.height))
+					if is_finite(support_height): center.y = support_height+.87
 					var sideways := normal.cross(Vector3.UP)
 					var half_width := 0.0
 					for i in range(0,a.size(),3):
 						half_width = maxf(half_width,absf((point(a,i)-center).dot(sideways)))
-					for lateral in [-half_width+.5,-.6,0.0,.6,half_width-.5]:
+					for lateral in [-half_width+.5,-minf(.6,(half_width-.5)*.5),0.0,minf(.6,(half_width-.5)*.5),half_width-.5]:
 						for direction in [-1.0,1.0]:
 							var start: Vector3 = center + sideways*lateral - normal*direction*1.5
 							var hit := KinematicCollision3D.new()
@@ -72,7 +86,7 @@ func run() -> void:
 								errors.append(str(row))
 							probes.append(row)
 					# The shell alongside the opening and above its lintel stays solid.
-					for wall_center: Vector3 in [center+sideways*(half_width+1.0), Vector3(center.x,bottom+3.6,center.z)]:
+					for wall_center: Vector3 in ([center+sideways*(half_width+1.0), Vector3(center.x,bottom+3.6,center.z)] if "cloning" in str(cell.source_pob) else []):
 						var query := PhysicsRayQueryParameters3D.create(wall_center-normal*3.0,wall_center+normal*3.0,1)
 						if player.get_world_3d().direct_space_state.intersect_ray(query).is_empty():
 							errors.append(id+" doorway cut removed adjacent wall or lintel")
@@ -82,7 +96,7 @@ func run() -> void:
 				await physics_frame
 				# Without the connected source approach, the sloped shell must not
 				# be opened beyond the original narrow portal tolerance.
-				for mode in ["missing_floor", "disabled_portal"]:
+				for mode in (["missing_floor", "disabled_portal"] if "cloning" in str(cell.source_pob) else []):
 					var restricted: Dictionary = cell.duplicate(true)
 					if mode == "missing_floor":
 						restricted.floor_vertices = []
@@ -112,7 +126,7 @@ func run() -> void:
 						body.queue_free()
 						await process_frame
 						await physics_frame
-	if buildings != 19: errors.append("Expected all 19 original ground cloning centres")
+	if buildings != 35: errors.append("Expected all 35 original ground cloning centres, including outposts")
 	if retained_walls != 38 or guarded_closures != 38: errors.append("Missing wall-preservation or restricted-portal probes")
 	var report := {"passed":errors.is_empty(),"buildings":buildings,"retained_wall_probes":retained_walls,"guarded_closures":guarded_closures,"probes":probes,"errors":errors,"renderer":"dummy","hardware_tested":false}
 	FileAccess.open("res://../runtime/evidence/cloning-entrance-smoke.json",FileAccess.WRITE).store_string(JSON.stringify(report,"  "))

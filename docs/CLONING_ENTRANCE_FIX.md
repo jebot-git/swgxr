@@ -4,7 +4,7 @@ The Mos Eisley entrance was blocked by the original exterior CMSH collision
 shell. Its face slopes about 27 degrees from vertical through the authored POB
 opening. The client only subtracted doorway apertures from faces aligned within
 about 18 degrees of the portal normal, leaving this sloped sheet solid. The same
-geometry occurs in all three original ground cloning-centre building families.
+geometry occurs in all 19 city cloning-centre placements across three building families.
 
 `SwgCollisionBuilder` now accepts steep exterior closure sheets (up to 45 degrees
 from the portal normal). The broader angle requires a connected, open authored
@@ -15,10 +15,12 @@ Interior cells keep the original angle tolerance. No source assets change.
 
 Validation uses the original converted assets and Godot native capsule physics:
 
-- `cloning_entrance_smoke.gd`: all 19 placements across Tatooine, Corellia,
-  Talus, Naboo and Rori, discovered by scanning all ten ground worlds; five
-  lateral routes in both directions (190 sweeps), 38 adjacent wall/lintel checks,
-  and 38 missing-floor/disabled-portal controls.
+- `cloning_entrance_smoke.gd`: all 35 facilities across the ten ground worlds,
+  identified by their building templates, including 19 city centres and 16
+  smaller house/outpost facilities. Five lateral routes in both directions
+  produce 350 sweeps at authored floor height, including raised doorsteps.
+  The 19 affected city centres also receive 38 adjacent wall/lintel checks and
+  38 missing-floor/disabled-portal controls.
 - `cloning_stage_walk_smoke.gd`: production XR locomotion with mocked controller
   input in streamed Mos Eisley; walks into the foyer and back outside, remains
   grounded, and preserves the head tracking transform.

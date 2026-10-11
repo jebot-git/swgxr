@@ -17,7 +17,7 @@ static func digest(value: Variant) -> String:
 	return hash.finish().hex_encode()
 
 static func key(clip_name: String, clip: Dictionary, skeleton_key: String) -> String:
-	return digest(["original_clip_v1_root_xz_rest_jump_y_clamp",clip_name,skeleton_key,clip])
+	return digest(["original_clip_v2_root_xz_recoil_jump_y_clamp",clip_name,skeleton_key,clip])
 
 static func find(cache_key: String) -> Animation:
 	serial += 1

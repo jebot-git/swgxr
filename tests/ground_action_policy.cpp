@@ -9,13 +9,31 @@ int main(){
  assert(high.aim[0]>low.aim[0]*5.9);assert(low.lockAt()==high.lockAt());
  high.prepare(high.lockAt(),{{10,0,0}});auto locked=high.aim;high.prepare(high.deliveryAt(),{{-10,0,0}});assert(high.aim==locked);
  assert(ground::inRegion({{3528,0,-4804}}));assert(ground::inRegion({{5028,0,-4804}}));assert(!ground::inRegion({{5028.01,0,-4804}}));
+ for(const char* zone:{"tatooine","corellia","naboo","rori","talus","dantooine","dathomir","endor","lok","yavin4"})assert(ground::inScope("global",zone,{{0,0,0}},{{900,0,900}}));
+ assert(!ground::inScope("global","space_tatooine",{{0,0,0}},{{0,0,0}}));assert(!ground::inScope("global","kashyyyk",{{0,0,0}},{{0,0,0}}));assert(!ground::inScope("off","tatooine",{{3528,0,-4804}},{{3528,0,-4804}}));
+ ground::Pressure pressure;
+ assert(!pressure.cancelPreparation(0,1,false,8,3,false));assert(!pressure.cancelPreparation(.15,1,false,8,3,false));assert(pressure.cancelPreparation(.25,1,false,8,3,false));
+ // A tank still in reach preserves preparation even when the marked player retreats.
+ assert(!pressure.cancelPreparation(.3,1,false,1,3,false));assert(!pressure.cancelPreparation(.4,1,false,8,3,false));
+ assert(!pressure.cancelPreparation(1,1,false,100,3,false));assert(!pressure.cancelPreparation(.8,1,true,100,3,false));
+ ground::Pressure chase;
+ assert(!chase.disengage(0,10,80,3,true));assert(!chase.disengage(2.9,10,80,3,true));assert(chase.disengage(3,10,80,3,true));
+ assert(!chase.disengage(4,10,2,3,true));assert(!chase.disengage(5,10,80,3,true));
+ assert(!chase.disengage(6,10,100,96,true)); // Long-range gun remains useful.
+ assert(!chase.disengage(7,161,2,3,true));assert(chase.disengage(10,161,2,3,true));
+ assert(!chase.disengage(11,1000,1000,3,false)); // NPC-only combat stays native.
  ground::Victim v;v.attack.start=10;v.attack.id=10;v.attack.aimLocked=true;
  assert(!v.acknowledge(10.96,1));assert(!v.receipt(11.3,true,10.2,11.3,1));assert(!v.resolve()&&v.waived);
  v={};v.attack.start=10;v.attack.aimLocked=true;assert(!v.acknowledge(10.5,1));assert(v.warning(10.5));assert(v.acknowledge(10.8,1));assert(!v.acknowledge(10.8,2));
  assert(v.receipt(11.3,true,10.2,11.3,1));assert(v.receipt(11.4,true,10.2,11.3,1));assert(!v.receipt(11.4,false,10.2,11.3,1));assert(v.ready(11.3));assert(v.resolve());assert(!v.resolve());
  ground::Victim missing;missing.attack.start=10;missing.attack.aimLocked=true;missing.warning(10.5);missing.acknowledge(10.8,1);missing.attack.sample(11.1,{{0,0,1}});assert(missing.ready(12));assert(!missing.resolve()&&missing.waived);
+ action::Attack shaped;shaped.customized=true;shaped.profile={1,.2,1,8,.45,.5,0};shaped.origin={{0,0,0}};shaped.aim={{0,0,1}};
+ shaped.shape=action::Shape::Lane;assert(shaped.contact({{0,0,5}}));assert(!shaped.contact({{4,0,5}}));
+ shaped.shape=action::Shape::Cone;assert(shaped.contact({{4,0,5}}));assert(!shaped.contact({{0,0,-4}}));
+ shaped.shape=action::Shape::Circle;shaped.geometryOrigin={{20,0,0}};assert(shaped.contact({{20,0,-7}}));assert(!shaped.contact({{0,0,0}}));
+ shaped.shape=action::Shape::Targeted;assert(shaped.contact({{-7,0,0}}));assert(!shaped.contact({{10,0,0}}));
  action::Attack custom;custom.customized=true;custom.profile={1.4,.15,1.4,20,.45,.5,0};custom.clipDuration=1;custom.contactDelay=1./3;custom.lockLead=.5;custom.start=10;
  assert(std::abs(custom.deliveryAt()-11.4)<1e-9);assert(std::abs(custom.lockAt()-10.9)<1e-9);assert(std::abs(custom.recoveredAt()-13.8)<1e-9);
  assert(!ground::resolving(5));{ground::ResolveScope first(5);assert(ground::resolving(5));assert(!ground::resolving(6));{ground::ResolveScope second(6);assert(ground::resolving(6));}assert(ground::resolving(5));}assert(!ground::resolving(5));
- std::cout<<"Ground region, profile timing, warning acknowledgement, idempotent receipts, missing-coverage waiver and nested settlement scopes passed\n";
+ std::cout<<"Ground planet scope, preparation retreat, group pressure, bounded pursuit, profile timing, warning acknowledgement, idempotent receipts, missing-coverage waiver and nested settlement scopes passed\n";
 }

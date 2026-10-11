@@ -21,6 +21,15 @@ class GroundActionTests(unittest.TestCase):
   self.assertEqual(len(events(dict(action_events=[row]),{'5':dict(cell_id='0')},0)),1)
   for change in ({'hit_policy':'piercing_lane'},{'state_revision':True},{'animation':'arbitrary'},{'range':100}):
    self.assertEqual(events(dict(action_events=[dict(row,**change)]),{'5':dict(cell_id='0')},0),[])
+ def test_special_geometry_and_explicit_victim(self):
+  row=dict(protocol=2,state_revision=1,sequence=1,id='5',target_id='6',encounter_id='5',attack_id='10',phase='windup',role='ranged',cell_id='0',server_now=10,start=10,delivery_at=12,active_at=12.3,end_at=12.5,animation_end_at=13,recover_at=15,animation='action_ground_special_'+'a'*24,range=32,radius=.45,cosine=.5,origin=[0,0,0],geometry_origin=[0,0,0],direction=[0,0,1],aim_revision=1,aim_locked=False,lock_at=11.5,age_ms=0,eligible_victim_ids=['6'],hit_policy='targeted',shape='targeted',special=True,target_required=True)
+  visible={'5':dict(cell_id='0')}
+  self.assertEqual(len(events(dict(action_events=[row]),visible,0)),1)
+  for change in ({'eligible_victim_ids':['6','7']},{'target_required':False},{'shape':'unknown'},{'geometry_origin':[math.nan,0,0]},{'hit_policy':'cleave'}):
+   self.assertEqual(events(dict(action_events=[dict(row,**change)]),visible,0),[])
+  for shape in ('circle','cone'):
+   area=dict(row,shape=shape,hit_policy='cleave',target_required=False,eligible_victim_ids=['6','7'])
+   self.assertEqual(len(events(dict(action_events=[area]),visible,0)),1)
  def test_private_animation_delta_keeps_skeleton_and_geometry(self):
   import hashlib
   from tools.client.install_ground_actions import install

@@ -21,7 +21,7 @@ func ingest(event:Dictionary,local_now:float,transit:float=0.0)->void:
 		var entry:Dictionary=attacks[id];var old:Dictionary=entry.event
 		if event.has("aim_revision"):
 			if int(event.aim_revision)<int(old.get("aim_revision",0)):return
-			if old.get("aim_locked",false) and (not event.aim_locked or event.aim_revision!=old.aim_revision or event.direction!=old.direction):return
+			if old.get("aim_locked",false) and (not event.aim_locked or event.aim_revision!=old.aim_revision or event.direction!=old.direction or event.get("geometry_origin",event.origin)!=old.get("geometry_origin",old.origin)):return
 			if event.aim_revision!=old.get("aim_revision",0):aim_updates+=1
 			if event.aim_locked and not old.get("aim_locked",false):
 				aim_locks+=1
@@ -45,14 +45,17 @@ func retire(id:String)->void:
 func server_time(entry:Dictionary,local_now:float)->float:
 	return float(entry.server_anchor)+local_now-float(entry.local_anchor)
 static func contact(event:Dictionary,feet:Vector3)->bool:
-	var o:Vector3=Vector3(event.origin[0],event.origin[1],event.origin[2])
+	var center:Array=event.get("geometry_origin",event.origin)
+	var o:=Vector3(center[0],center[1],center[2])
 	var d:Vector3=Vector3(event.direction[0],event.direction[1],event.direction[2])
 	var p:=feet-o
 	if not feet.is_finite() or (event.get("protocol",1)!=2 and absf(p.y)>2.5):return false
 	var distance:=Vector2(p.x,p.z).length()
 	if distance>float(event.range)+.35:return false
 	var along:=p.x*d.x+p.z*d.z
-	if event.role=="ranged":return along>=-.35 and absf(p.x*d.z-p.z*d.x)<=float(event.radius)+.35
+	var shape:=str(event.get("shape","lane" if event.role=="ranged" else "cone"))
+	if shape in ["circle","targeted"]:return true
+	if shape=="lane":return along>=-.35 and absf(p.x*d.z-p.z*d.x)<=float(event.radius)+.35
 	return distance<=.35 or along>=float(event.cosine)*maxf(0,distance-.35)
 func sample(local_now:float,feet:Vector3,owner:String,valid:bool=true)->Array:
 	var result:Array=[]

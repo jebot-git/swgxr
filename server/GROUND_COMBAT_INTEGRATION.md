@@ -1,9 +1,9 @@
-# Mos Eisley ground PvE integration package
+# Global ground PvE integration package
 
-This package implements the first bounded integration stage. It does not enable
-the final global Core3-to-CoreCU transition. PvP, pets and JtL are excluded.
-The sustained multiplayer/capacity and live-headset suite is explicitly deferred.
-Build, policy, protocol, script and geometry checks are separate from that suite.
+The staged package enables action combat across the ten original ground planets.
+PvP, pets and JtL are excluded. Expansion worlds are not activated. This implements
+the requested global transition; remote deployment, capacity and headset acceptance
+remain separate from the local native and headless checks below.
 
 ## Activation and rollback
 
@@ -20,7 +20,7 @@ The launcher now includes this step. Reviewed profile metadata is pinned in
 match it. Optional prepared NPC sets do not change the negotiated revision.
 The release includes metadata and conversion code, never original clips.
 
-In the native CoreCU process environment set `SWGXR_GROUND_ACTIONS=mos_eisley`.
+In the native CoreCU process environment set `SWGXR_GROUND_ACTIONS=global`.
 The native catalogue defaults to `/workspace/runtime/assets/combat_actions/catalog.json`;
 set `SWGXR_GROUND_ACTION_CATALOG` for another installation layout. The local
 start script passes the activation variable through Podman. Remote systemd
@@ -29,21 +29,39 @@ the existing prototype override. This package does not change running services.
 Disable that variable to roll back selection to ordinary native AI. Restart
 only after graceful native shutdown/save; preserve the existing daily restart.
 
-Both native home/spawn position and current mob position must be inside a
-1,500 m circle centered at source X/Z `(3528, -4804)` on Tatooine. Following a
-player into this circle does not convert a mob spawned elsewhere. No global
-activation value exists in this build. Ordinary spawned mobs are used; no
-three-mob fixture, test account authorization or encounter owner is required.
+Global selection covers Tatooine, Corellia, Naboo, Rori, Talus, Dantooine,
+Dathomir, Endor, Lok and Yavin 4, using ordinary native spawns. The optional
+`mos_eisley` mode retains the old 1,500 m home/current-position boundary centered
+at source X/Z `(3528, -4804)`. `off` restores ordinary native combat.
 
 ## Attack integration
 
-Native AI retains target selection, threat, pursuit, pathfinding, abilities,
-loot, XP, deaths and respawning. Only reviewed `attack`/`defaultattack` execution
-is intercepted. Area/cone specials, Force actions, unsupported weapon/animation
-profiles and other command-specific abilities retain their native command path.
-This avoids bypassing special-command validation or replacing their effects.
-Conversion of those abilities requires explicit profiles during the later family
-rollout. Native special cooldown bookkeeping remains in the existing AI.
+Native AI retains target selection, threat, pursuit, pathfinding, ability selection,
+loot, XP, deaths and respawning. Basic and special CombatQueue commands are
+intercepted inside CombatManager after their native target/equipment/posture checks.
+The complete parsed attack data is retained for delivery, including argument
+modifiers, status effects, Force properties and area ranges. Native AI builds its
+attack maps from CombatQueue commands; noncombat utility commands and scripted
+world effects are outside this interception.
+
+The warning footprint uses native command reach and cone/area dimensions. Lanes
+use first contact, cones/circles use cleave, and single-target Force or state-only
+effects admit only the selected player. Thrown/splash/heavy area impacts are
+centered on the target position and correct slowly before locking; other area
+attacks are centered on the attacker. A target-bound warning also shows the
+existing aim icon near the selected player's view, even when the attacker is
+behind them. Purple distinguishes special preparation, moving toward red as
+execution approaches. All shapes progressively fill and respect the terrain.
+The icon announces targeting without spelling out the incoming command.
+
+Special animation selection resolves command aliases through original standing
+ASH/LAT mappings, preserving authored speed and full clip duration. Native command
+speed can lengthen preparation and recovery; each event supplies independent
+preparation, lock, delivery, contact, animation-end and recovery times. Melee
+contact offsets without authored markers remain provisional. Missing special
+aliases explicitly use the family's original basic clip with the special's native
+geometry/timing; the event records `animation_fallback`. No hit is silently sent
+through ordinary native combat merely because a special animation alias is absent.
 
 At most one committed attack per mob is held through preparation, original clip
 playback and recovery. Movement pauses while committed. Threat-target changes
@@ -56,8 +74,12 @@ release. Damage is not increased to compensate for slower attack frequency.
 
 Profiles are generated from original rig-bound clips and retain source hashes,
 archive names and conversion errors. Humanoid weapon classes and supported
-creature rigs have separate profiles. Overlong/ambiguous/unavailable clips stay
-on ordinary combat; skipped profiles are recorded. Melee contact timing remains
+creature rigs have separate profiles. Overlong/ambiguous/unavailable mappings are recorded in the conversion audit.
+Attackable CLL-8 droids use their original firing clip, omitted from their shared
+LAT. The supplied EG-6 and mouse-droid media contain no authored attack clip;
+these two families retain their original standing animation with a visible warning,
+and `visual_fallback` explicitly identifies that limitation. Noncombat Jabba,
+Sy Snootles, Bomarr and shuttle appearances remain outside attack profiles. Melee contact timing remains
 provisional until the later pose-inspection suite; authored ranged firing markers
 are used where present. Supported ranged lanes select the nearest reported contact
 once; these are committed line attacks, not a new ballistic projectile simulator.
@@ -68,7 +90,9 @@ lasting 4.33/5.50 seconds and caused 14 omissions in the first preparation pass.
 The light clips retain their full 2.87/2.33-second duration and original speed;
 no decoder changes, truncation or duration-limit relaxation are involved.
 
-Attack costs are committed once at delivery. Per-victim native outcomes suppress
+CombatManager attack costs are committed once at delivery. Command-wrapper
+bookkeeping, including native cooldowns and any consumable reservation, still runs
+at queue admission. Per-victim native outcomes suppress
 repeated costs and automatic secondary area expansion only for that exact NPC.
 Native armor, secondary defenses and RPG effects remain in CombatManager. The
 scoped override cannot apply to another attacker or a player counterattack.
@@ -123,8 +147,8 @@ This is initial tuning for group testing, not validated tank/healer balance.
 
 Protocol 2 events additionally expose `enemy_cl`, `tracking_degrees_per_second`,
 `tracking_metres_per_second` and `weapon_template`. These are server-derived
-presentation/diagnostic fields, not new client authority. Existing clients ignore
-them. The template identifies the strike's captured native weapon; native weapon
+presentation/diagnostic fields, not new client authority. The exact catalog revision
+requires matching client preparation. The template identifies the strike's captured native weapon; native weapon
 changes still cancel the strike. Pistol/rifle/carbine profiles remain ranged.
 
 The client shows the existing SWG target-aim icon for the selected victim (amber
@@ -135,11 +159,38 @@ including hiding a gun when the native AI changes to unarmed combat. Original
 instruments and other decorative attachments are preserved. Unprepared original
 weapon art is reported explicitly, without a substitute gun.
 
-## Evidence and deferred acceptance
+## Retreat pressure and disengagement
 
-Focused evidence is under `runtime/action-prototype/ground-*.log`; native build
-receipts and package hashes identify the compiled sources. No new live remote,
-capacity or headset result is implied by these checks. Later tests must cover
-normal spawned mobs, ability preservation, loot/death/respawn, crowd warnings,
-interiors/slopes, reliable lock delivery, sustained load and original contact poses.
-Only favorable results authorize the subsequent global per-family transition.
+Before final aim lock, preparation cancels if every engaged living player remains
+beyond usable reach plus 1.5 m (melee) or 4 m (ranged) for 200 ms. A 400 ms
+reposition delay releases native pathfinding before another attack. An engaged
+nearby tank preserves the attack even if another player retreats. After lock,
+retreat cannot cancel the committed strike; it must miss through contact geometry.
+
+A native player encounter leashes after three continuous seconds with either the
+mob more than 160 m from home or every engaged player beyond
+`clamp(weaponRange + 24, 64, 128)` metres. Reentering those bounds resets the timer.
+Nearby bystanders do not prolong combat. Mixed NPC/pet engagements preserve native
+pursuit behavior. Leashing uses the native peace/return-home machinery, not despawn.
+These values are initial test tuning, not a completed group-balance pass.
+
+## Evidence and remaining acceptance
+
+Local evidence is under `runtime/evidence/global-ground-*`. The native smoke uses
+ordinary worrt and dark-Jedi templates outside the old Mos Eisley boundary. It
+checks global revision negotiation, basic warning, target-bound Force warning,
+original special animation selection, Force cone, sustained home leash and
+pre-lock out-of-reach cancellation. Administrative placement and selected attack
+indices are fixture setup; this does not claim real walking, remote latency,
+headset rendering, multiplayer capacity or final damage/effect balance validation.
+
+The headless rig suite covers every prepared family with original basic and, where
+available, special clips: first-frame hold, full playback and unchanged actor
+transform. Small authored skeletal recoil is retained; larger root travel stays
+in place. Policy/protocol tests cover geometry, target identity, cancellation
+hysteresis, lock commitment, CL tracking and scoped native resolution.
+
+The later sustained multiplayer suite still needs group threat/healing, crowded
+warnings, interiors/slopes, packet loss, ability effects, loot/death/respawn and
+original contact-pose review. Matching build receipts and package hashes identify
+the staged code. No remote deployment or headset result is implied.

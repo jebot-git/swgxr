@@ -9,6 +9,7 @@
 namespace corecu { namespace action {
 using Vec = std::array<double,3>;
 enum class Role { Melee, Ranged, Support };
+enum class Shape { Automatic, Lane, Cone, Circle, Targeted };
 struct Spec {
  double windup, active, recovery, range, radius, cosine, preferred;
 };
@@ -34,7 +35,7 @@ inline bool contactSpec(Role role,const Spec& s,Vec origin,Vec aim,Vec feet,doub
 }
 inline bool contact(Role role,Vec origin,Vec aim,Vec feet,double bodyRadius=.35){return contactSpec(role,spec(role),origin,aim,feet,bodyRadius);}
 struct Attack {
- uint64_t id=0; Role role=Role::Melee; Vec origin{},aim{{0,0,1}};
+ uint64_t id=0; Role role=Role::Melee;Shape shape=Shape::Automatic;Vec geometryOrigin{};Vec origin{},aim{{0,0,1}};
  double start=0; bool sampled=false, fallback=false, reported=false, hit=false, settled=false, cancelled=false;
  double trackingScale=1; // Server-selected CL tuning; never changes the final aim-lock window.
  double trackedAt=0; uint64_t aimRevision=1; bool aimLocked=false;
@@ -59,12 +60,17 @@ struct Attack {
   if(now>=lockAt()){aimLocked=true;changed=true;}
   return changed;
  }
+ bool contact(Vec feet,double bodyRadius=.35,double heightTolerance=20000) const {
+  auto s=settings();
+  if(shape==Shape::Circle||shape==Shape::Targeted){auto center=shape==Shape::Circle?geometryOrigin:origin;return finite(center)&&finite(feet)&&std::abs(feet[1]-center[1])<=heightTolerance&&distance(center,feet)<=s.range+bodyRadius;}
+  return contactSpec(shape==Shape::Cone?Role::Melee:shape==Shape::Lane?Role::Ranged:role,s,origin,aim,feet,bodyRadius,heightTolerance);
+ }
  double animationEndAt() const {return deliveryAt()+(customized?clipDuration:animationDuration(role));}
  double activeAt() const {return deliveryAt()+(customized?contactDelay:contactOffset(role));}
  double endAt() const {return activeAt()+settings().active;}
  double deadline() const {return endAt()+.65;}
  double recoveredAt() const {return std::max(deadline(),std::max(endAt(),animationEndAt())+settings().recovery);}
- void sample(double now,Vec feet) {if(now>=activeAt() && now<=endAt()){sampled=true;fallback=fallback||contactSpec(role,settings(),origin,aim,feet,.35,customized?20000:2.5);}}
+ void sample(double now,Vec feet) {if(now>=activeAt() && now<=endAt()){sampled=true;fallback=fallback||contact(feet,.35,customized?20000:2.5);}}
  // First receipt wins, including misses. Missing reports use native active-window
  // samples. Never decide contact using a target's later position at settlement.
  bool receipt(double now,bool value,double coverageStart,double coverageEnd,uint64_t revision) {

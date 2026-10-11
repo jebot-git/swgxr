@@ -573,12 +573,19 @@ func add_animation_clip(clip_name: String, clip: Dictionary, target: AnimationPl
 		if not positions.is_empty():
 			var index := animation.add_track(Animation.TYPE_POSITION_3D)
 			animation.track_set_path(index, NodePath("Skeleton:" + bone_name))
+			# Keep small authored recoil on NPC combat skeletons. Larger root
+			# travel remains in place; the animation never moves a physics body.
+			var recoil:=clip_name.begins_with("action_ground_") and bone_name=="root"
+			var first_x:=float(positions[0][1]);var first_z:=float(positions[0][3])
+			if recoil:
+				for key in positions:
+					if Vector2(float(key[1])-first_x,float(key[3])-first_z).length()>.15:recoil=false;break
 			for key in positions:
 				var position := Vector3(float(key[1]), float(key[2]), float(key[3]))
 				if bone_name == "root":
 					var rest: Vector3 = skeleton.get_bone_rest(skeleton.find_bone(bone_name)).origin
-					position.x = rest.x
-					position.z = rest.z
+					position.x = rest.x+(position.x-first_x if recoil else 0.)
+					position.z = rest.z+(position.z-first_z if recoil else 0.)
 					if clip_name == "jump":
 						# Remove authored upward root travel already supplied by
 						# physics; retain the original landing compression.

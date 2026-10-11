@@ -20,6 +20,7 @@ var action_clock=preload("res://combat/action_clock.gd").new()
 var catalog_revision:=""
 var integration_outcomes:Array=[]
 var cue_textures:Dictionary={}
+var targeted_cue:Sprite3D
 
 func setup(host:Node,source:Node)->void:
 	app=host;sync=source
@@ -32,6 +33,7 @@ func clear()->void:
 	integration_outcomes.clear();integration_ready=false;integration_pending.clear();lock_sent.clear();integration_retry=0;integration_busy=false;action_clock=preload("res://combat/action_clock.gd").new();timeline.clock_ready=false
 	for mesh:MeshInstance3D in visuals.values():mesh.queue_free()
 	visuals.clear()
+	if is_instance_valid(targeted_cue):targeted_cue.queue_free()
 func accept(events:Array,rtt:float)->void:
 	var stamp:=Time.get_ticks_usec()/1000000.0
 	for event:Dictionary in events:
@@ -52,14 +54,16 @@ func draw_warning(event:Dictionary)->MeshInstance3D:
 	material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 	material.albedo_color=Color(.2,.85,.4) if event.role=="support" else Color(1,.55,.08)
 	mesh.surface_begin(Mesh.PRIMITIVE_LINES,material)
-	var o:=Vector3(event.origin[0],event.origin[1]+.08,event.origin[2])
+	var center:Array=event.get("geometry_origin",event.origin)
+	var o:=Vector3(center[0],center[1]+.08,center[2])
+	var shape:=str(event.get("shape","lane" if event.role=="ranged" else "cone"))
 	var d:=Vector3(event.direction[0],0,event.direction[2]);var side:=Vector3(d.z,0,-d.x)
 	var points:Array[Vector3]=[];var reach:=float(event.range)
-	if event.role=="ranged":
+	if shape=="lane":
 		var width:=float(event.radius)
 		points=[o-side*width,o+side*width,o+d*reach+side*width,o+d*reach-side*width,o-side*width]
 	else:
-		var half:=acos(float(event.cosine)) if event.role=="melee" else PI
+		var half:=acos(float(event.cosine)) if shape=="cone" else PI
 		points.append(o)
 		for i in 25:
 			var angle:float=lerpf(-half,half,float(i)/24)
@@ -72,7 +76,7 @@ func draw_warning(event:Dictionary)->MeshInstance3D:
 	mesh.surface_end()
 	var instance:=MeshInstance3D.new();instance.mesh=mesh;instance.material_override=material;instance.set_meta("aim_revision",event.get("aim_revision",1));add_child(instance)
 	var cue:=Node3D.new();cue.name="TargetCue";instance.add_child(cue)
-	cue.position=sync.world([o.x,o.y+2.0,o.z])
+	cue.position=sync.world([event.origin[0],event.origin[1]+2.0,event.origin[2]])
 	for entry in [["Target","ui/target_aim.png",-.13],["Danger","abilities/animalattack.png",.13]]:
 		var icon:=Sprite3D.new();icon.name=entry[0];icon.billboard=BaseMaterial3D.BILLBOARD_ENABLED;icon.pixel_size=.0035
 		var texture_path:String=entry[1]
@@ -98,9 +102,11 @@ func update_fill(instance:MeshInstance3D,event:Dictionary,server_now:float,color
 	fill.set_meta("step",step)
 	var mesh:ImmediateMesh=fill.mesh;mesh.clear_surfaces()
 	if progress<=0:return
-	var o:=Vector3(event.origin[0],event.origin[1]+.065,event.origin[2]);var d:=Vector3(event.direction[0],0,event.direction[2]);var side:=Vector3(d.z,0,-d.x)
+	var center:Array=event.get("geometry_origin",event.origin)
+	var shape:=str(event.get("shape","lane" if event.role=="ranged" else "cone"))
+	var o:=Vector3(center[0],center[1]+.065,center[2]);var d:=Vector3(event.direction[0],0,event.direction[2]);var side:=Vector3(d.z,0,-d.x)
 	var vertices:Array[Vector3]=[];var reach:=float(event.range)
-	if event.role=="ranged":
+	if shape=="lane":
 		var width:=float(event.radius);reach*=progress
 		var steps:=maxi(1,int(ceil(reach/.75)))
 		for i in steps:
@@ -109,7 +115,7 @@ func update_fill(instance:MeshInstance3D,event:Dictionary,server_now:float,color
 			vertices.append_array([a,b,c,a,c,e])
 	else:
 		reach*=sqrt(progress)
-		var half:=acos(float(event.cosine)) if event.role=="melee" else PI
+		var half:=acos(float(event.cosine)) if shape=="cone" else PI
 		var rings:=maxi(1,int(ceil(reach/.75)))
 		for ring in rings:
 			var inner:=reach*float(ring)/rings;var outer:=reach*float(ring+1)/rings
@@ -121,7 +127,9 @@ func update_fill(instance:MeshInstance3D,event:Dictionary,server_now:float,color
 	for p:Vector3 in vertices:mesh.surface_add_vertex(project_warning(p,event))
 	mesh.surface_end()
 func _process(_delta:float)->void:
-	if not is_instance_valid(app) or not is_instance_valid(sync) or sync.owner_session.is_empty():return
+	if not is_instance_valid(app) or not is_instance_valid(sync) or sync.owner_session.is_empty():
+		if is_instance_valid(targeted_cue):targeted_cue.visible=false
+		return
 	var stamp:=Time.get_ticks_usec()/1000000.0
 	var valid:bool=app.world_ready and not app.loading_stage and not app.session_leaving and (not app.xr_requested or app.xr_focused)
 	var feet:Vector3=app.source_position_at(app.player.global_position)
@@ -132,18 +140,22 @@ func _process(_delta:float)->void:
 		else:pending.append({"intent":intent,"queued_at":stamp})
 	for id:String in visuals.keys():
 		if not timeline.attacks.has(id):visuals[id].queue_free();visuals.erase(id)
+	var explicit_threat:=false;var threat_progress:=0.0
 	for id:String in timeline.attacks:
 		var row:Dictionary=timeline.attacks[id];var event:Dictionary=row.event
 		if visuals.has(id) and visuals[id].get_meta("aim_revision",1)!=event.get("aim_revision",1):
 			visuals[id].queue_free();visuals.erase(id)
 		if not visuals.has(id):visuals[id]=draw_warning(event)
 		var material:StandardMaterial3D=visuals[id].material_override
-		material.albedo_color=Color(.2,.85,.4) if event.role=="support" else Color(1,.12,.08) if timeline.server_time(row,stamp)>=float(event.get("delivery_at",event.active_at)) else Color(1,.55,.08)
+		material.albedo_color=Color(.2,.85,.4) if event.role=="support" else Color(1,.12,.08) if timeline.server_time(row,stamp)>=float(event.get("delivery_at",event.active_at)) else Color(.8,.3,1) if event.get("special",false) else Color(1,.55,.08)
 		update_fill(visuals[id],event,timeline.server_time(row,stamp),material.albedo_color)
 		var tracking:bool=str(event.target_id)==sync.owner_character and event.role!="support"
 		var danger:bool=event.role!="support" and timeline.eligible(event,sync.owner_character) and timeline.contact(event,feet)
 		update_cues(visuals[id],tracking,danger,bool(event.get("aim_locked",false)))
+		if tracking and event.get("target_required",false) and event.phase!="cancelled" and timeline.server_time(row,stamp)<=float(event.end_at):
+			explicit_threat=true;threat_progress=maxf(threat_progress,preparation_progress(event,timeline.server_time(row,stamp)))
 		visuals[id].visible=valid and event.phase!="cancelled" and timeline.server_time(row,stamp)<=maxf(float(event.end_at),float(event.get("animation_end_at",event.end_at)))
+	update_targeted_cue(valid and explicit_threat,threat_progress)
 	if not sending and not pending.is_empty():send_contact()
 	if not integration_busy and not catalog_revision.is_empty() and stamp>=integration_retry and (not integration_ready or not integration_pending.is_empty() or stamp>=integration_retry+2):send_integration()
 func update_cues(instance: MeshInstance3D, tracking: bool, danger: bool, locked: bool) -> void:
@@ -151,6 +163,18 @@ func update_cues(instance: MeshInstance3D, tracking: bool, danger: bool, locked:
 	var path: Sprite3D=instance.get_node("TargetCue/Danger")
 	target.visible=tracking;target.modulate=Color.WHITE if locked else Color(1,.72,.15)
 	path.visible=danger;path.modulate=Color(1,.2,.1)
+
+func update_targeted_cue(show_cue:bool,progress:float)->void:
+	if not is_instance_valid(targeted_cue):
+		if not show_cue:return
+		targeted_cue=Sprite3D.new();targeted_cue.name="IncomingTargetedSpecial";targeted_cue.texture=cue_textures.get("ui/target_aim.png")
+		targeted_cue.pixel_size=.0008;targeted_cue.no_depth_test=true;targeted_cue.billboard=BaseMaterial3D.BILLBOARD_ENABLED;add_child(targeted_cue)
+	var camera:=get_viewport().get_camera_3d()
+	targeted_cue.visible=show_cue and is_instance_valid(camera)
+	if not targeted_cue.visible:return
+	targeted_cue.global_position=camera.global_position-camera.global_basis.z*.65+camera.global_basis.x*.22-camera.global_basis.y*.18
+	targeted_cue.modulate=Color(.8,.3,1).lerp(Color(1,.12,.08),progress)
+	targeted_cue.scale=Vector3.ONE*(1.+.15*progress*sin(Time.get_ticks_msec()*.012))
 
 func send_contact()->void:
 	sending=true;var epoch:=generation;var queued:Dictionary=pending.pop_front();var intent:Dictionary=queued.intent

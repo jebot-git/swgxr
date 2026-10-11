@@ -24,6 +24,24 @@ func run()->void:
 	var sync:=Mapping.new();root.add_child(sync)
 	var c:=Controller.new();root.add_child(c);c.app=host;c.sync=sync;c.set_process(false)
 	var event:Dictionary={"protocol":2,"state_revision":1,"sequence":50,"id":"7","encounter_id":"7","attack_id":"1","target_id":"9","eligible_victim_ids":["9"],"role":"ranged","hit_policy":"first_contact","cell_id":"0","origin":[0,0,0],"direction":[1,0,0],"range":12.,"radius":.45,"cosine":.5,"server_now":10.,"age_ms":0.,"start":10.,"delivery_at":11.4,"active_at":11.733,"end_at":11.9,"recover_at":13.8,"animation_end_at":12.4,"aim_revision":1,"aim_locked":true,"lock_at":10.9,"phase":"windup"}
+	var special:=event.duplicate(true);special.shape="circle";special.geometry_origin=[20,0,0];special.range=8.;special.special=true;special.target_required=false;special.hit_policy="cleave"
+	check(Timeline.contact(special,Vector3(20,0,-7)),"Splash contact uses its warned impact centre")
+	check(not Timeline.contact(special,Vector3.ZERO),"Splash excludes attacker origin outside the impact radius")
+	var area:=c.draw_warning(special);c.update_fill(area,special,11.,Color.PURPLE)
+	var area_vertices:PackedVector3Array=area.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	check(area_vertices.size()>48,"Special area warning is a subdivided circle")
+	for vertex in area_vertices:check(Vector2(vertex.x-20,vertex.z).length()<=8.01,"Area drawing matches contact radius and centre")
+	special.shape="cone";special.geometry_origin=[0,0,0];special.cosine=.5
+	check(Timeline.contact(special,Vector3(4,0,5)) and not Timeline.contact(special,Vector3(0,0,-4)),"Ranged special cone uses its cone rather than a thin lane")
+	special.shape="targeted";special.target_required=true;special.eligible_victim_ids=["9"]
+	check(Timeline.contact(special,Vector3(-7,0,0)),"Target-bound effect checks native reach rather than dodgable lane")
+	check(c.timeline.eligible(special,"9") and not c.timeline.eligible(special,"10"),"Explicit target cannot transfer to another player")
+	var camera:=Camera3D.new();root.add_child(camera);camera.current=true
+	c.cue_textures["ui/target_aim.png"]=area.get_node("TargetCue/Target").texture
+	c.update_targeted_cue(true,.8)
+	check(c.targeted_cue.visible and c.targeted_cue.texture!=null,"Existing reticle identifies targeted special near the player's view")
+	c.update_targeted_cue(false,0);check(not c.targeted_cue.visible,"Targeted indicator clears when the threat ends")
+	area.queue_free();camera.queue_free()
 	var mesh:=c.draw_warning(event);c.update_fill(mesh,event,11.,Color.ORANGE)
 	var target:Sprite3D=mesh.get_node("TargetCue/Target");var danger:Sprite3D=mesh.get_node("TargetCue/Danger")
 	check(target.texture!=null and danger.texture!=null,"Original SWG targeting and attack icons load")

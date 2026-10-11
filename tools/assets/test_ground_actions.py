@@ -31,6 +31,34 @@ class DroidBindings(unittest.TestCase):
             self.assertEqual((slot, logical, leaf['source'], leaf['speed_scale']),
                              ('unarmed', 'attack_light_standing', light, 1.0))
 
+    def test_canine_reference_and_gorax_basic_clip(self):
+        from unittest.mock import patch
+        table={'cbt_stand_combat_attack_light':[{'source':'appearance/animation/canine_cbt_stand_attack_light.ans','speed_scale':1.0}]}
+        with patch('character_animations.resolve', side_effect=lambda node, selectors: node):
+            slot,logical,leaf=list(ground_action_bindings(table,{}))[0]
+        self.assertEqual(leaf['source'],'appearance/animation/canine_cbt_stand_combat_attack_light.ans')
+        self.assertIn('selection_basis',leaf)
+        _,logical,leaf=self.select('appearance/animation/gorax_cbt_attack_melee.ans',[{'source':'appearance/animation/gorax_cbt_attack.ans','speed_scale':1.0}])
+        self.assertEqual(logical,'attack_light_standing')
+        self.assertEqual(leaf['speed_scale'],1.0)
+
+    def test_missing_native_command_definitions_fail_preparation(self):
+        import tempfile
+        from ground_specials import compile_specials
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError,'command definitions'):
+                compile_specials(Path(folder),None,[])
+
+    def test_unmapped_droid_attack_and_explicit_visual_fallback(self):
+        for family in ('cll8','eg6','mouse_droid'):
+            table={'loop_standing':[{'source':'appearance/animation/'+family+'_idl_stand.ans','speed_scale':1.}]}
+            with patch('character_animations.resolve', side_effect=lambda node, selectors: node):
+                slot,logical,leaf=list(ground_action_bindings(table,{}))[0]
+            self.assertEqual(slot,'unarmed')
+            self.assertEqual(leaf['visual_fallback'],family!='cll8')
+            self.assertEqual(leaf['speed_scale'],1.)
+            self.assertTrue(leaf['source'].endswith('cll8_cbt_stand_combat_fire1.ans' if family=='cll8' else family+'_idl_stand.ans'))
+
     def test_absent_ambiguous_or_unrelated_light_is_not_substituted(self):
         heavy = 'appearance/animation/astromech_cbt_attack_heavy.ans'
         light = {'source': 'appearance/animation/astromech_cbt_attack_light.ans', 'speed_scale': 1.0}

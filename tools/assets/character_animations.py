@@ -226,6 +226,7 @@ def ground_action_bindings(table, selectors):
     """Deterministic original clips for ground PvE profiles; ambiguity stays unconverted."""
     aliases = {
         'creature': ['cbt_stand_combat_attack_light'],
+        'ranged': ['cbt_attack_ranged'],
         'pistol': ['pistol_combat_standing_fire_1'],
         'rifle': ['rifle_standing_aimed_fire_1'],
         'carbine': ['rifle_standing_aimed_fire_1'],
@@ -243,10 +244,13 @@ def ground_action_bindings(table, selectors):
             unique = {(v['source'], v['speed_scale']): v for v in leaves}
             if len(unique) == 1:
                 leaf = next(iter(unique.values()))
+                if leaf['source']=='appearance/animation/canine_cbt_stand_attack_light.ans':
+                    leaf=dict(leaf,source='appearance/animation/canine_cbt_stand_combat_attack_light.ans',selection_basis='original canine LAT filename correction: existing same-family combat/light clip')
                 # These droid LATs map the humanoid double-jab alias to a long,
                 # multi-swing heavy attack. Their authored light standing alias
                 # supplies the basic attack instead; never trim or accelerate it.
                 droid_light = {
+                    'appearance/animation/gorax_cbt_attack_melee.ans':'appearance/animation/gorax_cbt_attack.ans',
                     'appearance/animation/protocol_droid_cbt_attack_melee_heavy.ans':
                         'appearance/animation/protocol_droid_cbt_attack_melee_light.ans',
                     'appearance/animation/astromech_cbt_attack_heavy.ans':
@@ -259,9 +263,28 @@ def ground_action_bindings(table, selectors):
                         candidate = next(iter(candidates.values()))
                         if candidate['source'] == droid_light[leaf['source']]:
                             logical = 'attack_light_standing'
-                            leaf = dict(candidate, selection_basis='authored droid basic/light standing attack; humanoid double-jab maps to heavy')
+                            leaf = dict(candidate, selection_basis=('authored gorax basic/light standing attack; humanoid double-jab maps to heavy' if 'gorax_' in leaf['source'] else 'authored droid basic/light standing attack; humanoid double-jab maps to heavy'))
                 yield slot, logical, leaf
                 break
+
+    # AT-ST has its own original ranged mapping rather than the generic alias.
+    if 'cbt_attack_ranged' not in table and 'attack_light_standing' in table:
+        leaves=resolve(table['attack_light_standing'],selectors)
+        if len(leaves)==1 and leaves[0]['source']=='appearance/animation/atst_combat_fire_add.ans':
+            yield 'ranged','attack_light_standing',dict(leaves[0],selection_basis='authored AT-ST basic firing clip')
+
+
+    # Original non-humanoid droids use a shared humanoid ASH but omit attack
+    # entries from their LAT. The CLL-8 still supplies an original firing clip.
+    # EG-6/mouse supply no attack clip in the provided media: retain their idle
+    # pose with an explicit warning instead of an invisible native fallback hit.
+    if 'loop_standing' in table:
+        sources={v['source'] for v in resolve(table['loop_standing'],selectors)}
+        for family in ('cll8','eg6','mouse_droid'):
+            idle='appearance/animation/'+family+'_idl_stand.ans'
+            if idle not in sources:continue
+            source='appearance/animation/cll8_cbt_stand_combat_fire1.ans' if family=='cll8' else idle
+            yield 'unarmed','explicit_original_droid_'+family,{'source':source,'speed_scale':1.,'visual_fallback':family!='cll8','selection_basis':('original CLL-8 firing clip omitted from shared LAT' if family=='cll8' else 'no authored attack in supplied media; original standing pose with explicit telegraph')}
 
 
 def locomotion_metadata(raw):

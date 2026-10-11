@@ -1,5 +1,5 @@
 """Bounded prototype commands and native-only action presentation."""
-import math
+import math,re
 
 
 def command(value):
@@ -52,7 +52,7 @@ def command(value):
     for key in ('coverage_start', 'coverage_end'):
         if type(value[key]) not in (int, float) or not math.isfinite(value[key]) or value[key] < 0:
             raise ValueError('Invalid action contact time')
-    if not 0 <= value['coverage_end'] - value['coverage_start'] <= 5:
+    if not 0 <= value['coverage_end'] - value['coverage_start'] <= 30:
         raise ValueError('Invalid action coverage')
     return dict(value)
 
@@ -86,16 +86,28 @@ def events(stream, visible, elapsed):
             victims = row.get('eligible_victim_ids')
             if not isinstance(victims, list) or len(victims) > (256 if row.get('protocol') == 2 else 8) or any(not isinstance(v, str) or not v.isascii() or not v.isdecimal() or not 0 < int(v) < 2**64 for v in victims):
                 continue
-            if len(set(victims)) != len(victims) or row.get('hit_policy') not in ({'melee': ('cleave',), 'ranged': ('first_contact',), 'support': ('support',)} if row.get('protocol') == 2 else {'melee': ('cleave',), 'ranged': ('piercing_lane',), 'support': ('support',)})[row['role']]:
+            policies = {'melee': ('cleave',), 'ranged': ('piercing_lane',), 'support': ('support',)}
+            if row.get('protocol') == 2:
+                policies['ranged'] = ('first_contact',)
+            allowed = policies[row['role']]
+            if row.get('protocol') == 2 and 'shape' in row:
+                allowed = {'targeted': ('targeted',), 'cone': ('cleave',), 'circle': ('cleave',), 'lane': ('first_contact',)}.get(row['shape'], ())
+            if len(set(victims)) != len(victims) or row.get('hit_policy') not in allowed:
                 continue
             if row['role'] == 'support' and victims:
                 continue
+        if 'shape' in row:
+            if row['shape'] not in ('lane','cone','circle','targeted') or type(row.get('special')) is not bool or type(row.get('target_required')) is not bool:continue
+            center=row.get('geometry_origin')
+            if not isinstance(center,list) or len(center)!=3 or any(type(x) not in (int,float) or not math.isfinite(x) or abs(x)>20000 for x in center):continue
+            if row['shape']=='targeted' and (not row['target_required'] or row.get('eligible_victim_ids')!=[row['target_id']]):continue
         if 'animation' in row:
             expected = {'melee': ['action_worrt'], 'ranged': ['action_pistol'], 'support': ['action_heal']}[row['role']]
             if row.get('protocol') == 2:
                 if type(row.get('state_revision')) is not int or not 0 < row['state_revision'] < 2**53: continue
-                expected = ['action_ground_'+s for s in (('pistol','rifle','carbine') if row['role']=='ranged' else ('creature','unarmed','onehand','twohand','polearm'))]
-            if row['animation'] not in expected or any(type(row.get(k)) not in (int, float) or not math.isfinite(row[k]) for k in ('delivery_at', 'animation_end_at')):
+                expected = ['action_ground_'+s for s in (('pistol','rifle','carbine','ranged') if row['role']=='ranged' else ('creature','unarmed','onehand','twohand','polearm'))]
+            special_animation=row.get('protocol')==2 and row.get('special') is True and isinstance(row.get('animation'),str) and re.fullmatch(r'action_ground_special_[0-9a-f]{24}',row['animation']) is not None
+            if (row['animation'] not in expected and not special_animation) or any(type(row.get(k)) not in (int, float) or not math.isfinite(row[k]) for k in ('delivery_at', 'animation_end_at')):
                 continue
             if not row['start'] <= row['delivery_at'] <= row['active_at'] or not row['delivery_at'] < row['animation_end_at'] <= row['recover_at']:
                 continue

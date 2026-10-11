@@ -84,10 +84,10 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 	if upkeep_mode and terminal.get("kind","")=="house":terminal.kind="house_deposit"
 	if terminal.get("kind","")=="vendor":terminal.kind="bazaar";terminal.market_kind="vendor"
 	if is_instance_valid(delivery_dialogue):
-		delivery_dialogue.visible=terminal.get("kind","") in ["delivery","underworld","bounty_informant","pilot_trainer","herald"]
-		delivery_dialogue.position=Vector2(590,125) if terminal.get("kind","") in ["pilot_trainer","herald"] else Vector2(40,125)
-		delivery_dialogue.size=Vector2(242,370) if terminal.get("kind","") in ["pilot_trainer","herald"] else Vector2(770,270)
-		delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_STOP if terminal.get("kind","") in ["pilot_trainer","herald"] else Control.MOUSE_FILTER_IGNORE
+		delivery_dialogue.visible=terminal.get("kind","") in ["delivery","underworld","bounty_informant","pilot_trainer","herald","junk_dealer"]
+		delivery_dialogue.position=Vector2(590,125) if terminal.get("kind","") in ["pilot_trainer","herald","junk_dealer"] else Vector2(40,125)
+		delivery_dialogue.size=Vector2(242,370) if terminal.get("kind","") in ["pilot_trainer","herald","junk_dealer"] else Vector2(770,270)
+		delivery_dialogue.mouse_filter=Control.MOUSE_FILTER_STOP if terminal.get("kind","") in ["pilot_trainer","herald","junk_dealer"] else Control.MOUSE_FILTER_IGNORE
 		delivery_dialogue.text=str(terminal.get("dialogue","Waiting for the mission contact…"))
 		if terminal.get("kind","")=="underworld" and not terminal.get("eligible",false) and not str(terminal.get("blocked_reason","")).is_empty():delivery_dialogue.text+="\n\n"+str(terminal.blocked_reason)
 	if terminal.get("kind","")=="bazaar":
@@ -109,7 +109,7 @@ func configure(record: Dictionary, balances: Dictionary, held_tickets: Array=[])
 		"trainer": rows=terminal.get("skills",[]).duplicate(true)
 		"starship": rows=terminal.get("ships",[]).duplicate(true)
 		"ship_crew": rows=terminal.get("members",[]).duplicate(true)
-		"house","ship_control","bounty_droid","pilot_trainer","herald","chassis_dealer","ship_outfit": rows=terminal.get("options",[]).duplicate(true)
+		"house","ship_control","bounty_droid","pilot_trainer","herald","junk_dealer","chassis_dealer","ship_outfit": rows=terminal.get("options",[]).duplicate(true)
 	if selected>=rows.size(): selected=-1
 	offset=clampf(offset,0,maxf(0,rows.size()-8))
 	pending=false
@@ -405,6 +405,9 @@ func confirm() -> void:
 		for key in ["slot","component_id","item_id","price"]:
 			if option.has(key):payload[key]=option[key]
 		if kind=="ship_outfit":payload.ship_id=str(terminal.ship_id)
+	elif kind=="junk_dealer":
+		if selected<0 or selected>=rows.size():return
+		action="junk_sell";payload.items=rows[selected].items.duplicate(true)
 	elif kind in ["pilot_trainer","herald"]:
 		if selected<0 or selected>=rows.size():return
 		var option:Dictionary=rows[selected]
@@ -559,7 +562,7 @@ func _draw() -> void:
 		if rows.is_empty(): draw_multiline_string(FONT,Vector2(item_region.position.x+8,159),"Wait for boarding, then use your ticket." if kind=="ticket_collector" else "No entries returned by CoreCU." if kind!="crafting" else "No compatible owned crafting tools returned by CoreCU.",HORIZONTAL_ALIGNMENT_LEFT,item_region.size.x-16,21,3,Color("9ac7da"))
 		if kind=="trainer" and selected<0:
 			draw_multiline_string(FONT,Vector2(590,155),str(terminal.get("trainer_text","Select a skill to inspect its training requirements.")),HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
-		if kind not in ["ship_crew","travel","pilot_trainer","herald"] and selected>=0 and selected<rows.size():
+		if kind not in ["ship_crew","travel","pilot_trainer","herald","junk_dealer"] and selected>=0 and selected<rows.size():
 			var row: Dictionary=rows[selected]
 			var detail:=detail_for(row)
 			draw_multiline_string(FONT,Vector2(590,155),detail,HORIZONTAL_ALIGNMENT_LEFT,242,20,14,Color("d2f6ff"))
@@ -583,6 +586,7 @@ func _draw() -> void:
 	if kind=="house" and terminal.get("pob",false):button="Recover item"
 	if kind=="ship_control":button="Activate"
 	if kind in ["pilot_trainer","herald"]:button="Reply"
+	if kind=="junk_dealer":button="Sell selection"
 	if kind in ["chassis_dealer","ship_outfit"]:button="Confirm selection"
 	if kind=="starship":button="Prepare launch"
 	if kind=="ship_crew":button="Launch" if terminal.get("is_pilot",false) else "Waiting for pilot"

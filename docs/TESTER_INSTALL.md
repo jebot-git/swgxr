@@ -101,9 +101,16 @@ or unconfirmed placement keeps the item in hand and replaces the pending message
 with its outcome. Check inventory before retrying an unconfirmed action.
 
 Entering a ship seat turns your view toward the controls. In **Virtual HOTAS**
-mode, grip the right handle for the stick and the left handle for throttle;
-release grip to let go. Handles are placed below eye level when you enter the
-seat. Ship scenery moves smoothly between the positions confirmed by Core3.
+mode, hold your main-hand controller upright briefly, then tilt for pitch and
+roll or twist for yaw. Hold your off-hand controller sideways briefly, then
+push forward to accelerate and pull back to slow down (28 cm for full travel).
+Turn a hand out of its control pose to release and reposition it; the throttle
+holds its setting. Returning to the pose captures your new comfortable position
+without a throttle jump. The selected dominant hand determines steering.
+Thumbsticks and grip buttons are free for other controls. Opening a panel,
+losing tracking/focus, or stale server state cuts thrust; hold the poses again
+to resume. These controls have automated mocked-tracking validation; live
+headset comfort and controller-specific grip orientation still need testing.
 
 Walking through a yacht doorway now updates the native room before item placement.
 If that update is rejected, the client returns to the confirmed position and
@@ -249,3 +256,12 @@ occupied hands and ambiguous targets prevent activation.
 
 Linux and Windows package preflights and synthetic interaction tests are used;
 Windows execution is checked through Wine. Live headset testing remains suspended.
+
+Junk dealers can be opened with a wave or a trigger from any facing direction.
+Their panel lists eligible items and credit values, with a **Sell selection**
+button and an explicit **Sell all eligible items** row. Different dealers buy
+different categories; Jawa traders retain their original underworld language
+requirement. Put loot in the main inventory to offer it. Items inside backpacks,
+equipped items, crafted/sliced/broken/no-trade items and filled containers are
+excluded. Sales credit cash and refresh inventory; repeated network requests do
+not sell or pay twice.

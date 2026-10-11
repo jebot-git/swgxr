@@ -59,7 +59,7 @@ def normalize(state,mutation):
  if mail:
   for row in mail.get('messages',[]):row['subject']=translated(row.get('subject',''))
  message=mutation.get('message')
- if message:
+ if isinstance(message,dict):
   message['subject']=translated(message.get('subject',''));parts=[translated(message.get('body',''))]
   for row in message.pop('parameters',[]):
    body=display(row.get('file',''),row.get('stringID',''),'')

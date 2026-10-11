@@ -1,6 +1,6 @@
 extends RefCounted
 ## Deliberate greeting only; opens an existing service, never confirms an action.
-const NPC_KINDS=["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer"]
+const NPC_KINDS=["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer","junk_dealer"]
 const RANGE:=5.0
 const STROKE:=0.12
 const WINDOW:=1.8

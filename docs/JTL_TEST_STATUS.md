@@ -213,9 +213,13 @@ Core3 validates target identity, same-sector distance, targetable components and
 missile eligibility. Protected/destroyed components are shown unavailable;
 a destroyed selected component does not silently switch selection to hull.
 Native shields, component damage, inspection observers and quest logic remain
-authoritative. Native docking permission is still restrictive: the current Core3
-DockCommand permits only god-mode pilots. This integration does not claim normal
-mission docking is complete.
+authoritative. Mission docking is now granted for the exact NPC selected by an
+active native inspection/rescue objective (task 2). Inspection must complete
+before an inspection mission grants access. Ordinary pilots cannot dock with
+arbitrary targets; changed, failed or completed objectives revoke permission.
+Native approach obstruction checks and docking completion observers remain in
+use. Undock permits the active pilot to cancel while in ordinary peace/seated
+states, which the original client-only undock table rejected on the server.
 
 The XR projectile no-subsystem byte is 255, not reactor slot 0. A requested
 component applies only to the selected victim, so intervening ships do not inherit
@@ -248,5 +252,23 @@ hull repaired for deterministic targeting; these are not free-flight balance or
 remote latency tests. Validation artifacts are local under
 runtime/evidence/jtl-targeting-*.
 The client smoke uses the dummy renderer with XR off; it does not validate headset
-stereo or controller ergonomics. No remote deployment or Downloads-client release
-is included in this integration.
+stereo or controller ergonomics. These changes are included in the test.16
+release package; deployment evidence is recorded separately.
+
+## Pose-controlled virtual HOTAS (2026-10-11)
+
+Virtual HOTAS now uses the selected dominant controller as a steering gesture:
+hold its grip-pose up axis upright for 200 ms, then tilt to pitch/roll or twist
+to yaw. The off-hand controller engages throttle when held sideways for 200 ms;
+28 cm of forward/backward travel spans full throttle. Both gestures use the
+cockpit frame and have separate entry/release thresholds. Leaving the throttle
+pose holds its setting and permits repositioning without a jump. Tracking loss,
+UI focus, stale state and mode/hand changes clear gesture capture and thrust.
+No authored grab handles, thumbstick axes or grip holds are needed in this mode.
+Existing button commands remain available. Physical HOTAS and stick mode remain
+separate choices. Tracked head, hands and body are never driven by this input.
+
+Validation: 36 gesture checks, including both dominant hands, a rotated cockpit,
+axis signs, release/reacquisition, ignored grip/stick values and tracking loss;
+70 original-yacht integration checks. Both ran headless with XR off and the dummy
+renderer. Controller ergonomics and live headset behavior remain unvalidated.

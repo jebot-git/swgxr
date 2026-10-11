@@ -1,5 +1,6 @@
 #pragma once
 #include "TargetingPolicy.h"
+#include "SwgxrDocking.h"
 #include "server/zone/managers/spacecombat/projectile/ShipMissile.h"
 #include "server/zone/objects/ship/transform/SpaceMath.h"
 // Per-pilot ephemeral selection. Core3 remains authoritative for components,
@@ -87,7 +88,7 @@ public:
  static uint8 componentByte(const State& state){return state.target && state.component>=0?uint8(state.component):swgxr::jtl::NO_SUBSYSTEM;}
  static Json describeTarget(ShipObject* own,ShipObject* target,const State& state){
   Json row={{"id",std::to_string(target->getObjectID())},{"name",std::string(target->getDisplayedName().toCharArray())},{"position",point(target->getPosition())},{"aim_position",point(aimPoint(target,state.component))},{"component_slot",state.component},{"components",Json::array()},{"distance_m",own->getPosition().distanceTo(target->getPosition())},{"hostile",target->isAggressiveTo(own)},{"attackable",target->isShipAiAgent() && target->isAttackableBy(own)},{"radius",target->getBoundingRadius()}};
-  row["velocity"]=point(SpaceMath::matrixToVelocity(*target->getConjugateMatrix())*target->getCurrentSpeed());
+  row["dock_permitted"]=SwgxrDocking::permission(own,target);row["velocity"]=point(SpaceMath::matrixToVelocity(*target->getConjugateMatrix())*target->getCurrentSpeed());
   row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};
   row["shields"]={{"front",target->getFrontShield()},{"rear",target->getRearShield()},{"max_front",target->getMaxFrontShield()},{"max_rear",target->getMaxRearShield()}};
   for(int slot=0;slot<=Components::CAPITALSLOTMAX;++slot){

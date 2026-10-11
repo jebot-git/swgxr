@@ -1,0 +1,267 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/UndockCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/UndockCommand.h
+@@ -16,7 +16,10 @@
+ 
+ 	int doQueueCommand(CreatureObject* creature, const uint64& target, const UnicodeString& arguments) const {
+ 
+-		if (!checkStateMask(creature))
++		// The original client-only undock table rejects ordinary PEACE/chair states.
++		// Canceling a native docking task is permitted for its live pilot in any
++		// combat state; posture and ownership are still checked below.
++		if (!checkSpaceStates(creature))
+ 			return INVALIDSTATE;
+ 
+ 		if (!checkInvalidLocomotions(creature))
+@@ -24,7 +27,7 @@
+ 
+ 		auto ship = getPlayerShip(creature);
+ 
+-		if (ship == nullptr || !(ship->getOptionsBitmask() & OptionBitmask::DOCKING)) {
++		if (ship == nullptr || ship->getPilot() != creature || !(ship->getOptionsBitmask() & OptionBitmask::DOCKING)) {
+ 			return GENERALERROR;
+ 		}
+ 
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtl.h
+@@ -262,7 +262,7 @@
+    auto row=record(target);row["radius"]=target->getBoundingRadius();row["velocity"]=SwgxrJtlTargeting::point(SpaceMath::matrixToVelocity(*target->getConjugateMatrix())*target->getCurrentSpeed());row["station_comms"]=target->isSpaceStation() && target->asShipAiAgent()->getConversationTemplate()!=0;row["comm_in_range"]=s->checkInConversationRange(target);row["npc"]=target->isShipAiAgent();row["hostile"]=!yacht(s) && target->isAggressiveTo(s);row["speed_mps"]=target->getCurrentSpeed();row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};row["name"]=std::string(target->getDisplayedName().toCharArray());row["owner_id"]=std::to_string(target->getOwnerID());row["kind"]=target->isPobShip()?"pob":target->isMultiPassengerShip()?"multiseat":"fighter";bool eligible=true;try{boardingEligible(c,s,target);}catch(const std::exception&){eligible=false;}row["boarding_available"]=eligible;row["distance_m"]=s->getPosition().distanceTo(target->getPosition());row["boarding_reason"]=eligible?"":"Pilot a supported empty small craft and stop within 256 metres of a piloted POB";out["nearby_ships"].push_back(row);}}
+ 
+   auto row=record(s);row["zone"]=s->getZone()?s->getZone()->getZoneName().toCharArray():"";row["speed_mps"]=s->getCurrentSpeed();row["max_speed_mps"]=s->getActualMaxSpeed();row["kind"]=s->isPobShip()?"pob":s->isMultiPassengerShip()?"multiseat":"fighter";row["owner_id"]=std::to_string(s->getOwnerID());row["capacity"]=capacity(s);row["capacity_source"]=s->isPobShip()?"original_group_launch_limit":"original_seat_arrangements";row["crew"]=crew(s,c);row["station"]=aboard(c)?s->getPilot()==c?"pilot":s->isPobShip()?passengerSeated(c)?"passenger":"interior":"gunner":"ground";row["player_position"]=aboard(c)?s->isPobShip()?s->getPilot()==c?Json::array({-.76,.93,21.14}):point(c):Json::array({0,0,0}):point(c);auto cell=playerCell(c,s);row["cell_index"]=cell?cell->getCellNumber():0;row["cell_id"]=id(cell);row["velocity"]=motionState.state.velocity;row["angular_velocity"]=motionState.state.angular;row["power"]=motionState.power;row["control_sequence"]=motionState.state.sequence;row["walk_sequence"]=motionState.walkers[c->getObjectID()].sequence;row["item_limit"]=s->isPobShip()?s->asPobShip()->getMaximumNumberOfPlayerItems():0;row["item_count"]=s->isPobShip()?s->asPobShip()->getCurrentNumberOfPlayerItems():0;
+-  row["targeting"]=SwgxrJtlTargeting::snapshot(s,motionState.targeting,now());out["combat_events"]=SwgxrSpaceEvents::snapshot(s);row["capacitor"]={{"current",s->getCapacitorEnergy()},{"maximum",s->getCapacitorMaxEnergy()}};row["can_furnish"]=s->isPobShip() && s->asPobShip()->isOnAdminList(c);row["hyperspacing"]=s->isHyperspacing();row["hyperspace"]=SwgxrHyperspace::snapshot(s->getObjectID(),s->isHyperspacing());row["hyperspace_delay"]=s->getHyperspaceDelay();row["hull"]={{"current",s->getChassisCurrentHealth()},{"maximum",s->getChassisMaxHealth()}};row["combat_excluded"]=yacht(s);row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
++  row["docking"]=s->isShipDocking();row["targeting"]=SwgxrJtlTargeting::snapshot(s,motionState.targeting,now());out["combat_events"]=SwgxrSpaceEvents::snapshot(s);row["capacitor"]={{"current",s->getCapacitorEnergy()},{"maximum",s->getCapacitorMaxEnergy()}};row["can_furnish"]=s->isPobShip() && s->asPobShip()->isOnAdminList(c);row["hyperspacing"]=s->isHyperspacing();row["hyperspace"]=SwgxrHyperspace::snapshot(s->getObjectID(),s->isHyperspacing());row["hyperspace_delay"]=s->getHyperspaceDelay();row["hull"]={{"current",s->getChassisCurrentHealth()},{"maximum",s->getChassisMaxHealth()}};row["combat_excluded"]=yacht(s);row["shields"]={{"front",s->getFrontShield()},{"rear",s->getRearShield()},{"max_front",s->getMaxFrontShield()},{"max_rear",s->getMaxRearShield()}};row["cells"]=Json::array();row["decorations"]=Json::array();auto pob=s->asPobShip();
+   for(int i=0;pob && i<pob->getTotalCellNumber();++i){auto cell=pob->getCell(i);if(!cell)continue;row["cells"].push_back({{"id",id(cell)},{"index",cell->getCellNumber()},{"name",std::string("cell_")+std::to_string(i)}});for(int n=0;n<cell->getContainerObjectsSize() && row["decorations"].size()<400;++n){auto item=cell->getContainerObject(n);if(!item || item->isCreatureObject() || s->containsChildObject(item))continue;auto itemRow=record(item);itemRow["name"]=std::string(item->getDisplayedName().toCharArray());itemRow["cell_index"]=cell->getCellNumber();row["decorations"].push_back(itemRow);}}
+   auto chair=s->getPilotChair().get();auto pilot=s->getPilot();row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(chair)},{"cell_index",1},{"position",Json::array({-.76,.43,21.14})},{"occupied_by",id(pilot)}}});if(s->isPobShip())row["stations"].push_back({{"id","passenger"},{"object_id",id(passenger(s))},{"cell_index",1},{"position",Json::array({.75,.43,21.15})},{"occupied_by",passengerOccupant(s,c)}});if(!s->isPobShip())row["stations"]=Json::array({{{"id","pilot"},{"object_id",id(pilot)},{"cell_index",0},{"position",Json::array({0,0,0})},{"occupied_by",id(pilot)}}});row["commands"]=Json::array();
+   for(auto cmd:{"shield_front","shield_rear","shield_balance","power_engines","power_balanced"})row["commands"].push_back({{"id",cmd},{"label",cmd},{"available",aboard(c) && pilot==c},{"reason",pilot==c?"":"Pilot station required"}});
+@@ -309,7 +309,8 @@
+    else {
+     uint64 target=action=="undock"?0:oid(r,"target_id");if(action!="undock" && target!=m.targeting.target)throw std::runtime_error("jtl_target_changed");
+     auto q=c->getZoneServer()->getObjectController()->getQueueCommand(String(action.c_str()));
+-    if(!q || q->doQueueCommand(c,target,UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("jtl_native_target_action_rejected");
++    if(!q)throw std::runtime_error("jtl_native_target_command_missing_"+action);
++    int status=q->doQueueCommand(c,target,UnicodeString());if(status!=QueueCommand::SUCCESS)throw std::runtime_error("jtl_native_target_action_rejected_"+action+"_"+std::to_string(status));
+    }
+   }else if(action=="control"){
+    if(s->isHyperspacing())throw std::runtime_error("jtl_hyperspace_in_progress");
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtlTargeting.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrJtlTargeting.h
+@@ -1,5 +1,6 @@
+ #pragma once
+ #include "TargetingPolicy.h"
++#include "SwgxrDocking.h"
+ #include "server/zone/managers/spacecombat/projectile/ShipMissile.h"
+ #include "server/zone/objects/ship/transform/SpaceMath.h"
+ // Per-pilot ephemeral selection. Core3 remains authoritative for components,
+@@ -87,7 +88,7 @@
+  static uint8 componentByte(const State& state){return state.target && state.component>=0?uint8(state.component):swgxr::jtl::NO_SUBSYSTEM;}
+  static Json describeTarget(ShipObject* own,ShipObject* target,const State& state){
+   Json row={{"id",std::to_string(target->getObjectID())},{"name",std::string(target->getDisplayedName().toCharArray())},{"position",point(target->getPosition())},{"aim_position",point(aimPoint(target,state.component))},{"component_slot",state.component},{"components",Json::array()},{"distance_m",own->getPosition().distanceTo(target->getPosition())},{"hostile",target->isAggressiveTo(own)},{"attackable",target->isShipAiAgent() && target->isAttackableBy(own)},{"radius",target->getBoundingRadius()}};
+-  row["velocity"]=point(SpaceMath::matrixToVelocity(*target->getConjugateMatrix())*target->getCurrentSpeed());
++  row["dock_permitted"]=SwgxrDocking::permission(own,target);row["velocity"]=point(SpaceMath::matrixToVelocity(*target->getConjugateMatrix())*target->getCurrentSpeed());
+   row["hull"]={{"current",target->getChassisCurrentHealth()},{"maximum",target->getChassisMaxHealth()}};
+   row["shields"]={{"front",target->getFrontShield()},{"rear",target->getRearShield()},{"max_front",target->getMaxFrontShield()},{"max_rear",target->getMaxRearShield()}};
+   for(int slot=0;slot<=Components::CAPITALSLOTMAX;++slot){
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrDocking.h
+@@ -0,0 +1,28 @@
++#pragma once
++#include "server/zone/objects/player/PlayerObject.h"
++#include "server/zone/objects/ship/ai/ShipAiAgent.h"
++
++// Granted only by an original mission's docking stage, scoped to pilot + NPC.
++// Journal state is rechecked on entry, during docking, and before quest credit.
++class SwgxrDocking {
++public:
++ static bool missionPermission(ShipObject* ship, ShipObject* target) {
++  if(!ship || !target || ship==target || !ship->getZone() || ship->getZone()!=target->getZone() ||
++     !ship->isShipLaunched() || ship->isShipDestroyed() || ship->isShipDisabled() || ship->isHyperspacing() ||
++     !target->isShipLaunched() || !target->isShipAiAgent() || target->isShipDestroyed() || target->isHyperspacing())return false;
++  auto pilot=ship->getPilot();
++  if(!pilot || !pilot->isPlayerCreature())return false;
++  auto ghost=pilot->getPlayerObject();if(!ghost)return false;
++  auto owner=target->asShipAiAgent()->getMissionOwnerID();
++  if(owner && owner!=pilot->getObjectID())return false;
++  auto quest=ghost->getScreenPlayData("swgxr_docking",String::valueOf(target->getObjectID()));
++  if(!quest.beginsWith("spacequest/inspect/") && !quest.beginsWith("spacequest/rescue/") && !quest.beginsWith("spacequest/rescue_duty/"))return false;
++  auto crc=quest.hashCode();
++  return ghost->isJournalQuestActive(crc) && ghost->isJournalQuestTaskActive(crc,2) && !ghost->isJournalQuestTaskComplete(crc,2);
++ }
++ static bool permission(ShipObject* ship,ShipObject* target) {
++  if(missionPermission(ship,target))return true;
++  auto pilot=ship?ship->getPilot():nullptr;auto ghost=pilot?pilot->getPlayerObject():nullptr;
++  return ghost && ghost->hasGodMode() && target && ship!=target && ship->getZone()==target->getZone();
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/DockCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/DockCommand.h
+@@ -6,6 +6,7 @@
+ #define DOCK_H_
+ 
+ #include "SpaceQueueCommand.h"
++#include "SwgxrDocking.h"
+ #include "server/zone/objects/ship/events/ShipDockingTask.h"
+ 
+ class DockCommand : public SpaceQueueCommand {
+@@ -29,7 +30,7 @@
+ 
+ 		auto ship = getPlayerShip(creature);
+ 
+-		if (ship == nullptr) {
++		if (ship == nullptr || ship->getPilot() != creature) {
+ 			return GENERALERROR;
+ 		}
+ 
+@@ -60,12 +61,12 @@
+ 			return GENERALERROR;
+ 		}
+ 
++		Locker tLock(targetShip, creature);
+ 		if (!getDockingPermission(ship, targetShip)) {
+ 			creature->sendSystemMessage("@space/cargo:dock_cannot");
+ 			return GENERALERROR;
+ 		}
+ 
+-		Locker tLock(targetShip, creature);
+ 		auto task = new ShipDockingTask(ship, targetShip);
+ 
+ 		if (task != nullptr) {
+@@ -78,26 +79,14 @@
+ 
+ private:
+ 	bool getDockingPermission(ShipObject* ship, ShipObject* target) const {
+-		if (!ShipDockingTask::isShipValid(ship) || !ShipDockingTask::isTargetValid(target)) {
+-			return false;
+-		}
+-
+-		auto pilot = ship->getPilot();
+-
+-		if (pilot == nullptr || !pilot->isPlayerCreature()) {
+-			return false;
+-		}
+-
+-		auto ghost = pilot->getPlayerObject();
+-
+-		if (ghost != nullptr && ghost->hasGodMode()) { // for testing
+-			return true;
+-		}
+-
+-		return false; // target->getDockingPermission(ship);
++		if (!ShipDockingTask::isShipValid(ship) || !target || !target->isShipLaunched() ||
++		    target->isHyperspacing() || target->isShipDestroyed()) return false;
++		return SwgxrDocking::missionPermission(ship,target) ||
++		       (ShipDockingTask::isTargetValid(target) && SwgxrDocking::permission(ship,target));
+ 	}
+ 
+ 	void setDocking(ShipObject* ship, ShipObject* target) const {
++		target->setCurrentSpeed(0);
+ 		ship->clearOptionBit(OptionBitmask::WINGS_OPEN, true);
+ 		target->clearOptionBit(OptionBitmask::WINGS_OPEN, true);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/ship/events/ShipDockingTask.cpp
++++ b/MMOCoreORB/src/server/zone/objects/ship/events/ShipDockingTask.cpp
+@@ -1,16 +1,19 @@
+ #include "ShipDockingTask.h"
++#include "server/zone/objects/creature/commands/SwgxrDocking.h"
+ 
+ void ShipDockingTask::run() {
+ 	auto ship = shipRef.get();
+ 	auto target = targetRef.get();
+ 
+-	if (getTimeElapsed() >= DURATION_MAX || !isShipValid(ship) || !isTargetValid(target) || !isDocking(ship) || !isDocking(target)) {
+-		clearDockingState(ship, target);
+-		return;
+-	}
+-
++	if (!ship || !target) { clearDockingState(ship,target); return; }
+ 	Locker sLock(ship);
+ 	Locker tLock(target, ship);
++
++	if (getTimeElapsed() >= DURATION_MAX || !isShipValid(ship) || !isTargetValid(target) || !isDocking(ship) || !isDocking(target) || !SwgxrDocking::permission(ship,target)) {
++		info(true) << "Dock canceled: stage=" << dockingStage << " shipValid=" << isShipValid(ship) << " targetValid=" << isTargetValid(target) << " shipDock=" << isDocking(ship) << " targetDock=" << isDocking(target) << " permission=" << SwgxrDocking::permission(ship,target) << " targetSpeed=" << target->getCurrentSpeed();
++		clearDockingState(ship, target);
++		return;
++	}
+ 
+ 	switch (dockingStage) {
+ 		case DockingStage::INITIALIZE: {
+@@ -33,6 +36,7 @@
+ 	setDockingTransform(ship, target);
+ 
+ 	if (!checkLineOfSight(ship, target)) {
++		info(true) << "Dock canceled: original approach crosses target geometry";
+ 		sendSystemMessage(ship, "@client:autopilot_obstacle");
+ 		sendSystemMessage(ship, "@space/cargo:dock_abort");
+ 		clearDockingState(ship, target);
+@@ -73,6 +77,7 @@
+ }
+ 
+ void ShipDockingTask::finalizeDocking(ShipObject* ship, ShipObject* target) {
++	if (!interlockStatus) { clearDockingState(ship,target); return; }
+ 	sendSystemMessage(ship, "@space/cargo:dock_complete");
+ 	sendEffectMessage(ship, "clienteffect/ship_dock_repair_02.cef");
+ 
+@@ -83,8 +88,9 @@
+ void ShipDockingTask::notifyObservers(ShipObject* ship, ShipObject* target) {
+ 	Reference<CreatureObject*> pilotRef = ship->getPilot();
+ 	Reference<ShipObject*> targetRef = target;
+-
+-	Core::getTaskManager()->scheduleTask([pilotRef, targetRef] () {
++	Reference<ShipObject*> dockShip = ship;
++
++	Core::getTaskManager()->scheduleTask([pilotRef, targetRef, dockShip] () {
+ 		if (pilotRef == nullptr || targetRef == nullptr) {
+ 			return;
+ 		}
+@@ -92,6 +98,7 @@
+ 		Locker lock(pilotRef);
+ 		Locker clocker(targetRef, pilotRef);
+ 
++		if (dockShip->getPilot()!=pilotRef || pilotRef->getRootParent()!=dockShip || !SwgxrDocking::permission(dockShip,targetRef)) return;
+ 		pilotRef->notifyObservers(ObserverEventType::SHIPDOCKED, targetRef, targetRef->getCargoString().hashCode());
+ 	}, "notifyDockedShipLambda", 200);
+ 
+--- a/MMOCoreORB/src/server/zone/objects/ship/ai/ShipAiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/ship/ai/ShipAiAgentImplementation.cpp
+@@ -1185,6 +1185,7 @@
+ }
+ 
+ void ShipAiAgentImplementation::updateTransform(bool lightUpdate) {
++	if (isShipDocking()) { setCurrentSpeed(0); return; }
+ 	bool notifyClient = numberOfPlayersInRange >= 1;
+ 
+ 	if (lightUpdate && !notifyClient) {
+--- a/MMOCoreORB/bin/scripts/screenplays/space/SpaceInspectScreenplay.lua
++++ b/MMOCoreORB/bin/scripts/screenplays/space/SpaceInspectScreenplay.lua
+@@ -310,6 +310,7 @@
+ end
+ 
+ function SpaceInspectScreenplay:inspectedShip(pPlayer, pTargetShip, cargoHash)
++	if (not SpaceHelpers:isSpaceQuestTaskActive(pPlayer, self.questType, self.questName, 1) and not SpaceHelpers:isSpaceQuestTaskActive(pPlayer, self.questType, self.questName, 2)) then return 0 end
+ 	if (pPlayer == nil or pTargetShip == nil) then
+ 		return 1
+ 	end
+@@ -327,6 +328,7 @@
+ 
+ 	-- Activate the quest task 2
+ 	SpaceHelpers:activateSpaceQuestTask(pPlayer, self.questType, self.questName, 2, true)
++	writeScreenPlayData(pPlayer, "swgxr_docking", tostring(SceneObject(pTargetShip):getObjectID()), "spacequest/" .. self.questType .. "/" .. self.questName)
+ 
+ 	SpaceHelpers:sendQuestUpdate(pPlayer, "@space/quest:inspect_found_cargo") -- "\\#00ff00 This is the cargo you're looking for. Use the '/dock' command to retrieve it! \\#pcontrast3"
+ 
+@@ -339,6 +341,7 @@
+ end
+ 
+ function SpaceInspectScreenplay:dockedShip(pPlayer, pTargetShip, cargoHash)
++	if (not SpaceHelpers:isSpaceQuestTaskActive(pPlayer, self.questType, self.questName, 2)) then return 0 end
+ 	if (pPlayer == nil or pTargetShip == nil) then
+ 		return 1
+ 	end
+--- a/MMOCoreORB/bin/scripts/screenplays/space/SpaceRescueScreenplay.lua
++++ b/MMOCoreORB/bin/scripts/screenplays/space/SpaceRescueScreenplay.lua
+@@ -380,6 +380,7 @@
+ 
+ 	-- Activate dock task
+ 	SpaceHelpers:activateSpaceQuestTask(pPlayer, self.questType, self.questName, 2, true)
++	writeScreenPlayData(pPlayer, "swgxr_docking", tostring(SceneObject(pRescueShip):getObjectID()), "spacequest/" .. self.questType .. "/" .. self.questName)
+ end
+ 
+ --[[

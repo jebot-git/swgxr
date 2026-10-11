@@ -35,7 +35,6 @@ var trigger_ready:=false
 var fire_armed:=false
 var recover_ready:=false
 var needs_reconcile:=false
-var control_handles:Node3D
 var portal_view:Node
 var lobby_open:=false
 var cancel_lobby:=false
@@ -54,9 +53,6 @@ func setup(host:Node,prefs:RefCounted)->void:
 	target_hud=preload("res://space/targeting_hud.gd").new();add_child(target_hud)
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
 	readout=Label3D.new();readout.font=preload("res://resources/fonts/Jupiteroid-Regular.ttf");readout.font_size=22;readout.pixel_size=.0007;readout.billboard=BaseMaterial3D.BILLBOARD_ENABLED;add_child(readout);readout.hide()
-	control_handles=Node3D.new();add_child(control_handles);control_handles.hide()
-	for offset in [Vector3(.28,.60,-.32),Vector3(-.28,.60,-.32)]:
-		var handle:=MeshInstance3D.new();var mesh:=CylinderMesh.new();mesh.top_radius=.022;mesh.bottom_radius=.022;mesh.height=.13;handle.mesh=mesh;handle.position=offset;control_handles.add_child(handle)
 	station_pointer=preload("res://scripts/finger_pointer_visual.gd").new();add_child(station_pointer)
 	app.player.space=self
 	app.datapad.ui.ship_action_requested.connect(datapad_action)
@@ -256,7 +252,7 @@ func leave_scene()->void:
 		if app.stage.interior_cells_changed.is_connected(app.portal_visibility.refresh_instances):app.stage.interior_cells_changed.disconnect(app.portal_visibility.refresh_instances)
 		app.portal_visibility.configure(app.stage,app.player.get_camera(),app.xr_spectator.camera if is_instance_valid(app.xr_spectator) and app.xr_spectator.enabled else null)
 	scene.queue_free();scene=null;ground={};station="ground";inputs.reset();app.player._update_locomotion()
-	readout.hide();target_hud.hide();control_handles.hide();wheel.close()
+	readout.hide();target_hud.hide();wheel.close()
 	if is_instance_valid(app.datapad):app.datapad.ui.set_skill_forgetting_available(true)
 	if is_instance_valid(app.services):app.services.poll_clock=0
 func refresh_datapad()->void:
@@ -523,14 +519,11 @@ func show_station_targets(permitted:bool)->void:
 		label.text=("Take pilot seat" if id=="pilot" else "Take passenger seat")+"\nAim · Trigger";label.show()
 func hotas_pose()->Transform3D:
 	var pose:=pilot_pose()
-	pose.origin.y=seat_eye_height-1.05 # Handles are .60m above this frame, .45m below the seated eyes.
 	pose.basis=scene.stage.global_basis.orthonormalized()
 	return pose
-func hand_busy(side:String)->bool:
-	if not seated() or station!="pilot" or preferences.mode!="virtual_hotas":return false
-	var hand:XRController3D=app.xr_origin.get_node(side.capitalize()+"Hand")
-	var anchor:=Vector3(-.28 if side=="left" else .28,.60,-.32)
-	return (inputs.throttle_held if side=="left" else inputs.stick_held) or (hotas_pose().affine_inverse()*hand.global_position).distance_to(anchor)<preferences.grip_radius
+func hand_busy(_side:String)->bool:
+	# Pose flight never reserves grip buttons or thumbsticks.
+	return false
 func flight_inventory_busy()->bool:
 	var bag:Node3D=app.inventory
 	return is_instance_valid(bag) and (bag.is_open or not bag.held_item.is_empty() or not bag.equipment_drag.is_empty() or bag.hologram.active or bag.action_pending)
@@ -541,7 +534,7 @@ func controls(delta:float)->Dictionary:
 	var flight_ready:bool=bool(app.player.combat_tracking_context().tracked) and (bool(hardware.get("available",false)) if preferences.mode=="physical_hotas" else tracked)
 	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or (is_instance_valid(app.services) and app.services.blocks_combat()) or age>3:
 		inputs.reset();fire_armed=false;var neutral:Dictionary=inputs.neutral();neutral.targeting_active=flight_ready and app.xr_focused and not app.menu.visible and age<=3;return neutral
-	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,hardware)
+	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,hardware,app.player.dominant_hand)
 	var main:XRController3D=right if app.player.dominant_hand=="right" else left
 	var firing:bool=main.get_float("trigger")>.65
 	if preferences.mode=="physical_hotas":firing=preferences.physical_fire()
@@ -571,6 +564,7 @@ func _process(delta:float)->void:
 	else:target_hud.hide()
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
+	if ship.get("docking",false):readout.text+="\nDocking · Undock in Ship commands to cancel"
 	if ship.get("hyperspacing",false):
 		var jump:Dictionary=ship.get("hyperspace",{})
 		readout.text+="\nHyperspace · "+str(jump.get("phase","calculating")).capitalize()+(" · %d"%int(jump.countdown) if int(jump.get("countdown",0))>0 else "")
@@ -579,11 +573,12 @@ func _process(delta:float)->void:
 		readout.text+="\nHull %.0f / %.0f · Shields %.0f / %.0f · Capacitor %.0f"%[float(hull.get("current",0)),float(hull.get("maximum",0)),float(shields.get("front",0)),float(shields.get("rear",0)),float(capacitor.get("current",0))]
 	if not state.get("boarding",{}).get("incoming",[]).is_empty():readout.text+="\nBoarding request · open commands to allow or decline"
 	elif not state.get("boarding",{}).get("pending",{}).is_empty():readout.text+="\nAwaiting the other pilot’s boarding consent"
-	control_handles.visible=seated() and station=="pilot" and preferences.mode=="virtual_hotas";control_handles.global_transform=hotas_pose()
 	if ship.get("quaternion") is Array and ship.quaternion.size()==4:
 		if stars!=scene.exterior.sky:stars=scene.exterior.sky;view_environment.sky.sky_material=stars
 		stars.set_shader_parameter("ship_rotation",scene.visual_ship_pose.basis)
 	var output:=controls(delta) if seated() and station=="pilot" else inputs.neutral()
+	if seated() and station=="pilot" and preferences.mode=="virtual_hotas":
+		readout.text+="\nSteering · "+("engaged" if inputs.stick_held else "hold main hand upright")+" · Throttle · "+("engaged" if inputs.throttle_held else "hold off hand sideways")
 	if seated() and station=="pilot":readout.text+="\nThrottle %d%% · Engine limit %.0f m/s"%[roundi(float(output.throttle)*100),float(ship.get("max_speed_mps",0))]
 	if seated():
 		app.xr_origin.global_transform=seat_origin;app.player.velocity=Vector3.ZERO
@@ -692,7 +687,10 @@ func open_target_menu()->void:
 	for entry in [["look","Select looked-at ship"],["next","Next hostile ship"],["previous","Previous hostile ship"],["clear","Clear target"]]:rows.append({"id":"target_action:"+entry[0],"label":entry[1],"available":true})
 	rows.append({"id":"target_subsystems","label":"Choose subsystem","available":selected})
 	rows.append({"id":"target_missiles","label":"Missile launcher · fire","available":true})
-	for action in ["inspect","dock","undock"]:rows.append({"id":"target_action:"+action,"label":action.capitalize(),"available":selected or action=="undock"})
+	for action in ["inspect","dock","undock"]:
+		var available:bool=bool(ship.get("docking",false)) if action=="undock" else selected and not ship.get("docking",false)
+		if action=="dock":available=available and bool(target.get("target",{}).get("dock_permitted",false))
+		rows.append({"id":"target_action:"+action,"label":action.capitalize(),"available":available,"reason":"An active docking objective for this ship is required"})
 	rows.append({"id":"back","label":"Back","available":true});wheel.open(app.player.get_camera().global_transform,rows)
 func open_subsystems(page:int=0)->void:
 	var data:Dictionary=ship.get("targeting",{});var target_id:=str(data.get("target_id","0"))

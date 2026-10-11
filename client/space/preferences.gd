@@ -8,7 +8,6 @@ var axes:Dictionary={"pitch":1,"yaw":2,"roll":0,"throttle":3}
 var inverted:Dictionary={"pitch":false,"yaw":false,"roll":false,"throttle":false}
 var buttons:Dictionary={"primary":0,"look":1,"next":2,"previous":3,"component":4,"fire":5}
 var deadzone:=.12
-var grip_radius:=.22
 func load_preferences()->void:
 	var cfg:=ConfigFile.new()
 	if cfg.load(path)!=OK:return

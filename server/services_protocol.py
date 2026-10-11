@@ -25,7 +25,7 @@ except ImportError:
  from datapad_protocol import display,template_label
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
-ACTIONS=('container_transfer','status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
+ACTIONS=('junk_sell','container_transfer','status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
 ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_ammo_load','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
 ACTIONS+=MAIL_ACTIONS
 MUTATIONS=set(ACTIONS)-MAIL_READS-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
@@ -55,6 +55,7 @@ def command(action,data):
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
   out.update(building_id=v,cell_index=ci)
  required={
+  'junk_sell':('terminal_id',),
   'bank_quote':('terminal_id',),'bank_pay':('terminal_id',),
   'container_transfer':('terminal_id','container_id','item_id'),
   'ship_manage':('terminal_id','ship_id'),'ship_ammo_load':('terminal_id','ship_id','component_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
@@ -71,6 +72,16 @@ def command(action,data):
   v=data.get(k)
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+k)
   out[k]=v
+ if action=='junk_sell':
+  items=data.get('items')
+  if not isinstance(items,list) or not 1<=len(items)<=100:raise ValueError('Select the reviewed junk items to sell.')
+  clean=[];seen=set()
+  for item in items:
+   if not isinstance(item,dict):raise ValueError('Invalid junk quote.')
+   key=item.get('item_id');price=item.get('price')
+   if not isinstance(key,str) or not key.isascii() or not key.isdigit() or not 0<int(key)<2**64 or key in seen or type(price) is not int or not 1<=price<=2000000000:raise ValueError('Invalid junk item or price.')
+   seen.add(key);clean.append({'item_id':key,'price':price})
+  out['items']=clean
  if action=='container_transfer' or (action=='open' and 'container_id' in data):
   for field in (('container_id','destination_id') if action=='container_transfer' and data.get('direction')=='take' else ('container_id',)):
    v=data.get(field)
@@ -216,6 +227,9 @@ def snapshot(raw,oid,attributes=None):
   if terminal.get('kind') in ('pilot_trainer','herald'):
    terminal['dialogue']=label(terminal.get('dialogue',''))
    for option in terminal.get('options',[]):option['name']=label(option.get('name',''))
+  if terminal.get('kind')=='junk_dealer':
+   for option in terminal.get('options',[]):
+    option['name']=(f"Sell all {option['count']} eligible items" if option.get('all') else 'Sell '+label(option.get('item_name','item')))+f" · {option['price']} credits"
   if terminal.get('kind') in ('ship_outfit','chassis_dealer'):
    for option in terminal.get('options',[]):
     item=label(option.get('item_name',''));operation=option.get('operation','')

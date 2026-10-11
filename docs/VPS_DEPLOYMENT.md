@@ -1075,3 +1075,33 @@ and the dummy renderer, not native Windows or OpenXR hardware.
 Evidence: `runtime/deploy/stability-live-20261011/complete.json` and
 `runtime/releases/test17-20261011/{VALIDATION,LOCAL_INSTALL,PATCH_VALIDATION}.json`.
 Damage balancing and prolonged combat remain future testing work.
+
+
+## Interaction fixes / test.18 — 2026-10-11
+
+Released `v2026.10.11-test.18` from
+`8338c658ea4d2de27b07151786f8286533630f4a`. The live VPS received the
+missing junk-sale and ship-ammunition gateway routes. The old gateway file
+and service state were backed up to
+`runtime/deploy/interactions-test18-20261011/backup`; only the gateway restarted.
+CoreCU retained its process and start time, with zero native restarts. Adapter,
+voice and the daily restart timer remain active. Player databases were untouched.
+Native readiness and certificate-verified public route/auth checks passed.
+
+Linux and Windows client packages include independent-hand/shoveling forage
+recognition, retained underlying recovery errors, and eight retained sessions
+of engine/exit/request diagnostics. Both packages passed headless preflight;
+Windows was checked through Wine. The local Downloads client was stopped,
+updated using the 20,074,427-byte Linux delta, and checked with its installed
+assets using the dummy renderer. Assets and settings were preserved; rollback
+files are under `.updates/backup-v2026.10.11-test.18`. The client remains closed.
+
+Ten verified incremental bundles support test.13–17 across both platforms;
+the Windows test.17 delta is 19,933,592 bytes. Uploaded GitHub asset hashes match
+local files, and the actual launcher discovery selects test.18 and its patch
+bundles. Full clients remain available as a fallback. No original game media
+is included. This release does not claim to fix the initiating harvest-related
+disconnect: native live-session harvesting passed locally, but that reported
+connection loss remains unconfirmed. Evidence is under
+`runtime/releases/test18-20261011/` and
+`runtime/deploy/interactions-test18-20261011/`.

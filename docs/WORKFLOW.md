@@ -1975,3 +1975,8 @@ No tutorial video or proprietary media is added to the public repository.
   to assert node removal instead of indexing the removed coin. No headset
   launch, deployment or release was performed for these changes. Private
   evidence: `runtime/evidence/harvest-junk-forage/`.
+
+
+The prepared interaction fixes above were subsequently deployed and released as
+`v2026.10.11-test.18` at the user's request. See `VPS_DEPLOYMENT.md` for the
+gateway-only restart, verified incremental clients and local closed-client update.

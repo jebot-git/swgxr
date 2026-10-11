@@ -56,7 +56,7 @@ Create a new account in the sign-in panel, then create/select a character. Invit
 
 ## Troubleshooting and test status
 
-The next client patch keeps the latest eight play sessions under `runtime/client/logs`: engine output, launcher exit status, and the last 256 request timings/errors. Request diagnostics omit request bodies, account credentials and query strings. Include these files when reporting a disconnect.
+Client test.18 and later keep the latest eight play sessions under `runtime/client/logs`: engine output, launcher exit status, and the last 256 request timings/errors. Request diagnostics omit request bodies, account credentials and query strings. Include these files when reporting a disconnect.
 
 Test.5 fixes microphone activation being disabled in the client project. Voice still starts muted; select your microphone in Settings, join an available voice channel, and select push-to-talk or voice activation. Failed activation can retry, and its message clears after capture succeeds. If opening still fails, check the selected device and operating-system microphone permissions.
 

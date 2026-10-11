@@ -1,0 +1,265 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -5,6 +5,7 @@
+ #include "SwgxrPlayerSummary.h"
+ #include "SwgxrInventory.h"
+ #include "SwgxrContainers.h"
++#include "SwgxrMail.h"
+ #include "SwgxrFishing.h"
+ #include "SwgxrHousing.h"
+ #include "SwgxrTrainers.h"
+@@ -77,6 +78,7 @@
+  static Json snapshot(CreatureObject* c,const Json& r){
+   String customization;c->getCustomizationString(customization);std::string hex;static const char* digits="0123456789abcdef";for(int i=0;i<customization.length();++i){unsigned char b=customization[i];hex+=digits[b>>4];hex+=digits[b&15];}
+   Json out={{"backend","core3"},{"source_kind","core3_services"},{"zone",SwgxrPlanets::name(c)},{"character_id",id(c)},{"wallet",{{"cash",c->getCashCredits()},{"bank",c->getBankCredits()}}},{"player",location(c)},{"terminals",Json::array()},{"terminal",Json::object()},{"missions",missions(c,true)}};
++  out["mail"]=SwgxrMail::snapshot(c,r);if(r.value("action",std::string()).rfind("probe_",0)==0)out["survey_probes"]=SwgxrMail::probeState(c);
+   out["bounty"]=SwgxrBounty::snapshot(c);out["slicing"]=SwgxrSlicing::snapshot(c);out["underworld"]=SwgxrUnderworld::snapshot(c);out["gcw"]=SwgxrGcw::state(c);SwgxrSmugglerWallet::snapshot(c,out["wallet"]);
+   out["player"]["voice"]={{"group_id",std::to_string(c->getGroupID())},{"faction",c->isRebel()?"rebel":c->isImperial()?"imperial":"neutral"},{"zone_id",id(c->getZone())}};
+   SwgxrDelivery::snapshot(c,out);SwgxrVendorPlacement::snapshot(c,out);for(auto& row:out["placed_vendors"]){auto v=c->getZoneServer()->getObject(std::stoull(row["id"].get<std::string>()));if(row["owner_id"]==id(c))row["customization_controls"]=SwgxrVendorCommerce::controls(v);}
+@@ -93,14 +95,26 @@
+    out["terminal"]=view;
+   }return out;
+  }
++ static Json mailEnvelope(CreatureObject* c,const Json& r){
++  auto action=r.at("action").get<std::string>();auto ghost=c->getPlayerObject();bool mutation=action!="mail_status" && action!="mail_list";
++  Json receipts=Json::array(),result={{"success",true},{"operation",action}};auto saved=ghost->getScreenPlayData("swgxr_mail","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());bool replay=false;
++  if(mutation){auto key=r.at("request_id").get<std::string>();if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=r)throw std::runtime_error("request_id_reused");result=entry["mutation"];result["replayed"]=true;replay=true;break;}}
++  if(!replay){auto changed=SwgxrMail::run(c,r);for(auto& item:changed.items())result[item.key()]=item.value();if(mutation){receipts.push_back({{"id",r.at("request_id")},{"request",r},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_mail","receipts",String(receipts.dump().c_str()));ghost->updateToDatabase();}}
++  return {{"backend","core3"},{"source_kind","core3_services"},{"character_id",id(c)},{"zone",str(c->getZone()->getZoneName())},{"player",location(c)},{"mail",SwgxrMail::snapshot(c,r)},{"mutation",result}};
++ }
+  static Json run(CreatureObject* c,const Json& r){
++  if(r.value("action",std::string()).rfind("mail_",0)==0)return mailEnvelope(c,r);
+   if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
+   if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+-  SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="slicing_status" && action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+-  Json receiptRequest=r;if(action=="container_transfer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("bounty_",0)==0)for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());if(action.rfind("ship_",0)==0 || action.rfind("pilot_",0)==0 || action.rfind("herald_",0)==0 || action=="container_transfer"){try{out=snapshot(c,r);}catch(const std::exception&){}}out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+-  move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && action!="slicing_status" && action!="slicing_cancel" && (c->isDead() || c->isIncapacitated() || c->hasBuff(STRING_HASHCODE("private_feign_buff")) || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+-  if(action.rfind("slicing_",0)==0){auto changed=SwgxrSlicing::run(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
++  SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="mail_status" && action!="mail_list" && action!="probe_status" && action!="bank_quote" && action!="slicing_status" && action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
++  Json receiptRequest=r;if(action.rfind("mail_",0)==0 || action=="bank_pay" || action=="probe_launch")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="container_transfer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("bounty_",0)==0)for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());if(action.rfind("ship_",0)==0 || action.rfind("pilot_",0)==0 || action.rfind("herald_",0)==0 || action=="container_transfer"){try{out=snapshot(c,r);}catch(const std::exception&){}}out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="probe_launch" || action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
++  move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="mail_status" && action!="mail_list" && action!="mail_read" && action!="probe_status" && action!="status" && action!="slicing_status" && action!="slicing_cancel" && (c->isDead() || c->isIncapacitated() || c->hasBuff(STRING_HASHCODE("private_feign_buff")) || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
++  if(action.rfind("mail_",0)==0){auto changed=SwgxrMail::run(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
++  else if(action=="probe_status"){}
++  else if(action=="probe_launch"){auto changed=SwgxrMail::launch(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
++  else if(action=="bank_quote" || action=="bank_pay"){nearby(c,r,"bank");auto changed=SwgxrMail::bank(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
++  else if(action.rfind("slicing_",0)==0){auto changed=SwgxrSlicing::run(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
+   else if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="container")SwgxrContainers::open(c,t,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
+   else if(action=="container_transfer"){SwgxrContainers::transfer(c,nearby(c,r,"container"),r);}
+   else if(action=="ship_manage" || action=="ship_component_install" || action=="ship_component_remove" || action=="ship_chassis_redeem" || action=="ship_register"){SwgxrShipServices::run(c,nearby(c,r),r);}
+@@ -126,7 +140,7 @@
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || (!SwgxrPlanets::supported(ticket->getArrivalPlanet()) || c->getZoneServer()->getZone(ticket->getArrivalPlanet())==nullptr))throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+   if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="probe_launch" || action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrMail.h
+@@ -0,0 +1,93 @@
++#ifndef SWGXR_MAIL_H
++#define SWGXR_MAIL_H
++#include "server/chat/ChatManager.h"
++#include "server/chat/PersistentMessage.h"
++#include "server/zone/objects/tangible/component/Component.h"
++#include "server/zone/objects/tangible/tool/SurveyTool.h"
++#include "server/zone/managers/resource/InterplanetarySurvey.h"
++#include "server/zone/managers/resource/InterplanetarySurveyTask.h"
++#include "server/zone/objects/player/sui/callbacks/TipCommandSuiCallback.h"
++class SwgxrMail {
++ using Json=JSONSerializationType;
++ static std::string text(const String& s){return s.toCharArray();}
++ static uint64 oid(const Json& r,const char* key){return std::stoull(r.at(key).get<std::string>());}
++ static ManagedReference<PersistentMessage*> owned(CreatureObject* c,const Json& r){
++  auto id=oid(r,"mail_id");auto ghost=c->getPlayerObject();ghost->checkPendingMessages();
++  if(!ghost->getPersistentMessages()->contains(id))throw std::runtime_error("owned_mail_required");
++  auto mail=Core::getObjectBroker()->lookUp(id).castTo<PersistentMessage*>();
++  if(mail==nullptr || mail->getReceiverObjectID()!=c->getObjectID())throw std::runtime_error("owned_mail_required");return mail;
++ }
++ static bool carried(CreatureObject* c,SceneObject* o){
++  if(o==nullptr)return false;auto inv=c->getInventory();auto p=o->getParent().get();
++  for(int depth=0;p!=nullptr && depth<10;++depth){if(p==inv)return true;if(p->getParentID()==c->getObjectID() && p->isContainerObject())return true;p=p->getParent().get();}return false;
++ }
++ static void scan(CreatureObject* c,SceneObject* bag,Json& probes,Json& tools,int depth=0){
++  if(bag==nullptr || depth>8)return;
++  for(int i=0;i<bag->getContainerObjectsSize();++i){auto o=bag->getContainerObject(i);auto survey=o.castTo<SurveyTool*>();
++   if(survey!=nullptr && tools.size()<128)tools.push_back({{"id",std::to_string(o->getObjectID())},{"name",text(o->getDisplayedName())},{"type",text(survey->getSurveyType())}});
++   if(probe(o) && probes.size()<128){auto component=cast<Component*>(o.get());float q=component->getAttributeValue("mechanism_quality");probes.push_back({{"id",std::to_string(o->getObjectID())},{"name",text(o->getDisplayedName())},{"duration_seconds",duration(q)}});}
++   if(o->isContainerObject())scan(c,o,probes,tools,depth+1);
++  }
++ }
++ static int duration(float quality){if(!std::isfinite(quality))throw std::runtime_error("invalid_probe_quality");return std::max(1,int(3600-27*std::max(0.f,std::min(100.f,quality))));}
++public:
++ static bool probe(SceneObject* o){return o!=nullptr && o->getObjectTemplate()!=nullptr && o->getObjectTemplate()->getFullTemplateString()=="object/tangible/component/droid/droid_interplanetary_survey.iff" && dynamic_cast<Component*>(o)!=nullptr;}
++ static Json snapshot(CreatureObject* c,const Json& r){
++  auto ghost=c->getPlayerObject();ghost->checkPendingMessages();auto messages=ghost->getPersistentMessages();auto action=r.value("action",std::string());
++  bool full=action.rfind("mail_",0)==0 && action!="mail_status";int unread=0,total=0,offset=r.value("page",0)*50;Json rows=Json::array();
++  for(int i=messages->size()-1;i>=0;--i){auto mail=Core::getObjectBroker()->lookUp(messages->get(i)).castTo<PersistentMessage*>();if(mail==nullptr || mail->getReceiverObjectID()!=c->getObjectID())continue;Locker lock(mail,c);if(!mail->isRead())++unread;if(full && total>=offset && rows.size()<50)rows.push_back({{"id",std::to_string(mail->getObjectID())},{"sender",text(mail->getSenderName())},{"subject",text(mail->getSubject().toString())},{"timestamp",mail->getTimeStamp()},{"read",mail->isRead()}});++total;}
++  Json out={{"unread",unread},{"total",total}};if(full){out["messages"]=rows;out["page"]=r.value("page",0);out["has_more"]=total>offset+50;}return out;
++ }
++ static Json read(CreatureObject* c,const Json& r){
++  auto mail=owned(c,r);Locker lock(mail,c);mail->setStatus(PersistentMessage::READ);mail->updateToDatabase();
++  Json out={{"id",std::to_string(mail->getObjectID())},{"sender",text(mail->getSenderName())},{"subject",text(mail->getSubject().toString())},{"body",text(mail->getBody().toString())},{"timestamp",mail->getTimeStamp()},{"read",true},{"parameters",Json::array()},{"waypoints",Json::array()}};
++  auto params=mail->getStringIdParameters();for(int i=0;i<params->size();++i){Json p=params->get(i);for(auto key:{"TT","TU","TO"}){auto id=p[key].value("pointerParameter",uint64(0));if(id){auto o=c->getZoneServer()->getObject(id);if(o!=nullptr)p[key]["customName"]=text(o->getDisplayedName());}}out["parameters"].push_back(p);}
++  auto waypoints=mail->getWaypointParameters();for(int i=0;i<waypoints->size();++i){Json p=waypoints->get(i);p["index"]=i;out["waypoints"].push_back(p);}return out;
++ }
++ static Json run(CreatureObject* c,const Json& r){
++  auto action=r.at("action").get<std::string>();auto ghost=c->getPlayerObject();
++  if(action=="mail_status" || action=="mail_list")return Json::object();
++  if(action=="mail_read")return {{"message",read(c,r)}};
++  if(action=="mail_delete"){auto mail=owned(c,r);ghost->getPersistentMessages()->drop(mail->getObjectID());ObjectManager::instance()->destroyObjectFromDatabase(mail->getObjectID());ghost->updateToDatabase();return Json::object();}
++  if(action=="mail_waypoint"){
++   auto mail=owned(c,r);Locker lock(mail,c);int index=r.at("index").get<int>();auto points=mail->getWaypointParameters();if(index<0 || index>=points->size())throw std::runtime_error("mail_waypoint_missing");auto p=points->get(index);
++   auto point=c->getZoneServer()->createObject(0xc456e788,1).castTo<WaypointObject*>();if(point==nullptr)throw std::runtime_error("waypoint_creation_failed");point->setCustomObjectName(p.getWaypointName(),false);point->setPlanetCRC(p.getPlanetCRC());point->setPosition(p.getPositionX(),p.getPositionZ(),p.getPositionY());point->setColor(p.getColor());point->setActive(false);ghost->addWaypoint(point,false,true);return {{"waypoint_id",std::to_string(point->getObjectID())}};
++  }
++  if(action=="mail_send"){
++   if(ghost->isMuted())throw std::runtime_error("mail_sending_muted");auto recipient=r.at("recipient").get<std::string>();auto subject=r.at("subject").get<std::string>(),body=r.at("body").get<std::string>();
++   if(recipient.empty() || recipient.size()>40 || subject.empty() || subject.size()>512 || body.empty() || body.size()>16000)throw std::runtime_error("invalid_mail_fields");
++   StringIdChatParameterVector parameters;WaypointChatParameterVector waypoints;Reference<PersistentMessage*> sent;
++   auto code=c->getZoneServer()->getChatManager()->sendMail(c->getFirstName(),UnicodeString(String(subject.c_str())),UnicodeString(String(body.c_str())),String(recipient.c_str()),&parameters,&waypoints,&sent);
++   if(code!=ChatManager::IM_SUCCESS || sent==nullptr)throw std::runtime_error("native_mail_send_rejected_"+std::to_string(code));return {{"sent_id",std::to_string(sent->getObjectID())}};
++  }
++  throw std::runtime_error("unsupported_mail_action");
++ }
++ static Json probeState(CreatureObject* c){Json out={{"probes",Json::array()},{"tools",Json::array()},{"planets",Json::array()},{"eligible",c->getPlayerObject()->hasAbility("survey")}};scan(c,c->getInventory(),out["probes"],out["tools"]);auto bag=c->getSlottedObject("back");if(bag!=nullptr && bag!=c->getInventory())scan(c,bag,out["probes"],out["tools"]);for(auto planet:{"tatooine","naboo","corellia","rori","talus","dantooine","dathomir","endor","lok","yavin4"})if(c->getZoneServer()->getZone(planet)!=nullptr)out["planets"].push_back(planet);return out;}
++ static Json launch(CreatureObject* c,const Json& r){
++  auto droid=c->getZoneServer()->getObject(oid(r,"probe_id"));auto tool=c->getZoneServer()->getObject(oid(r,"tool_id")).castTo<SurveyTool*>();auto planet=r.at("target_planet").get<std::string>();
++  if(!c->getPlayerObject()->hasAbility("survey"))throw std::runtime_error("survey_ability_required");
++  if(!carried(c,droid) || !probe(droid) || !carried(c,tool) || tool==nullptr)throw std::runtime_error("owned_probe_and_survey_tool_required");
++  if(!SwgxrPlanets::supported(String(planet.c_str())) || c->getZoneServer()->getZone(String(planet.c_str()))==nullptr)throw std::runtime_error("survey_planet_unavailable");
++  Locker probeLock(droid,c);Locker toolLock(tool,c);auto component=cast<Component*>(droid.get());int seconds=duration(component->getAttributeValue("mechanism_quality"));
++  ManagedReference<InterplanetarySurvey*> data=new InterplanetarySurvey();Time now;data->setPlanet(String(planet.c_str()));data->setSurveyToolType(tool->getToolType());data->setSurveyType(tool->getSurveyType());data->setRequestor(c->getFirstName());data->setCurTime(now.getMiliTime());data->setRequestedAt(now.getMiliTime());data->setTimeStamp(seconds*1000);
++  ObjectManager::instance()->persistObject(data,1,"surveys");tool->destroyObjectFromWorld(true);tool->destroyObjectFromDatabase(true);component->decreaseUseCount();Reference<InterplanetarySurveyTask*> task=new InterplanetarySurveyTask(data);task->schedule(seconds*1000);
++  return {{"survey_id",std::to_string(data->_getObjectID())},{"duration_seconds",seconds},{"report_due",now.getMiliTime()/1000+seconds},{"target_planet",planet}};
++ }
++ static Json bank(CreatureObject* c,const Json& r){
++  auto recipient=r.at("recipient").get<std::string>();auto target=c->getZoneServer()->getPlayerManager()->getPlayer(String(recipient.c_str()));
++  if(target==nullptr || target==c || target->getPlayerObject()==nullptr)throw std::runtime_error("valid_other_player_required");Locker lock(target,c);
++  if(target->getPlayerObject()->isIgnoring(c->getFirstName()))throw std::runtime_error("bank_transfer_unavailable");
++  int64 amount=r.at("amount").get<int64>();if(amount<=0 || amount>2000000000)throw std::runtime_error("invalid_amount");
++  int fee=amount<21?1:int(std::round(amount*.05));if(ConfigManager::instance()->getBool("Core3.SameAccountTipsAreFree",false) && c->getPlayerObject()->getAccountID()==target->getPlayerObject()->getAccountID())fee=0;
++  if(amount+fee>c->getBankCredits() || int64(target->getBankCredits())+amount>2147483647)throw std::runtime_error("insufficient_funds_or_balance_limit");
++  Json quote={{"recipient",text(target->getFirstName())},{"recipient_id",std::to_string(target->getObjectID())},{"amount",amount},{"fee",fee},{"total",amount+fee}};
++  if(r.at("action")=="bank_quote")return {{"quote",quote}};
++  if(r.at("recipient_id")!=quote["recipient_id"] || r.at("fee")!=quote["fee"])throw std::runtime_error("bank_quote_changed");
++  auto command=c->getZoneServer()->getObjectController()->getQueueCommand("tip");if(command==nullptr)throw std::runtime_error("native_tip_missing");
++  int64 before=c->getBankCredits(),targetBefore=target->getBankCredits();std::string args=std::to_string(amount)+" bank";
++  if(command->doQueueCommand(c,target->getObjectID(),UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS)throw std::runtime_error("native_bank_tip_rejected");
++  auto ghost=c->getPlayerObject();auto box=ghost->getSuiBoxFromWindowType(SuiWindowType::BANK_TIP_CONFIRM);auto callback=box!=nullptr?dynamic_cast<TipCommandSuiCallback*>(box->getCallback()):nullptr;if(callback==nullptr)throw std::runtime_error("native_bank_confirmation_missing");Vector<UnicodeString> answers;callback->run(c,box,0,&answers);ghost->closeSuiWindowType(SuiWindowType::BANK_TIP_CONFIRM);
++  if(c->getBankCredits()!=before-amount-fee || target->getBankCredits()!=targetBefore+amount)throw std::runtime_error("native_bank_transfer_not_completed");target->updateToDatabase();return {{"transfer",quote}};
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrGroundCombat.h
+@@ -102,12 +102,16 @@
+    }
+    std::sort(hits.begin(),hits.end());if(s->profile.at("hit_policy")=="first_contact"&&hits.size()>1)hits.resize(1);
+    corecu::ground::ResolveScope once(actor->getObjectID());
+-   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());int before=c->getHAM(0);int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["damage"]=std::max(0,before-c->getHAM(0));break;}}}
++   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
+    s->done=true;a.settled=true;publish(actor,*s,"recovery");
+   }
+   schedule(s);
+  }
+ public:
++ static double approachRange(AiAgent* actor,SceneObject* target,WeaponObject* weapon,double original){
++  if(!enabled()||!inScope(actor)||!target||!target->isPlayerCreature()||!capable(target->getObjectID())||!weapon||!weapon->isMeleeWeapon())return original;
++  return std::min(original,std::max(.8,double(weapon->getMaxRange())-.35));
++ }
+  static bool updatePursuit(AiAgent* actor){
+   if(!pursuitExpired(actor))return false;
+   auto s=find(actor->getObjectID());if(s){Locker guard(&s->mutex,actor);cancel(actor,*s,"disengaged");}
+@@ -137,6 +141,11 @@
+   double commandSeconds=command->getSpeed()>0?command->getSpeed():CombatManager::instance()->calculateWeaponAttackSpeed(actor,weapon,data.getSpeedMultiplier());
+   if(s->special)s->profile["windup"]=std::max(s->profile.at("windup").get<double>(),std::min(4.,commandSeconds*.6));
+   a.profile={s->profile.at("windup").get<double>(),s->profile.at("contact_window").get<double>(),s->profile.at("recovery").get<double>(),range,.45,cosine,0};a.clipDuration=s->profile.at("duration");a.contactDelay=s->profile.at("contact_offset");a.lockLead=s->profile.at("lock_lead");
++  // Native default attacks permit a 10m minimum and AI adds both template
++  // radii to its stop distance. Neither expands the visible contact geometry.
++  // Stay in pursuit until the selected action can actually reach the target.
++  double launchReach=s->impactCentered?s->attackReach:range;
++  if(corecu::action::distance(a.origin,point(target))>launchReach+.35 || std::abs(a.origin[1]-point(target)[1])>2.8){actor->addCooldown("corecu_ground_reposition",200);actor->activateAiBehavior();return true;}
+   s->release=std::max(a.recoveredAt(),a.start+commandSeconds);
+   std::vector<Peer> candidates;{std::lock_guard<std::mutex> l(mutex());for(auto& p:peers())if(p.second.expires>now())candidates.push_back(p.second);}
+   for(auto& p:candidates){auto c=p.actor.get();if(!c)continue;Locker other(c,actor);if((!s->targeted||c==target)&&eligible(c,actor,s->cell)&&corecu::action::distance(point(c),a.origin)<=s->attackReach+range+8){Victim v;v.actor=c;v.state.attack=a;s->victims[c->getObjectID()]=v;}}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -208,6 +208,7 @@
+   const auto requestedVerb=request.at("action").get<std::string>();
+   if(requestedVerb=="action_combat"){if(!s.ready || !s.transport.empty())throw std::runtime_error("session_not_ready");const auto& intent=request.at("action_combat");if(intent.value("action",std::string())=="negotiate"||intent.value("action",std::string())=="batch")return SwgxrGroundCombat::run(c,intent);return SwgxrActionCombat::run(c,intent);}
+   if(requestedVerb=="jtl"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");Json out;try{out=SwgxrJtl::run(c,request.at("jtl"));}catch(const std::exception& e){out={{"success",false},{"source_kind","core3_jtl"},{"character_id",id(c)},{"error",std::string(e.what())},{"error_code",std::string(e.what())},{"jtl",SwgxrJtl::snapshot(c)}};}s.shots.clear();s.volleys.clear();s.bountyArm.clear();return out;}
++  if(requestedVerb=="services" && request.at("service").value("action",std::string()).rfind("mail_",0)==0)return SwgxrServices::mailEnvelope(c,request.at("service"));
+   if(SwgxrJtl::aboard(c)){
+    if(requestedVerb=="snapshot")return {{"success",true}};
+    if(requestedVerb=="update"){if(request.value("ready",false)){c->getPlayerObject()->notifySceneReady();s.ready=true;}return {{"success",true},{"movement_accepted",false},{"space_active",true}};}
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/AiAgentImplementation.cpp
+@@ -3444,7 +3444,7 @@
+ #endif // DEBUG_AI
+ 				}
+ 
+-				return weaponIdealRange;
++				return SwgxrGroundCombat::approachRange(asAiAgent(), followCopy, currentWeap, weaponIdealRange);
+ 			} else {
+ 				return 1.f + getTemplateRadius() + followCopy->getTemplateRadius();
+ 			}
+--- a/MMOCoreORB/src/server/zone/managers/resource/InterplanetarySurvey.idl
++++ b/MMOCoreORB/src/server/zone/managers/resource/InterplanetarySurvey.idl
+@@ -9,6 +9,7 @@
+ class InterplanetarySurvey extends ManagedObject {
+ 	protected int timeStamp;
+ 	protected int curTime;
++	protected unsigned long requestedAt;
+ 	protected string requestor;
+ 	protected string planet;
+ 	protected string surveyType;
+@@ -18,6 +19,7 @@
+ 	public InterplanetarySurvey() {
+ 		timeStamp = 0;
+ 		curTime = 0;
++		requestedAt = 0;
+ 		executed = false;
+ 		surveyToolType = 0;
+ 	}
+@@ -30,6 +32,11 @@
+ 	public void setTimeStamp(int stamp) {
+ 		timeStamp = stamp;
+ 	}
++
++	@read
++	public unsigned long getRequestedAt() { return requestedAt; }
++
++	public void setRequestedAt(unsigned long value) { requestedAt = value; }
+ 
+ 	@read
+ 	public int getCurTime() {
+--- a/MMOCoreORB/src/server/zone/managers/resource/InterplanetarySurveyImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/managers/resource/InterplanetarySurveyImplementation.cpp
+@@ -12,7 +12,13 @@
+ 
+ 	Time expireTime;
+ 	uint64 currentTime = expireTime.getMiliTime();
+-	int64 remTime = (timeStamp + curTime) - currentTime;
++	// Legacy saves stored only the low 32 bits of epoch milliseconds.
++	uint64 started = requestedAt;
++	if (started == 0) {
++		started = (currentTime & ~uint64(0xffffffff)) | uint32(curTime);
++		if (started > currentTime) started -= uint64(1) << 32;
++	}
++	int64 remTime = int64(started) + int64(timeStamp) - int64(currentTime);
+ 
+ 
+ 	Reference<InterplanetarySurveyTask*> task = new InterplanetarySurveyTask(_this.getReferenceUnsafeStaticCast());
+--- a/MMOCoreORB/src/server/zone/objects/player/sessions/InterplanetarySurveyDroidSessionImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/player/sessions/InterplanetarySurveyDroidSessionImplementation.cpp
+@@ -171,6 +171,7 @@
+ 		data->setSurveyToolType(tool->getToolType());
+ 		data->setRequestor(pl->getFirstName());
+ 		data->setCurTime(currentTime);
++		data->setRequestedAt(currentTime);
+ 		data->setTimeStamp(duration);
+ 		data->setSurveyType(tool->getSurveyType());
+ 

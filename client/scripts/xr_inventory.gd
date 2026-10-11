@@ -14,6 +14,7 @@ signal tool_context_requested(tool: Dictionary)
 signal crafting_requested(tool: Dictionary)
 signal vehicle_deed_requested(item: Dictionary)
 signal scout_requested(tool: Dictionary)
+signal survey_probe_requested(item:Dictionary)
 signal bounty_droid_requested(item: Dictionary)
 var crafting_timers: Dictionary = {}
 signal survey_requested(tool: Dictionary, resource_id: String)
@@ -671,7 +672,9 @@ func update_held_trigger(trigger: float, head: Transform3D) -> void:
 	if trigger<0.35: held_trigger_armed=true; return
 	if trigger<0.55 or not held_trigger_armed or action_pending: return
 	held_trigger_armed=false
-	if preload("res://bounty/presentation.gd").droid_item(held_item):
+	if str(held_item.get("template",held_item.get("shared_template",""))).contains("droid_interplanetary_survey"):
+		survey_probe_requested.emit(held_item.duplicate(true))
+	elif preload("res://bounty/presentation.gd").droid_item(held_item):
 		bounty_droid_requested.emit(held_item.duplicate(true))
 	elif is_vehicle_deed(held_item) or is_pet_deed(held_item):
 		begin_mutation("Registering deed in datapad…"); vehicle_deed_requested.emit(held_item.duplicate(true))

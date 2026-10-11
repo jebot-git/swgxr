@@ -393,3 +393,25 @@ Evidence: `runtime/action-prototype/multiplayer-evaluation.json` and
 `multiplayer-remote/evidence.json`. The progressive-fill preview was separately
 rendered in Forward+ Vulkan on Arc A770 (`progressive-telegraphs.png`); neither
 that isolated graphic nor the headless remote run validates live XR rendering.
+
+### Early-warning contact regression (2026-10-11)
+
+Ordinary ground attacks publish a warning 150 ms before `start`. The client used
+the warning's receipt time as `coverage_start`, while native `Attack::receipt`
+rejects coverage preceding `start`. A fast connection therefore produced rejected
+contact reports even after a visible, acknowledged attack. The client now clips
+the coverage start to the attack interval without relaxing native contact,
+warning, aim-lock, ownership or timing checks. Regression coverage includes fast
+arrival (25/75/125 ms), a later arrival, stationary contact and dodging.
+
+The isolated native ordinary-smuggler test rejected the pre-start report and
+accepted its corrected counterpart for the same attack, with a real HAM loss.
+The range regression also checks that an eight-metre melee target does not start
+an ineffective telegraph. Native analytics now record `ham_damage` for health,
+action and mind and sum those pools in `damage`; previously action/mind hits could
+appear as zero. The client retains bounded receipt/outcome diagnostics in
+`user://combat-diagnostics.json`, without credentials or session tokens.
+
+The supplied combat.mp4 visibly shows close-range warnings and attacks, but its
+original per-attack results were not retained. The isolated reproduction confirms
+a defect consistent with the report, not the cause of every attack in that video.

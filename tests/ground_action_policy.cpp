@@ -26,6 +26,12 @@ int main(){
  assert(!v.acknowledge(10.96,1));assert(!v.receipt(11.3,true,10.2,11.3,1));assert(!v.resolve()&&v.waived);
  v={};v.attack.start=10;v.attack.aimLocked=true;assert(!v.acknowledge(10.5,1));assert(v.warning(10.5));assert(v.acknowledge(10.8,1));assert(!v.acknowledge(10.8,2));
  assert(v.receipt(11.3,true,10.2,11.3,1));assert(v.receipt(11.4,true,10.2,11.3,1));assert(!v.receipt(11.4,false,10.2,11.3,1));assert(v.ready(11.3));assert(v.resolve());assert(!v.resolve());
+ // Production publishes warnings 150ms ahead of start. Early receipt is
+ // valid presentation, but coverage must be clipped to the attack interval.
+ ground::Victim early;early.attack.start=10.15;early.attack.aimLocked=true;
+ assert(early.warning(10.025));assert(early.acknowledge(10.95,1));
+ assert(!early.receipt(11.45,true,10.025,11.45,1));
+ assert(early.receipt(11.45,true,10.15,11.45,1));assert(early.resolve());
  ground::Victim missing;missing.attack.start=10;missing.attack.aimLocked=true;missing.warning(10.5);missing.acknowledge(10.8,1);missing.attack.sample(11.1,{{0,0,1}});assert(missing.ready(12));assert(!missing.resolve()&&missing.waived);
  action::Attack shaped;shaped.customized=true;shaped.profile={1,.2,1,8,.45,.5,0};shaped.origin={{0,0,0}};shaped.aim={{0,0,1}};
  shaped.shape=action::Shape::Lane;assert(shaped.contact({{0,0,5}}));assert(!shaped.contact({{4,0,5}}));

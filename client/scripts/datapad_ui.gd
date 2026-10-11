@@ -1,5 +1,8 @@
 extends PanelContainer
 
+signal mail_requested
+var mail_button:Button
+var unread_mail:=0
 signal ship_action_requested(entry: Dictionary)
 signal hyperspace_requested(destination: String)
 signal hyperspace_abort_requested
@@ -243,6 +246,8 @@ func build_ui() -> void:
 		var point: Vector3 = map.cursor if map.has_cursor else player_position
 		new_waypoint_requested.emit(point,"Map waypoint" if map.has_cursor else "My location"))
 	actions.add_child(waypoint_button)
+	mail_button=make_button("Mail");mail_button.icon=preload("res://resources/ui/mail.svg");mail_button.expand_icon=true;mail_button.add_theme_constant_override("icon_max_width",24);mail_button.tooltip_text="Open in-game mail"
+	actions.add_child(mail_button);mail_button.pressed.connect(func():mail_requested.emit())
 	build_detail()
 	select_category(category)
 	update_coordinates()
@@ -663,3 +668,7 @@ func update_mission_description()->void:
 	if selected_entry.get("type","") not in ["ground_mission","bounty_mission"]:return
 	var distance:=preload("res://scripts/mission_distance.gd").text(selected_entry,player_position,planet)
 	detail_description.text=str(selected_entry.get("description",""))+("\n\n"+distance if not distance.is_empty() else "")
+
+func set_unread_mail(count:int)->void:
+	unread_mail=maxi(0,count)
+	if is_instance_valid(mail_button):mail_button.text="Mail (%d)"%unread_mail if unread_mail>0 else "Mail"

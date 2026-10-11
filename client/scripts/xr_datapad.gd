@@ -297,7 +297,10 @@ func touch_minimap(finger:Dictionary)->bool:
 	if not allowed or not radar.active or finger.is_empty():return false
 	var hit:Dictionary=follower.point(radar.display.global_transform,Vector2.ONE*(radar.DIAMETER_METERS+MINIMAP_TOUCH_MARGIN*2),Vector2.ONE*radar.PIXELS,finger.tip,finger.direction,0.0,MINIMAP_TOUCH_DEPTH)
 	if not hit.get("valid",false) or not hit.get("touching",false):return false
-	set_open(true);return true
+	var local:Vector3=radar.display.to_local(finger.tip)
+	set_open(true)
+	if radar.unread_mail>0 and local.x>radar.DIAMETER_METERS*.20 and local.y< -radar.DIAMETER_METERS*.20:ui.mail_requested.emit()
+	return true
 
 func orient_expanded_panels(viewer:Vector3)->void:
 	if not is_open or not ui.expanded:return

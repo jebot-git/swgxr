@@ -466,12 +466,12 @@ def services_request(account, oid, action, data):
             raw=invoke(account,[{'action':'selectContext','characterOid':int(oid)},
                 {'action':'zoneInCharacter','inventoryRequest':'swgxr_services_v1 '+json.dumps(command,separators=(',',':'))}])
             out=services_snapshot(raw.get('variables',{}).get('services',{}),oid,raw.get('variables',{}).get('weaponAttributes',{}))
-        out['presence']=SERVICES_PRESENCE.register(account,oid,out['state']['player'])
+        if not action.startswith('mail_'):out['presence']=SERVICES_PRESENCE.register(account,oid,out['state']['player'])
         if action=='house_permission_arm' and out.get('mutation',{}).get('success') and out['mutation'].get('arm'):
             SERVICES_PRESENCE.arm_house_permission(account,oid,out['mutation']['arm'])
         # The owned hub already published the complete native player snapshot.
         # Housing/service projections can omit membership and must not revoke it.
-        if not active:
+        if not active and not action.startswith('mail_'):
             try:VOICE_STATE.publish(account,oid,out['state']['player'],session_id='',live=False)
             except (OSError,ValueError):pass
         return out

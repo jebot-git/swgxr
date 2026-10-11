@@ -1,7 +1,8 @@
 extends Node3D
-## Original client UI on XR Tools pointable surfaces, with its virtual keyboard.
+## Original client UI on XR Tools pointable surfaces, with a holographic keyboard.
 const Surface = preload("res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn")
-const KeyboardContent = preload("res://addons/godot-xr-tools/objects/keyboard/virtual_keyboard_2d.tscn")
+const KeyboardContent = preload("res://ui/virtual_keyboard.gd")
+var keyboard_content:Control
 var screen: XRToolsViewport2DIn3D
 var keyboard: XRToolsViewport2DIn3D
 var ui: Control
@@ -30,18 +31,21 @@ func configure(content: Control, head: XRCamera3D) -> void:
 	content.reparent(screen.get_node("Viewport"))
 	content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	keyboard = Surface.instantiate()
-	keyboard.scene = KeyboardContent
-	keyboard.screen_size = Vector2(1.5, 0.75)
-	keyboard.viewport_size = Vector2(600, 300)
+	keyboard.screen_size = Vector2(1.8, 0.6)
+	keyboard.viewport_size = Vector2(1200, 400)
 	keyboard.unshaded = true
 	keyboard.name = "TextKeyboard"
 	keyboard.collision_layer = (1 << 20) | (1 << 22)
 	keyboard.position = Vector3(0, -1.15, 0.3)
 	keyboard.rotation_degrees.x = -20.0
-	# The original keyboard injects key events into the root viewport; the menu
-	# surface forwards them to its focused field, exactly as physical key input.
+	# Virtual keys go directly to this menu viewport; the gameplay viewport
+	# never receives typing events. XR Tools still forwards physical keyboard input.
 	add_child(keyboard)
-	keyboard.viewport_size = Vector2(600, 300)
+	keyboard.viewport_size = Vector2(1200, 400)
+	keyboard_content=KeyboardContent.new();keyboard.get_node("Viewport").add_child(keyboard_content)
+	keyboard_content.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	keyboard_content.target_viewport=screen.get_node("Viewport")
+	keyboard_content.dismissed.connect(func():screen.get_node("Viewport").gui_release_focus())
 	keyboard.hide()
 	keyboard.enabled = false
 	place_in_front()
@@ -68,6 +72,7 @@ func set_open(open: bool) -> void:
 		cancel_interaction()
 		keyboard.enabled = false
 		keyboard.hide()
+		keyboard_content.reset_modifiers()
 
 func set_input_active(value: bool) -> void:
 	if input_active==value:return

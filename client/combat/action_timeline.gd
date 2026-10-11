@@ -33,7 +33,7 @@ func ingest(event:Dictionary,local_now:float,transit:float=0.0)->void:
 		retire(id);return
 	if attacks.size()>=64:return
 	var server_now:=local_now+server_offset if event.get("protocol",1)==2 and clock_ready else float(event.server_now)+float(event.age_ms)/1000.0+clampf(transit,0,.5)
-	attacks[id]={"event":event.duplicate(true),"local_anchor":local_now,"server_anchor":server_now,"last_sample":server_now,"covered":server_now<=float(event.active_at),"hit":false,"sent":false,"coverage_start":server_now,"sample_position":[0,0,0]}
+	attacks[id]={"event":event.duplicate(true),"local_anchor":local_now,"server_anchor":server_now,"last_sample":server_now,"covered":server_now<=float(event.active_at),"hit":false,"sent":false,"coverage_start":maxf(server_now,float(event.start)),"sample_position":[0,0,0]}
 	if event.get("aim_locked",false):
 		aim_locks+=1
 		if server_now>float(event.get("delivery_at",event.active_at)):

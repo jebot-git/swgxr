@@ -265,6 +265,7 @@ class LiveCombatHub:
    # and checks its persistent receipt before applying movement. Omit the outer
    # ground-zone fence so a lost logout reply can be replayed after landing.
    source_context={}
+  elif action=='services' and str(data.get('service',{}).get('action','')).startswith('mail_'):source_context={}
   else:source_context=planet_context(data)
   command={'action':action,'session_id':active['id'],**source_context}
   for key in fields:

@@ -38,6 +38,8 @@ class RadarCanvas extends Control:
 		draw_colored_polygon(PackedVector2Array([center+Vector2(0,-9),center+Vector2(6,6),center+Vector2(0,3),center+Vector2(-6,6)]),cyan)
 		draw_string(LABEL_FONT,Vector2(108,230),"64m",HORIZONTAL_ALIGNMENT_LEFT,-1,16,cyan)
 		draw_string(LABEL_FONT,Vector2(94,38),"%03d°"%(int(round(heading_degrees))%360),HORIZONTAL_ALIGNMENT_CENTER,68,15,cyan)
+var mail_badge:TextureRect
+var unread_mail:=0
 var sector_canvas: Control
 var viewport: SubViewport
 var canvas: RadarCanvas
@@ -60,6 +62,7 @@ func configure() -> void:
 	sector_canvas=preload("res://space/sector_map.gd").new();sector_canvas.compact=true
 	sector_canvas.custom_minimum_size=Vector2.ZERO;sector_canvas.size=Vector2(PIXELS,PIXELS)
 	sector_canvas.mouse_filter=Control.MOUSE_FILTER_IGNORE;viewport.add_child(sector_canvas);sector_canvas.custom_minimum_size=Vector2.ZERO;sector_canvas.size=Vector2(PIXELS,PIXELS);sector_canvas.hide()
+	mail_badge=TextureRect.new();viewport.add_child(mail_badge);mail_badge.texture=preload("res://resources/ui/mail.svg");mail_badge.position=Vector2(197,202);mail_badge.size=Vector2(42,32);mail_badge.expand_mode=TextureRect.EXPAND_IGNORE_SIZE;mail_badge.mouse_filter=Control.MOUSE_FILTER_IGNORE;mail_badge.hide()
 	display=MeshInstance3D.new(); display.name="WristRadarHologram"
 	var quad:=QuadMesh.new(); quad.size=Vector2.ONE*DIAMETER_METERS
 	display.mesh=quad; display.position=Vector3(0,DIAMETER_METERS*0.5+0.012,0.002)
@@ -127,3 +130,9 @@ func refresh(center: Vector3, forward: Vector3, contacts: Array) -> void:
 func statistics() -> Dictionary:
 	return {"active":active,"contacts":last_contacts.size(),"queries":query_count,"refreshes":refresh_count,
 		"max_contacts":MAX_CONTACTS,"range_m":RANGE_METERS,"refresh_hz":1.0/REFRESH_SECONDS,"viewport_pixels":PIXELS}
+
+func set_unread_mail(count:int)->void:
+	unread_mail=maxi(0,count)
+	if is_instance_valid(mail_badge):
+		mail_badge.visible=unread_mail>0
+		if active:viewport.render_target_update_mode=SubViewport.UPDATE_ONCE

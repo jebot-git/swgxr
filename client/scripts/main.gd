@@ -143,6 +143,7 @@ var loading_screen: Node
 var xr_bottleneck_suite: Node
 
 func _ready() -> void:
+	add_child(preload("res://ui/scroll_registry.gd").new())
 	if OS.get_cmdline_user_args().has("--character-vrm-export"):
 		preload("res://tools/portable_character_export.gd").run.call_deferred(get_tree())
 		return

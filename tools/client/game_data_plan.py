@@ -12,6 +12,7 @@ STEPS = [
  ('entities', ['tools/assets/prepare_planet_entities.py', '--planet', 'tatooine']),
  ('datapad', ['tools/assets/prepare_datapad.py']),
  ('inventory', ['tools/assets/prepare_inventory.py', '--starter-items', '--gathering-assets', '--population-lairs', 'runtime/assets/combat_population/tatooine_entities/sources.json']),
+ ('loot_inventory', ['tools/assets/prepare_inventory.py', '--loot-items']),
  ('services', ['tools/assets/prepare_services.py']),
  ('mission_assets', ['tools/assets/prepare_mission_assets.py']),
  ('market', ['tools/assets/prepare_bazaar_categories.py']),

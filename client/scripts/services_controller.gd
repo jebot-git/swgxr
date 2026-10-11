@@ -4,6 +4,7 @@ const HandInput = preload("res://scripts/tracked_hand_input.gd")
 const MAX_VISIBLE_PEERS := 8
 var app: Node
 var ui: Node3D
+var communications:Node3D
 var bounty:Node3D
 var gcw:Node3D
 var scenery: Node3D
@@ -52,10 +53,12 @@ func setup(host: Node) -> void:
 	add_child(scenery)
 	gcw=preload("res://gcw/controller.gd").new();add_child(gcw);gcw.setup(self)
 	bounty=preload("res://bounty/controller.gd").new();add_child(bounty);bounty.setup(self)
+	communications=preload("res://mail/controller.gd").new();add_child(communications);communications.setup(self)
 	reset()
 
 func reset() -> void:
 	generation += 1
+	if is_instance_valid(communications):communications.reset()
 	if is_instance_valid(gcw):gcw.reset()
 	if is_instance_valid(bounty):bounty.reset()
 	busy = false; presence_busy = false; state = {}; peers = []
@@ -81,10 +84,10 @@ func set_allowed(value: bool) -> void:
 	allowed = value and not app.datapad_character_id.is_empty()
 	if is_instance_valid(ui):
 		ui.avatar = app.tracked_avatar
-		ui.set_allowed(allowed)
+		ui.set_allowed(allowed and not (is_instance_valid(communications) and communications.active))
 
 func blocks_combat() -> bool:
-	return is_instance_valid(ui) and ui.blocks_combat()
+	return (is_instance_valid(communications) and communications.active) or (is_instance_valid(ui) and ui.blocks_combat())
 
 func inventory_accessible() -> bool:
 	return is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor","container"] and not ui.wallet_held
@@ -121,7 +124,10 @@ func identity_payload() -> Dictionary:
 	return payload
 
 func request(action: String, detail: Dictionary = {}) -> Dictionary:
-	if is_instance_valid(app.get("space")) and app.space.aboard():return await app.space.terminal_request(action,detail)
+	if action=="bank_recipient":
+		if is_instance_valid(communications):communications.open_bank(detail)
+		return {}
+	if not action.begins_with("mail_") and is_instance_valid(app.get("space")) and app.space.aboard():return await app.space.terminal_request(action,detail)
 	if action=="skill_forget" and is_instance_valid(app.get("space")) and app.space.aboard():return {"ok":false,"error":"Return to ground before forgetting skills."}
 	if action in ["jtl_launch","jtl_launch_confirm","jtl_crew_remove"] and is_instance_valid(app.get("space")):
 		var launched:Dictionary=await app.space.request({"jtl_launch":"crew_prepare","jtl_launch_confirm":"launch","jtl_crew_remove":"crew_remove"}[action],detail)
@@ -136,7 +142,7 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 		if action != "status" and queued_action.is_empty(): queued_action = {"action":action,"detail":detail.duplicate(true)}
 		return {}
 	var skill_browser: bool = not (is_instance_valid(app.get("space")) and app.space.aboard()) and is_instance_valid(app.get("datapad")) and app.datapad.get("is_open") == true and str(app.datapad.ui.category) == "skills"
-	if (not allowed and action != "skill_forget" and not (action == "status" and skill_browser)) or app.datapad_character_id.is_empty():
+	if (not allowed and not (action.begins_with("mail_") or action.begins_with("probe_") or action in ["bank_quote","bank_pay"]) and action != "skill_forget" and not (action == "status" and skill_browser)) or app.datapad_character_id.is_empty():
 		if is_instance_valid(ui): ui.set_pending(false)
 		return {}
 	if action=="travel_tickets":
@@ -157,6 +163,16 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 	var response: Dictionary = await app.api(HTTPClient.METHOD_POST, "/services/"+action, payload)
 	if version != generation or character_epoch != app.datapad_epoch: return {}
 	busy = false
+	if action.begins_with("mail_"):
+		if is_instance_valid(ui):ui.set_pending(false)
+		if response.get("ok",false) and str(response.get("character_id",""))==str(app.datapad_character_id):
+			if is_instance_valid(communications):communications.observe(response)
+			var native:Variant=app.get("gameplay_session")
+			if is_instance_valid(native) and native.live and response.get("live_response") is Dictionary:native.accept_native_response(response.live_response)
+		if not queued_action.is_empty():
+			var next:=queued_action;queued_action={}
+			if response.get("ok",false):call_deferred("request",str(next.action),next.detail)
+		return response
 	if not accept_response(response, action != "status"):
 		if is_instance_valid(gcw) and action.begins_with("recruiter_"):gcw.outcome(last_error)
 		if is_instance_valid(bounty) and action.begins_with("bounty_"):bounty.outcome(last_error)
@@ -253,6 +269,7 @@ func accept_response(response: Dictionary, resolve_pending := true) -> bool:
 	var display := state.duplicate(true)
 	display.mutation = response.get("mutation",{})
 	if is_instance_valid(ui): ui.apply_response(display, resolve_pending)
+	if progress_current and is_instance_valid(communications):communications.observe(response)
 	if progress_current and is_instance_valid(gcw):gcw.observe(response)
 	if progress_current and is_instance_valid(bounty):bounty.observe(response)
 	if live is Dictionary and is_instance_valid(normal) and normal.live and session==normal and str(live.get("session_id",""))==str(normal.session_id) and int(live.get("sequence",-1))>int(normal.sequence):
@@ -314,6 +331,13 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
 		value.position = world(record.position)
+		# Wandering NPCs are interpolated at render time. Target the visible body,
+		# not a several-seconds-old service discovery position.
+		var sync:Variant=app.get("multiplayer_sync")
+		if preload("res://scripts/npc_wave_gesture.gd").is_npc(record) and is_instance_valid(sync) and is_instance_valid(sync.get("entities")):
+			var actor:Variant=sync.entities.actors.get(str(record.id))
+			if is_instance_valid(actor):value.position=actor.global_position
+
 		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer"]:
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis

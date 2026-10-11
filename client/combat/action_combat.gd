@@ -21,6 +21,8 @@ var catalog_revision:=""
 var integration_outcomes:Array=[]
 var cue_textures:Dictionary={}
 var targeted_cue:Sprite3D
+var diagnostic_stamp:=0.0
+var integration_receipts:Array=[]
 
 func setup(host:Node,source:Node)->void:
 	app=host;sync=source
@@ -30,7 +32,7 @@ func setup(host:Node,source:Node)->void:
 		if catalog is Dictionary:catalog_revision=str(catalog.get("revision",""))
 func clear()->void:
 	generation+=1;timeline.clear();pending.clear();sending=false
-	integration_outcomes.clear();integration_ready=false;integration_pending.clear();lock_sent.clear();integration_retry=0;integration_busy=false;action_clock=preload("res://combat/action_clock.gd").new();timeline.clock_ready=false
+	integration_receipts.clear();integration_outcomes.clear();integration_ready=false;integration_pending.clear();lock_sent.clear();integration_retry=0;integration_busy=false;action_clock=preload("res://combat/action_clock.gd").new();timeline.clock_ready=false
 	for mesh:MeshInstance3D in visuals.values():mesh.queue_free()
 	visuals.clear()
 	if is_instance_valid(targeted_cue):targeted_cue.queue_free()
@@ -234,9 +236,15 @@ func send_integration()->void:
 			if is_instance_valid(projection):sync.apply_motion({"source_kind":"core3_motion_v1","epoch":sync.motion_epoch,"action_events":events},projection.actors)
 		integration_outcomes=mutation.get("outcomes",[])
 		for result:Dictionary in mutation.get("receipts",[]):
+			integration_receipts.append(result.duplicate(true))
+			if integration_receipts.size()>128:integration_receipts.pop_front()
 			if result.kind=="contact":
 				if result.accepted:confirmed+=1
 				else:rejected+=1
+		if finished-diagnostic_stamp>=2 and (not integration_receipts.is_empty() or not integration_outcomes.is_empty()):
+			diagnostic_stamp=finished
+			var file:=FileAccess.open("user://combat-diagnostics.json",FileAccess.WRITE)
+			if file!=null:file.store_string(JSON.stringify({"schema":1,"updated_at":Time.get_unix_time_from_system(),"clock_ready":timeline.clock_ready,"late_warnings":timeline.rejected_late,"late_locks":timeline.late_locks,"contact_reports":timeline.receipts,"receipts":integration_receipts,"outcomes":integration_outcomes},"  "))
 	else:
 		integration_retry=finished+(.1 if integration_ready else 10)
 		# Exactly-once native receipts permit bounded retries after a lost reply.

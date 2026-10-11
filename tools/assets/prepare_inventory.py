@@ -109,6 +109,31 @@ def arrangements(read, source):
     return result
 
 
+def native_shared_templates(core3, requested, inputs):
+    """Follow literal native inheritance for custom loot aliases, without Lua execution."""
+    clients = {}; parents = {}; registrations = {}; sources = {}; raw_hashes = {}
+    for source in sorted((core3/'MMOCoreORB/bin/scripts/object').rglob('*.lua')):
+        raw = source.read_bytes(); text = re.sub(r'--[^\n]*', '', raw.decode())
+        digest = hashlib.sha256(raw).hexdigest()
+        for symbol, template in re.findall(r'ObjectTemplates:addClientTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', text):
+            clients[symbol] = template; sources[symbol] = source; raw_hashes[source] = digest
+        for symbol, parent in re.findall(r'\b(\w+)\s*=\s*(\w+):new\s*\{', text):
+            parents[symbol] = parent; sources[symbol] = source; raw_hashes[source] = digest
+        for symbol, template in re.findall(r'ObjectTemplates:addTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', text):
+            registrations[template] = symbol
+    result = {}
+    for template in requested:
+        symbol = registrations.get(template); visited = set()
+        while symbol and symbol not in visited:
+            visited.add(symbol)
+            source = sources.get(symbol)
+            if source: inputs[str(source.resolve())] = {'sha256':raw_hashes[source], 'kind':'Core3 loot shared-template inheritance'}
+            if symbol in clients:
+                result[template] = clients[symbol]; break
+            symbol = parents.get(symbol)
+    return result
+
+
 class InventoryImporter:
     def __init__(self, tre_dir, out):
         self.out = out
@@ -294,6 +319,7 @@ def main():
     parser.add_argument('--out', type=Path, default=ROOT / 'runtime/assets/inventory')
     parser.add_argument('--template', action='append', default=[])
     parser.add_argument('--snapshot', type=Path, action='append', default=[])
+    parser.add_argument('--loot-items', action='store_true', help='Prepare original ground loot item appearances from native loot definitions')
     parser.add_argument('--starter-items', action='store_true', help='Prepare source creation-manager items as preview assets, never grant them')
     parser.add_argument('--gathering-assets', action='store_true', help='Prepare original Core3 survey tools and concrete resource-container templates; grants nothing')
     parser.add_argument('--spice-assets', action='store_true', help='Prepare all concrete original Core3 spice appearances for crafting previews; grants nothing')
@@ -354,6 +380,18 @@ def main():
         inputs[str(selection.resolve())] = {'sha256': digest, 'source_path': str(args.population_lairs.resolve()), 'kind': 'Core3 population dependency index; immutable reference selection, no spawned entities'}
         catalog['population_lairs'] = {'templates': templates, 'spawn_groups': sorted(population['spawn_groups']), 'source_sha256': digest,
                                        'policy': 'All building variants referenced by source lair definitions; original object origin/meters retained, no spawn authority'}
+    if args.loot_items:
+        references = set()
+        for source in sorted((args.core3_root/'MMOCoreORB/bin/scripts/loot/items').rglob('*.lua')):
+            if 'space' in source.parts: continue
+            raw = source.read_bytes()
+            text = re.sub(r'--[^\n]*', '', raw.decode())
+            templates = re.findall(r'\bdirectObjectTemplate\s*=\s*"(object/[a-z0-9_/]+\.iff)"', text)
+            references.update(templates)
+            if templates: inputs[str(source.resolve())] = {'sha256':hashlib.sha256(raw).hexdigest(), 'kind':'Core3 ground loot appearance definition'}
+        requested.update(references)
+        pairs.update(native_shared_templates(args.core3_root, references, inputs))
+        catalog['loot_assets'] = {'templates':sorted(references), 'policy':'Appearance dependencies only; loot eligibility, drops and ownership remain native server authority'}
     if args.starter_items:
         source = args.core3_root / 'MMOCoreORB/bin/scripts/managers/player_creation_manager.lua'
         raw = source.read_bytes()
@@ -404,7 +442,19 @@ def main():
     catalog['generic_backpack'] = importer.generic_backpack()
     for template in sorted(requested):
         shared = pairs.get(template, catalog['items'].get(template, {}).get('shared_template'))
-        descriptor = importer.convert(template, shared)
+        previous = catalog['items'].get(template, {})
+        # Adding loot coverage must not replace an already owner-bound wearable
+        # preview with an unbound conversion. Explicit refresh still rebuilds it.
+        existing = args.out / previous.get('model', '')
+        if args.loot_items and not args.refresh and previous.get('status') == 'ready' and existing.is_file() and hashlib.sha256(existing.read_bytes()).hexdigest() == previous.get('model_sha256'):
+            descriptor = previous
+        else:
+            descriptor = importer.convert(template, shared)
+        if args.loot_items and descriptor['status'] != 'ready' and 'Owner-bound original OPST' in str(descriptor.get('failures', [])) and template.startswith('object/tangible/wearables/'):
+            race = previous.get('owner_race', 'wookiee_male' if 'kashyyykian' in template else 'human_male')
+            bound = importer.equipment(template, descriptor['shared_template'], race)
+            catalog.setdefault('equipment', {}).setdefault(race, {})[template] = bound
+            if bound['status'] == 'ready' and bound['kind'] == 'skinned': descriptor = importer.owner_bound_preview(bound, descriptor)
         previous_shared = catalog['items'].get(template, {}).get('shared_template')
         if previous_shared != descriptor['shared_template'] and catalog['aliases'].get(previous_shared) == template:
             del catalog['aliases'][previous_shared]

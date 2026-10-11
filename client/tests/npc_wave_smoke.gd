@@ -23,7 +23,7 @@ func run()->void:
 	for kind in Wave.NPC_KINDS:
 		var row:=npc.duplicate();row.kind=kind
 		check(not Wave.target([row],Vector3.ZERO,head,visible).is_empty(),"Existing NPC interaction supported: "+kind)
-	for change in [{"position":Vector3(0,0,-3.01)},{"position":Vector3(2,0,-1)},{"position":Vector3(0,0,2)},{"dead":true},{"kind":"bank"},{"kind":"bazaar"},{"kind":"ticket_collector"}]:
+	for change in [{"position":Vector3(0,0,-5.01)},{"position":Vector3(2,0,-1)},{"position":Vector3(0,0,2)},{"dead":true},{"kind":"bank"},{"kind":"bazaar"},{"kind":"ticket_collector"}]:
 		var row:=npc.duplicate();row.merge(change,true)
 		check(Wave.target([row],Vector3.ZERO,head,visible).is_empty(),"Ineligible target ignored: "+str(change))
 	check(Wave.target([npc],Vector3.ZERO,head,func(_a,_b,_c):return false).is_empty(),"Blocked sight line ignored")

@@ -1,7 +1,7 @@
 extends RefCounted
 ## Deliberate greeting only; opens an existing service, never confirms an action.
 const NPC_KINDS=["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer"]
-const RANGE:=3.0
+const RANGE:=5.0
 const STROKE:=0.12
 const WINDOW:=1.8
 var lanes:Dictionary={}
@@ -32,7 +32,7 @@ static func target(records:Array,body:Vector3,head:Transform3D,visible:Callable)
 		var delta:=eye-head.origin
 		if delta.length()<.15:continue
 		var angle:=rad_to_deg((-head.basis.z).angle_to(delta))
-		if angle>20 or not visible.call(head.origin,eye,row):continue
+		if angle>30 or not visible.call(head.origin,eye,row):continue
 		# The same delivery NPC can expose multiple missions; preserve discovery
 		# order for that identity, as the existing click interaction does.
 		if seen.has(id):continue

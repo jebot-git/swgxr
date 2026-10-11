@@ -1,11 +1,13 @@
 """Native terminal services validation and source text resolution."""
 try:
+ from .mail_protocol import ACTIONS as MAIL_ACTIONS, READS as MAIL_READS, fields as mail_fields, normalize as mail_normalize
  from .housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from .fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
  from .slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
  from .bounty_protocol import ACTIONS as BOUNTY_ACTIONS, fields as bounty_fields, normalize_snapshot as bounty_snapshot
  from .planets import SUPPORTED_PLANETS, context as planet_context, planet as validate_planet
 except ImportError:
+ from mail_protocol import ACTIONS as MAIL_ACTIONS, READS as MAIL_READS, fields as mail_fields, normalize as mail_normalize
  from housing_protocol import ACTIONS as HOUSING_ACTIONS, fields as housing_fields
  from fishing_protocol import ACTIONS as FISHING_ACTIONS, fields as fishing_fields
  from slicing_protocol import ACTIONS as SLICING_ACTIONS, fields as slicing_fields
@@ -25,9 +27,11 @@ except ImportError:
  from inventory_protocol import inventory_snapshot
 ACTIONS=('container_transfer','status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
 ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
-MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
+ACTIONS+=MAIL_ACTIONS
+MUTATIONS=set(ACTIONS)-MAIL_READS-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
+ if action.startswith('mail_'):data={k:v for k,v in data.items() if k not in ('planet','zone','position','building_id','cell_index','terminal_id')}
  out={'action':action,**planet_context(data)}
  for field,maximum in [('category_id',2147483647),('page',100000)]:
   if field in data:
@@ -51,6 +55,7 @@ def command(action,data):
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
   out.update(building_id=v,cell_index=ci)
  required={
+  'bank_quote':('terminal_id',),'bank_pay':('terminal_id',),
   'container_transfer':('terminal_id','container_id','item_id'),
   'ship_manage':('terminal_id','ship_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
   'pilot_begin':('terminal_id',),'pilot_choose':('terminal_id',),'herald_begin':('terminal_id',),'herald_choose':('terminal_id',),
@@ -154,6 +159,7 @@ def command(action,data):
  if action=='contraband_answer':
   if type(data.get('accept')) is not bool:raise ValueError('Choose pay or refuse the original contraband fine.')
   out['accept']=data['accept'];out.pop('terminal_id',None)
+ if action in MAIL_ACTIONS:out.update(mail_fields(action,data))
  if action in HOUSING_ACTIONS:out.update(housing_fields(action,data))
  if action in FISHING_ACTIONS:out.update(fishing_fields(action,data))
  if action in SLICING_ACTIONS:out.update(slicing_fields(action,data))
@@ -196,6 +202,7 @@ def snapshot(raw,oid,attributes=None):
   state['fishing']['message']=label(state['fishing'].get('message',''))
   for bait in state['fishing'].get('baits',[]):bait['name']=template_label(bait.get('template',''))[0]
  mutation=state.pop('mutation',{'success':True})
+ mail_normalize(state,mutation)
  if state.get('terminal',{}).get('kind') in ('bazaar','vendor'):
   tree,limitations=categories();state['terminal']['categories']=deepcopy(tree);state['terminal']['category_limitations']=limitations
  appearance=state.get('player',{}).get('appearance',{})

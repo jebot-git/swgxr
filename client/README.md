@@ -688,3 +688,40 @@ routing checks with mocked native requests. Existing service UI, coordinator,
 gesture arbitration and settings checks also pass. Tests use the dummy renderer
 with `--xr-mode off`; no headset behavior is claimed. The change is prepared
 locally for the next release, with no release or remote deployment performed.
+
+Prepared mail, interaction and junk-appearance update (2026-10-11):
+
+The datapad footer opens native persistent mail; an unread envelope appears in
+its minimap's lower-right corner. Inbox paging, reply, deletion and saving native
+waypoint attachments share the existing XR menu surface. Background unread polls
+do not interrupt typing. Bank terminals expose Pay with recipient entry and a
+review of the native bank fee before sending. The tenkeyless keyboard uses the
+same holographic theme and sends keys only to the focused menu field. Standard
+scroll containers, item lists, rich text and text editors support pointer drag
+scrolling, with clicks deferred until release so a drag does not activate a row.
+
+Survey probes are available from the mail panel and from the held original item.
+They consume the selected native survey tool and one probe use, retain the native
+quality-based 15–60 minute delay, and deliver the original resource report by
+mail. Restart recovery retains the full epoch-millisecond request time.
+
+Herald triggers now open the original greeting immediately; wave/trigger picking
+uses the visible replicated NPC position and a five-metre interaction reach.
+Loot markers are capped at 1.2 metres above the corpse root and removed after a
+confirmed empty loot result, including protection against stale corpse snapshots.
+
+Launcher preparation now includes all ground loot definitions and follows native
+shared-template inheritance. Ledger and Damaged Datapad load original models;
+all 42 generic junk definitions pass original-appearance, geometry, texture and
+hash checks. Of 2,084 loot references, 10 remaining non-junk conversions record
+explicit failures (four source mappings/media, five Twi'lek owner-shader hats and
+a lightsaber-blade appearance). They are not replaced with invented meshes.
+
+Validation evidence is under ignored runtime/evidence: mail-native-smoke.json,
+ground-damage-native.json, mail-ui-smoke.json, junk-appearance-validation.json and
+mail-keyboard-preview.png. The 900-second native survey report arrived after a
+server restart with unread status and original Naboo resource results intact
+(probe-report-delivery.json). UI tests use the dummy renderer; the UI preview uses
+desktop Vulkan Forward+. Neither validates live headset behavior. These changes
+are prepared locally for the next release; the Downloads client and remote realm
+were not patched or restarted for this work.

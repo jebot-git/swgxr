@@ -102,12 +102,16 @@ class SwgxrGroundCombat {
    }
    std::sort(hits.begin(),hits.end());if(s->profile.at("hit_policy")=="first_contact"&&hits.size()>1)hits.resize(1);
    corecu::ground::ResolveScope once(actor->getObjectID());
-   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());int before=c->getHAM(0);int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["damage"]=std::max(0,before-c->getHAM(0));break;}}}
+   for(auto& hit:hits){auto c=s->victims[hit.second].actor.get();if(!c)continue;Locker other(c,actor);corecu::action::ContactScope confirmed(actor->getObjectID(),c->getObjectID());std::array<int,3> before{{c->getHAM(0),c->getHAM(3),c->getHAM(6)}};int native=CombatManager::instance()->doCombatAction(actor,s->weapon,c,*s->data);{std::lock_guard<std::mutex> l(mutex());for(auto& row:analytics())if(row["attack_id"]==std::to_string(a.id)&&row["victim_id"]==std::to_string(c->getObjectID())){row["delivered"]=native>=0;row["native_result"]=native;row["ham_damage"]=Json::array();int total=0;for(int pool=0;pool<3;++pool){int loss=std::max(0,before[pool]-c->getHAM(pool*3));row["ham_damage"].push_back(loss);total+=loss;}row["damage"]=total;break;}}}
    s->done=true;a.settled=true;publish(actor,*s,"recovery");
   }
   schedule(s);
  }
 public:
+ static double approachRange(AiAgent* actor,SceneObject* target,WeaponObject* weapon,double original){
+  if(!enabled()||!inScope(actor)||!target||!target->isPlayerCreature()||!capable(target->getObjectID())||!weapon||!weapon->isMeleeWeapon())return original;
+  return std::min(original,std::max(.8,double(weapon->getMaxRange())-.35));
+ }
  static bool updatePursuit(AiAgent* actor){
   if(!pursuitExpired(actor))return false;
   auto s=find(actor->getObjectID());if(s){Locker guard(&s->mutex,actor);cancel(actor,*s,"disengaged");}
@@ -137,6 +141,11 @@ public:
   double commandSeconds=command->getSpeed()>0?command->getSpeed():CombatManager::instance()->calculateWeaponAttackSpeed(actor,weapon,data.getSpeedMultiplier());
   if(s->special)s->profile["windup"]=std::max(s->profile.at("windup").get<double>(),std::min(4.,commandSeconds*.6));
   a.profile={s->profile.at("windup").get<double>(),s->profile.at("contact_window").get<double>(),s->profile.at("recovery").get<double>(),range,.45,cosine,0};a.clipDuration=s->profile.at("duration");a.contactDelay=s->profile.at("contact_offset");a.lockLead=s->profile.at("lock_lead");
+  // Native default attacks permit a 10m minimum and AI adds both template
+  // radii to its stop distance. Neither expands the visible contact geometry.
+  // Stay in pursuit until the selected action can actually reach the target.
+  double launchReach=s->impactCentered?s->attackReach:range;
+  if(corecu::action::distance(a.origin,point(target))>launchReach+.35 || std::abs(a.origin[1]-point(target)[1])>2.8){actor->addCooldown("corecu_ground_reposition",200);actor->activateAiBehavior();return true;}
   s->release=std::max(a.recoveredAt(),a.start+commandSeconds);
   std::vector<Peer> candidates;{std::lock_guard<std::mutex> l(mutex());for(auto& p:peers())if(p.second.expires>now())candidates.push_back(p.second);}
   for(auto& p:candidates){auto c=p.actor.get();if(!c)continue;Locker other(c,actor);if((!s->targeted||c==target)&&eligible(c,actor,s->cell)&&corecu::action::distance(point(c),a.origin)<=s->attackReach+range+8){Victim v;v.actor=c;v.state.attack=a;s->victims[c->getObjectID()]=v;}}

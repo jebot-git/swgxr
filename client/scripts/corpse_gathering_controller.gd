@@ -104,6 +104,7 @@ func perform(action: String,record: Dictionary,kind: String="") -> Dictionary:
 	# Apply confirmed eligibility immediately, instead of leaving a stale coin
 	# until the next nearby-corpse query. Never remove loot optimistically.
 	visuals.states[id]=response.corpse.duplicate(true)
+	if action=="loot" and int(response.corpse.get("loot",{}).get("credits",0))==0 and int(response.corpse.get("loot",{}).get("item_count",0))==0:visuals.confirm_looted(id)
 	if visuals.visuals.has(id): visuals.update_coin(id)
 	ui.set_corpse_context(record,response.corpse)
 	return response

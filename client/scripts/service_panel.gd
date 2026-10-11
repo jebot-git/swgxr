@@ -16,6 +16,8 @@ const CONFIRM_RECT=Rect2(590,488,250,52)
 const BOARDING_RECT=Rect2(228,488,340,52)
 const REFRESH_RECT=Rect2(20,488,190,52)
 const CLOSE_RECT=Rect2(808,12,40,40)
+var text_scroll=preload("res://ui/drag_scroll.gd").new()
+var text_drag:=false
 var player_position:=Vector3.INF
 var player_planet:=""
 var terminal: Dictionary={}
@@ -149,6 +151,7 @@ func row_at(pixel: Vector2) -> int:
 
 func pointer_begin(pixel: Vector2) -> void:
 	if pending: return
+	text_drag=text_scroll.begin(self,pixel)
 	pointer_down=true
 	down_pixel=pixel
 	last_pixel=pixel
@@ -167,6 +170,9 @@ func pointer_begin(pixel: Vector2) -> void:
 
 func pointer_move(pixel: Vector2) -> void:
 	if not pointer_down or pending: return
+	if text_drag:
+		if text_scroll.move(pixel):dragged=true
+		return
 	if pixel.distance_to(down_pixel)>12: dragged=true
 	for currency in faction_sliders.values():
 		if currency.dragging:currency.drag_to(pixel-currency.position);last_pixel=pixel;return
@@ -182,6 +188,8 @@ func pointer_move(pixel: Vector2) -> void:
 	last_pixel=pixel
 
 func pointer_end(pixel: Vector2) -> void:
+	if text_drag:
+		text_scroll.finish(pixel);text_drag=false;pointer_down=false;return
 	if not pointer_down: return
 	var click:=not dragged and pixel.distance_to(down_pixel)<16 and not pending
 	cancel_pointer()
@@ -317,6 +325,8 @@ func click_at(pixel: Vector2) -> void:
 		if terminal.get("kind","")=="bazaar" and selected>=0 and bool(rows[selected].get("auction",false)) and bool(rows[selected].get("buy_eligible",true)):
 			bid_mode=true;slider.visible=true;slider.amount=0;update_limit()
 		queue_redraw();return
+	if terminal.get("kind","")=="bank" and Rect2(590,420,250,52).has_point(pixel):
+		action_requested.emit("bank_recipient",{"terminal_id":str(terminal.id),"amount":slider.amount});return
 	if CONFIRM_RECT.has_point(pixel): confirm()
 
 func mission_blocked_reason(row: Dictionary) -> String:
@@ -510,6 +520,8 @@ func _draw() -> void:
 		if bid_mode:
 			draw_string(FONT,Vector2(170,228),"Bid: "+label_for(rows[selected]),HORIZONTAL_ALIGNMENT_LEFT,520,24,Color("d2f6ff"))
 		elif kind=="bank":
+			draw_style_box(Holo.button("normal"),Rect2(590,420,250,52))
+			draw_string(FONT,Vector2(670,454),"Pay",HORIZONTAL_ALIGNMENT_LEFT,160,24,Holo.INK)
 			for index in range(2):
 				var active:=(index==0)==(direction=="deposit")
 				draw_style_box(Holo.button("pressed" if active else "normal"),Rect2(170+index*260,192,250,60))
@@ -595,3 +607,6 @@ func _draw() -> void:
 	draw_style_box(Holo.button("disabled" if confirmation_disabled else "hover"),CONFIRM_RECT)
 	draw_string(FONT,CONFIRM_RECT.position+Vector2(10,33),"Waiting for CoreCU…" if pending else button,HORIZONTAL_ALIGNMENT_CENTER,230,20,Color("d2f6ff"))
 	draw_string(FONT,Vector2(30,590),message,HORIZONTAL_ALIGNMENT_LEFT,814,18,Color("9ac7da"))
+
+func _exit_tree()->void:
+	if is_instance_valid(text_scroll):text_scroll.free()

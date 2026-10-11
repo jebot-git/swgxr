@@ -5,6 +5,7 @@ const Interaction=preload("res://scripts/corpse_interaction.gd")
 var actor_provider: Callable
 var coin_assets:=Assets.new()
 var coins: Dictionary={}
+var looted:Dictionary={}
 const MAX_VISIBLE:=32
 const DISPLAY_DISTANCE:=64.0
 var assets:=Assets.new()
@@ -53,7 +54,7 @@ func set_states(confirmed: Array) -> bool:
 		if not states.has(id): failures.erase(id)
 	last_error=""; refresh_time=1.0
 	for id: String in coins:
-		if not states.has(id) or not Interaction.eligible(states[id]): coins[id].visible=false
+		if not states.has(id) or not Interaction.eligible(states[id]) or looted.has(id): coins[id].visible=false
 	return true
 func signature(state: Dictionary) -> String:
 	return JSON.stringify([state.get("template",state.get("shared_template","")),state.get("customization",{}),state.get("scale",1.0)])
@@ -124,11 +125,11 @@ func interaction_record(id: String) -> Dictionary:
 	var result: Dictionary=states[id].duplicate(true)
 	result.world_position=record.node.global_position
 	result.bounds=record.node.global_transform*record.bounds
-	result.hologram_position=Interaction.coin_position(result.bounds)
+	result.hologram_position=Interaction.coin_position(result.bounds,result.world_position.y)
 	return result
 
 func update_coin(id: String) -> void:
-	var eligible: bool=Interaction.eligible(states[id]) and visuals[id].node.is_visible_in_tree()
+	var eligible: bool=Interaction.eligible(states[id]) and not looted.has(id) and visuals[id].node.is_visible_in_tree()
 	if eligible and not coins.has(id):
 		var mesh: MeshInstance3D=coin_assets.instance("loot_coin",.24)
 		if mesh==null: return
@@ -143,13 +144,13 @@ func update_coin(id: String) -> void:
 		coins[id]=marker
 	if coins.has(id):
 		coins[id].visible=eligible
-		coins[id].global_position=Interaction.coin_position(interaction_record(id).bounds)
+		coins[id].global_position=interaction_record(id).hologram_position
 
 func nearest_loot(hand: Transform3D) -> Dictionary:
 	if not hand.origin.is_finite(): return {}
 	var best:=INF;var result:Dictionary={}
 	for id: String in coins:
-		if not coins[id].visible or not states.has(id) or not Interaction.eligible(states[id]): continue
+		if not coins[id].visible or not states.has(id) or not Interaction.eligible(states[id]) or looted.has(id): continue
 		var offset: Vector3=coins[id].global_position-hand.origin
 		var distance:=offset.length()
 		var along:=offset.dot(-hand.basis.z.normalized())
@@ -178,6 +179,7 @@ func _process(delta: float) -> void:
 		marker.get_child(0).rotate_y(delta*2.0)
 
 func clear() -> void:
+	looted.clear()
 	for id: String in visuals.keys(): release_visual(id)
 	states.clear(); failures.clear(); last_error=""
 func statistics() -> Dictionary:
@@ -186,3 +188,7 @@ func _physics_process(delta: float) -> void:
 	refresh_time+=delta
 	if refresh_time>=0.25: refresh_time=0.0; sync_visuals()
 func _exit_tree() -> void: clear()
+
+func confirm_looted(id:String)->void:
+	looted[id]=true
+	if coins.has(id):coins[id].queue_free();coins.erase(id)

@@ -188,7 +188,8 @@ func open_terminal(record: Dictionary) -> void:
 	set_pending(true)
 	if record.get("kind","") in ["contraband","bounty_informant","bounty_droid"]:set_pending(false);return
 	if record.get("kind","")=="ticket_collector":action_requested.emit("travel_tickets",{"terminal_id":str(record.id)});return
-	if record.get("kind","")=="delivery":action_requested.emit("delivery_open",{"npc_id":str(record.id),"mission_id":str(record.get("mission_id",""))})
+	if record.get("kind","")=="herald":action_requested.emit("herald_begin",{"terminal_id":str(record.id)})
+	elif record.get("kind","")=="delivery":action_requested.emit("delivery_open",{"npc_id":str(record.id),"mission_id":str(record.get("mission_id",""))})
 	else:action_requested.emit("open",{"terminal_id":str(record.id)})
 
 func close_interface() -> void:
@@ -488,6 +489,8 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 	var best_score:=INF
 	for record: Dictionary in records:
 		if not record.get("position") is Vector3 or player_position.distance_to(record.position)>CLOSE_DISTANCE: continue
+		var npc:bool=preload("res://scripts/npc_wave_gesture.gd").is_npc(record)
+		var reach:=5.0 if npc else 3.0
 		var geometry:Dictionary=record.get("pick_geometry",{})
 		if not geometry.is_empty():
 			var pose:Transform3D=record.pick_pose
@@ -504,7 +507,7 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 			var delta:=anchor.origin-origin
 			var distance:=delta.length()
 			var alignment:=direction.normalized().dot(delta.normalized())
-			if distance>0.4 and (distance>3.0 or alignment<0.94): continue
+			if distance>0.4 and (distance>reach or alignment<(0.92 if npc else 0.94)): continue
 			if record.has("ui_anchors") and not record.ui_anchors.is_empty():
 				# Pick the complete casing, including the keyboard and physical glass.
 				# Facing belongs to the viewer; a tracked finger may touch or slightly

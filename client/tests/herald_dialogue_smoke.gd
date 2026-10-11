@@ -18,7 +18,7 @@ func run()->void:
 	ui.action_requested.connect(func(action,payload):requests.append({"action":action,"payload":payload}))
 	for kind:String in ["herald","pilot_trainer"]:
 		ui.open_terminal({"id":"123","kind":kind,"name":"Original NPC","position":Vector3(0,0,-1)})
-		check(requests.back().action=="open","Conversation uses normal service opening")
+		check(requests.back().action==("herald_begin" if kind=="herald" else "open"),"Herald starts conversation directly; pilot retains native entry screen")
 		ui.apply_response({"terminal":{"id":"123","kind":kind,"dialogue":"Ask about local destinations.","options":[{"name":"Speak","begin":true}]},"wallet":{"cash":100,"bank":0}})
 		check(ui.panel.delivery_dialogue.visible and ui.panel.delivery_dialogue.text=="Ask about local destinations.","Existing scrollable dialogue area displays herald/pilot text")
 		ui.panel.selected=0;ui.panel.confirm()

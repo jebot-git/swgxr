@@ -10,6 +10,15 @@ from tools.client.game_data_plan import STEPS
 from tools.client.iso_media import extract_cabinets
 
 class GameDataPreparationTests(unittest.TestCase):
+    def test_ambient_export_uses_bundled_revision_without_git(self):
+        from tools.server.export_ambient_npcs import core_revision
+        with tempfile.TemporaryDirectory() as folder:
+            core=Path(folder);receipt=core/'REVISION';receipt.write_text('a'*40+'\n')
+            with patch('tools.server.export_ambient_npcs.subprocess.check_output',side_effect=AssertionError('Portable export must not invoke Git')):
+                self.assertEqual(core_revision(core),'a'*40)
+                receipt.write_text('invalid')
+                with self.assertRaisesRegex(ValueError,'Invalid bundled'):core_revision(core)
+
     def test_dependencies_precede_mounts(self):
         order=[name for name,_ in STEPS]
         self.assertLess(order.index('planets'),order.index('pets'))

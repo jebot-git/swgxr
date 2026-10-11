@@ -13,6 +13,16 @@ from swg_formats import TreSet, parse_iff
 from prepare_stage import qrot, qmirror
 
 
+def core_revision(core):
+    """Portable preparation bundles carry provenance without a Git checkout."""
+    receipt = core / 'REVISION'
+    revision = receipt.read_text().strip() if receipt.is_file() else subprocess.check_output(
+        ['git', '-C', str(core), 'rev-parse', 'HEAD'], text=True).strip()
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('Invalid bundled Core3 revision')
+    return revision
+
+
 def clean(text):
     return re.sub(r'--[^\n]*', lambda m: ' ' * len(m[0]), text)
 
@@ -204,7 +214,7 @@ def main():
     args.out.mkdir(parents=True,exist_ok=True)
     result={'schema_version':1,'planet':args.planet,'origin':origin,'catalog':'catalog.json','instances':entries,
         'statistics':{'placements':len(entries),'templates':len({e['template'] for e in entries}),'appearance_variants':len({e['appearance_id'] for e in entries}),'outfit_placements':sum(e['core3_outfit'] is not None for e in entries),'primary_weapon_placements':sum(e['source_primary_weapon'] is not None and e['source_primary_weapon']['status']=='selected' for e in entries),'excluded_primary_weapon_placements':sum(e['source_primary_weapon'] is not None and e['source_primary_weapon']['status']!='selected' for e in entries),'interior':sum(bool(e['cell_id']) for e in entries),'skipped':len(skipped)},
-        'provenance':{'core3_commit':subprocess.check_output(['git','-C',str(ROOT/'vendor/Core3'),'rev-parse','HEAD'],text=True).strip(),'files_sha256':sources,
+        'provenance':{'core3_commit':core_revision(ROOT/'vendor/Core3'),'files_sha256':sources,
             'snapshot_sha256':hashlib.sha256(raw).hexdigest(),'snapshot_archive':tre.entries[f'snapshot/{args.planet}.ws'][0].name},
         'limitations':['Ambient local presentation only: no combat, dialogue, AI or live Core3 population authority.',
             'Runtime-random mobile/dressgroup choices use recorded deterministic source variants.',

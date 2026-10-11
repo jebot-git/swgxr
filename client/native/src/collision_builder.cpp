@@ -181,6 +181,11 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
             // Interior cells keep the narrow tolerance: their real walls must
             // never be perforated simply because a doorway faces them.
             double behind=0.1,ahead=0.1;
+            // Cloning-centre shells slope across the opening (~27 degrees
+            // from vertical). Treat steep exterior sheets as closure candidates;
+            // aperture coverage and the finite FLR approach still bound the cut.
+            // Interior walls retain the original near-parallel requirement.
+            const double minimum_alignment=bool(portal.get("exterior_shell",false))?0.707107:0.95;
             std::vector<double> selected;
             FloorApproach back_approach,front_approach;
             if(bool(portal.get("exterior_shell",false))) {
@@ -196,9 +201,12 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
                     if(piece.size()<3)continue;
                     const Vector3 fn=(piece[1]-piece[0]).cross(piece[2]-piece[0]).normalized();
                     const double alignment=fn.dot(normal);
-                    if(std::abs(alignment)<0.95)continue;
+                    if(std::abs(alignment)<minimum_alignment)continue;
                     const double distance=fn.dot(piece[0]-center)/alignment;
                     if(distance< -back_limit||distance>front_limit)continue;
+                    // Broader angles require an actual open source-floor route,
+                    // not just proximity to the portal plane.
+                    if(std::abs(alignment)<0.95&&(distance<0?back_approach.depth:front_approach.depth)<=0)continue;
                     const Vector3 hit=center+normal*distance;bool covered=true;
                     for(size_t edge=0;edge<piece.size();edge++) {
                         if((piece[(edge+1)%piece.size()]-piece[edge]).cross(hit-piece[edge]).dot(fn)<-1e-5){covered=false;break;}
@@ -217,7 +225,7 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
                     for(const Polygon &piece:pieces) {
                         if(piece.size()<3)continue;
                         const Vector3 fn=(piece[1]-piece[0]).cross(piece[2]-piece[0]).normalized();
-                        const double alignment=fn.dot(normal);if(std::abs(alignment)<0.95)continue;
+                        const double alignment=fn.dot(normal);if(std::abs(alignment)<minimum_alignment)continue;
                         if(std::abs(fn.dot(piece[0]-center)/alignment-distance)>0.01)continue;
                         Polygon projected=piece;
                         for(const auto &side:sides)projected=split(projected,side.first,side.second,true);
@@ -236,9 +244,9 @@ Array SwgCollisionBuilder::build_cell_extent(const Dictionary &definition,const 
             for(const Polygon &piece:pieces) {
                 if(piece.size()<3)continue;
                 const Vector3 face_normal=(piece[1]-piece[0]).cross(piece[2]-piece[0]).normalized();
-                if(std::abs(face_normal.dot(normal))<0.95){next.push_back(piece);continue;}
+                if(std::abs(face_normal.dot(normal))<minimum_alignment){next.push_back(piece);continue;}
                 const double face_distance=face_normal.dot(piece[0]-center)/face_normal.dot(normal);
-                bool closure=std::abs(face_distance)<=0.1;
+                bool closure=std::abs(face_distance)<=0.1&&std::abs(face_normal.dot(normal))>=0.95;
                 for(double candidate:selected)if(std::abs(face_distance-candidate)<=0.01){closure=true;break;}
                 if(!closure){next.push_back(piece);continue;}
                 // A descending exterior approach can lie below the doorway

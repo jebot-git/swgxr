@@ -1992,3 +1992,10 @@ remain inputs. Equivalent previous full manifests generate bounded compatibility
 receipts, retaining source-media and workspace checks. Eight preparation tests
 pass, including equivalent upgrade/repeat launch without staging, missing-output
 and source-change invalidation, conversion failure preservation and resumability.
+
+
+The launcher cache follow-up is released as test.19 and installed in the
+closed Downloads client. Real bundled preparation now completes in about
+48 ms without staging or conversion; public launcher discovery and twelve
+incremental baseline/platform bundles are verified. The underlying
+harvest-disconnect cause remains unconfirmed, as noted for test.18.

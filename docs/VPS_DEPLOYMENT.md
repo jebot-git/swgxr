@@ -1105,3 +1105,24 @@ disconnect: native live-session harvesting passed locally, but that reported
 connection loss remains unconfirmed. Evidence is under
 `runtime/releases/test18-20261011/` and
 `runtime/deploy/interactions-test18-20261011/`.
+
+
+## Preparation cache follow-up / test.19 — 2026-10-11
+
+Released `v2026.10.11-test.19` from the prepared cache-fix commit `c15857e`.
+The test.18 gateway deployment remains active; this client-only follow-up made
+no additional server changes. Both packaged clients passed headless preflight,
+with Windows executed through Wine. Twelve verified deltas cover test.13–18;
+GitHub asset digests and the launcher's public discovery were checked.
+
+Stopped a redundant launcher preparation subprocess tree that had started
+before the cache fix. Existing installed assets remained intact. The local
+Downloads client was updated incrementally with rollback at
+`.updates/backup-v2026.10.11-test.19`. Two runs of the installed bundled
+preparation command each took about 48 ms and skipped staging/conversion.
+Required catalog timestamps and asset-backup inventory were unchanged. The
+old equivalent preparation receipt was migrated by metadata only, based on
+matching converter/source inputs. The game remains closed; no headset launch.
+Evidence: `runtime/releases/test19-20261011/`, including
+`CACHE_REUSE_VALIDATION.json`, `INSTALLED_CACHE_VALIDATION.json`,
+`PATCH_VALIDATION.json`, `LOCAL_INSTALL.json`, and `GITHUB_ASSETS.json`.

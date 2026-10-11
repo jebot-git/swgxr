@@ -1,11 +1,25 @@
 """Mock process boundaries; never touch actual systemd/Core3 processes."""
 import subprocess
 import unittest
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock,patch
 from tools.deploy import scheduled_restart as restart
 
 class RestartTests(unittest.TestCase):
+    def test_private_combat_restart_keeps_public_realm_offline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);(root/'runtime/remote').mkdir(parents=True)
+            (root/'runtime/remote/combat-test-mode').touch()
+            calls=[]
+            def run(args):
+                calls.append(args)
+                return 'active' if args[1] in ('is-active','show') else ''
+            with patch.object(restart,'event'):
+                restart.restart(root=root,run=run,check_health=lambda:True)
+            self.assertIn(['systemctl','start','swgxr-core3.service','swgxr-adapter.service'],calls)
+            self.assertFalse(any('swgxr-gateway.service' in c for c in calls if c[1]=='start'))
+
     def test_native_save_precedes_supervisor_stop_and_restart(self):
         calls=[]
         def run(args):

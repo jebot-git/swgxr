@@ -10,6 +10,8 @@ var state:=State.new()
 var players:Node3D
 var entities:Node3D
 var chatter:Node3D
+var action_combat:Node3D
+var motion_epoch:=0
 var generation:=0
 var owner_character:=""
 var owner_session:=""
@@ -31,12 +33,15 @@ func setup(host:Node)->void:
 	players=preload("res://multiplayer/remote_players.gd").new();app.add_child(players);players.configure()
 	if players.has_method("configure_world"):players.configure_world(app)
 	entities=preload("res://multiplayer/world_entities.gd").new();app.add_child(entities);entities.setup(app)
+	action_combat=preload("res://combat/action_combat.gd").new();app.add_child(action_combat);action_combat.setup(app,self)
 	chatter=preload("res://chatter/controller.gd").new();app.add_child(chatter);chatter.setup(app)
 func reset()->void:
+	motion_epoch=0
 	generation+=1;owner_character="";owner_session="";busy=false;priming=false;clock=0;confirmed_ms=0;last_error="";state.reset()
 	if is_instance_valid(players):players.clear()
 	if is_instance_valid(entities):entities.clear()
 	if is_instance_valid(chatter):chatter.clear()
+	if is_instance_valid(action_combat):action_combat.clear()
 func prime()->bool:
 	var session:=active_session()
 	if not is_instance_valid(session):return false
@@ -156,16 +161,24 @@ func apply_response(result:Dictionary,sent_sequence:int)->bool:
 		players.apply_deployments(deployments,owner_character,app.player.global_position)
 	if not app.live_combat_reserved:entities.accept(state.actors,owner_session,state.world_revision,maxf(0,float(result.get("world_age_ms",INF)))/1000.0+maxf(0,float(result.get("_request_elapsed_seconds",0))))
 	var projection:Variant=app.get("live_combat") if app.live_combat_reserved else entities
+	if is_instance_valid(action_combat):action_combat.accept(result.get("motion",{}).get("action_events",[]),request_ms/1000.0)
 	if is_instance_valid(projection):apply_motion(result.get("motion",{}),projection.actors)
 	if is_instance_valid(chatter):chatter.accept(result.get("npc_speech"))
 	return true
 func apply_motion(envelope:Dictionary,actors:Dictionary)->void:
+	if envelope.has("epoch"):motion_epoch=int(envelope.epoch)
 	if envelope.get("source_kind","")!="core3_motion_v1":return
 	for row:Dictionary in envelope.get("actors",[]):
 		var id:=str(row.get("id",""))
 		if not actors.has(id) or not State.finite_point(row.get("position")):continue
 		var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-float(row.heading_radians)),world(row.position))
 		actors[id].apply_motion(row,pose,int(envelope.get("epoch",0)))
+	for event:Dictionary in envelope.get("action_events",[]):
+		var id:=str(event.get("id",""))
+		if actors.has(id):
+			var aim:Vector3=State.point(event.direction)
+			var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-atan2(aim.x,aim.z)),world(event.origin))
+			actors[id].apply_action_event(event,int(envelope.get("epoch",0)),request_ms/2000.0,pose)
 	for event:Dictionary in envelope.get("events",[]):
 		var id:=str(event.get("id",""))
 		if actors.has(id):actors[id].apply_combat_event(event,int(envelope.get("epoch",0)))
@@ -204,3 +217,4 @@ func _exit_tree()->void:
 	if is_instance_valid(players):players.queue_free()
 	if is_instance_valid(entities):entities.queue_free()
 	if is_instance_valid(chatter):chatter.queue_free()
+	if is_instance_valid(action_combat):action_combat.queue_free()

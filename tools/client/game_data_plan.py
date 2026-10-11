@@ -46,8 +46,10 @@ STEPS = [
  ('gcw', ['tools/assets/prepare_gcw.py', '--prepare-previews', '--prepare-npcs']),
  ('dynamic_terrain', ['tools/assets/prepare_dynamic_terrain.py']),
  ('animation_messages', ['tools/assets/refresh_animation_messages.py']),
+ ('ground_actions', ['tools/assets/prepare_ground_actions.py']),
  ('materials', ['tools/assets/refresh_static_materials.py', '--ensure']),
 ]
 REQUIRED = ['mos_eisley/scene.json', 'characters/catalog.json', 'inventory/catalog.json',
             'planets/catalog.json', 'jtl/catalog.json', 'combat/assets.json',
-            'mobile_audio/catalog.json', 'game_audio/catalog.json', 'login/catalog.json']
+            'mobile_audio/catalog.json', 'game_audio/catalog.json', 'login/catalog.json',
+            'combat_actions/catalog.json']

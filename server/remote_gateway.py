@@ -37,7 +37,7 @@ UPSTREAM = ('127.0.0.1', 18080)
 GET = {'/health','/combat/session','/gathering/corpses','/crafting','/gathering','/inventory','/weapons','/datapad','/creation-options','/characters'}
 POST = {'/session/sync','/session/life','/session/start','/session/update','/session/logout','/voice/session','/voice/presence','/services/presence','/performance','/characters','/enter','/waypoints','/datapad/delete'}
 for prefix, actions in {
-    '/combat/session/': 'start update fire melee taunt warcry swordsman pikeman fencer pistoleer carbineer rifleman commando bountyhunter squadleader tka brawler_buff impact stop life loadout',
+    '/combat/session/': 'start update fire melee taunt warcry swordsman pikeman fencer pistoleer carbineer rifleman commando bountyhunter squadleader tka brawler_buff impact stop life loadout action_combat',
     '/gathering/corpse/': 'inspect harvest loot',
     '/gathering/': 'status survey deploy collect holster return_tool',
     '/inventory/': 'status equip unequip consume split',

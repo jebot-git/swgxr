@@ -36,7 +36,9 @@ def restart(root=ROOT,run=command,check_health=health,pause=time.sleep):
     """Dependency order is intentional. Failed native shutdown never advances."""
     if run(['systemctl','show','--property=ActiveState','--value','swgxr.target'])!='active':
         event('skipped',reason='Game target is not active');return
-    event('begin',scope='Core3, adapter, HTTPS gateway and voice; database/container retained')
+    private_combat = (root/'runtime/remote/combat-test-mode').is_file()
+    services = SERVICES[:2] if private_combat else SERVICES
+    event('begin',scope='Private combat test' if private_combat else 'Core3, adapter, HTTPS gateway and voice; database/container retained')
     run(['systemctl','stop',*FRONTENDS])
     event('saving_native_world')
     # Calling the graceful runtime directly avoids systemd's stop-timeout
@@ -45,8 +47,8 @@ def restart(root=ROOT,run=command,check_health=health,pause=time.sleep):
     event('native_save_and_exit_confirmed')
     # Core3 is now gone. Clear/synchronize only the completed supervisor job.
     run(['systemctl','stop','swgxr-core3.service'])
-    run(['systemctl','start',*SERVICES])
-    for service in SERVICES:
+    run(['systemctl','start',*services])
+    for service in services:
         if run(['systemctl','is-active',service])!='active':
             raise RuntimeError('Restarted game service is not active: '+service)
     ready=False
@@ -56,7 +58,7 @@ def restart(root=ROOT,run=command,check_health=health,pause=time.sleep):
         if ready:break
         if attempt<5:pause(5)
     if not ready:raise RuntimeError('Native login/zone readiness did not recover after scheduled restart')
-    event('complete',native_login_zone_ready=True,services=list(SERVICES))
+    event('complete',native_login_zone_ready=True,services=list(services))
 
 
 def main():

@@ -19,5 +19,5 @@ class PhysicalAccuracy(unittest.TestCase):
    self.assertEqual(result.returncode,0,result.stderr)
    result=subprocess.run([str(path/'check')],capture_output=True,text=True,timeout=10)
    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-   self.assertIn('68 native physical-accuracy resolver cases passed',result.stdout)
+   self.assertIn('72 native physical-accuracy resolver cases passed',result.stdout)
    print(result.stdout.strip())

@@ -18,7 +18,13 @@ int main(){
  for(int i=0;i<100;++i){auto rows=stream.snapshot(1)["actors"];assert(rows.size()<=512);for(auto& row:rows)assert(row["age_ms"].get<double>()>=0);}
  receive.join();assert(stream.snapshot(1)["actors"].size()==512);
  for(int i=0;i<300;++i)stream.attack(7,80,123);assert(stream.snapshot(1)["events"].size()==128);
+ for(int i=1;i<=100;++i)stream.action({{"id","7"},{"encounter_id","10"},{"attack_id",std::to_string(i)},{"phase","windup"}});
+ assert(stream.snapshot(1)["action_events"].size()==64);
+ stream.action({{"id","7"},{"encounter_id","10"},{"attack_id","100"},{"phase","cancelled"}});
+ auto actionSnapshot=stream.snapshot(1);
+ int cancelled=0;for(auto& row:actionSnapshot["action_events"])if(row["attack_id"]=="100"){assert(row["phase"]=="cancelled");++cancelled;}
+ assert(cancelled==1);
  stream.scene("terrain/naboo.trn");auto scene=stream.snapshot(1);
- assert(scene["zone"]=="naboo" && scene["epoch"]==2 && scene["actors"].empty() && scene["events"].empty());
+ assert(scene["zone"]=="naboo" && scene["epoch"]==2 && scene["actors"].empty() && scene["events"].empty() && scene["action_events"].empty());
  std::cout<<"Native counter wrap, reordering, cell transition, destruction, scene epoch and concurrent bounded cache passed\n";
 }

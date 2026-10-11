@@ -1,0 +1,397 @@
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ActionCombatPolicy.h
+@@ -0,0 +1,81 @@
++#pragma once
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstdint>
++
++// Prototype action geometry uses source axes: X, elevation, Z.
++// No health, equipment, rewards or client-owned damage values live here.
++namespace corecu { namespace action {
++using Vec = std::array<double,3>;
++enum class Role { Melee, Ranged, Support };
++struct Spec {
++ double windup, active, recovery, range, radius, cosine, preferred;
++};
++inline Spec spec(Role role) {
++ if (role==Role::Ranged) return {1.2,.2,1.8,24,.45,.995,12};
++ if (role==Role::Support) return {1.5,.2,4.,18,0,0,9};
++ return {1.,.25,1.4,3.,.35,.5,2.2};
++}
++inline const char* animation(Role role) {return role==Role::Melee?"action_worrt":role==Role::Ranged?"action_pistol":"action_heal";}
++inline double animationDuration(Role role) {return role==Role::Melee?.5:role==Role::Ranged?1.:80./30.;}
++// Worrt has no authored contact marker: retain its conservative active window.
++inline double contactOffset(Role role) {return role==Role::Ranged?10./30.:role==Role::Support?80./30.:0.;}
++inline double distance(Vec a,Vec b) {return std::hypot(a[0]-b[0],a[2]-b[2]);}
++inline Vec direction(Vec a,Vec b) {double n=distance(a,b);return n>.0001?Vec{{(b[0]-a[0])/n,0,(b[2]-a[2])/n}}:Vec{{0,0,1}};}
++inline bool finite(Vec v) {for(auto x:v)if(!std::isfinite(x)||std::abs(x)>20000)return false;return true;}
++inline bool contact(Role role,Vec origin,Vec aim,Vec feet,double bodyRadius=.35) {
++ if(!finite(origin)||!finite(aim)||!finite(feet)||std::abs(feet[1]-origin[1])>2.5)return false;
++ const auto s=spec(role);double x=feet[0]-origin[0],z=feet[2]-origin[2],d=std::hypot(x,z);
++ if(d>s.range+bodyRadius)return false;
++ double along=x*aim[0]+z*aim[2];
++ if(role==Role::Ranged)return along>=-bodyRadius && std::abs(x*aim[2]-z*aim[0])<=s.radius+bodyRadius;
++ return d<=bodyRadius || along>=s.cosine*std::max(0.,d-bodyRadius);
++}
++struct Attack {
++ uint64_t id=0; Role role=Role::Melee; Vec origin{},aim{{0,0,1}};
++ double start=0; bool sampled=false, fallback=false, reported=false, hit=false, settled=false, cancelled=false;
++ double trackedAt=0; uint64_t aimRevision=1; bool aimLocked=false;
++ double deliveryAt() const {return start+spec(role).windup;}
++ double lockAt() const {return deliveryAt()-.3;}
++ // Server-only preparation steering. No pursuit, prediction or catch-up snap.
++ // A stalled tick may consume at most 100 ms of preparation, never delivery time.
++ bool prepare(double now,Vec target) {
++  if(cancelled||settled||aimLocked||now<std::max(start,trackedAt))return false;
++  double dt=std::min(.1,std::max(0.,std::min(now,lockAt())-std::max(start,trackedAt)));
++  trackedAt=now;bool changed=false;
++  const double d=distance(origin,target);
++  if(role!=Role::Support && finite(target) && d>.0001 && dt>0){
++   double current=std::atan2(aim[0],aim[2]),desired=std::atan2(target[0]-origin[0],target[2]-origin[2]);
++   double error=std::atan2(std::sin(desired-current),std::cos(desired-current));
++   double limit=std::min(12.*3.141592653589793/180.,2./d)*dt;
++   double turn=std::max(-limit,std::min(limit,error));
++   if(std::abs(turn)>1e-9){aim={{std::sin(current+turn),0,std::cos(current+turn)}};++aimRevision;changed=true;}
++  }
++  if(now>=lockAt()){aimLocked=true;changed=true;}
++  return changed;
++ }
++ double animationEndAt() const {return deliveryAt()+animationDuration(role);}
++ double activeAt() const {return deliveryAt()+contactOffset(role);}
++ double endAt() const {return activeAt()+spec(role).active;}
++ double deadline() const {return endAt()+.65;}
++ double recoveredAt() const {return std::max(deadline(),std::max(endAt(),animationEndAt())+spec(role).recovery);}
++ void sample(double now,Vec feet) {if(now>=activeAt() && now<=endAt()){sampled=true;fallback=fallback||contact(role,origin,aim,feet);}}
++ // First receipt wins, including misses. Missing reports use native active-window
++ // samples. Never decide contact using a target's later position at settlement.
++ bool receipt(double now,bool value,double coverageStart,double coverageEnd,uint64_t revision) {
++  if(!aimLocked||revision!=aimRevision||cancelled||settled||reported||now<endAt()||now>deadline() ||
++     !std::isfinite(coverageStart)||!std::isfinite(coverageEnd)||
++     coverageStart>activeAt()+.025||coverageStart<start || coverageEnd<endAt()||coverageEnd>deadline())return false;
++  reported=true;hit=value;return true;
++ }
++ bool due(double now) const {return !settled&&!cancelled&&now>=endAt()&&(reported||now>=deadline());}
++ bool resolve() {if(settled)return false;settled=true;return !cancelled&&(reported?hit:fallback);}
++};
++// Only a native committed prototype action can bypass the primary NPC hit roll.
++// Secondary defenses and all RPG outcomes continue through CombatManager.
++using ContactPair=std::array<uint64_t,2>;
++inline ContactPair& contactPair() {static thread_local ContactPair value{{0,0}};return value;}
++inline bool confirmedContact(uint64_t attacker,uint64_t defender) {return attacker!=0&&contactPair()==ContactPair{{attacker,defender}};}
++struct ContactScope {ContactPair old;ContactScope(uint64_t a,uint64_t d):old(contactPair()){contactPair()={{a,d}};}~ContactScope(){contactPair()=old;}};
++}}
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrActionCombat.h
+@@ -0,0 +1,210 @@
++#pragma once
++#include "ActionCombatPolicy.h"
++#include "AttackCommand.h"
++#include "server/zone/objects/creature/ai/AiAgent.h"
++#include "server/zone/objects/creature/ai/PatrolPoint.h"
++#include "server/zone/managers/creature/CreatureManager.h"
++#include "server/zone/packets/scene/AttributeListMessage.h"
++#include <atomic>
++#include <cstdlib>
++#include <memory>
++#include <mutex>
++
++// All encounter mutation holds the owner and Engine encounter locks. The registry
++// mutex is released before acquiring any Engine/object lock.
++class SwgxrActionCombat {
++ using Json=JSONSerializationType;
++ using Role=corecu::action::Role;
++ using Vec=corecu::action::Vec;
++ struct Victim { ManagedWeakReference<CreatureObject*> actor; corecu::action::Attack contact; };
++ struct Mob {
++  ManagedReference<AiAgent*> actor;
++  Role role=Role::Melee;
++  corecu::action::Attack attack;
++  ManagedReference<AiAgent*> healTarget;
++  std::map<uint64,Victim> victims;
++  double next=0,aimPublishedAt=0;
++  uint64_t publishedRevision=0;
++  std::string phase;
++ };
++ struct Encounter {
++  Mutex mutex;
++  uint64 id=0, serial=0;
++  double expires=0,last=0;
++  Vec home{};
++  bool stopped=false;
++  std::vector<Mob> mobs;
++  std::map<uint64,ManagedWeakReference<CreatureObject*>> participants;
++  Json results=Json::array();
++  int damage=0,healing=0,contacts=0,misses=0,fallbacks=0,cancelled=0;
++ };
++ static std::mutex& registryMutex(){static std::mutex m;return m;}
++ static std::map<uint64,std::shared_ptr<Encounter>>& entries(){static std::map<uint64,std::shared_ptr<Encounter>> v;return v;}
++ static std::shared_ptr<Encounter> find(uint64 id){std::lock_guard<std::mutex> l(registryMutex());auto i=entries().find(id);return i==entries().end()?nullptr:i->second;}
++ static std::shared_ptr<Encounter> findEncounter(const std::string& id){std::lock_guard<std::mutex> l(registryMutex());for(auto& row:entries())if(std::to_string(row.second->id)==id)return row.second;return nullptr;}
++ static double now(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
++ static Vec point(CreatureObject* c){auto p=c->getWorldPosition();return {{p.getX(),p.getZ(),p.getY()}};}
++ static std::string id(SceneObject* c){return std::to_string(c->getObjectID());}
++ static const char* roleName(Role r){return r==Role::Melee?"melee":r==Role::Ranged?"ranged":"support";}
++ static bool alive(CreatureObject* c){return c && c->getZone() && !c->isDead() && !c->isIncapacitated();}
++ static bool eligible(CreatureObject* c,const Encounter& e){return alive(c)&&c->isPlayerCreature()&&c->isOnline()&&!c->getPlayerObject()->isOnLoadScreen()&&c->getParentID()==0&&c->getZone()->getZoneName()=="tatooine"&&corecu::action::distance(point(c),e.home)<=45;}
++ static void syncAim(corecu::action::Attack& contact,const corecu::action::Attack& attack){contact.aim=attack.aim;contact.aimRevision=attack.aimRevision;contact.aimLocked=attack.aimLocked;}
++ static bool interrupted(CreatureObject* c){return !alive(c)||c->isKnockedDown()||c->isStunned();}
++ static void event(CreatureObject* owner,Encounter& e,Mob& m,const char* phase){
++  auto& a=m.attack;auto s=corecu::action::spec(m.role);m.phase=phase;
++  m.aimPublishedAt=now();m.publishedRevision=a.aimRevision;
++  Json row={{"id",id(m.actor)},{"target_id",m.healTarget?id(m.healTarget):id(owner)},{"encounter_id",std::to_string(e.id)},{"attack_id",std::to_string(a.id)},
++   {"phase",phase},{"role",roleName(m.role)},{"cell_id","0"},{"origin",a.origin},{"direction",a.aim},
++   {"server_now",now()},{"start",a.start},{"delivery_at",a.deliveryAt()},{"animation",corecu::action::animation(m.role)},{"animation_end_at",a.animationEndAt()},{"active_at",a.activeAt()},{"end_at",a.endAt()},{"recover_at",a.recoveredAt()},
++   {"range",s.range},{"radius",s.radius},{"cosine",s.cosine}};
++  row["eligible_victim_ids"]=Json::array();for(auto& v:m.victims)row["eligible_victim_ids"].push_back(std::to_string(v.first));
++  row["hit_policy"]=m.role==Role::Melee?"cleave":m.role==Role::Ranged?"piercing_lane":"support";
++  row["aim_revision"]=a.aimRevision;row["aim_locked"]=a.aimLocked;row["lock_at"]=a.lockAt();
++  auto message=new AttributeListMessage(m.actor->getObjectID());message->insertAttribute("swgxr.action.event",String(row.dump().c_str()));m.actor->broadcastMessage(message,true);
++ }
++ static void cancel(CreatureObject* owner,Encounter& e,Mob& m){
++  if(m.attack.id && !m.attack.settled && !m.attack.cancelled){m.attack.cancelled=true;++e.cancelled;event(owner,e,m,"cancelled");}
++  m.healTarget=nullptr;m.next=now()+1;
++ }
++ static void finish(CreatureObject* owner,const std::shared_ptr<Encounter>& e){
++  if(e->stopped)return;e->stopped=true;
++  for(auto& m:e->mobs){Locker l(m.actor,owner);cancel(owner,*e,m);m.actor->setCurrentSpeed(0);m.actor->cancelBehaviorEvent();m.actor->destroyObjectFromWorld(true);}
++  std::lock_guard<std::mutex> l(registryMutex());auto i=entries().find(owner->getObjectID());if(i!=entries().end() && i->second==e)entries().erase(i);
++ }
++ static void schedule(CreatureObject* owner,const std::shared_ptr<Encounter>& e){
++  ManagedWeakReference<CreatureObject*> weak=owner;
++  Core::getTaskManager()->scheduleTask([weak,e]() mutable {auto c=weak.get();if(!c)return;Locker l(c);Locker guard(&e->mutex,c);if(e->stopped)return;try{tick(c,e);}catch(const std::exception&){finish(c,e);}},"SwgxrActionPrototype",50);
++ }
++ static void reposition(CreatureObject* owner,Mob& m,double dt){
++  auto a=point(m.actor),b=point(owner);double d=corecu::action::distance(a,b);auto s=corecu::action::spec(m.role);
++  double error=d-s.preferred;if(std::abs(error)<.65){m.actor->setCurrentSpeed(0);return;}
++  auto dir=corecu::action::direction(a,b);double step=std::min(std::abs(error),2.5*dt)*(error<0?-1:1);
++  double x=a[0]+dir[0]*step,z=a[2]+dir[2]*step;
++  auto zone=owner->getZone();double y=CollisionManager::getWorldFloorCollision(x,z,zone,false);
++  if(!std::isfinite(y)||std::abs(y-a[1])>.3||!CollisionManager::checkLineOfSight(m.actor,owner)){m.actor->setCurrentSpeed(0);return;}
++  m.actor->setDirection(std::atan2(dir[0],dir[2]));m.actor->setCurrentSpeed(2.5);
++  PatrolPoint goal(x,y,z);m.actor->updateCurrentPosition(&goal);
++ }
++ static void begin(CreatureObject* owner,Encounter& e,Mob& m,double stamp){
++  m.actor->setCurrentSpeed(0);m.attack={};auto& a=m.attack;a.id=++e.serial;a.role=m.role;a.start=stamp;a.origin=point(m.actor);a.aim=corecu::action::direction(a.origin,m.healTarget?point(m.healTarget):point(owner));
++  m.victims.clear();if(m.role!=Role::Support)for(auto& participant:e.participants){auto c=participant.second.get();if(!c)continue;Locker l(c,owner);if(eligible(c,e)){Victim v;v.actor=c;v.contact=a;m.victims.emplace(participant.first,v);}}
++  m.actor->setDirection(std::atan2(a.aim[0],a.aim[2]));m.next=a.recoveredAt();event(owner,e,m,"windup");
++ }
++ static void settle(CreatureObject* owner,Encounter& e,Mob& m){
++  auto& a=m.attack;
++  if(m.role==Role::Support){
++   a.settled=true;
++   if(m.healTarget){Locker l(m.healTarget,m.actor);if(alive(m.healTarget)&&m.healTarget->getZone()==owner->getZone()&&m.healTarget->isInRange(m.actor,18)&&CollisionManager::checkLineOfSight(m.actor,m.healTarget)){
++    int before=m.healTarget->getHAM(0);m.healTarget->healDamage(m.actor,0,std::max(1,m.healTarget->getMaxHAM(0)/10),true,true);e.healing+=m.healTarget->getHAM(0)-before;
++   }}
++  }else{
++   for(auto& item:m.victims){auto& contact=item.second.contact;if(contact.settled)continue;
++    auto victim=item.second.actor.get();
++    if(!victim){contact.cancelled=true;contact.settled=true;continue;}
++    Locker lock(victim,owner);syncAim(contact,a);
++    if(!e.participants.count(item.first)||!eligible(victim,e))contact.cancelled=true;
++    if(!contact.cancelled&&!contact.due(now()))continue;
++    int damage=0;bool hit=contact.resolve();
++    if(contact.cancelled)++e.cancelled;
++    else{
++     if(!contact.reported)++e.fallbacks;
++     if(hit){
++      auto cmd=dynamic_cast<const CombatQueueCommand*>(owner->getZoneServer()->getObjectController()->getQueueCommand("attack"));
++      if(cmd&&m.actor->getWeapon()&&victim->isAttackableBy(m.actor)){
++       corecu::action::ContactScope confirmed(m.actor->getObjectID(),victim->getObjectID());int before=victim->getHAM(0);
++       CombatManager::instance()->doCombatAction(m.actor,m.actor->getWeapon(),victim,CreatureAttackData(UnicodeString(""),cmd,victim->getObjectID()));
++       damage=std::max(0,before-victim->getHAM(0));e.damage+=damage;++e.contacts;
++      }
++     }else ++e.misses;
++    }
++    e.results.push_back({{"actor_id",id(m.actor)},{"attack_id",std::to_string(a.id)},{"target_id",id(owner)},{"victim_id",std::to_string(item.first)},{"role",roleName(m.role)},{"aim_revision",a.aimRevision},{"contact",hit},{"reported",contact.reported},{"cancelled",contact.cancelled},{"damage",damage}});
++    if(e.results.size()>128)e.results.erase(e.results.begin());
++   }
++   for(auto& v:m.victims)if(!v.second.contact.settled)return;
++   a.settled=true;
++  }
++  event(owner,e,m,"recovery");
++ }
++ static void tick(CreatureObject* owner,const std::shared_ptr<Encounter>& e){
++  const double stamp=now();double dt=std::min(.1,std::max(0.,stamp-e->last));e->last=stamp;
++  if(!alive(owner)||!owner->isOnline()||owner->getPlayerObject()->isOnLoadScreen()||owner->getParentID()!=0||owner->getZone()->getZoneName()!="tatooine"||stamp>e->expires||corecu::action::distance(point(owner),e->home)>45){finish(owner,e);return;}
++  for(auto& m:e->mobs){
++   Locker l(m.actor,owner);
++   if(interrupted(m.actor)||m.actor->getZone()!=owner->getZone()){cancel(owner,*e,m);continue;}
++   auto& a=m.attack;
++   if(a.id && !a.settled && !a.cancelled){
++    const bool wasLocked=a.aimLocked;
++    a.prepare(stamp,m.healTarget?point(m.healTarget):point(owner));
++    m.actor->setDirection(std::atan2(a.aim[0],a.aim[2]));
++    // Publish at most 10 Hz while steering; always publish the final lock.
++    if((!wasLocked&&a.aimLocked)||(a.aimRevision!=m.publishedRevision&&stamp-m.aimPublishedAt>=.1))event(owner,*e,m,"windup");
++    if(stamp>=a.deliveryAt() && m.phase=="windup")event(owner,*e,m,"active");
++    if(m.role!=Role::Support)for(auto& item:m.victims){auto c=item.second.actor.get();auto& contact=item.second.contact;if(!c||contact.settled||contact.cancelled)continue;Locker lock(c,owner);syncAim(contact,a);if(!eligible(c,*e)||!e->participants.count(item.first))contact.cancelled=true;else if(CollisionManager::checkLineOfSight(m.actor,c))contact.sample(stamp,point(c));}
++    if(stamp>=a.endAt())settle(owner,*e,m);
++    continue;
++   }
++   if(stamp<m.next)continue;
++   reposition(owner,m,dt);
++   if(!CollisionManager::checkLineOfSight(m.actor,owner))continue;
++   if(m.role==Role::Support){
++    m.healTarget=nullptr;double lowest=.99;
++    for(auto& ally:e->mobs){if(ally.actor==m.actor)continue;Locker other(ally.actor,m.actor);if(alive(ally.actor)&&ally.actor->isInRange(m.actor,18)){
++     double ratio=double(ally.actor->getHAM(0))/std::max(1,ally.actor->getMaxHAM(0));if(ratio<lowest){lowest=ratio;m.healTarget=ally.actor;}
++    }}
++    if(m.healTarget)begin(owner,*e,m,stamp);
++   }else if(corecu::action::distance(point(m.actor),point(owner))<=corecu::action::spec(m.role).range)begin(owner,*e,m,stamp);
++  }
++  schedule(owner,e);
++ }
++ static Json status(const Encounter& e){Json mobs=Json::array();for(auto& m:e.mobs)mobs.push_back({{"id",id(m.actor)},{"role",roleName(m.role)}});return {{"success",true},{"encounter_id",std::to_string(e.id)},{"mobs",mobs},{"participant_count",e.participants.size()},{"victim_results",e.results},{"damage",e.damage},{"healing",e.healing},{"contacts",e.contacts},{"misses",e.misses},{"fallbacks",e.fallbacks},{"cancelled",e.cancelled}};}
++public:
++ static void stop(CreatureObject* c){auto e=find(c->getObjectID());if(e){Locker guard(&e->mutex,c);finish(c,e);}}
++ static Json run(CreatureObject* c,const Json& q){
++  const auto op=q.at("action").get<std::string>();
++  if(op=="stop"){stop(c);return {{"success",true}};}
++  auto e=q.contains("encounter_id")?findEncounter(q.at("encounter_id").get<std::string>()):find(c->getObjectID());
++  if(op=="start"){
++   const char* enabled=std::getenv("SWGXR_ACTION_COMBAT_PROTOTYPE");
++   if(!enabled||std::string(enabled)!="1"||c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("action_prototype_disabled");
++   if(e)throw std::runtime_error("action_encounter_exists");
++   if(!alive(c)||c->getParentID()!=0||c->getZone()->getZoneName()!="tatooine"||c->getPlayerObject()->isOnLoadScreen())throw std::runtime_error("action_fixture_not_ready");
++   static std::atomic<uint64> serial{uint64(System::getMiliTime())};e=std::make_shared<Encounter>();e->id=++serial;e->expires=now()+180;e->last=now();e->home=point(c);e->participants[c->getObjectID()]=c;
++   try{
++    for(int i=0;i<3;++i){double x=e->home[0]+(i-1)*5,z=e->home[2]+8+i*2,y=CollisionManager::getWorldFloorCollision(x,z,c->getZone(),false);
++     auto creature=c->getZone()->getCreatureManager()->spawnCreature(String(i==0?"worrt":"thug").hashCode(),0,x,y,z,0);
++     if(!creature||!creature->isAiAgent())throw std::runtime_error("action_fixture_spawn_failed");
++     Mob m;m.actor=creature->asAiAgent();m.role=i==0?Role::Melee:i==1?Role::Ranged:Role::Support;m.next=now()+1+i*.5;e->mobs.push_back(m);
++     Locker l(m.actor,c);m.actor->setRespawnTimer(0);m.actor->setOptionsBitmask(m.actor->getOptionsBitmask() & ~OptionBitmask::AIENABLED);m.actor->cancelBehaviorEvent();
++     if(m.role==Role::Ranged){auto weapon=m.actor->createWeapon(String("object/weapon/ranged/pistol/pistol_dl44.iff").hashCode(),true);if(!weapon)throw std::runtime_error("action_fixture_weapon_failed");m.actor->setPrimaryWeapon(weapon);m.actor->equipPrimaryWeapon();}
++     if(!CollisionManager::checkLineOfSight(c,m.actor))throw std::runtime_error("action_fixture_obstructed");
++    }
++    {std::lock_guard<std::mutex> l(registryMutex());entries()[c->getObjectID()]=e;}schedule(c,e);
++   }catch(...){finish(c,e);throw;}
++  }
++  if(!e)throw std::runtime_error("action_encounter_missing");Locker guard(&e->mutex,c);
++  if(e->stopped)throw std::runtime_error("action_encounter_missing");
++  if(op=="join"){
++   const char* enabled=std::getenv("SWGXR_ACTION_COMBAT_PROTOTYPE");
++   if(!enabled||std::string(enabled)!="1"||c->getPlayerObject()->getScreenPlayData("swgxr_livecombat","test_authorized")!="1")throw std::runtime_error("action_prototype_disabled");
++   if(!eligible(c,*e))throw std::runtime_error("action_fixture_not_ready");
++   if(!e->participants.count(c->getObjectID())&&e->participants.size()>=8)throw std::runtime_error("action_participants_full");
++   e->participants[c->getObjectID()]=c;return status(*e);
++  }
++  if(!e->participants.count(c->getObjectID()))throw std::runtime_error("action_not_participant");
++  if(op=="leave"){
++   if(find(c->getObjectID())==e)throw std::runtime_error("action_owner_must_stop");
++   e->participants.erase(c->getObjectID());for(auto& m:e->mobs){auto v=m.victims.find(c->getObjectID());if(v!=m.victims.end())v->second.contact.cancelled=true;}return {{"success",true}};
++  }
++  if(op=="contact"){
++   if(!eligible(c,*e)||q.contains("victim_id"))throw std::runtime_error("action_contact_identity");
++   if(q.at("encounter_id").get<std::string>()!=std::to_string(e->id)||!q.at("contact").is_boolean())throw std::runtime_error("action_contact_identity");
++   for(auto& m:e->mobs)if(id(m.actor)==q.at("actor_id").get<std::string>() && std::to_string(m.attack.id)==q.at("attack_id").get<std::string>() && m.role!=Role::Support){
++    auto v=m.victims.find(c->getObjectID());if(v==m.victims.end())throw std::runtime_error("action_not_eligible_victim");syncAim(v->second.contact,m.attack);
++    if(!v->second.contact.receipt(now(),q.at("contact").get<bool>(),q.at("coverage_start").get<double>(),q.at("coverage_end").get<double>(),q.at("aim_revision").get<uint64_t>()))throw std::runtime_error("action_contact_expired_duplicate_or_aim_revision");
++    return {{"success",true},{"accepted",true},{"attack_id",q.at("attack_id")}};
++   }
++   throw std::runtime_error("action_contact_unknown");
++  }
++  if(op!="status"&&op!="start")throw std::runtime_error("action_operation_invalid");return status(*e);
++ }
++};
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrLiveCombat.h
+@@ -1,4 +1,5 @@
+ #include "MeleePolicy.h"
++#include "SwgxrActionCombat.h"
+ #include "SwgxrTaunt.h"
+ #include "SwgxrPhysicalGuard.h"
+ #include "server/zone/objects/creature/commands/CoreCuCombat.h"
+@@ -203,6 +204,7 @@
+  }
+  static Json action(CreatureObject* c,Session& s,const Json& request){
+   const auto requestedVerb=request.at("action").get<std::string>();
++  if(requestedVerb=="action_combat"){if(!s.ready || !s.transport.empty())throw std::runtime_error("session_not_ready");return SwgxrActionCombat::run(c,request.at("action_combat"));}
+   if(requestedVerb=="jtl"){if(!s.transport.empty())throw std::runtime_error("native_transport_pending");Json out;try{out=SwgxrJtl::run(c,request.at("jtl"));}catch(const std::exception& e){out={{"success",false},{"source_kind","core3_jtl"},{"character_id",id(c)},{"error",std::string(e.what())},{"error_code",std::string(e.what())},{"jtl",SwgxrJtl::snapshot(c)}};}s.shots.clear();s.volleys.clear();s.bountyArm.clear();return out;}
+   if(SwgxrJtl::aboard(c)){
+    if(requestedVerb=="snapshot")return {{"success",true}};
+@@ -548,7 +550,8 @@
+   }
+   auto found=sessions.find(c->getObjectID());if(found==sessions.end() || found->second.token!=token)throw std::runtime_error("session_not_live");auto& session=found->second;session.lastSeen=stamp;SwgxrJtl::touch(c,token);SwgxrLiveRecovery::touch(c->getObjectID(),c->isIncapacitated());Json out={{"backend","core3"},{"source_kind","core3_live_combat"},{"native_concurrency","engine_cross_lock_v1"},{"native_session_capacity",0},{"character_id",id(c)},{"session_id",token},{"sequence",++session.sequence},{"session_live",verb!="stop"}};
+   if(verb!="start" && verb!="stop")try{out["mutation"]=volleyAction(c,session,request);}catch(const std::exception& e){out["error_code"]=std::string(e.what());out["mutation"]={{"success",false},{"operation",verb},{"error_code",std::string(e.what())}};if(verb=="update" || std::string(e.what()).rfind("native_movement_",0)==0){SwgxrPhysicalGuard::release(c->getObjectID());out["mutation"]["movement_accepted"]=false;}}
+-  if(verb=="stop")SwgxrJtl::detach(c);out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
++  if(verb=="action_combat"){out["compact"]=true;out["native_action_ms"]=(now()-stamp)*1000;return out;}
++  if(verb=="stop"){SwgxrActionCombat::stop(c);SwgxrJtl::detach(c);}out["snapshot"]=snapshot(c,session);if(verb=="stop"){SwgxrPhysicalGuard::clear(c->getObjectID());SwgxrVehicles::detach(c);c->getPlayerObject()->setOnLoadScreen(true);c->setTargetID(0,true);SwgxrLiveRecovery::detach(c->getObjectID());sessions.erase(found);SwgxrMovement::end(c);}return out;
+  }
+ };
+ #endif
+--- a/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
++++ b/MMOCoreORB/src/server/zone/managers/combat/CombatManager.cpp
+@@ -1,3 +1,4 @@
++#include "server/zone/objects/creature/commands/ActionCombatPolicy.h"
+ #include "server/zone/objects/creature/commands/SwgxrBountyHunterModifiers.h"
+ #include "server/zone/objects/creature/commands/VolleyFirePolicy.h"
+ #include "server/zone/objects/creature/commands/SwgxrSquadLeader.h"
+@@ -2112,9 +2113,9 @@
+ 	// Physical contact replaces only the player's innate hit/miss roll.
+ 	// Secondary dodge/block/counter/deflection still resolve normally. Accuracy
+ 	// stats cannot alter player damage or the secondary defense contest.
+-	const bool physicalContact = attacker->isPlayerCreature()
++	const bool physicalContact = corecu::action::confirmedContact(attacker->getObjectID(),creoDefender->getObjectID()) || (attacker->isPlayerCreature()
+ 		&& data.getCommand()->usesPhysicalContactAccuracy()
+-		&& !data.isForceAttack() && !data.isStateOnlyAttack();
++		&& !data.isForceAttack() && !data.isStateOnlyAttack());
+ 
+ 	// AttackData
+ 	float accuracyWeapon = 0.f;
+--- a/MMOCoreORB/src/client/zone/NativeMotionStream.h
++++ b/MMOCoreORB/src/client/zone/NativeMotionStream.h
+@@ -16,12 +16,13 @@
+  std::mutex mutex;
+  std::map<uint64_t,Entry> rows;
+  std::map<uint64_t,Entry> events;
++ std::map<std::string,Entry> actions;
+  uint64_t sequence=0,epoch=0;
+  std::string zone;
+  static double now(){return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();}
+ public:
+  static NativeMotionStream& instance(){static NativeMotionStream state;return state;}
+- void scene(std::string terrain){std::lock_guard<std::mutex> lock(mutex);rows.clear();events.clear();++epoch;auto slash=terrain.find_last_of('/');zone=terrain.substr(slash==std::string::npos?0:slash+1);auto dot=zone.find('.');if(dot!=std::string::npos)zone.resize(dot);}
++ void scene(std::string terrain){std::lock_guard<std::mutex> lock(mutex);rows.clear();events.clear();actions.clear();++epoch;auto slash=terrain.find_last_of('/');zone=terrain.substr(slash==std::string::npos?0:slash+1);auto dot=zone.find('.');if(dot!=std::string::npos)zone.resize(dot);}
+  void remove(uint64_t id){std::lock_guard<std::mutex> lock(mutex);rows.erase(id);for(auto it=events.begin();it!=events.end();)if(it->second.row["id"]==std::to_string(id))it=events.erase(it);else ++it;}
+  void push(uint64_t id,uint64_t parent,double x,double z,double y,uint32_t counter,int speed,unsigned heading){
+   std::lock_guard<std::mutex> lock(mutex);
+@@ -39,10 +40,16 @@
+   std::lock_guard<std::mutex> lock(mutex);if(events.size()>=128)events.erase(events.begin());
+   auto serial=++sequence;events[serial]={{{"id",std::to_string(id)},{"sequence",serial},{"weapon_id",std::to_string(weapon)},{"animation_crc",animation},{"event","attack"}},now()};
+  }
++ void action(Json row){
++  std::lock_guard<std::mutex> lock(mutex);
++  auto key=row.at("encounter_id").get<std::string>()+":"+row.at("attack_id").get<std::string>();
++  if(!actions.count(key)&&actions.size()>=64)actions.erase(actions.begin());row["sequence"]=++sequence;actions[key]={row,now()};
++ }
+  Json snapshot(uint64_t character){
+-  std::lock_guard<std::mutex> lock(mutex);double stamp=now();Json out={{"source_kind","core3_motion_v1"},{"character_id",std::to_string(character)},{"epoch",epoch},{"zone",zone},{"written_at",stamp},{"actors",Json::array()},{"events",Json::array()}};
++  std::lock_guard<std::mutex> lock(mutex);double stamp=now();Json out={{"source_kind","core3_motion_v1"},{"character_id",std::to_string(character)},{"epoch",epoch},{"zone",zone},{"written_at",stamp},{"actors",Json::array()},{"events",Json::array()},{"action_events",Json::array()}};
+   for(auto it=rows.begin();it!=rows.end();){if(stamp-it->second.at>3){it=rows.erase(it);continue;}auto row=it->second.row;row["age_ms"]=std::max(0.,(stamp-it->second.at)*1000);out["actors"].push_back(row);++it;}
+-  for(auto it=events.begin();it!=events.end();){if(stamp-it->second.at>1){it=events.erase(it);continue;}auto row=it->second.row;row["age_ms"]=std::max(0.,(stamp-it->second.at)*1000);out["events"].push_back(row);++it;}return out;
++  for(auto it=events.begin();it!=events.end();){if(stamp-it->second.at>1){it=events.erase(it);continue;}auto row=it->second.row;row["age_ms"]=std::max(0.,(stamp-it->second.at)*1000);out["events"].push_back(row);++it;}
++  for(auto it=actions.begin();it!=actions.end();){if(stamp-it->second.at>5){it=actions.erase(it);continue;}auto row=it->second.row;row["age_ms"]=std::max(0.,(stamp-it->second.at)*1000);out["action_events"].push_back(row);++it;}return out;
+  }
+  class Publisher {
+   std::atomic<bool> running{true};std::thread worker;
+--- a/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
++++ b/MMOCoreORB/src/client/zone/ZonePacketHandler.cpp
+@@ -85,13 +85,15 @@
+ 			const uint32 count = pack->parseInt();
+ 			if (count > 512) break;
+ 			JSONSerializationType attributes = JSONSerializationType::object();
++			bool actionEvent=false;
+ 			for (uint32 i = 0; i < count; ++i) {
+ 				String key;
+ 				UnicodeString value;
+ 				pack->parseAscii(key); pack->parseUnicode(value);
++				if(key=="swgxr.action.event"){actionEvent=true;try{auto raw=value.toString();if(raw.length()<4096)swgxr::NativeMotionStream::instance().action(JSONSerializationType::parse(raw.toCharArray()));}catch(...){}continue;}
+ 				attributes[key.toCharArray()] = value.toString().toCharArray();
+ 			}
+-			core->setVar("weaponAttributes/o" + String::valueOf(oid), attributes);
++			if(!actionEvent || !attributes.empty())core->setVar("weaponAttributes/o" + String::valueOf(oid), attributes);
+ 			break;
+ 		}
+ 		CASE_OPCODE("ClientPermissionsMessage");

@@ -24,8 +24,16 @@ var carrier:RefCounted
 var presentation_floor_offset:=Vector3.ZERO
 var presentation_floor_height:=0.0
 var mobile_sound:Node3D
+var action_event_epoch:=-1
+var action_event_sequence:=-1
+var action_audio_until:=0
 var combat_event_epoch:=-1
 var combat_event_sequence:=-1
+var action_pose:=preload("res://combat/action_pose.gd").new()
+var action_pose_owned:=false
+var action_pose_status:Dictionary={}
+var action_weapon_items:Array=[]
+var action_weapon_checked:=false
 
 func original_catalog(template:String,primary:String)->String:
 	# Match the complete source appearance ID. Never substitute a same-race body
@@ -217,16 +225,79 @@ func get_radar_contact()->Dictionary:
 func _process(delta:float)->void:
 	global_transform=motion.advance(Time.get_ticks_usec()/1000000.0,delta)
 	speed=motion.get_velocity().length()
+	if present_action_pose():return
 	if carrier==null and is_instance_valid(visual) and visual.has_method("update_motion") and not record.dead:visual.update_motion(delta,speed,{"grounded":true,"velocity":Vector3(0,0,-speed)})
+
+func present_action_pose()->bool:
+	var pose:=action_pose.sample(Time.get_ticks_usec()/1000000.0)
+	if record.get("dead",false) or record.get("incapacitated",false):action_pose.event.clear();pose={}
+	# Native preparation pose, not animation root motion: keep the planted body
+	# and collider aligned with the exact warning revision, bypassing travel lag.
+	if not pose.is_empty() and action_pose.event.has("_world_pose"):
+		global_transform=action_pose.event._world_pose
+	if not pose.is_empty() and visual is Avatar and not visual.tracking_mode and visual.ensure_animation(str(pose.key)):
+		var player:AnimationPlayer=visual.animation_player
+		if not action_pose_owned or player.assigned_animation!=str(pose.key):player.play(str(pose.key),0)
+		player.pause()
+		# update_only suppresses frame-zero audio during the wind-up hold.
+		player.seek(float(pose.seconds)*float(visual.clip_rates.get(pose.key,1)),true,true)
+		visual.current_animation=str(pose.key);visual.skeleton.force_update_all_bone_transforms()
+		action_pose_owned=true;action_pose_status=pose
+		if pose.sound and pose.role!="support" and is_instance_valid(mobile_sound):
+			mobile_sound.queue_event("attacklight")
+			var weapon:=str(record.get("weapon_template",""))
+			if not weapon.is_empty():mobile_sound.queue_event("weapon:"+weapon)
+		return true
+	if action_pose_owned and visual is Avatar:
+		visual.current_animation="";visual.body_action=""
+	action_pose_owned=false;action_pose_status={}
+	return false
 
 func _exit_tree()->void:
 	equipment.release(rigid_equipment)
+	equipment.release(action_weapon_items)
+
+var ground_attack_id:=-1
+var ground_state_revision:=-1
+func apply_action_event(event:Dictionary,epoch:int,transit:float=0.0,world_pose:Variant=null)->void:
+	if event.get("protocol",1)==2:
+		if epoch<action_event_epoch:return
+		if epoch>action_event_epoch:ground_attack_id=-1;ground_state_revision=-1
+		var attack_id:=int(str(event.attack_id));var revision:=int(event.state_revision)
+		if attack_id<ground_attack_id or (attack_id==ground_attack_id and revision<=ground_state_revision):return
+		ground_attack_id=attack_id;ground_state_revision=revision;action_event_epoch=epoch
+	else:
+		if epoch<action_event_epoch or (epoch==action_event_epoch and int(event.get("sequence",-1))<=action_event_sequence):return
+		action_event_epoch=epoch;action_event_sequence=int(event.get("sequence",-1))
+	action_audio_until=Time.get_ticks_msec()+2000
+	if event.has("animation"):
+		if event.animation=="action_pistol" and not action_weapon_checked and visual is Avatar:
+			action_weapon_checked=true
+			var weapon:=str(record.get("weapon_template",""))
+			if weapon=="object/weapon/ranged/pistol/pistol_dl44.iff":
+				var selected:Dictionary=visual.equipment_selection([{"template":weapon,"equipped_slots":["hold_r"]}])
+				for source:Dictionary in selected.rigid:
+					var attached:Dictionary=equipment.attach(visual,[source],str(source.directory),false)
+					action_weapon_items.append_array(attached.items)
+					if not attached.failures.is_empty():report.missing_components.append_array(attached.failures)
+				if not action_weapon_items.is_empty():
+					for item:Dictionary in rigid_equipment:
+						if str(item.source.get("template","")).begins_with("object/weapon/"):item.instance.hide()
+				report["action_weapon_visible"]=not action_weapon_items.is_empty()
+		var presentation:=event.duplicate(true)
+		if world_pose is Transform3D:presentation["_world_pose"]=world_pose
+		action_pose.ingest(presentation,Time.get_ticks_usec()/1000000.0,transit)
+		return
+	if event.get("phase","")!="active" or event.get("role","")=="support" or bool(record.get("dead",false)) or not is_instance_valid(mobile_sound):return
+	mobile_sound.queue_event("attacklight")
+	var weapon:=str(record.get("weapon_template",""))
+	if not weapon.is_empty():mobile_sound.queue_event("weapon:"+weapon)
 
 func apply_combat_event(event:Dictionary,epoch:int)->void:
 	if epoch<combat_event_epoch or (epoch==combat_event_epoch and int(event.get("sequence",-1))<=combat_event_sequence):return
 	combat_event_epoch=epoch;combat_event_sequence=int(event.get("sequence",-1))
 	if bool(record.get("dead",false)) or bool(record.get("incapacitated",false)) or not is_instance_valid(mobile_sound):return
-	if event.get("event","")!="attack":return
+	if event.get("event","")!="attack" or Time.get_ticks_msec()<action_audio_until:return
 	mobile_sound.queue_event("attacklight")
 	var weapon:=str(event.get("weapon_template",""))
 	if not weapon.is_empty():mobile_sound.queue_event("weapon:"+weapon)

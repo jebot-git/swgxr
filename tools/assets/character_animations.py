@@ -151,6 +151,8 @@ def export_character_animations(imp, appearance, race, bones, names):
             add(state, leaves[0], logical, state != 'jump')
         if state == 'prone' and len(leaves) > 1:
             add('crawl', leaves[1], logical)
+    for key, logical, leaf in action_animation_bindings(body, selectors):
+        add(key, leaf, logical, False, True)
     # Source-authored ground incapacitation pose also supplies a frozen visual
     # for backend-confirmed DEAD actors; preserve their existing skinned outfit.
     incap = next((s for s in graph['states'] if s['name'] == 'incapacitated_face_up'), None)
@@ -202,6 +204,64 @@ def export_character_animations(imp, appearance, race, bones, names):
     graph['exported_states'] = sorted(animations)
     graph['exported_actions'] = sorted(library)
     return {'animations': animations, 'animation_library': library, 'animation_graph': graph}
+
+
+def action_animation_bindings(table, selectors):
+    """Bounded original actions; only expose clips present in this rig's LAT."""
+    for key, logical in [('action_worrt', 'cbt_stand_combat_attack_light'),
+                         ('action_pistol', 'pistol_combat_standing_fire_1'),
+                         ('action_heal', 'heal_other')]:
+        if logical not in table:
+            continue
+        leaves = resolve(table[logical], selectors)
+        if key == 'action_worrt':
+            leaves = [v for v in leaves if v['source'].endswith('/frog_cbt_stand_combat_attack_light.ans')]
+        if key == 'action_pistol':
+            leaves = [v for v in leaves if v['source'].endswith('_front.ans')]
+        if len(leaves) == 1:
+            yield key, logical, leaves[0]
+
+
+def ground_action_bindings(table, selectors):
+    """Deterministic original clips for ground PvE profiles; ambiguity stays unconverted."""
+    aliases = {
+        'creature': ['cbt_stand_combat_attack_light'],
+        'pistol': ['pistol_combat_standing_fire_1'],
+        'rifle': ['rifle_standing_aimed_fire_1'],
+        'carbine': ['rifle_standing_aimed_fire_1'],
+        'unarmed': ['unarmed_standing_ready_jab_double'],
+        'onehand': ['sword_1h_standing_ready_hrz_slash_middle_l'],
+        'twohand': ['sword_2h_attack_mid_center_0'],
+        'polearm': ['pole_standing_ready_hrz_slash_middle_l'],
+    }
+    for slot, choices in aliases.items():
+        for logical in choices:
+            if logical not in table: continue
+            leaves = resolve(table[logical], selectors)
+            front = [v for v in leaves if v['source'].endswith('_front.ans')]
+            if front: leaves = front
+            unique = {(v['source'], v['speed_scale']): v for v in leaves}
+            if len(unique) == 1:
+                leaf = next(iter(unique.values()))
+                # These droid LATs map the humanoid double-jab alias to a long,
+                # multi-swing heavy attack. Their authored light standing alias
+                # supplies the basic attack instead; never trim or accelerate it.
+                droid_light = {
+                    'appearance/animation/protocol_droid_cbt_attack_melee_heavy.ans':
+                        'appearance/animation/protocol_droid_cbt_attack_melee_light.ans',
+                    'appearance/animation/astromech_cbt_attack_heavy.ans':
+                        'appearance/animation/astromech_cbt_attack_light.ans',
+                }
+                if slot == 'unarmed' and leaf['source'] in droid_light and 'attack_light_standing' in table:
+                    light = resolve(table['attack_light_standing'], selectors)
+                    candidates = {(v['source'], v['speed_scale']): v for v in light}
+                    if len(candidates) == 1:
+                        candidate = next(iter(candidates.values()))
+                        if candidate['source'] == droid_light[leaf['source']]:
+                            logical = 'attack_light_standing'
+                            leaf = dict(candidate, selection_basis='authored droid basic/light standing attack; humanoid double-jab maps to heavy')
+                yield slot, logical, leaf
+                break
 
 
 def locomotion_metadata(raw):

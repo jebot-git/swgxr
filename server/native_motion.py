@@ -86,6 +86,11 @@ def _project(stream, world, character_id, now=None):
             result['events'].append({'id': row['id'], 'sequence': row['sequence'],
                 'event': 'attack', 'age_ms': age,
                 'weapon_template': baseline.get('weapon_template', '') if row.get('weapon_id') == baseline.get('weapon_id') else ''})
+    try:
+        from .action_combat import events as action_events
+    except ImportError:
+        from action_combat import events as action_events
+    result["action_events"] = action_events(stream, visible, elapsed)
     return result
 
 

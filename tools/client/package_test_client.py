@@ -78,6 +78,10 @@ func _enter_tree():
   push_error("Matching presentation data with chair poses and space audio is required")
   ok = false
  var main_script = load("res://scripts/main.gd")
+ var ground = JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/combat_actions/catalog.json"))
+ if not ground is Dictionary or ground.get("schema",0)!=2 or str(ground.get("revision","")).length()!=64 or ground.get("templates",{}).is_empty():
+  push_error("Matching prepared ground-combat profiles are required")
+  ok = false
  if main_script == null:
   push_error("Packaged main script did not load")
   ok = false

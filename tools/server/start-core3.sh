@@ -12,8 +12,14 @@ if podman exec "$CONTAINER" bash -lc 'test -f /workspace/runtime/server/core3.pi
   echo 'Core3 process is already running.'
   exit 0
 fi
-podman exec -d "$CONTAINER" bash -lc '
+podman exec -d -e SWGXR_GROUND_ACTIONS="${SWGXR_GROUND_ACTIONS:-off}" -e SWGXR_ACTION_COMBAT_PROTOTYPE="${SWGXR_ACTION_COMBAT_PROTOTYPE:-0}" "$CONTAINER" bash -lc '
 set -euo pipefail
+# A previous graceful shutdown may still be saving/clearing zones. Never open
+# the same Berkeley DB environment from a replacement server concurrently.
+if pgrep -x core3 >/dev/null || pgrep -x corecu >/dev/null; then
+  echo "CoreCU is still running or shutting down; wait for it to exit." >&2
+  exit 1
+fi
 cd /workspace/vendor/Core3/MMOCoreORB/bin
 mkdir -p /workspace/runtime/server
 [[ -p /workspace/runtime/server/core3-console ]] || mkfifo /workspace/runtime/server/core3-console

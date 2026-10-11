@@ -123,6 +123,17 @@ class Tests(unittest.TestCase):
         self.assertEqual(json.loads(body)['body'],dict(data,account='alice'))
         self.assertEqual(self.request('POST','/combat/session/melee',json.dumps(dict(data,account='bob')))[0],403)
 
+    def test_owned_ground_combat_route(self):
+        path='/combat/session/action_combat'
+        for action in ({'action':'negotiate','protocol':2,'catalog_revision':'a'*64},
+                       {'action':'batch','receipts':[]}):
+            data=dict(character_id='123',session_id='owned',action_combat=action)
+            code,body=self.request('POST',path,json.dumps(data))
+            self.assertEqual(code,200)
+            self.assertEqual(json.loads(body)['body'],dict(data,account='alice'))
+            self.assertEqual(self.request('POST',path,json.dumps(data),token=None,headers={'Content-Type':'application/json'})[0],401)
+            self.assertEqual(self.request('POST',path,json.dumps(dict(data,account='bob')))[0],403)
+
     def test_owned_pve_bounty_service_routes(self):
         for action, field in (('informant','target_id'), ('probe','item_id'),
                               ('seek','item_id'), ('track','item_id')):

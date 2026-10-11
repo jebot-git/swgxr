@@ -596,7 +596,9 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	if not native_call:return await _api_dispatch(method,path,body)
 	var enqueued:=Time.get_ticks_msec()
 	var epoch:=datapad_epoch;var ticket:=native_api_ticket;native_api_ticket+=1
-	native_api_queue.append(ticket)
+	if path=="/combat/session/action_combat" and body.get("action_combat",{}).get("action","") in ["contact","batch"] and not native_api_queue.is_empty():
+		native_api_queue.insert(1,ticket)
+	else:native_api_queue.append(ticket)
 	var waited:=false;var deadline:=Time.get_ticks_msec()+15000
 	while native_api_queue[0]!=ticket:
 		waited=true
@@ -623,6 +625,8 @@ func api(method: HTTPClient.Method, path: String, body := {}) -> Dictionary:
 	var result:=await _api_dispatch(method,path,body,true)
 	var finished:=Time.get_ticks_msec()
 	native_api_observations.append({"time_ms":finished,"path":path.get_slice("?",0),"queue_ms":dispatched-enqueued,"request_ms":finished-dispatched,"ok":result.get("ok",false),"error_code":result.get("error_code",""),"movement_corrected":result.get("_movement_correction_consumed",false)})
+	for field in ["adapter_queue_ms","adapter_rate_wait_ms","native_bridge_roundtrip_ms","native_action_ms"]:
+		if result.has(field):native_api_observations[-1][field]=result[field]
 	while native_api_observations.size()>256:native_api_observations.pop_front()
 	if args.has("runtime-profile") and finished-native_api_log_stamp>=1000:
 		native_api_log_stamp=finished

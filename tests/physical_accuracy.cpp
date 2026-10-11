@@ -1,6 +1,7 @@
 // Isolated native resolver harness. The runner supplies getHitChance verbatim
 // from the patched Core3 source; dependencies and RNG are deterministic fixtures.
 #include "server/combat/VolleyFirePolicy.h"
+#include "server/combat/ActionCombatPolicy.h"
 #include <cassert>
 #include <iostream>
 #include <string>
@@ -96,5 +97,14 @@ int main(){
  SwgxrSquadLeader::calls=0;npc.weapon.type=2;assert(manager.getHitChance(&npc,&target,&npc.weapon,ordinary,100,0)==HitStatus::MISS);assert(manager.observedDefense==2015 && SwgxrSquadLeader::calls==1 && SwgxrSquadLeader::ranged);++checks;
  SwgxrSquadLeader::calls=0;npc.weapon.type=1;assert(manager.getHitChance(&npc,&target,&npc.weapon,ordinary,100,0)==HitStatus::MISS);assert(manager.observedDefense==2007 && SwgxrSquadLeader::calls==1 && !SwgxrSquadLeader::ranged);++checks;
  SwgxrSquadLeader::calls=0;manager.secondary=1000;assert(manager.getHitChance(&player,&target,&player.weapon,physical,100,0)==HitStatus::DODGE);assert(SwgxrSquadLeader::calls==0);++checks;
+ // Prototype contacts bypass only the exact NPC/victim primary roll.
+ manager.chance=0;manager.secondary=0;
+ {corecu::action::ContactScope action(npc.oid,target.oid);
+  assert(manager.getHitChance(&npc,&target,&npc.weapon,ordinary,100,0)==HitStatus::HIT);++checks;
+  assert(manager.getHitChance(&npc,&other,&npc.weapon,ordinary,100,0)==HitStatus::MISS);++checks;
+  manager.secondary=1000;manager.result=HitStatus::BLOCK;
+  assert(manager.getHitChance(&npc,&target,&npc.weapon,ordinary,100,0)==HitStatus::BLOCK);++checks;
+ }
+ assert(manager.getHitChance(&npc,&target,&npc.weapon,ordinary,100,0)==HitStatus::MISS);++checks;
  std::cout<<checks<<" native physical-accuracy resolver cases passed (isolated dependencies)\n";
 }

@@ -124,7 +124,8 @@ class LiveCombatHub:
   request_id=secrets.token_hex(12);command=dict(command,request_id=request_id)
   folder=active['folder'];(folder/'response.json').unlink(missing_ok=True)
   temp=folder/'request.tmp';temp.write_text(json.dumps(command,separators=(',',':')));temp.chmod(0o600);temp.replace(folder/'request.json')
-  deadline=time.monotonic()+timeout
+  posted=time.monotonic()
+  deadline=posted+timeout
   while time.monotonic()<deadline:
    response=folder/'response.json'
    if response.exists():
@@ -134,9 +135,12 @@ class LiveCombatHub:
      try:self._record(active,command,result,time.monotonic()-started)
      except OSError:pass # Diagnostic storage cannot invalidate an already committed action.
      resolved=self._resolve(result)
+     if command.get('action')=='action_combat':
+      resolved['adapter_rate_wait_ms']=round(max(0,delay)*1000,3)
+      resolved['native_bridge_roundtrip_ms']=round((time.monotonic()-posted)*1000,3)
      # An uncertain receipt has no new authoritative state. Preserve the last
      # world/voice snapshot and keep the owned child available for a heartbeat.
-     if resolved.get('error_code')=='native_response_timeout':return resolved
+     if resolved.get('error_code')=='native_response_timeout' or resolved.get('compact'):return resolved
      WORLD_SYNC.publish(active['account'],active['character_id'],active['id'],resolved.get('snapshot',{}),resolved.get('sequence',0),command=command,mutation=resolved.get('mutation',{}))
      try:VOICE_STATE.publish(active['account'],active['character_id'],resolved.get('snapshot',{}).get('player',{}),session_id=active['id'],live=True)
      except (OSError,ValueError):pass
@@ -145,6 +149,7 @@ class LiveCombatHub:
    time.sleep(.01)
   raise LiveConflict('Persistent Core3 command timed out; session must be restarted.')
  def _resolve(self,result):
+  if result.get("compact"):return result
   names=template_names()
   def visual(row):
    row['shared_template']=names.get(row.get('client_crc'),'')
@@ -222,17 +227,25 @@ class LiveCombatHub:
  def request(self,account,action,data):
   active=self.active_for(account)
   if not active:raise LiveConflict('Live session identity does not match this owned character.')
+  enqueued=time.monotonic()
   with active.setdefault('ipc_gate',RequestGate()):
+   admitted=time.monotonic()
    if self.active_for(account) is not active:raise LiveConflict('Live session changed before request admission.')
-   return self._request_owned(account,action,data)
+   result=self._request_owned(account,action,data)
+   if action=='action_combat':result['adapter_queue_ms']=round((admitted-enqueued)*1000,3)
+   return result
  def _request_owned(self,account,action,data):
   account=account.lower()
   active=self.active_for(account)
   if not active or active['account']!=account or active['character_id']!=str(data.get('character_id','')) or active['id']!=data.get('session_id'):raise LiveConflict('Live session identity does not match this owned character.')
-  if action not in ('snapshot','loadout','update','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer','jtl'):raise ValueError('Unsupported live combat action.')
-  fields={'jtl':('jtl',),'loadout':('item_id','loadout'),'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'warcry':('shot_id','item_id','origin','direction'),'pistoleer':('shot_id','item_id','ability_id','origin','direction'),'pikeman':('shot_id','item_id','ability_id','origin','direction'),'fencer':('shot_id','item_id','ability_id','origin','direction'),'swordsman':('shot_id','item_id','ability_id','origin','direction'),'tka':('shot_id','item_id','ability_id','origin','direction'),'brawler_buff':('shot_id','item_id','ability_id'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
+  if action not in ('action_combat','snapshot','loadout','update','fire','melee','taunt','warcry','swordsman','pikeman','fencer','pistoleer','carbineer','rifleman','commando','bountyhunter','squadleader','tka','brawler_buff','impact','stop','inventory','replication','corpse','session','gathering','scout','medic','life','services','crafting','vehicles','entertainer','jtl'):raise ValueError('Unsupported live combat action.')
+  fields={'action_combat':('action_combat',),'jtl':('jtl',),'loadout':('item_id','loadout'),'entertainer':('entertainer',),'corpse':('corpse',),'session':('session',),'gathering':('gathering',),'vehicles':('vehicles',),'medic':('medic',),'services':('service',),'crafting':('crafting',),'life':('action',),'scout':('scout',),'update':('position','heading_radians'),'fire':('shot_id','item_id','origin','direction'),'melee':('shot_id','item_id','origin','direction'),'taunt':('shot_id','origin','direction'),'warcry':('shot_id','item_id','origin','direction'),'pistoleer':('shot_id','item_id','ability_id','origin','direction'),'pikeman':('shot_id','item_id','ability_id','origin','direction'),'fencer':('shot_id','item_id','ability_id','origin','direction'),'swordsman':('shot_id','item_id','ability_id','origin','direction'),'tka':('shot_id','item_id','ability_id','origin','direction'),'brawler_buff':('shot_id','item_id','ability_id'),'impact':('shot_id','target_id','hit_position','projectile_age_seconds')}.get(action,())
   if action in ('carbineer','rifleman','commando','bountyhunter'):fields=('shot_id','item_id','ability_id','origin','direction','two_hands')
   if action=='squadleader':fields=('shot_id','item_id','ability_id','target_id','origin','direction')
+  if action=='action_combat':
+   try:from .action_combat import command as action_command
+   except ImportError:from action_combat import command as action_command
+   data=dict(data,action_combat=action_command(data.get('action_combat')))
   if action=='jtl':
    try:from .jtl_protocol import command as jtl_command, context as jtl_context
    except ImportError:from jtl_protocol import command as jtl_command, context as jtl_context

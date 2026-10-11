@@ -13,6 +13,7 @@ var error:=""
 var ship_id:=""
 var template_entry:Dictionary={}
 var cockpit:Node3D
+var control_node:Node3D
 var crew:Node3D
 var nearby:Dictionary={}
 var visual_ship_pose:=Transform3D.IDENTITY
@@ -88,6 +89,13 @@ func build(id:String,template:="",sector:="space_tatooine")->bool:
 		stage=preload("res://scripts/cell_stage.gd").new();add_child(stage)
 		cockpit.set_physics_process(false)
 		for body:Node in cockpit.find_children("*","StaticBody3D",true,false):body.free()
+	var controls:Dictionary=template_entry.get("controls",{})
+	if is_instance_valid(cockpit) and not controls.is_empty():
+		var control_path:=catalog_path.get_base_dir().path_join(str(controls.descriptor))
+		control_node=Loader.new().load_stage(control_path)
+		if not is_instance_valid(control_node):error="Original cockpit controls could not be loaded.";return false
+		cockpit.add_child(control_node);control_node.set_physics_process(false)
+		for body:Node in control_node.find_children("*","StaticBody3D",true,false):body.free()
 	crew=preload("res://multiplayer/remote_players.gd").new();add_child(crew);crew.configure()
 	return set_sector(sector)
 func set_sector(zone:String)->bool:
@@ -102,10 +110,17 @@ func set_sector(zone:String)->bool:
 	for id in nearby:nearby[id].queue_free()
 	nearby.clear();nearby_poses.clear();nearby_motion.clear()
 	return true
-func align_cockpit(eye_height:float)->void:
+func control_grips()->Array:
+	var result:Array=[]
+	for p:Array in template_entry.get("controls",{}).get("grips",[]):result.append(Vector3(p[0],p[1],p[2]))
+	return result
+func control_pivot()->Vector3:
+	var p:Array=template_entry.get("controls",{}).get("pivot",[0,0,0])
+	return Vector3(p[0],p[1],p[2])
+func align_cockpit(eye_world:Vector3)->void:
 	if not is_instance_valid(cockpit):return
 	var eye:Array=template_entry.get("cockpit_position",[0,0,0])
-	cockpit.position=Vector3(-float(eye[0]),eye_height-float(eye[1]),-float(eye[2]))
+	cockpit.position=to_local(eye_world)-Vector3(float(eye[0]),float(eye[1]),float(eye[2]))
 func source(point:Vector3)->Array:
 	var p:=stage.to_local(point);return [p.x,p.y,-p.z]
 func world(value:Array)->Vector3:

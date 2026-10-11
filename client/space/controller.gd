@@ -48,6 +48,7 @@ var hyperspace_effect:Node3D
 var target_hud:Node3D
 var target_buttons:Dictionary={}
 var space_audio:Node
+var yoke:=preload("res://space/flight_yoke.gd").new()
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
 	target_hud=preload("res://space/targeting_hud.gd").new();add_child(target_hud)
@@ -71,7 +72,7 @@ func reset()->void:
 	if is_instance_valid(target_hud):target_hud.hide()
 	target_buttons.clear()
 	fire_armed=false;lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
-	leave_scene();state={};ship={};revision=-1;sequence=0;walk_sequence=0;pending_mutations.clear();needs_reconcile=false;busy=false;age=100;poll=0;station="ground";inputs.reset()
+	leave_scene();state={};ship={};revision=-1;sequence=0;walk_sequence=0;pending_mutations.clear();needs_reconcile=false;busy=false;age=100;poll=0;station="ground";reset_controls()
 	if is_instance_valid(app):
 		epoch=app.datapad_epoch
 		if is_instance_valid(app.datapad):app.datapad.ui.set_ships([]);app.datapad.ui.set_skill_forgetting_available(true)
@@ -187,7 +188,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 		if changed and is_instance_valid(wheel):wheel.close()
 		if changed or needs_reconcile or bool(ship.get("walk_corrected",false)):
 			scene.place_player(app.player,ship.get("player_position",[-.76,.43,21.14] if next=="pilot" else [0,.4,20]),int(ship.get("cell_index",1)))
-			inputs.reset();needs_reconcile=false
+			reset_controls();needs_reconcile=false
 			if next in ["pilot","passenger","gunner"]:
 				# Rotate the play-space origin once; tracked HMD/controller local poses stay untouched.
 				app.player.rotate_player(app.player.get_camera().global_rotation.y-scene.stage.global_rotation.y)
@@ -198,6 +199,9 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 					app.xr_origin.global_position.y+=seat_pose().origin.y+.68-app.player.get_camera().global_position.y
 					app.player.global_transform=body_pose;seat_height_applied=true
 				seat_origin=app.xr_origin.global_transform;seat_eye_height=app.player.get_camera().global_position.y
+				# The CPIT offset is the authored eye, not a floor or pelvis anchor.
+				# Align once after seating; physical leaning remains tracking-driven.
+				scene.align_cockpit(app.player.get_camera().global_position)
 		app.player._update_locomotion()
 		update_crew()
 	update_lobby()
@@ -216,9 +220,9 @@ func enter_scene(value:Dictionary)->bool:
 			node.process_mode=Node.PROCESS_MODE_DISABLED
 			if node is Node3D:node.hide()
 	scene=created
+	if is_instance_valid(app.get("xr_menu")):app.xr_menu.set_reference_frame(app.xr_origin)
 	space_audio=preload("res://space/audio.gd").new();scene.add_child(space_audio)
 	hyperspace_effect=preload("res://space/hyperspace.gd").new();scene.add_child(hyperspace_effect);hyperspace_effect.setup(app.player.get_camera())
-	scene.align_cockpit(app.player.get_camera().global_position.y-app.player.global_position.y)
 	app.stage=scene.stage;app.player.ground_provider=scene.stage;scene.stage.set_observer(app.player)
 	portal_view=preload("res://scripts/portal_visibility.gd").new();scene.add_child(portal_view);portal_view.configure(scene.stage,app.player.get_camera(),app.xr_spectator.camera if is_instance_valid(app.xr_spectator) and app.xr_spectator.enabled else null)
 	previous_environment=app.player.get_camera().environment
@@ -234,6 +238,7 @@ func enter_scene(value:Dictionary)->bool:
 	if is_instance_valid(app.datapad):app.datapad.set_open(false);app.datapad.ui.set_skill_forgetting_available(false,"Return to ground before forgetting skills.")
 	return true
 func leave_scene()->void:
+	if is_instance_valid(app.get("xr_menu")):app.xr_menu.set_reference_frame(null)
 	restore_seat_height()
 	show_station_targets(false)
 	terminal_geometry.clear()
@@ -251,7 +256,7 @@ func leave_scene()->void:
 	if is_instance_valid(app.portal_visibility):
 		if app.stage.interior_cells_changed.is_connected(app.portal_visibility.refresh_instances):app.stage.interior_cells_changed.disconnect(app.portal_visibility.refresh_instances)
 		app.portal_visibility.configure(app.stage,app.player.get_camera(),app.xr_spectator.camera if is_instance_valid(app.xr_spectator) and app.xr_spectator.enabled else null)
-	scene.queue_free();scene=null;ground={};station="ground";inputs.reset();app.player._update_locomotion()
+	scene.queue_free();scene=null;ground={};station="ground";reset_controls();app.player._update_locomotion()
 	readout.hide();target_hud.hide();wheel.close()
 	if is_instance_valid(app.datapad):app.datapad.ui.set_skill_forgetting_available(true)
 	if is_instance_valid(app.services):app.services.poll_clock=0
@@ -521,9 +526,15 @@ func hotas_pose()->Transform3D:
 	var pose:=pilot_pose()
 	pose.basis=scene.stage.global_basis.orthonormalized()
 	return pose
-func hand_busy(_side:String)->bool:
-	# Pose flight never reserves grip buttons or thumbsticks.
-	return false
+func reset_controls()->void:
+	inputs.reset();yoke.reset()
+	if is_instance_valid(scene):yoke.update_visual(scene)
+func cockpit_yoke_mode()->bool:
+	return seated() and station=="pilot" and preferences.mode=="motion_sticks" and ship.get("kind","")=="fighter" and int(ship.get("capacity",1))==1 and is_instance_valid(scene.control_node)
+func hand_target(side:String)->Variant:
+	return yoke.hand_target(side,scene) if cockpit_yoke_mode() else null
+func hand_busy(side:String)->bool:
+	return cockpit_yoke_mode() and bool(yoke.state.get(side+"_held",false))
 func flight_inventory_busy()->bool:
 	var bag:Node3D=app.inventory
 	return is_instance_valid(bag) and (bag.is_open or not bag.held_item.is_empty() or not bag.equipment_drag.is_empty() or bag.hologram.active or bag.action_pending)
@@ -533,8 +544,18 @@ func controls(delta:float)->Dictionary:
 	var hardware:Dictionary=preferences.physical_values() if preferences.mode=="physical_hotas" else {}
 	var flight_ready:bool=bool(app.player.combat_tracking_context().tracked) and (bool(hardware.get("available",false)) if preferences.mode=="physical_hotas" else tracked)
 	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or (is_instance_valid(app.services) and app.services.blocks_combat()) or age>3:
-		inputs.reset();fire_armed=false;var neutral:Dictionary=inputs.neutral();neutral.targeting_active=flight_ready and app.xr_focused and not app.menu.visible and age<=3;return neutral
-	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,hardware,app.player.dominant_hand)
+		if cockpit_yoke_mode():
+			yoke.sample(preferences,scene.cockpit.global_transform,scene.control_grips(),left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),false,Vector2.ZERO,delta,str(scene.template_entry.controls.get("style","yoke")))
+			yoke.throttle=0
+		else:reset_controls()
+		fire_armed=false;var neutral:Dictionary=inputs.neutral();neutral.targeting_active=flight_ready and app.xr_focused and not app.menu.visible and age<=3;return neutral
+	var output:Dictionary
+	if cockpit_yoke_mode():
+		output=yoke.sample(preferences,scene.cockpit.global_transform,scene.control_grips(),left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),tracked,(left if app.player.dominant_hand=="right" else right).get_vector2("primary"),delta,str(scene.template_entry.controls.get("style","yoke")))
+		yoke.update_visual(scene)
+	else:
+		if not yoke.state.is_empty():yoke.reset();yoke.update_visual(scene)
+		output=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,hardware,app.player.dominant_hand)
 	var main:XRController3D=right if app.player.dominant_hand=="right" else left
 	var firing:bool=main.get_float("trigger")>.65
 	if preferences.mode=="physical_hotas":firing=preferences.physical_fire()
@@ -548,7 +569,7 @@ func _process(delta:float)->void:
 	age+=delta;poll-=delta
 	if not error.is_empty() and Time.get_ticks_msec()>notice_until:error=""
 	if session()==null:
-		if aboard():inputs.reset()
+		if aboard():reset_controls()
 		return
 	if not app.world_ready:return
 	if interaction_waiting:return
@@ -579,6 +600,7 @@ func _process(delta:float)->void:
 	var output:=controls(delta) if seated() and station=="pilot" else inputs.neutral()
 	if seated() and station=="pilot" and preferences.mode=="virtual_hotas":
 		readout.text+="\nSteering · "+("engaged" if inputs.stick_held else "hold main hand upright")+" · Throttle · "+("engaged" if inputs.throttle_held else "hold off hand sideways")
+	if cockpit_yoke_mode():readout.text+="\nGrip flight controls · Push/pull pitch · "+("Twist yaw · Sideways roll" if yoke.style=="stick" else "Turn yaw · Wheel roll")+" · Offhand stick throttle"
 	if seated() and station=="pilot":readout.text+="\nThrottle %d%% · Engine limit %.0f m/s"%[roundi(float(output.throttle)*100),float(ship.get("max_speed_mps",0))]
 	if seated():
 		app.xr_origin.global_transform=seat_origin;app.player.velocity=Vector3.ZERO

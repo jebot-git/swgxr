@@ -5,7 +5,7 @@ func setup(value:RefCounted)->void:
 	preferences=value
 	var title:=Label.new();title.text="FLIGHT CONTROLS";add_child(title)
 	var modes:=preload("res://scripts/frontend_choice.gd").new()
-	for label in ["Motion controller sticks","Virtual HOTAS · hand tilt and throttle","Physical HOTAS / joystick"]:modes.add_item(label)
+	for label in ["Joystick · fighter cockpit controls","Virtual HOTAS · hand tilt and throttle","Physical HOTAS / joystick"]:modes.add_item(label)
 	modes.select(["motion_sticks","virtual_hotas","physical_hotas"].find(preferences.mode));add_child(modes)
 	var mappings:=VBoxContainer.new();add_child(mappings)
 	mappings.visible=preferences.mode=="physical_hotas"

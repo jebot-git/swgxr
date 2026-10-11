@@ -17,7 +17,7 @@ var clock:=0.0
 func reset() -> void:
 	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_hands=[{},{}];dig_latched=false;throw_samples.clear()
 func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, ground_left: float, ground_right: float, tracked: bool) -> Dictionary:
-	var out: Dictionary={"burst_run":false,"forage":false}
+	var out: Dictionary={"burst_run":false,"forage":false,"dig_hands":[]}
 	if not tracked or not head.is_finite() or not left.is_finite() or not right.is_finite() or not is_finite(delta) or delta<=0 or delta>0.15: reset();return out
 	clock+=delta;run_time+=delta;dig_time+=delta
 	var l:=head.affine_inverse()*left;var r:=head.affine_inverse()*right
@@ -43,6 +43,8 @@ func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, grou
 		if dig_time>1.2: dig_count=0;dig_hands=[{},{}];dig_time=0
 		var stroke_left:=dig_stroke(0,left-head.origin,ground_left,near_left)
 		var stroke_right:=dig_stroke(1,right-head.origin,ground_right,near_right)
+		if stroke_left:out.dig_hands.append(0)
+		if stroke_right:out.dig_hands.append(1)
 		if stroke_left or stroke_right:
 			dig_count+=1;dig_time=0
 			if dig_count>=3: out.forage=true;dig_latched=true;dig_count=0

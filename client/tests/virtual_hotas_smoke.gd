@@ -7,7 +7,9 @@ func check(ok:bool,message:String)->void:
 	checks+=1
 	if not ok:failures.append(message);push_error(message)
 func run_sample(c:RefCounted,p:RefCounted,main:Transform3D,off:Transform3D,seat:Transform3D=Transform3D.IDENTITY,dominant:String="right",grips:float=0,sticks:Vector2=Vector2.ZERO,dt:float=.016)->Dictionary:
-	return c.sample(p,true,seat*(off if dominant=="right" else main),seat*(main if dominant=="right" else off),grips,grips,sticks,sticks,seat,dt,{},dominant)
+	# Fixtures describe a handle with +Y up; convert to the actual OpenXR grip -Z handle.
+	var grip:=Transform3D(Basis(Vector3.RIGHT,PI/2),Vector3.ZERO)
+	return c.sample(p,true,seat*(off if dominant=="right" else main)*grip,seat*(main if dominant=="right" else off)*grip,grips,grips,sticks,sticks,seat,dt,{},dominant)
 func _initialize()->void:
 	var p:=Preferences.new();p.mode="virtual_hotas"
 	for dominant in ["left","right"]:

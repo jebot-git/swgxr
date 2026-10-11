@@ -73,12 +73,14 @@ func run()->void:
 	var catalog:Dictionary=JSON.parse_string(FileAccess.get_file_as_string("res://../runtime/assets/jtl/catalog.json"))
 	var fighter_count:=0
 	for template:String in catalog.templates:
-		if catalog.templates[template].get("kind","pob")=="pob":continue
+		if catalog.templates[template].get("kind","")!="fighter":continue
 		var scene:=Scene.new();root.add_child(scene);scene.position=Vector3(0,10000,0)
 		var loaded:bool=scene.build("77",template)
 		check(loaded and is_instance_valid(scene.cockpit),"Original cockpit loads: "+template.get_file())
 		if loaded:
-			scene.align_cockpit(1.65)
+			scene.align_cockpit(scene.to_global(Vector3(.2,1.13,-.3)))
+			var eye:Array=scene.template_entry.cockpit_position
+			check(scene.cockpit.to_global(Vector3(eye[0],eye[1],eye[2])).distance_to(scene.to_global(Vector3(.2,1.13,-.3)))<.002,"Authored eye aligns at seated height including room-scale offset: "+template.get_file())
 			check(scene.cell_index()==0 and scene.cockpit.find_children("*","StaticBody3D",true,false).is_empty(),"Small craft uses original seated cockpit without fabricated walkable floor: "+template.get_file())
 		fighter_count+=1;scene.free()
 	check(fighter_count>=11,"All curated small craft original cockpit variants are tested")
@@ -104,6 +106,8 @@ func run()->void:
 	var launch:=ground.duplicate(true);launch.ship={"id":"77","template":"object/ship/player/player_z95.iff","kind":"fighter","station":"pilot","position":[0,0,0],"quaternion":[0,0,0,1],"player_position":[0,0,0],"cell_index":0,"stations":[{"id":"pilot","position":[0,0,0]}],"crew":[],"commands":[]}
 	var hmd:Transform3D=host.player.get_camera().transform
 	check(flight.observe(launch,3) and flight.seated() and is_instance_valid(flight.scene.cockpit),"Native small craft enters its actual original cockpit")
+	var authored:Array=flight.scene.template_entry.cockpit_position
+	check(flight.scene.cockpit.to_global(Vector3(authored[0],authored[1],authored[2])).distance_to(host.player.get_camera().global_position)<.002,"Cockpit eye aligns AFTER pilot seating adjustment")
 	check(host.player.get_camera().transform.is_equal_approx(hmd),"Small craft boarding preserves physical HMD local tracking")
 	check(not flight.command_rows().any(func(row):return row.id=="leave"),"Fighter has no fictitious interior dismount")
 	flight.state.nearby_ships=[{"id":"88","name":"Host Yacht","boarding_available":false,"boarding_reason":"POB visitors cannot board another POB.","distance_m":45}]

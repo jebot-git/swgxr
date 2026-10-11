@@ -48,7 +48,7 @@ func run() -> void:
 	field.grab_focus()
 	await process_frame
 	check(menu.keyboard.visible and menu.keyboard.enabled, "Keyboard not shown for text focus")
-	menu.keyboard.scene_node.on_key_pressed("A",97,false)
+	menu.keyboard_content.press_key("a","A")
 	await process_frame
 	check(field.text == "a", "Virtual keyboard did not reach menu field")
 	menu.set_open(false)
@@ -56,6 +56,19 @@ func run() -> void:
 	check(not menu.visible and not menu.screen.enabled and not menu.keyboard.enabled, "Closed menu retained pointer colliders")
 	menu.set_open(true)
 	check(menu.screen.enabled, "Reopened menu has no pointer collider")
+	var frame:=Node3D.new();world.add_child(frame)
+	head.reparent(frame)
+	menu.set_reference_frame(frame);menu.set_open(true)
+	var relative:Transform3D=head.global_transform.affine_inverse()*menu.global_transform
+	frame.position+=Vector3(20,10000,-40);frame.rotation=Vector3(.4,1.2,.3)
+	menu.follow_reference_frame()
+	var after:Transform3D=head.global_transform.affine_inverse()*menu.global_transform
+	check(after.origin.distance_to(relative.origin)<.003 and after.basis.is_equal_approx(relative.basis),"JTL menu follows ship reference changes without leaving FOV")
+	var before:Transform3D=menu.global_transform
+	head.rotation.y+=.4;menu.follow_reference_frame()
+	check(menu.global_transform.is_equal_approx(before),"JTL menu remains stable while player looks around")
+	menu.set_reference_frame(null);before=menu.global_transform;frame.position.x+=10;menu.follow_reference_frame()
+	check(menu.global_transform.is_equal_approx(before),"Leaving JTL restores world-anchored menu")
 	var report := {"test":"xr_tools_menu_pointer_keyboard","success":failures.is_empty(),"errors":failures,"xr_runtime_initialized":false}
 	FileAccess.open(ProjectSettings.globalize_path("res://../runtime/evidence/xr-menu-smoke.json"),FileAccess.WRITE).store_string(JSON.stringify(report,"  "))
 	print("XR_MENU_PASS " + JSON.stringify(report) if failures.is_empty() else "XR_MENU_FAIL " + JSON.stringify(report))

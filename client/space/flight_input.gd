@@ -40,8 +40,10 @@ func sample(settings:RefCounted,tracked:bool,left:Transform3D,right:Transform3D,
 	var frame:=seat.affine_inverse()
 	var main:Transform3D=frame*(right if dominant=="right" else left)
 	var off:Transform3D=frame*(left if dominant=="right" else right)
-	var upright:=main.basis.y.normalized().dot(Vector3.UP)
-	var sideways:=absf(off.basis.y.normalized().dot(Vector3.UP))
+	# OpenXR grip -Z runs along the handle toward the index finger; +Y
+	# is not the handle axis (https://registry.khronos.org/OpenXR/specs/1.1/html/xrspec.html#semantic-path-standard-pose-identifiers).
+	var upright:=(-main.basis.z).normalized().dot(Vector3.UP)
+	var sideways:=absf((-off.basis.z).normalized().dot(Vector3.UP))
 	var step:=clampf(delta,0,.05) if is_finite(delta) else 0.0
 	if stick_held and upright<STICK_EXIT:stick_held=false;stick_dwell=0
 	if throttle_held and sideways>THROTTLE_EXIT:throttle_held=false;throttle_dwell=0

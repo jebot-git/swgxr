@@ -508,6 +508,9 @@ func update_fingers() -> void:
 	last_report["fingers"] = sources
 
 func apply_vehicle_fingers(side:String)->void:
+	# Cockpit grips use the forced closed controller pose above; generic pilot
+	# seating clips may contain resting hands rather than a steering grip.
+	if is_instance_valid(body.get("space")) and body.space.hand_target(side) is Transform3D:return
 	# Original rider clips already fit fingers around their source yoke. Keep
 	# those authored curls for a latched hand instead of an unrelated gun fist.
 	var mounted:Dictionary=body.vehicles.rider_pose(avatar.race_id)
@@ -539,6 +542,9 @@ func finger_state(controller: XRController3D, side: String) -> Dictionary:
 	return state
 
 func vehicle_hand_target(side:String)->Variant:
+	if is_instance_valid(body) and is_instance_valid(body.get("space")):
+		var target:Variant=body.space.hand_target(side)
+		if target is Transform3D:return target
 	if is_instance_valid(body) and is_instance_valid(body.get("vehicles")):
 		return body.vehicles.hand_target(side)
 	return null

@@ -399,6 +399,13 @@ func _process(delta: float) -> void:
 	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)
 	var main: XRController3D=left if bag.held_hand_side()=="left" else right
 	gestures.sample_throw(delta,head.global_transform,main.global_position,tracked and trap_held())
+	if tracked and not bag.is_open and bag.held_item.is_empty() and last_reply<12 and state.get("forage_available",false) and not state.get("foraging",false):
+		for index:int in sample.get("dig_hands",[]):
+			var point:Vector3=left.global_position if index==0 else right.global_position
+			var height:=ground_distance(point)
+			if is_finite(height):
+				var dirt:=preload("res://scout/dig_feedback.gd").new();app.add_child(dirt)
+				dirt.emit_at(point-Vector3.UP*height)
 	gesture_actions(sample,tracked)
 	update_camp_ui();update_reticle()
 func gesture_actions(sample:Dictionary,tracked:bool)->void:

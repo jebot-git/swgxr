@@ -18,6 +18,14 @@ class JtlAssets(unittest.TestCase):
         for template in SHIP_TEMPLATES:
             row=catalog['templates'][template]
             self.assertTrue(row['cockpit_source'].startswith('cockpit/'))
+            self.assertIn('cockpit_camera_source',row)
+            self.assertGreater(abs(row['cockpit_position'][1]),.1)
+            controls=row.get('controls',{})
+            if 'ywing' not in template:
+                self.assertTrue(controls)
+                self.assertEqual(hashlib.sha256((directory/controls['descriptor']).read_bytes()).hexdigest(),controls['sha256'])
+                self.assertEqual(controls['style'],'stick' if 'z95' in template else 'yoke')
+                self.assertEqual(len(controls['grips']),2)
             self.assertIn(row['cockpit_source'],catalog['provenance'])
             self.assertIn(row['frame_source'],catalog['provenance'])
             for key,digest in [('descriptor','sha256'),('exterior_descriptor','exterior_sha256')]:

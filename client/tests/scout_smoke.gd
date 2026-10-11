@@ -52,6 +52,7 @@ func run() -> void:
 	check(digs==0,"Air gestures cannot forage")
 	for mode in ["one_hand", "alternating", "shovel", "sideways", "head_turn", "walking_low", "jitter_low"]:
 		gesture.reset();digs=0
+		var dirt_strokes:=0
 		for i in range(720):
 			if i<270:
 				gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3.ZERO,Vector3.ZERO,.25,.8,true)
@@ -67,8 +68,11 @@ func run() -> void:
 			if mode=="sideways":ly=.20;x+=sin(t*TAU*2)*.1
 			if mode=="head_turn":ly=.20;head.basis=Basis(Vector3.UP,sin(t*TAU*2)*.8)
 			if mode=="walking_low": head.origin.z=z+.3
-			if gesture.sample(1.0/90,head,Vector3(x,ly,z),Vector3(.2,ry,-.3),ly,ry,true).forage:digs+=1
+			var stroke:Dictionary=gesture.sample(1.0/90,head,Vector3(x,ly,z),Vector3(.2,ry,-.3),ly,ry,true)
+			dirt_strokes+=stroke.dig_hands.size()
+			if stroke.forage:digs+=1
 		check(digs==(0 if mode in ["walking_low","jitter_low","head_turn"] else 1),"Forage trace "+mode+" recognizes deliberate strokes only and latches")
+		check(dirt_strokes==(0 if mode in ["walking_low","jitter_low","head_turn"] else 3),"Dirt feedback accompanies each deliberate stroke: "+mode)
 	gesture.reset()
 	for i in range(20):
 		gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3.ZERO,Vector3.ZERO,1,1,true)
@@ -83,6 +87,11 @@ func run() -> void:
 	check(abilities.cooldowns.second==30 and not abilities.primed and abilities.selected=="first","Replacing armed ability across professions cools it down without activating")
 	check(abilities.ham.is_empty(),"Discarding armed selection charges no attack SAC")
 	var root_node:=Node3D.new();root.add_child(root_node)
+	var puff:=preload("res://scout/dig_feedback.gd").new();root_node.add_child(puff)
+	puff.emit_at(Vector3(2,0,3))
+	check(puff.emitting and puff.one_shot and puff.amount==18 and puff.global_position.distance_to(Vector3(2,.025,3))<.001,"Dirt burst emits at recognized ground contact")
+	await create_timer(.9).timeout
+	check(not is_instance_valid(puff),"Dirt feedback frees itself after the burst")
 	var head:=Node3D.new();root_node.add_child(head);head.position=Vector3(0,1.7,0)
 	var hand:=Node3D.new();root_node.add_child(hand);hand.position=Vector3(0.3,1.2,-0.4)
 	var ui:=preload("res://combat/ability_hologram.gd").new();root_node.add_child(ui)

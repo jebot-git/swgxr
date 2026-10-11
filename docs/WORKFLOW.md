@@ -1999,3 +1999,24 @@ closed Downloads client. Real bundled preparation now completes in about
 48 ms without staging or conversion; public launcher discovery and twelve
 incremental baseline/platform bundles are verified. The underlying
 harvest-disconnect cause remains unconfirmed, as noted for test.18.
+
+
+2026-10-12 cockpit/control follow-up (test.20):
+
+Junk-dealer quote prices now serialize as integers. Recognized digging strokes
+emit local dirt feedback. Seated cockpit alignment uses the original camera
+hardpoint; the space menu follows the XR reference frame. Virtual HOTAS uses the
+OpenXR grip handle axis. Native flight controls support captured one/two-hand
+yokes and single-hand central sticks, push/pull pitch and offhand-stick throttle.
+
+Z95 variants use original SWGXR artwork: 724 triangles, 512-square texture,
+under-seat shaft and saved hand/pivot anchors. The Xwing fitment is also prepared
+with its own darker vertex lighting, without adding native Xwing flight/crafting
+capabilities to the tester ship set. The bundled authored_stick.json contains
+only newly authored mesh/UV/paint and derived lighting, no XWA/XWVM mesh or pixels.
+Proprietary cockpit geometry still comes from user game media. Asset preparation
+converts the authored native files normally, retaining vertex colour.
+
+Local evidence: runtime/releases/test20-20261012 and
+runtime/evidence/original-stick-{cockpit-v2,xwing}. Desktop Vulkan renders are
+not headset validation. These changes require no server code or service restart.

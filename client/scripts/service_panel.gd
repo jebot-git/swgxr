@@ -407,7 +407,11 @@ func confirm() -> void:
 		if kind=="ship_outfit":payload.ship_id=str(terminal.ship_id)
 	elif kind=="junk_dealer":
 		if selected<0 or selected>=rows.size():return
-		action="junk_sell";payload.items=rows[selected].items.duplicate(true)
+		action="junk_sell";payload.items=[]
+		# JSON.parse_string represents quote numbers as floats. Re-encode the
+		# reviewed credit amounts as integers for the strict service protocol.
+		for item:Dictionary in rows[selected].items:
+			payload.items.append({"item_id":str(item.item_id),"price":int(item.price)})
 	elif kind in ["pilot_trainer","herald"]:
 		if selected<0 or selected>=rows.size():return
 		var option:Dictionary=rows[selected]

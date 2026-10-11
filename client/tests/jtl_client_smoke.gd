@@ -43,15 +43,15 @@ func run()->void:
 	var settings:=Preferences.new();settings.mode="virtual_hotas"
 	var controls:=Controls.new()
 	var seat:=Transform3D.IDENTITY
-	var left:=Transform3D(Basis(Vector3.FORWARD,PI/2),Vector3(-.45,.8,-.6))
-	var right:=Transform3D(Basis.IDENTITY,Vector3(.45,.8,-.6))
+	var left:=Transform3D(Basis(Vector3.FORWARD,PI/2)*Basis(Vector3.RIGHT,PI/2),Vector3(-.45,.8,-.6))
+	var right:=Transform3D(Basis(Vector3.RIGHT,PI/2),Vector3(.45,.8,-.6))
 	var original_left:=left;var original_right:=right
 	for frame in 15:controls.sample(settings,true,left,right,0,0,Vector2.ZERO,Vector2.ZERO,seat,.016)
 	check(controls.stick_held and controls.throttle_held,"Pose HOTAS engages away from former grab points without grips")
-	right.basis=Basis(Vector3.RIGHT,deg_to_rad(-25));left.origin.z-=.28
+	right.basis=Basis(Vector3.RIGHT,deg_to_rad(-25))*Basis(Vector3.RIGHT,PI/2);left.origin.z-=.28
 	var moved:Dictionary=controls.sample(settings,true,left,right,0,0,Vector2.ONE,Vector2.ONE,seat,.016)
 	check(moved.pitch>.99 and moved.throttle>.99,"Pose tilt and throttle travel work with unreserved sticks and grips")
-	check(original_left.origin==Vector3(-.45,.8,-.6) and original_right.basis==Basis.IDENTITY,"Control input does not overwrite tracked poses")
+	check(original_left.origin==Vector3(-.45,.8,-.6) and original_right.basis.is_equal_approx(Basis(Vector3.RIGHT,PI/2)),"Control input does not overwrite tracked poses")
 	var lost:Dictionary=controls.sample(settings,false,left,right,1,1,Vector2.ZERO,Vector2.ZERO,seat,.016)
 	check(lost.throttle==0 and lost.pitch==0 and not controls.stick_held,"Tracking loss cuts thrust and drops gesture captures")
 	for frame in 15:controls.sample(settings,true,left,right,1,1,Vector2.ZERO,Vector2.ZERO,seat,.016)

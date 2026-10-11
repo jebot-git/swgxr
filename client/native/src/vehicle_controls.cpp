@@ -11,7 +11,7 @@ void SwgVehicleControls::_bind_methods(){
  ClassDB::bind_method(D_METHOD("sample","kind","vehicle","left","right","left_handle","right_handle","left_grip","right_grip","left_available","right_available","tracked","joystick"),&SwgVehicleControls::sample,DEFVAL(0.0));
  ClassDB::bind_static_method("SwgVehicleControls",D_METHOD("advance","speed","throttle","steer","maximum","reverse","acceleration","turn_rate","delta"),&SwgVehicleControls::advance);
 }
-void SwgVehicleControls::reset(){for(auto& h:hands)h=Grip();wheel_angle=throttle_offset=twist_angle=0;reference_angle=reference_offset=reference_twist=0;reference_ready=false;}
+void SwgVehicleControls::reset(){for(auto& h:hands)h=Grip();wheel_angle=throttle_offset=twist_angle=yaw_angle=0;reference_angle=reference_offset=reference_twist=reference_yaw=0;reference_ready=false;}
 static double axis(double value,double dead,double limit){if(!std::isfinite(value)||std::abs(value)<=dead)return 0;return std::copysign(std::clamp((std::abs(value)-dead)/(limit-dead),0.0,1.0),value);}
 Dictionary SwgVehicleControls::sample_reins(const Transform3D& mount,const Transform3D& left,const Transform3D& right,double lg,double rg,bool la,bool ra,bool tracked,const Vector2& joystick){
  // Share vehicle grip hysteresis and tracking suspension. Rein pose never
@@ -41,17 +41,18 @@ Dictionary SwgVehicleControls::sample(const String& kind,const Transform3D& vehi
   result[i==0?"left_held":"right_held"]=hands[i].held;
   result[i==0?"left_handle":"right_handle"]=hands[i].held?i:-1;
  }
- if(!count){wheel_angle=throttle_offset=twist_angle=0;reference_ready=false;}
+ if(!count){wheel_angle=throttle_offset=twist_angle=yaw_angle=0;reference_ready=false;}
  else if(suspended)reference_ready=false;
  else if(membership_changed || !reference_ready){
   // A new hand inherits the current control state, regardless of where its
   // controller is held. The other hand's reference is rebased at the same time.
   for(int i=0;i<2;++i)hands[i].reference=poses[i];
-  reference_angle=wheel_angle;reference_offset=throttle_offset;reference_twist=twist_angle;reference_ready=true;
+  reference_angle=wheel_angle;reference_offset=throttle_offset;reference_twist=twist_angle;reference_yaw=yaw_angle;reference_ready=true;
  }else if(kind!="reins"){
-  const bool bike=kind=="bike";Vector3 pivot=(lh+rh)*.5;
+  const bool bike=kind=="bike",stick=kind=="flight_stick",flight=kind=="flight" || stick;Vector3 pivot=(lh+rh)*.5;
   Basis rotation(bike?Vector3(0,1,0):Vector3(0,0,1),reference_angle);
-  Vector3 a,b;double depth=0,twist=0;
+  if(flight)rotation=Basis(Vector3(0,1,0),reference_yaw)*rotation;
+  Vector3 a,b;double depth=0,twist=0,lateral=0,swivel=0;
   if(count==2){
    a=rotation.xform(rh-lh);
    b=a+(poses[1].origin-hands[1].reference.origin)-(poses[0].origin-hands[0].reference.origin);
@@ -60,16 +61,24 @@ Dictionary SwgVehicleControls::sample(const String& kind,const Transform3D& vehi
    b=a+poses[i].origin-hands[i].reference.origin;
   }
   double delta=bike?std::atan2(a.z*b.x-a.x*b.z,a.x*b.x+a.z*b.z):std::atan2(a.x*b.y-a.y*b.x,a.x*b.x+a.y*b.y);
+  if(flight){double yaw=std::atan2(a.z*b.x-a.x*b.z,a.x*b.x+a.z*b.z);if(std::isfinite(yaw))yaw_angle=std::clamp(reference_yaw+yaw,-.65,.65);}
   if(std::isfinite(delta))wheel_angle=std::clamp(reference_angle+delta,-.65,.65);
   for(int i=0;i<2;++i)if(hands[i].held){
    depth+=(poses[i].origin-hands[i].reference.origin).z;
+   lateral+=(poses[i].origin-hands[i].reference.origin).x;
    Basis change=poses[i].basis*hands[i].reference.basis.inverse();
    twist+=std::atan2(change[1].z,change[1].y);
+   swivel+=change.get_euler().y;
   }
+  if(stick){wheel_angle=std::clamp(reference_angle-lateral/count/.18*.55,-.65,.65);yaw_angle=std::clamp(reference_yaw+swivel/count,-.65,.65);}
   if(bike)twist_angle=std::clamp(reference_twist+twist/count,-.55,.55);
   else throttle_offset=std::clamp(reference_offset+depth/count,-.20,.20);
  }
  result["wheel_angle"]=wheel_angle;result["throttle_offset"]=kind=="bike"?0:throttle_offset;
+ result["yaw_angle"]=yaw_angle;
+ result["pitch"]=(kind=="flight" || kind=="flight_stick") && count && !suspended?axis(throttle_offset,.015,.18):0;
+ result["yaw"]=(kind=="flight" || kind=="flight_stick") && count && !suspended?axis(yaw_angle,.04,.55):0;
+ result["roll"]=(kind=="flight" || kind=="flight_stick") && count && !suspended?axis(wheel_angle,.04,.55):0;
  result["suspended"]=suspended;result["held"]=count>0 && !suspended;
  result["throttle"]=count && !suspended?(kind=="bike"?axis(twist_angle,.07,.55):axis(-throttle_offset,.025,.20)):0;
  result["steer"]=count && !suspended?axis(-wheel_angle,.05,.65):0;

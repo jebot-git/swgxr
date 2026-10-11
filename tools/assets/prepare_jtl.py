@@ -10,6 +10,7 @@ from pathlib import Path
 from static_assets import StaticAssets
 from swg_formats import parse_iff, cstring
 from prepare_stage import mirror
+from cockpit_controls import camera_anchor, prepare_controls
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
@@ -48,7 +49,7 @@ def small_ships(assets, out):
         if cpit.tag!='CPIT' or cpit.children[0].tag!='0000':
             raise ValueError('Unsupported cockpit source: '+cockpit)
         frame=cstring(cpit.first('FRAM').data)[0]
-        eye=mirror(struct.unpack('<3f',cpit.first('1OFF').data))
+        eye,camera_source=camera_anchor(assets,frame,struct.unpack('<3f',cpit.first('1OFF').data))
         descriptor='fighter_'+name+'_cockpit.json'
         before=len(assets.failures)
         digest=appearance_stage(frame,descriptor,eye)
@@ -58,9 +59,27 @@ def small_ships(assets, out):
             raise ValueError('Incomplete original fighter assets: '+name+' '+repr(assets.failures[before:]))
         templates[source]=dict(kind='fighter',descriptor=descriptor,sha256=digest,
             exterior_descriptor=exterior,exterior_sha256=exterior_digest,shared_template=shared,
-            cockpit_position=eye,cockpit_source=cockpit,frame_source=frame,
+            cockpit_position=eye,cockpit_camera_source=camera_source,cockpit_source=cockpit,frame_source=frame,
             stations=[dict(id='pilot',cell_index=0,position=eye)],
             station_policy='Native ship slots determine seated passengers; frame is original CPIT first-person view')
+    # Read the original TIE descriptor before stripping its moving components.
+    ordered=sorted(templates, key=lambda key: 0 if 'z95' in key else 1)
+    for source in ordered:
+        entry=templates[source]
+        family='z95' if 'z95' in source else 'hutt' if 'hutt' in source else 'tie' if 'tie' in source else ''
+        entry['controls']=prepare_controls(out,entry['descriptor'],family,assets)
+        entry['sha256']=hashlib.sha256((out/entry['descriptor']).read_bytes()).hexdigest()
+    # Prepare the approved Xwing cockpit fitment without expanding native ship
+    # gameplay/crafting support beyond SMALL_SHIPS.
+    descriptor='fighter_xwing_cockpit.json'
+    cpit=parse_iff(assets.read('cockpit/xwing.iff'))
+    frame=cstring(cpit.first('FRAM').data)[0]
+    eye,camera_source=camera_anchor(assets,frame,struct.unpack('<3f',cpit.first('1OFF').data))
+    digest=appearance_stage(frame,descriptor,eye)
+    controls=prepare_controls(out,descriptor,'xwing',assets)
+    (out/'authored_cockpits.json').write_text(json.dumps({'xwing':dict(descriptor=descriptor,
+        sha256=digest,cockpit_position=eye,cockpit_camera_source=camera_source,
+        controls=controls)},separators=(',',':')))
     return templates
 
 

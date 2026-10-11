@@ -8,6 +8,14 @@ var keyboard: XRToolsViewport2DIn3D
 var ui: Control
 var camera: XRCamera3D
 var input_active := true
+var reference_frame:Node3D
+var reference_pose:=Transform3D.IDENTITY
+func set_reference_frame(frame:Node3D)->void:
+	if reference_frame==frame:return
+	reference_frame=frame
+	if visible:place_in_front()
+func follow_reference_frame()->void:
+	if is_instance_valid(reference_frame):global_transform=reference_frame.global_transform*reference_pose
 var hovered_pointers: Dictionary = {}
 var pointer_position := Vector2.ZERO
 var slider_surface:Dictionary={}
@@ -54,12 +62,13 @@ func place_in_front() -> void:
 	if camera == null:
 		return
 	var forward := -camera.global_basis.z
-	forward.y = 0.0
+	if not is_instance_valid(reference_frame):forward.y = 0.0
 	if forward.length_squared() < 0.01:
 		forward = Vector3.FORWARD
 	forward = forward.normalized()
 	global_position = camera.global_position + forward * 2.1
-	look_at(global_position + forward, Vector3.UP)
+	look_at(global_position + forward, camera.global_basis.y if is_instance_valid(reference_frame) else Vector3.UP)
+	if is_instance_valid(reference_frame):reference_pose=reference_frame.global_transform.affine_inverse()*global_transform
 
 func set_open(open: bool) -> void:
 	visible = open
@@ -138,6 +147,7 @@ func physical_slider_frame(side:String,pose:Transform3D,grip:float,tracked:bool)
 	return consumed
 
 func _process(delta: float) -> void:
+	if visible:follow_reference_frame()
 	if screen == null or not visible or not input_active:
 		return
 	var focus: Control = screen.get_node("Viewport").gui_get_focus_owner()

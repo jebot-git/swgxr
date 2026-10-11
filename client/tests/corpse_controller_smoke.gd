@@ -25,7 +25,7 @@ func run() -> void:
 	app.datapad_character_id="corpse_character"; app.datapad_account="fixture"; app.world_ready=true
 	app.gathering=load("res://scripts/resource_gathering.gd").new(); app.add_child(app.gathering); app.gathering.configure(app,app.inventory); app.gathering.set_process(false)
 	var service: Node=load("res://scripts/corpse_gathering_controller.gd").new(); app.add_child(service); service.configure(app,app.inventory); service.set_process(false); service.ui.set_process(false); service.visuals.set_physics_process(false)
-	var corpse:={"id":"native_corpse_id","dead":true,"template":"object/mobile/worrt_hue.iff","position":[102,8,-303],"scale":1,"heading_radians":0.25,"resources":[{"kind":"meat","quantity":10,"available":true,"container_template":"object/resource_container/organic_food.iff"}]}
+	var corpse:={"id":"native_corpse_id","dead":true,"loot_available":true,"loot":{"credits":10,"item_count":1},"template":"object/mobile/worrt_hue.iff","position":[102,8,-303],"scale":1,"heading_radians":0.25,"resources":[{"kind":"meat","quantity":10,"available":true,"container_template":"object/resource_container/organic_food.iff"}]}
 	app.reply={"ok":true,"source_kind":"core3_corpses","character_id":app.datapad_character_id,"corpses":[corpse]}
 	check(await service.refresh(),"Matching native corpse query rejected")
 	service.visuals.sync_visuals()
@@ -69,6 +69,11 @@ func run() -> void:
 	var count:int=app.calls.size(); result=await service.perform("harvest",corpse,"hide")
 	check(result.is_empty() and app.calls.size()==count+1 and service.visuals.states.has(corpse.id),"Rejected harvest repeated a mutation or deleted source corpse")
 	check(service.ui.message.text=="Native corpse ownership denied","Native rights failure hidden from player")
+	var emptied:Dictionary=corpse.duplicate(true);emptied.loot={"credits":0,"item_count":0};emptied.loot_available=false
+	check(service.visuals.coins[corpse.id].visible,"Eligible confirmed corpse retains coin before successful loot")
+	app.reply={"ok":true,"source_kind":"core3_corpse_loot","character_id":app.datapad_character_id,"corpse":emptied,"mutation":{"success":true},"inventory":after}
+	result=await service.perform("loot",corpse)
+	check(not result.is_empty() and not service.visuals.coins[corpse.id].visible,"Successful Loot All hides coin immediately without waiting for polling")
 	app.change_epoch=true; app.reply={"ok":true,"source_kind":"core3_corpse_loot","character_id":app.datapad_character_id,"corpse":corpse,"mutation":{"success":true},"inventory":before}
 	result=await service.perform("loot",corpse)
 	check(result.is_empty() and app.inventory_snapshot==after,"Late old-character mutation was adopted")

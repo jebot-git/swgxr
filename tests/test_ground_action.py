@@ -5,7 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 class GroundActionTests(unittest.TestCase):
  def test_native_policy(self):
   with tempfile.TemporaryDirectory() as folder:
-   binary=str(Path(folder)/'policy');subprocess.run(['c++','-std=c++17','-Wall','-Wextra',str(ROOT/'tests/ground_action_policy.cpp'),'-o',binary],check=True)
+   binary=str(Path(folder)/'policy');subprocess.run(['c++','-std=c++14','-Wall','-Wextra',str(ROOT/'tests/ground_action_policy.cpp'),'-o',binary],check=True)
    subprocess.run([binary],check=True)
  def test_bounded_batch_and_self_identity(self):
   lock=dict(kind='lock',actor_id='5',attack_id='6',aim_revision=1)

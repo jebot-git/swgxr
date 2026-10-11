@@ -19,7 +19,7 @@ func run()->void:
 			var o:=[i*6,0,0 if role=="ranged" else 9]
 			var event:Dictionary={"role":role,"origin":o,"direction":[0,0,1],"range":6 if role=="ranged" else 3.,"radius":.55,"cosine":.5,"start":10.,"delivery_at":11.,"active_at":11.333,"aim_revision":1}
 			var warning:=controller.draw_warning(event);controller.update_fill(warning,event,10.+float(i)/4,Color(1,.12,.08) if i==4 else Color(1,.55,.08))
-			var label:Label3D=warning.get_node("TargetCue");label.text=str(i*25)+"%";label.position=Vector3(i*6,0,-1 if role=="ranged" else 7.8);label.font_size=64;label.pixel_size=.012
+			var label:=Label3D.new();warning.add_child(label);label.text=str(i*25)+"%";label.position=Vector3(i*6,0,-1 if role=="ranged" else 7.8);label.font_size=64;label.pixel_size=.012
 	for i in 12:await process_frame
 	await RenderingServer.frame_post_draw
 	var args:=OS.get_cmdline_user_args();var dest:=args[0] if not args.is_empty() else "/tmp/action-telegraphs.png"

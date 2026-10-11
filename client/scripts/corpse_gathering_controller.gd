@@ -1,7 +1,7 @@
 extends Node
 ## Native dead-creature projection and request orchestration. No client kill rewards.
 signal request_finished
-const POLL_SECONDS:=15.0
+const POLL_SECONDS:=3.0
 var app: Node
 var bag: Node3D
 var ui: Node3D
@@ -19,10 +19,18 @@ func configure(host: Node,inventory: Node3D) -> void:
 	ui=load("res://scripts/corpse_gathering.gd").new(); app.add_child(ui)
 	ui.configure(app.xr_origin,app.player,bag.assets,"right" if app.vr_settings.offhand=="left" else "left")
 	ui.corpse_provider=func(point: Vector3): return visuals.nearest(point)
+	ui.loot_provider=func(hand: Transform3D): return visuals.nearest_loot(hand)
+	visuals.actor_provider=corpse_actor
 	ui.empty_hand_provider=empty_hand
 	ui.corpse_inspect_requested.connect(inspect)
 	ui.corpse_harvest_requested.connect(harvest)
 	ui.corpse_loot_requested.connect(loot)
+
+func corpse_actor(id: String) -> Node3D:
+	var sync: Variant=app.get("multiplayer_sync")
+	if is_instance_valid(sync) and is_instance_valid(sync.entities):
+		return sync.entities.actors.get(id)
+	return null
 
 func empty_hand() -> bool:
 	return bag.held_item.is_empty() and not bag.is_open and not (is_instance_valid(app.combat_rig) and app.combat_rig.selected>=0)
@@ -93,6 +101,10 @@ func perform(action: String,record: Dictionary,kind: String="") -> Dictionary:
 		last_error=reason; ui.set_busy(false,reason)
 		return {}
 	if action!="inspect": app.reconcile_inventory_presentations(); app.update_inventory_presentation()
+	# Apply confirmed eligibility immediately, instead of leaving a stale coin
+	# until the next nearby-corpse query. Never remove loot optimistically.
+	visuals.states[id]=response.corpse.duplicate(true)
+	if visuals.visuals.has(id): visuals.update_coin(id)
 	ui.set_corpse_context(record,response.corpse)
 	return response
 

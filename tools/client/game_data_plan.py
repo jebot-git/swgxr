@@ -47,9 +47,10 @@ STEPS = [
  ('dynamic_terrain', ['tools/assets/prepare_dynamic_terrain.py']),
  ('animation_messages', ['tools/assets/refresh_animation_messages.py']),
  ('ground_actions', ['tools/assets/prepare_ground_actions.py']),
+ ('loot_marker', ['tools/assets/prepare_loot_marker.py']),
  ('materials', ['tools/assets/refresh_static_materials.py', '--ensure']),
 ]
 REQUIRED = ['mos_eisley/scene.json', 'characters/catalog.json', 'inventory/catalog.json',
             'planets/catalog.json', 'jtl/catalog.json', 'combat/assets.json',
             'mobile_audio/catalog.json', 'game_audio/catalog.json', 'login/catalog.json',
-            'combat_actions/catalog.json']
+            'combat_actions/catalog.json', 'loot_marker/catalog.json']

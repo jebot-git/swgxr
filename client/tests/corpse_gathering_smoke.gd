@@ -69,15 +69,29 @@ func run()->void:
 	check("personal loot owner" in popup.message.text and "Group loot" in popup.message.text,"Ownership message preserves group-loot limitation")
 	popup.set_busy(false,"Descriptive server rejection remains intact.")
 	check(popup.message.text=="Descriptive server rejection remains intact.","Unknown descriptive server errors remain unchanged")
+	# The eligible coin is a separate, single-trigger Loot All target.
+	popup.close();popup.set_allowed(true)
+	var coin_record:Dictionary=record.duplicate(true)
+	coin_record.loot_available=true;coin_record.loot={"credits":25,"item_count":2}
+	popup.loot_provider=func(_hand):return coin_record if coin_record.loot_available else {}
+	var loot_before:=loots.size();var inspect_before:=inspections.size()
+	popup.sample(true,true,pose,head.global_transform,0,0);popup.sample(true,true,pose,head.global_transform,.9,0)
+	check(loots.size()==loot_before+1 and inspections.size()==inspect_before and popup.pending,"Coin triggers Loot All directly without an inspect round trip")
+	popup.sample(true,true,pose,head.global_transform,.9,0)
+	check(loots.size()==loot_before+1,"Held trigger cannot repeat coin loot")
+	popup.set_corpse_context(coin_record,context)
+	check(popup.choice_at(popup.choice_nodes[0].global_position+Vector3.UP*.12)==0,"Harvest resource keeps grip control with a lenient 14cm boundary")
+	check(popup.above_body(record,Vector3(.65,.95,0)),"Body inspection accepts a relaxed lateral and vertical hand boundary")
+	coin_record.loot_available=false;popup.loot_provider=Callable();popup.close()
 	if "--capture" in OS.get_cmdline_user_args():
 		check(RenderingServer.get_current_rendering_method()=="forward_plus","Corpse preview uses desktop Vulkan Forward+")
 		var corpses:Node3D=load("res://scripts/corpse_visuals.gd").new();world.add_child(corpses);corpses.configure();corpses.set_context(world,body);corpses.set_physics_process(false)
-		corpses.set_states([{"id":"source-pose-fixture","template":"object/mobile/worrt_hue.iff","name":"Worrt","dead":true,"world_position":Vector3.ZERO,"heading_radians":0.6}]);corpses.sync_visuals()
+		corpses.set_states([{"id":"source-pose-fixture","template":"object/mobile/worrt_hue.iff","name":"Worrt","dead":true,"world_position":Vector3.ZERO,"heading_radians":0.6,"loot_available":true,"loot":{"credits":25,"item_count":2}}]);corpses.sync_visuals()
 		var visual:Dictionary=corpses.visuals["source-pose-fixture"]
 		var bounds:AABB=visual.node.global_transform*visual.bounds
 		var hover:=Transform3D(Basis.IDENTITY,Vector3(bounds.get_center().x,bounds.end.y+0.1,bounds.get_center().z))
 		record=corpses.nearest(hover.origin)
-		var camera:=Camera3D.new();world.add_child(camera);camera.position=Vector3(0,1.1,1.15);camera.look_at(Vector3(0,0.45,0));camera.fov=58;camera.make_current()
+		var camera:=Camera3D.new();world.add_child(camera);camera.position=Vector3(0,1.15,1.7);camera.look_at(Vector3(0,0.6,0));camera.fov=58;camera.make_current()
 		popup.sample(true,true,hover,camera.global_transform,0,0);popup.sample(true,true,hover,camera.global_transform,0.9,0)
 		var actual_icons:Array=[]
 		for kind in ["meat","hide","bone"]:

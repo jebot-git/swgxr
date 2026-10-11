@@ -33,7 +33,7 @@ var action_pose:=preload("res://combat/action_pose.gd").new()
 var action_pose_owned:=false
 var action_pose_status:Dictionary={}
 var action_weapon_items:Array=[]
-var action_weapon_checked:=false
+var presented_weapon:="__unknown__"
 
 func original_catalog(template:String,primary:String)->String:
 	# Match the complete source appearance ID. Never substitute a same-race body
@@ -131,6 +131,7 @@ func configure(value:Dictionary,session:String,assets:RefCounted,dead_assets:Ref
 	if carrier!=null:collider.disabled=true
 	make_label(Vector3(bounds.get_center().x,bounds.end.y+0.18,bounds.get_center().z))
 	if carrier!=null:label.hide()
+	sync_active_weapon()
 	return true
 
 func unavailable(reason:String)->bool:
@@ -170,6 +171,7 @@ func apply_record(value:Dictionary,pose:Transform3D,seconds:float,initial:=false
 	# creature crossing the old 8m threshold must still travel continuously.
 	relocated=relocated or (not initial and last_snapshot_position.distance_to(pose.origin)>maxf(32,seconds*40))
 	record=value.duplicate(true);snapshot_usec=Time.get_ticks_usec()
+	sync_active_weapon()
 	if carrier!=null:carrier.apply(int(record.get("posture",0)))
 	speed=last_snapshot_position.distance_to(pose.origin)/maxf(seconds,0.05) if not initial else 0.0
 	if is_instance_valid(mobile_sound):mobile_sound.observe(str(record.template),speed,not bool(record.dead))
@@ -259,6 +261,32 @@ func _exit_tree()->void:
 
 var ground_attack_id:=-1
 var ground_state_revision:=-1
+func sync_active_weapon(confirmed: String="", explicit:=false) -> void:
+	if not visual is Avatar or (not explicit and not record.has("weapon_template")): return
+	var weapon:=confirmed if explicit else str(record.weapon_template)
+	# A changed motion weapon ID can temporarily lack its template; wait for
+	# the next full snapshot instead of inventing a weapon from appearance.
+	if weapon.is_empty() or weapon==presented_weapon: return
+	presented_weapon=weapon;equipment.release(action_weapon_items);action_weapon_items.clear()
+	report["active_weapon_failures"]=[];report["action_weapon_visible"]=false
+	var matched:=false
+	for item:Dictionary in rigid_equipment:
+		var template:=str(item.source.get("template",""))
+		if not template.begins_with("object/weapon/"): continue
+		item.instance.visible=template==weapon;matched=matched or template==weapon
+	if "/unarmed/" in weapon:
+		report["active_weapon_presentation"]="unarmed";return
+	if matched:
+		report["active_weapon_presentation"]=weapon;report["action_weapon_visible"]=true;return
+	var selection:Dictionary=visual.equipment_selection([{"template":weapon,"equipped_slots":["hold_r"]}])
+	var failures:Array=selection.failures.duplicate()
+	for descriptor:Dictionary in selection.rigid:
+		var attached:Dictionary=equipment.attach(visual,[descriptor],str(descriptor.directory),false)
+		action_weapon_items.append_array(attached.items);failures.append_array(attached.failures)
+	report["active_weapon_presentation"]=weapon if not action_weapon_items.is_empty() else "original_weapon_unavailable"
+	report["active_weapon_failures"]=failures
+	report["action_weapon_visible"]=not action_weapon_items.is_empty()
+
 func apply_action_event(event:Dictionary,epoch:int,transit:float=0.0,world_pose:Variant=null)->void:
 	if event.get("protocol",1)==2:
 		if epoch<action_event_epoch:return
@@ -271,19 +299,7 @@ func apply_action_event(event:Dictionary,epoch:int,transit:float=0.0,world_pose:
 		action_event_epoch=epoch;action_event_sequence=int(event.get("sequence",-1))
 	action_audio_until=Time.get_ticks_msec()+2000
 	if event.has("animation"):
-		if event.animation=="action_pistol" and not action_weapon_checked and visual is Avatar:
-			action_weapon_checked=true
-			var weapon:=str(record.get("weapon_template",""))
-			if weapon=="object/weapon/ranged/pistol/pistol_dl44.iff":
-				var selected:Dictionary=visual.equipment_selection([{"template":weapon,"equipped_slots":["hold_r"]}])
-				for source:Dictionary in selected.rigid:
-					var attached:Dictionary=equipment.attach(visual,[source],str(source.directory),false)
-					action_weapon_items.append_array(attached.items)
-					if not attached.failures.is_empty():report.missing_components.append_array(attached.failures)
-				if not action_weapon_items.is_empty():
-					for item:Dictionary in rigid_equipment:
-						if str(item.source.get("template","")).begins_with("object/weapon/"):item.instance.hide()
-				report["action_weapon_visible"]=not action_weapon_items.is_empty()
+		sync_active_weapon(str(event.get("weapon_template",record.get("weapon_template",""))),true)
 		var presentation:=event.duplicate(true)
 		if world_pose is Transform3D:presentation["_world_pose"]=world_pose
 		action_pose.ingest(presentation,Time.get_ticks_usec()/1000000.0,transit)

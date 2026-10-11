@@ -4,6 +4,8 @@ namespace corecu { namespace ground {
 constexpr int protocol=2;
 constexpr double centerX=3528,centerZ=-4804,radius=1500;
 inline bool inRegion(const action::Vec& p){return action::finite(p)&&std::hypot(p[0]-centerX,p[2]-centerZ)<=radius;}
+// CL 1/31/91/151: 6/12/24/36 degrees/s, 1/2/4/6 m/s lateral cap.
+inline double trackingScale(int level){return std::min(3.,.5+(std::max(1,level)-1)/60.);}
 struct Victim {
  action::Attack attack;
  bool warned=false,acknowledged=false,waived=false;

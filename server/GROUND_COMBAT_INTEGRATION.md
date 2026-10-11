@@ -112,6 +112,29 @@ Interior vertices use floor collision in the active cell. The full outline stays
 visible while area fills to delivery. Original animation/audio timing remains
 separate from native damage confirmation. No player tracking node is animated.
 
+## CL tracking and presentation feedback (2026-10-11)
+
+The server scales preparation steering by `min(3, 0.5 + (max(1, CL)-1)/60)`.
+CL 1/31/91/151 therefore permits at most 6/12/24/36 degrees per second and
+1/2/4/6 metres per second of lateral target correction. Both limits apply;
+the stricter one wins. The 100 ms steering tick cap, warning acknowledgements,
+final 500 ms aim lock and native target/aggro selection remain unchanged.
+This is initial tuning for group testing, not validated tank/healer balance.
+
+Protocol 2 events additionally expose `enemy_cl`, `tracking_degrees_per_second`,
+`tracking_metres_per_second` and `weapon_template`. These are server-derived
+presentation/diagnostic fields, not new client authority. Existing clients ignore
+them. The template identifies the strike's captured native weapon; native weapon
+changes still cancel the strike. Pistol/rifle/carbine profiles remain ranged.
+
+The client shows the existing SWG target-aim icon for the selected victim (amber
+during correction, white after lock) and the animal-attack icon in red for any
+eligible player inside the lane. The old overhead warning text is removed.
+Native weapon snapshots and strike events replace stale source-placement guns,
+including hiding a gun when the native AI changes to unarmed combat. Original
+instruments and other decorative attachments are preserved. Unprepared original
+weapon art is reported explicitly, without a substitute gun.
+
 ## Evidence and deferred acceptance
 
 Focused evidence is under `runtime/action-prototype/ground-*.log`; native build

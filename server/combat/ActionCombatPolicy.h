@@ -36,6 +36,7 @@ inline bool contact(Role role,Vec origin,Vec aim,Vec feet,double bodyRadius=.35)
 struct Attack {
  uint64_t id=0; Role role=Role::Melee; Vec origin{},aim{{0,0,1}};
  double start=0; bool sampled=false, fallback=false, reported=false, hit=false, settled=false, cancelled=false;
+ double trackingScale=1; // Server-selected CL tuning; never changes the final aim-lock window.
  double trackedAt=0; uint64_t aimRevision=1; bool aimLocked=false;
  bool customized=false;Spec profile{};double clipDuration=0,contactDelay=0,lockLead=.3;
  const Spec settings() const {return customized?profile:spec(role);}
@@ -51,7 +52,7 @@ struct Attack {
   if(role!=Role::Support && finite(target) && d>.0001 && dt>0){
    double current=std::atan2(aim[0],aim[2]),desired=std::atan2(target[0]-origin[0],target[2]-origin[2]);
    double error=std::atan2(std::sin(desired-current),std::cos(desired-current));
-   double limit=std::min(12.*3.141592653589793/180.,2./d)*dt;
+   double limit=std::min(12.*3.141592653589793/180.,2./d)*std::max(.5,std::min(3.,trackingScale))*dt;
    double turn=std::max(-limit,std::min(limit,error));
    if(std::abs(turn)>1e-9){aim={{std::sin(current+turn),0,std::cos(current+turn)}};++aimRevision;changed=true;}
   }

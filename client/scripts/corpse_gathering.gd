@@ -6,6 +6,8 @@ signal corpse_loot_requested(record: Dictionary)
 const HandInput=preload("res://scripts/tracked_hand_input.gd")
 const FONT=preload("res://resources/fonts/Jupiteroid-Regular.ttf")
 const MAX_CHOICES:=8
+const Interaction=preload("res://scripts/corpse_interaction.gd")
+var loot_provider: Callable
 const BLOCK_MESSAGES := {
 	"insufficient_inventory_capacity":"Make room in your inventory before collecting this.",
 	"personal_loot_owner_required_group_loot_unsupported":"Only the personal loot owner can collect this. Group loot is not supported yet.",
@@ -58,9 +60,7 @@ func set_allowed(value: bool)->void:
 	if not value:close()
 
 func above_body(record: Dictionary,position: Vector3)->bool:
-	if not record.get("dead",false) or not record.get("bounds") is AABB or str(record.get("id","")).is_empty():return false
-	var bounds:AABB=record.bounds
-	return position.x>=bounds.position.x-0.10 and position.x<=bounds.end.x+0.10 and position.z>=bounds.position.z-0.10 and position.z<=bounds.end.z+0.10 and position.y>=bounds.end.y-0.04 and position.y<=bounds.end.y+0.38
+	return Interaction.above_body(record,position)
 
 func candidate(position: Vector3)->Dictionary:
 	if not corpse_provider.is_valid():return {}
@@ -70,7 +70,8 @@ func candidate(position: Vector3)->Dictionary:
 func sample(tracked:bool,empty:bool,hand:Transform3D,head:Transform3D,trigger:float,grip:float)->void:
 	if not allowed or not tracked or not empty:
 		close();return
-	hovered=candidate(hand.origin)
+	var coin: Dictionary = loot_provider.call(hand) if loot_provider.is_valid() else {}
+	hovered=coin if not coin.is_empty() else candidate(hand.origin)
 	interaction_active=not hovered.is_empty() or (visible and choice_at(hand.origin)>=0)
 	if trigger<0.35:trigger_armed=true
 	if grip<0.35:grip_armed=true
@@ -90,6 +91,10 @@ func sample(tracked:bool,empty:bool,hand:Transform3D,head:Transform3D,trigger:fl
 	if trigger>=0.55 and trigger_armed:
 		trigger_armed=false
 		if hovered.is_empty():return
+		if not coin.is_empty() and Interaction.eligible(coin):
+			corpse=coin.duplicate(true);context={};clear_choices();visible=true
+			place_above(corpse,head);title.text=str(corpse.get("name","Corpse"))
+			set_busy(true,"Collecting Loot All…");corpse_loot_requested.emit(corpse.duplicate(true));return
 		if visible and str(corpse.get("id",""))==str(hovered.id) and not context.is_empty():
 			if context.has("loot_available") and not bool(context.loot_available):set_busy(false,str(context.get("loot_block_reason","This corpse cannot be looted.")));return
 			set_busy(true,"Looting credits and items in CoreCU…");corpse_loot_requested.emit(corpse.duplicate(true))
@@ -142,10 +147,10 @@ func set_corpse_context(record:Dictionary,value:Dictionary)->void:
 		if not bool(choice.get("available",false)):label.modulate=Color("d6a789")
 	var loot:Dictionary=context.get("loot",{})
 	title.text=str(corpse.get("name","Corpse"))+" · %d credits / %d items"%[int(loot.get("credits",0)),int(loot.get("item_count",0))]
-	set_busy(false,"Grip a resource to harvest · fresh trigger over corpse loots credits/items" if not choices.is_empty() else "No harvestable resources · fresh trigger over corpse loots credits/items")
+	set_busy(false,"Grip a resource to harvest · trigger on gold coin collects Loot All" if not choices.is_empty() else "No harvestable resources · trigger on gold coin collects Loot All")
 
 func choice_at(position:Vector3)->int:
-	var nearest:=0.085;var selected:=-1
+	var nearest:float=Interaction.CHOICE_RADIUS;var selected:=-1
 	for index in range(choice_nodes.size()):
 		var distance:=choice_nodes[index].global_position.distance_to(position)
 		if distance<nearest:nearest=distance;selected=index
@@ -165,7 +170,7 @@ func blocks_combat()->bool:
 	if not allowed or not is_instance_valid(rig) or not empty_hand_provider.is_valid() or not bool(empty_hand_provider.call()):return false
 	var hand:XRController3D=rig.get_node("LeftHand" if dominant=="left" else "RightHand")
 	if not HandInput.controller_tracked(hand):return false
-	return not candidate(hand.global_position).is_empty() or (visible and choice_at(hand.global_position)>=0)
+	return (loot_provider.is_valid() and not loot_provider.call(hand.global_transform).is_empty()) or not candidate(hand.global_position).is_empty() or (visible and choice_at(hand.global_position)>=0)
 
 func _process(_delta:float)->void:
 	if not is_instance_valid(rig):return

@@ -1,6 +1,6 @@
 --- a/MMOCoreORB/src/server/zone/objects/creature/commands/ActionCombatPolicy.h
 +++ b/MMOCoreORB/src/server/zone/objects/creature/commands/ActionCombatPolicy.h
-@@ -24,20 +24,23 @@
+@@ -24,20 +24,24 @@
  inline double distance(Vec a,Vec b) {return std::hypot(a[0]-b[0],a[2]-b[2]);}
  inline Vec direction(Vec a,Vec b) {double n=distance(a,b);return n>.0001?Vec{{(b[0]-a[0])/n,0,(b[2]-a[2])/n}}:Vec{{0,0,1}};}
  inline bool finite(Vec v) {for(auto x:v)if(!std::isfinite(x)||std::abs(x)>20000)return false;return true;}
@@ -19,6 +19,7 @@
  struct Attack {
   uint64_t id=0; Role role=Role::Melee; Vec origin{},aim{{0,0,1}};
   double start=0; bool sampled=false, fallback=false, reported=false, hit=false, settled=false, cancelled=false;
++ double trackingScale=1; // Server-selected CL tuning; never changes the final aim-lock window.
   double trackedAt=0; uint64_t aimRevision=1; bool aimLocked=false;
 - double deliveryAt() const {return start+spec(role).windup;}
 - double lockAt() const {return deliveryAt()-.3;}
@@ -29,7 +30,15 @@
   // Server-only preparation steering. No pursuit, prediction or catch-up snap.
   // A stalled tick may consume at most 100 ms of preparation, never delivery time.
   bool prepare(double now,Vec target) {
-@@ -55,12 +58,12 @@
+@@ -48,19 +52,19 @@
+   if(role!=Role::Support && finite(target) && d>.0001 && dt>0){
+    double current=std::atan2(aim[0],aim[2]),desired=std::atan2(target[0]-origin[0],target[2]-origin[2]);
+    double error=std::atan2(std::sin(desired-current),std::cos(desired-current));
+-   double limit=std::min(12.*3.141592653589793/180.,2./d)*dt;
++   double limit=std::min(12.*3.141592653589793/180.,2./d)*std::max(.5,std::min(3.,trackingScale))*dt;
+    double turn=std::max(-limit,std::min(limit,error));
+    if(std::abs(turn)>1e-9){aim={{std::sin(current+turn),0,std::cos(current+turn)}};++aimRevision;changed=true;}
+   }
    if(now>=lockAt()){aimLocked=true;changed=true;}
    return changed;
   }
@@ -49,13 +58,15 @@
   bool receipt(double now,bool value,double coverageStart,double coverageEnd,uint64_t revision) {
 --- /dev/null
 +++ b/MMOCoreORB/src/server/zone/objects/creature/commands/GroundActionPolicy.h
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,28 @@
 +#pragma once
 +#include "ActionCombatPolicy.h"
 +namespace corecu { namespace ground {
 +constexpr int protocol=2;
 +constexpr double centerX=3528,centerZ=-4804,radius=1500;
 +inline bool inRegion(const action::Vec& p){return action::finite(p)&&std::hypot(p[0]-centerX,p[2]-centerZ)<=radius;}
++// CL 1/31/91/151: 6/12/24/36 degrees/s, 1/2/4/6 m/s lateral cap.
++inline double trackingScale(int level){return std::min(3.,.5+(std::max(1,level)-1)/60.);}
 +struct Victim {
 + action::Attack attack;
 + bool warned=false,acknowledged=false,waived=false;
@@ -121,7 +132,7 @@
 + static void publish(AiAgent* actor,Strike& s,const char* phase){
 +  auto& a=s.attack;auto spec=a.settings();s.published=now();++s.revision;
 +  Json victims=Json::array();for(auto& v:s.victims)victims.push_back(std::to_string(v.first));
-+  s.event={{"protocol",2},{"id",std::to_string(actor->getObjectID())},{"encounter_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"target_id",s.event.value("target_id",std::string("1"))},{"cell_id",std::to_string(s.cell)},{"phase",phase},{"role",a.role==Role::Ranged?"ranged":"melee"},{"hit_policy",s.profile.at("hit_policy")},{"eligible_victim_ids",victims},{"origin",a.origin},{"direction",a.aim},{"start",a.start},{"server_now",now()},{"delivery_at",a.deliveryAt()},{"active_at",a.activeAt()},{"end_at",a.endAt()},{"animation_end_at",a.animationEndAt()},{"recover_at",s.release},{"animation",s.profile.at("animation")},{"range",spec.range},{"radius",spec.radius},{"cosine",spec.cosine},{"aim_revision",a.aimRevision},{"aim_locked",a.aimLocked},{"lock_at",a.lockAt()},{"state_revision",s.revision},{"sequence",s.revision},{"age_ms",0}};
++  s.event={{"protocol",2},{"id",std::to_string(actor->getObjectID())},{"encounter_id",std::to_string(actor->getObjectID())},{"attack_id",std::to_string(a.id)},{"target_id",s.event.value("target_id",std::string("1"))},{"cell_id",std::to_string(s.cell)},{"phase",phase},{"role",a.role==Role::Ranged?"ranged":"melee"},{"hit_policy",s.profile.at("hit_policy")},{"eligible_victim_ids",victims},{"origin",a.origin},{"direction",a.aim},{"start",a.start},{"server_now",now()},{"delivery_at",a.deliveryAt()},{"active_at",a.activeAt()},{"end_at",a.endAt()},{"animation_end_at",a.animationEndAt()},{"recover_at",s.release},{"animation",s.profile.at("animation")},{"range",spec.range},{"radius",spec.radius},{"cosine",spec.cosine},{"aim_revision",a.aimRevision},{"aim_locked",a.aimLocked},{"lock_at",a.lockAt()},{"state_revision",s.revision},{"sequence",s.revision},{"age_ms",0},{"enemy_cl",actor->getLevel()},{"tracking_degrees_per_second",12*a.trackingScale},{"tracking_metres_per_second",2*a.trackingScale},{"weapon_template",s.weapon?std::string(s.weapon->getObjectTemplate()->getFullTemplateString().toCharArray()):""}};
 +  auto message=new AttributeListMessage(actor->getObjectID());message->insertAttribute("swgxr.action.event",String(s.event.dump().c_str()));actor->broadcastMessage(message,true);
 + }
 + static void cancel(AiAgent* actor,Strike& s){if(s.done)return;s.done=true;s.attack.cancelled=true;publish(actor,s,"cancelled");}
@@ -172,7 +183,7 @@
 +  // unsupported commands on their native execution path, never silently replace.
 +  if(command->isAreaAction()||command->isConeAction()||(command->getNameCRC()!=String("attack").hashCode()&&command->getNameCRC()!=String("defaultattack").hashCode()))return false;
 +  auto s=std::make_shared<Strike>();s->actor=actor;s->target=target;s->weapon=weapon;s->command=command;s->arguments=arguments;s->profile=profiles.at(key);s->cell=actor->getParentID();s->event["target_id"]=std::to_string(target->getObjectID());
-+  auto& a=s->attack;static std::atomic<uint64> serial{uint64(System::getMiliTime())};a.id=++serial;a.start=now()+.15;a.origin=point(actor);a.aim=corecu::action::direction(a.origin,point(target));a.role=key=="pistol"||key=="rifle"||key=="carbine"?Role::Ranged:Role::Melee;a.customized=true;
++  auto& a=s->attack;static std::atomic<uint64> serial{uint64(System::getMiliTime())};a.id=++serial;a.start=now()+.15;a.origin=point(actor);a.aim=corecu::action::direction(a.origin,point(target));a.role=key=="pistol"||key=="rifle"||key=="carbine"?Role::Ranged:Role::Melee;a.customized=true;a.trackingScale=corecu::ground::trackingScale(actor->getLevel());
 +  double range=a.role==Role::Ranged?std::min(96.,double(command->getRange()>0?command->getRange():weapon->getMaxRange())):std::max(3.,double(weapon->getMaxRange()));
 +  a.profile={s->profile.at("windup").get<double>(),s->profile.at("contact_window").get<double>(),s->profile.at("recovery").get<double>(),range,.45,.5,0};a.clipDuration=s->profile.at("duration");a.contactDelay=s->profile.at("contact_offset");a.lockLead=s->profile.at("lock_lead");
 +  s->release=std::max(a.recoveredAt(),a.start+CombatManager::instance()->calculateWeaponAttackSpeed(actor,weapon,command->getSpeedMultiplier()));

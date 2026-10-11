@@ -19,6 +19,7 @@ var integration_busy:=false
 var action_clock=preload("res://combat/action_clock.gd").new()
 var catalog_revision:=""
 var integration_outcomes:Array=[]
+var cue_textures:Dictionary={}
 
 func setup(host:Node,source:Node)->void:
 	app=host;sync=source
@@ -70,8 +71,16 @@ func draw_warning(event:Dictionary)->MeshInstance3D:
 			for f:float in [float(step)/steps,float(step+1)/steps]:mesh.surface_add_vertex(project_warning(points[i].lerp(points[i+1],f),event))
 	mesh.surface_end()
 	var instance:=MeshInstance3D.new();instance.mesh=mesh;instance.material_override=material;instance.set_meta("aim_revision",event.get("aim_revision",1));add_child(instance)
-	var label:=Label3D.new();label.name="TargetCue";label.font_size=40;label.pixel_size=.008;label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
-	label.position=sync.world([o.x,o.y+1.8,o.z]);instance.add_child(label)
+	var cue:=Node3D.new();cue.name="TargetCue";instance.add_child(cue)
+	cue.position=sync.world([o.x,o.y+2.0,o.z])
+	for entry in [["Target","ui/target_aim.png",-.13],["Danger","abilities/animalattack.png",.13]]:
+		var icon:=Sprite3D.new();icon.name=entry[0];icon.billboard=BaseMaterial3D.BILLBOARD_ENABLED;icon.pixel_size=.0035
+		var texture_path:String=entry[1]
+		if not cue_textures.has(texture_path):
+			var image:=Image.load_from_file(ProjectSettings.globalize_path("res://../runtime/assets/combat/"+texture_path))
+			if image!=null:cue_textures[texture_path]=ImageTexture.create_from_image(image)
+		icon.texture=cue_textures.get(texture_path)
+		icon.position.x=float(entry[2]);cue.add_child(icon)
 	var fill:=MeshInstance3D.new();fill.name="ProgressFill";fill.mesh=ImmediateMesh.new()
 	var fill_material:=StandardMaterial3D.new();fill_material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED
 	fill_material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;fill_material.cull_mode=BaseMaterial3D.CULL_DISABLED
@@ -133,12 +142,16 @@ func _process(_delta:float)->void:
 		update_fill(visuals[id],event,timeline.server_time(row,stamp),material.albedo_color)
 		var tracking:bool=str(event.target_id)==sync.owner_character and event.role!="support"
 		var danger:bool=event.role!="support" and timeline.eligible(event,sync.owner_character) and timeline.contact(event,feet)
-		var cue:Label3D=visuals[id].get_node("TargetCue")
-		cue.text=("TRACKING YOU" if tracking else "")+("\nIN ATTACK PATH" if danger else "")+("\nAIM LOCKED" if tracking and event.get("aim_locked",false) else "")
-		cue.modulate=Color(1,.25,.15) if danger else Color(1,.85,.3)
+		update_cues(visuals[id],tracking,danger,bool(event.get("aim_locked",false)))
 		visuals[id].visible=valid and event.phase!="cancelled" and timeline.server_time(row,stamp)<=maxf(float(event.end_at),float(event.get("animation_end_at",event.end_at)))
 	if not sending and not pending.is_empty():send_contact()
 	if not integration_busy and not catalog_revision.is_empty() and stamp>=integration_retry and (not integration_ready or not integration_pending.is_empty() or stamp>=integration_retry+2):send_integration()
+func update_cues(instance: MeshInstance3D, tracking: bool, danger: bool, locked: bool) -> void:
+	var target: Sprite3D=instance.get_node("TargetCue/Target")
+	var path: Sprite3D=instance.get_node("TargetCue/Danger")
+	target.visible=tracking;target.modulate=Color.WHITE if locked else Color(1,.72,.15)
+	path.visible=danger;path.modulate=Color(1,.2,.1)
+
 func send_contact()->void:
 	sending=true;var epoch:=generation;var queued:Dictionary=pending.pop_front();var intent:Dictionary=queued.intent
 	var started:=Time.get_ticks_usec()/1000000.0

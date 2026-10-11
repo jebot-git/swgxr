@@ -3,6 +3,11 @@
 #include <iostream>
 using namespace corecu;
 int main(){
+ assert(ground::trackingScale(1)==.5 && ground::trackingScale(31)==1 && ground::trackingScale(91)==2 && ground::trackingScale(151)==3 && ground::trackingScale(999)==3);
+ action::Attack low,high;low.trackingScale=ground::trackingScale(1);high.trackingScale=ground::trackingScale(151);
+ low.prepare(.1,{{10,0,0}});high.prepare(.1,{{10,0,0}});
+ assert(high.aim[0]>low.aim[0]*5.9);assert(low.lockAt()==high.lockAt());
+ high.prepare(high.lockAt(),{{10,0,0}});auto locked=high.aim;high.prepare(high.deliveryAt(),{{-10,0,0}});assert(high.aim==locked);
  assert(ground::inRegion({{3528,0,-4804}}));assert(ground::inRegion({{5028,0,-4804}}));assert(!ground::inRegion({{5028.01,0,-4804}}));
  ground::Victim v;v.attack.start=10;v.attack.id=10;v.attack.aimLocked=true;
  assert(!v.acknowledge(10.96,1));assert(!v.receipt(11.3,true,10.2,11.3,1));assert(!v.resolve()&&v.waived);

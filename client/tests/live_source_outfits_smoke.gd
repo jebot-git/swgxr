@@ -15,7 +15,7 @@ func run()->void:
 	var primary:=ProjectSettings.globalize_path("res://../runtime/assets/combat_population/mos_eisley_easy/catalog.json")
 	var live:=Live.new();root.add_child(live);live.set_process(false);live.configure_ambient(ambient)
 	var values:Array=[];var expected:Dictionary={}
-	for mobile:String in ["doikk_nats","stormtrooper_rifleman"]:
+	for mobile:String in ["doikk_nats","bounty_hunter"]:
 		var entry:Dictionary=ambient.manifest.instances.filter(func(e):return e.mobile==mobile)[0]
 		values.append({"id":mobile,"template":entry.template,"kind":"creature","position":entry.source_world_xyz,"heading_radians":0,"scale":1,"health":100,"max_health":100,"dead":false,"name":mobile})
 		expected[mobile]=entry
@@ -25,14 +25,23 @@ func run()->void:
 		check(actor.record.template==value.template and actor.visual.race_id==entry.appearance_id,"Native template identity remains separate from source placement appearance variant")
 		check(actor.report.get("source_variant_ready",false) and actor.report.equipment_provenance=="source_placement_equipment" and not actor.report.native_equipment_authoritative,"Source-derived visual equipment provenance is explicit")
 		check(actor.visual.loaded_parts.filter(func(p):return p.scope=="equipment").size()==descriptor.default_outfit.size() and actor.visual.skeleton.get_bone_count()>30,"Source CDF/outfit clothing and original skeleton remain intact")
-		check(actor.rigid_equipment.size()==1 and actor.rigid_equipment[0].source.template==descriptor.rigid_equipment[0].template,"Original band instrument or T21 mesh attached to source skeleton")
+		check(actor.rigid_equipment.size()==1 and actor.rigid_equipment[0].source.template==descriptor.rigid_equipment[0].template,"Original band instrument or rifle mesh attached to source skeleton")
 		check(actor.rigid_equipment[0].attachment.bone_name==descriptor.rigid_equipment[0].bone and not actor.rigid_equipment[0].attachment.override_pose,"Equipment follows original bone without driving skeleton pose")
+		actor.sync_active_weapon("object/weapon/melee/unarmed/unarmed_default_player.iff",true)
+		check(actor.rigid_equipment[0].instance.visible==(value.id=="doikk_nats"),"Unarmed native state hides source gun and preserves original band instrument")
+		actor.sync_active_weapon("object/weapon/ranged/pistol/pistol_dl44.iff",true)
+		check(actor.action_weapon_items.size()==1 and actor.report.active_weapon_failures.is_empty(),"Changed native pistol attaches original prepared mesh with source material directory")
+		var pistol:MeshInstance3D=actor.action_weapon_items[0].instance if not actor.action_weapon_items.is_empty() else null
+		actor.sync_active_weapon("",true)
+		check(actor.action_weapon_items.size()==1 and actor.action_weapon_items[0].instance==pistol,"Pending motion template does not erase confirmed weapon")
+		actor.sync_active_weapon(str(descriptor.rigid_equipment[0].template) if value.id=="bounty_hunter" else "object/weapon/melee/unarmed/unarmed_default_player.iff",true)
+		check(actor.action_weapon_items.is_empty() and actor.rigid_equipment[0].instance.visible,"Native rifle restoration reuses source gun; decorative instrument survives")
 		live.actors[str(value.id)]=actor
 	live.synchronize_ambient(values)
 	check(ambient.live_suppressed.size()==2,"Local counterparts suppressed only after complete matching source equipment construction")
 	var body:Dictionary=live.actors.doikk_nats.record.duplicate(true);body.dead=true
 	var corpse:=Actor.new();root.add_child(corpse);check(corpse.configure(body,"mock-native",assets,dead,primary) and corpse.report.source_variant_ready and corpse.rigid_equipment.size()==1 and not corpse.visual.animation_player.is_playing(),"Source-clothed band corpse keeps instrument and frozen original incapacitated pose")
-	live.actors.doikk_nats.report.source_variant_ready=false;live.synchronize_ambient(values)
+	live.actors.doikk_nats.report.source_variant_ready=false;live.actors.doikk_nats.report.appearance_status="unavailable";live.synchronize_ambient(values)
 	check(ambient.live_suppressed.size()==1,"Failed replacement restores corresponding original local presentation")
 	live.reset("test stopped");check(ambient.live_suppressed.is_empty(),"Stop restores all source placements")
 	var report:Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"real_http_requests":0,"gpu_tested":false,"equipment_provenance":"source_placement_equipment"}

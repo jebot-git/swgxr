@@ -25,6 +25,16 @@ func run()->void:
 	var c:=Controller.new();root.add_child(c);c.app=host;c.sync=sync;c.set_process(false)
 	var event:Dictionary={"protocol":2,"state_revision":1,"sequence":50,"id":"7","encounter_id":"7","attack_id":"1","target_id":"9","eligible_victim_ids":["9"],"role":"ranged","hit_policy":"first_contact","cell_id":"0","origin":[0,0,0],"direction":[1,0,0],"range":12.,"radius":.45,"cosine":.5,"server_now":10.,"age_ms":0.,"start":10.,"delivery_at":11.4,"active_at":11.733,"end_at":11.9,"recover_at":13.8,"animation_end_at":12.4,"aim_revision":1,"aim_locked":true,"lock_at":10.9,"phase":"windup"}
 	var mesh:=c.draw_warning(event);c.update_fill(mesh,event,11.,Color.ORANGE)
+	var target:Sprite3D=mesh.get_node("TargetCue/Target");var danger:Sprite3D=mesh.get_node("TargetCue/Danger")
+	check(target.texture!=null and danger.texture!=null,"Original SWG targeting and attack icons load")
+	c.update_cues(mesh,true,false,false)
+	check(target.visible and not danger.visible and target.modulate!=Color.WHITE,"Targeted player sees amber tracking icon")
+	c.update_cues(mesh,false,true,false)
+	check(not target.visible and danger.visible,"Bystander stepping into lane sees danger icon")
+	c.update_cues(mesh,true,true,true)
+	check(target.visible and danger.visible and target.modulate==Color.WHITE,"Locked aim and contact risk remain distinct icons")
+	c.update_cues(mesh,false,false,false)
+	check(not target.visible and not danger.visible,"Uninvolved player has no warning icon clutter")
 	var fill:Mesh=mesh.get_node("ProgressFill").mesh
 	var vertices:PackedVector3Array=fill.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
 	check(vertices.size()>6,"Lane is subdivided for heightmap projection")

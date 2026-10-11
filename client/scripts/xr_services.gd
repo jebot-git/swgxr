@@ -491,6 +491,17 @@ func pointed_terminal(records: Array, player_position: Vector3, origin: Vector3,
 		if not record.get("position") is Vector3 or player_position.distance_to(record.position)>CLOSE_DISTANCE: continue
 		var npc:bool=preload("res://scripts/npc_wave_gesture.gd").is_npc(record)
 		var reach:=5.0 if npc else 3.0
+		if npc:
+			# NPCs have an upright interaction volume, never a one-sided screen.
+			# Pointing at the chest, head or lower torso works from every azimuth.
+			for height in [.55, 1.0, 1.45]:
+				var point:Vector3=record.position+Vector3.UP*height
+				var delta:=point-origin
+				var distance:=delta.length()
+				if distance>reach or (distance>.4 and direction.normalized().dot(delta.normalized())<.92):continue
+				if wave_visible.is_valid() and not wave_visible.call(viewer if viewer.is_finite() else origin,point,record):continue
+				if distance<best_score:best_score=distance;best=record
+			continue
 		var geometry:Dictionary=record.get("pick_geometry",{})
 		if not geometry.is_empty():
 			var pose:Transform3D=record.pick_pose
@@ -527,6 +538,7 @@ func _exit_tree() -> void:
 	preload("res://scripts/pointer_capture.gd").suspend(self,rig,false)
 
 func terminal_pose(record: Dictionary, fallback_center: Vector3, head: Vector3, panel_size:Vector2=PANEL_METERS) -> Transform3D:
+	if preload("res://scripts/npc_wave_gesture.gd").is_npc(record):return face_pose(fallback_center,head)
 	# Bank/bazaar interfaces belong on the largest original display. In
 	# particular, the bazaar's lower keyboard display must never win by distance.
 	if record.get("kind","") in ["bank","bazaar"] and not record.get("ui_displays",[]).is_empty():

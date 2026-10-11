@@ -257,7 +257,7 @@ func accept_response(response:Dictionary,initial:=false)->bool:
 		# owns its visible body. Healing and pet commands must retain this actor.
 		if is_instance_valid(actors[id].visual):
 			actors[id].visual.visible=not (is_instance_valid(app.get("vehicles")) and app.vehicles.vehicles.has(id))
-		floor_projection.apply(actors[id],value,app.get("terrain") if is_instance_valid(app) else null,stage)
+		floor_projection.bind(actors[id],value,app.get("terrain") if is_instance_valid(app) else null,stage)
 	for id:String in actors.keys():
 		if not seen.has(id):actors[id].collision_layer=0;actors[id].visible=false;actors[id].queue_free();actors.erase(id)
 	for entry:Dictionary in rig.weapons:

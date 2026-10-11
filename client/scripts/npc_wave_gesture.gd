@@ -32,7 +32,13 @@ static func target(records:Array,body:Vector3,head:Transform3D,visible:Callable)
 		var delta:=eye-head.origin
 		if delta.length()<.15:continue
 		var angle:=rad_to_deg((-head.basis.z).angle_to(delta))
-		if angle>30 or not visible.call(head.origin,eye,row):continue
+		if angle>30:continue
+		# A hand, hat or shoulder can obscure one sample. Greet the visible body
+		# from either side without testing its facing or screen normals.
+		var clear:=false
+		for height in [1.4, 1.0, .65]:
+			if visible.call(head.origin,row.position+Vector3.UP*height,row):clear=true;break
+		if not clear:continue
 		# The same delivery NPC can expose multiple missions; preserve discovery
 		# order for that identity, as the existing click interaction does.
 		if seen.has(id):continue

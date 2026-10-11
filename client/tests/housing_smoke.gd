@@ -5,6 +5,7 @@ class Services extends Node:
 	func world(p:Array)->Vector3:return Vector3(p[0],p[1],-p[2])
 	func identity_payload()->Dictionary:return {"account":"fixture","character_id":"42","zone":"tatooine","position":[0,0,0],"building_id":"0","cell_index":0,"session_id":"fixture-session"}
 class Host extends Node3D:
+	var world_stream:Node
 	var datapad_character_id:="42"
 	var datapad_epoch:=1
 	var services:Node
@@ -22,6 +23,11 @@ class Host extends Node3D:
 		return response.duplicate(true)
 	func reconcile_inventory_presentations()->void:pass
 	func update_inventory_presentation()->void:pass
+class Stream extends Node:
+	var authored:Dictionary={}
+	var bases:Dictionary={}
+	func has_authored_object(id:String)->bool:return authored.has(id)
+	func authored_basis(id:String)->Variant:return bases.get(id)
 var checks:=0
 var errors:Array=[]
 func check(value:bool,message:String)->void:
@@ -119,6 +125,20 @@ func run()->void:
 	panel.configure(terminal,{"cash":250,"bank":1000});panel.selected=0;panel.confirm();check(panel.slider.visible and panel.terminal.kind=="house_deposit","House upkeep opens existing grabbable slider")
 	panel.slider.amount=125;panel.confirm();check(emitted[-1].action=="house_deposit" and emitted[-1].payload.amount==125,"Upkeep submits explicit native cash deposit")
 	panel.terminal={};panel.configure(terminal,{"cash":250,"bank":1000});panel.selected=1;panel.confirm();check(emitted[-1].action=="house_permission_arm" and not emitted[-1].payload.has("target_id"),"Permission selection arms handshake instead of changing an arbitrary player")
+	# Public source decorations must have one visual owner, including late chunks.
+	host.world_stream=Stream.new();host.add_child(host.world_stream)
+	var public:Dictionary=furniture.duplicate(true);public.building_id="1028590";public.recoverable=false
+	host.world_stream.authored["200"]=true
+	controller.scenery.apply({"structures":[],"items":[public]})
+	check(not controller.scenery.items.has("200"),"Static public furniture is not rendered again by housing")
+	host.world_stream.authored.clear();host.world_stream.bases["1028590"]=Basis(Vector3.UP,.7)
+	controller.scenery.apply({"structures":[],"items":[public]})
+	check(controller.scenery.items["200"].global_basis.is_equal_approx(Basis(Vector3.UP,.7)),"Dynamic public-building furniture inherits the original building rotation")
+	host.world_stream.authored["200"]=true;controller.scenery._process(.016)
+	check(not controller.scenery.items.has("200"),"Late static chunk removes duplicate visual and collision")
+	host.world_stream.authored.clear();public.client_object=true
+	controller.scenery.apply({"structures":[],"items":[public]})
+	check(not controller.scenery.items.has("200"),"Native client scenery cannot become a duplicate house item")
 	host.free()
 	var result:Dictionary={"passed":errors.is_empty(),"checks":checks,"errors":errors,"renderer":"headless dummy","tracking":"mocked","native_execution":false,"live_headset":false}
 	var f:=FileAccess.open("res://../runtime/evidence/housing-client.json",FileAccess.WRITE);f.store_string(JSON.stringify(result,"  ")+"\n");print(JSON.stringify(result));quit(0 if errors.is_empty() else 1)

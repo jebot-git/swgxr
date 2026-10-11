@@ -70,6 +70,21 @@ func run()->void:
 	var camera:=XRCamera3D.new();camera.name="XRCamera3D";rig.add_child(camera);camera.transform=head
 	var body:=CharacterBody3D.new();world.add_child(body)
 	var ui:=preload("res://scripts/xr_services.gd").new();world.add_child(ui);ui.configure(rig,body);ui.set_process(false);ui.set_allowed(true)
+	# Native heading and any stale screen metadata cannot make an NPC one-sided.
+	for kind in Wave.NPC_KINDS+["vendor"]:
+		for degrees in range(0,360,45):
+			var row:=npc.duplicate();row.kind=kind;row.template="object/mobile/shared_dressed_commoner.iff"
+			row.heading_radians=deg_to_rad(71);row.position=Vector3.ZERO
+			row.ui_anchors=[Transform3D(Basis(Vector3.UP,.9),Vector3(0,1,0))]
+			var eye:=Vector3(sin(deg_to_rad(degrees))*2,1.7,cos(deg_to_rad(degrees))*2)
+			var target:=Vector3(0,1.2,0)
+			var gaze:=Transform3D(Basis.looking_at(target-eye),eye)
+			check(ui.pointed_terminal([row],Vector3(eye.x,0,eye.z),eye,(target-eye).normalized(),eye).get("id")==row.id,"Click "+kind+" from azimuth "+str(degrees))
+			check(Wave.target([row],Vector3(eye.x,0,eye.z),gaze,visible).get("id")==row.id,"Wave "+kind+" from azimuth "+str(degrees))
+	var partial:=func(_from,to,_row):return to.y<1.2
+	check(Wave.target([npc],Vector3.ZERO,head,partial).get("id")==npc.id,"Visible torso accepts wave when the head sample is obstructed")
+	ui.wave_visible=func(_from,_to,_row):return false
+	check(ui.pointed_terminal([npc],Vector3.ZERO,head.origin,(npc.position+Vector3.UP-head.origin).normalized(),head.origin).is_empty(),"NPC behind wall cannot be clicked")
 	ui.terminal_provider=func():return [npc]
 	ui.wave_visible=visible
 	var calls:Array=[];ui.action_requested.connect(func(action,payload):calls.append({"action":action,"payload":payload}))

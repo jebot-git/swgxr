@@ -36,6 +36,8 @@ class Entities extends Node:
 class Sync extends Node:
 	var entities:Entities
 class Actor extends StaticBody3D:
+	var snapshot_usec:=Time.get_ticks_usec()
+	var session_id:="rifleman-session"
 	var record:Dictionary={"id":"201","kind":"creature","relation":"hostile","dead":false,"incapacitated":false,"health":1000,"boss":false,"level":50,"melee_control_available":true,"knockdown_available":true}
 	var visual:Node3D
 	func is_targetable()->bool:return not record.dead
@@ -236,7 +238,7 @@ func run()->void:
 	app.reject=true;await live.pump();check(rig.weapons[0].state.rounds==int(profile.capacity) and rig.abilities.cooldowns.sniper_shot==0,"Rejected Sniper restores one round and native cooldown")
 	reset();rig.two_hands=false;check(not ui.ability_ready(profile.abilities.filter(func(a):return a.id=="sniper_shot")[0],actor),"Unsupported Sniper cannot be selected")
 	reset();actor.record.boss=true;check(ui.ability_ready(profile.abilities.filter(func(a):return a.id=="sniper_shot")[0],actor),"Eligible bosses remain valid Sniper targets")
-	rig.rifleman_context.rifleman_focus.active=true;rig.update_visuals();check("Rifleman’s Focus" in rig.weapons[0].label.text,"Rifle readout exposes native Focus state")
+	rig.rifleman_context.rifleman_focus.active=true;rig.update_visuals();check(rig.weapons[0].visual.find_children("*","Label3D",true,false).is_empty(),"Rifle held display hides Focus text")
 	var report:Dictionary={"checks":checks,"errors":errors,"tracking":"mocked","native_transport":"mocked","production_gameplay_queue":true,"renderer":"dummy","live_xr":false}
 	world.free()
 	for tracker in trackers.values():XRServer.remove_tracker(tracker)

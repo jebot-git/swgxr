@@ -283,15 +283,7 @@ func configure(camera: Camera3D, player: CharacterBody3D, profiles: Array, side 
 		var visual := make_visual(data)
 		visual.physics_interpolation_mode=Node.PHYSICS_INTERPOLATION_MODE_OFF
 		add_child(visual)
-		var label := Label3D.new(); label.font = preload("res://resources/fonts/Jupiteroid-Regular.ttf")
-		label.font_size = 20
-		label.pixel_size = 0.00035
-		label.position = Vector3(0,0.14,0)
-		label.modulate = Color(0.59,0.96,0.99,0.55)
-		label.outline_size = 1
-		label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		visual.add_child(label)
-		weapons.append({"state":state,"visual":visual,"label":label,"bounds":visual_bounds(visual)})
+		weapons.append(weapon_presentation(state,visual))
 	update_visuals()
 	return true
 
@@ -343,6 +335,12 @@ func update_unarmed_gloves() -> void:
 			# Weapon overrides take over without being cleared by fist release.
 			if not bound_gloves.has(side): glove.force_grip_trigger(-1.0,-1.0)
 			unarmed_gloves.erase(side)
+
+func weapon_presentation(state:RefCounted,visual:Node3D)->Dictionary:
+	var bounds:=visual_bounds(visual)
+	var readout:=preload("res://combat/weapon_readout.gd").new();visual.add_child(readout);readout.configure(bounds)
+	readout.update_state(state,false)
+	return {"state":state,"visual":visual,"readout":readout,"bounds":bounds}
 
 func make_visual(data: Dictionary) -> Node3D:
 	return assets.model(str(data.id))
@@ -980,20 +978,7 @@ func update_visuals() -> void:
 		var reserved := inventory_reserved_ids.has(str(weapon.state.profile.get("item_id","")))
 		weapon.visual.visible = allowed and inventory_allows_combat() and (i==selected or (not reserved and not weapon.get("inventory_only",false)))
 		var state = weapon.state
-		weapon.label.visible = i == selected
-		if state.is_melee():
-			weapon.label.text = "Power %.0f · Recovery %.0f%s" % [state.melee_thresholds(two_hands).power,state.effective_recovery()," · combat ready" if state.swing_feedback.get("engaged",false) else " · at peace"]
-		else:
-			if state.profile.get("charge_limited",false):weapon.label.text="%d charges · %s · %.0f RPM"%[state.rounds,state.mode,state.effective_rpm()]
-			else:weapon.label.text = "%d/%d · %s · %.0f RPM%s" % [state.rounds,int(state.profile.capacity),state.mode,state.effective_rpm()," · cooling" if state.reload_until>=0 else ""]
-			if state.profile.get("native_family","")=="commando" and not shot_authority.is_valid():weapon.label.text+=" · Effects preview · Connect for combat"
-			if str(state.profile.get("class","")) in ["holdout","pistol","heavy_pistol"]:
-				weapon.label.text+=" · no movement penalty"
-				if pistoleer_context.get("run_and_gun",{}).get("active",false):weapon.label.text+=" · Run and Gun"
-			if str(state.profile.get("class","")) in ["rifle","marksman","repeater","bowcaster","slugthrower"] and rifleman_context.get("rifleman_focus",{}).get("active",false):weapon.label.text+=" · Rifleman’s Focus"
-			if str(state.profile.get("class","")) in ["carbine","burst_carbine"] and carbineer_context.get("tactical_brace",{}).get("active",false):weapon.label.text+=" · Tactical Brace"
-			if bountyhunter_context.get("duelist_stance",{}).get("active",false):weapon.label.text+=" · Duelist’s Stance"
-			if bountyhunter_armed_until>Time.get_ticks_usec():weapon.label.text+=" · Underhand ready"
+		weapon.readout.update_state(state,i==selected and weapon.visual.visible)
 
 func inventory_allows_combat() -> bool:
 	if interaction_blocker.is_valid() and bool(interaction_blocker.call()): return false
@@ -1024,11 +1009,9 @@ func begin_inventory_item(profile: Dictionary) -> bool:
 		if not is_instance_valid(visual): return false
 		visual.physics_interpolation_mode=Node.PHYSICS_INTERPOLATION_MODE_OFF
 		add_child(visual)
-		var label := Label3D.new(); label.font = preload("res://resources/fonts/Jupiteroid-Regular.ttf")
-		label.font_size=20; label.pixel_size=0.00035; label.position=Vector3(0,0.14,0)
-		label.modulate=Color(0.59,0.96,0.99,0.55); label.outline_size=1; label.billboard=BaseMaterial3D.BILLBOARD_ENABLED
-		visual.add_child(label)
-		weapons.append({"state":state,"visual":visual,"label":label,"bounds":visual_bounds(visual),"inventory_only":true})
+		var presentation:=weapon_presentation(state,visual)
+		presentation["inventory_only"]=true
+		weapons.append(presentation)
 		index=weapons.size()-1
 	draw(index)
 	inventory_item_id=id

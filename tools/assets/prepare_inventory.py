@@ -36,9 +36,11 @@ class EquipmentCharacterImporter(CharacterImporter):
         root = parse_iff(self.read(path))
         if root.tag == 'OPST':
             alias = cstring(root.first('INFO').data)[0]
-            if alias != 'body' or not hasattr(self, 'skin_material'):
+            material = getattr(self, 'owner_materials', {}).get(alias)
+            if material is None and alias == 'body': material = getattr(self, 'skin_material', None)
+            if material is None:
                 raise ValueError('Original owner shader alias is not resolved for this wearable: ' + repr(alias))
-            return {**copy.deepcopy(self.skin_material), 'shader': path, 'resolved_skin_shader': self.skin_material['shader']}
+            return {**copy.deepcopy(material), 'shader': path, 'resolved_skin_shader': material['shader']}
         return super().shader(path)
 
 
@@ -109,16 +111,23 @@ def arrangements(read, source):
     return result
 
 
-def native_shared_templates(core3, requested, inputs):
+def native_shared_templates(core3, requested, inputs, race_rules=None):
     """Follow literal native inheritance for custom loot aliases, without Lua execution."""
-    clients = {}; parents = {}; registrations = {}; sources = {}; raw_hashes = {}
+    clients = {}; parents = {}; registrations = {}; sources = {}; raw_hashes = {}; races = {}
     for source in sorted((core3/'MMOCoreORB/bin/scripts/object').rglob('*.lua')):
         raw = source.read_bytes(); text = re.sub(r'--[^\n]*', '', raw.decode())
         digest = hashlib.sha256(raw).hexdigest()
         for symbol, template in re.findall(r'ObjectTemplates:addClientTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', text):
             clients[symbol] = template; sources[symbol] = source; raw_hashes[source] = digest
-        for symbol, parent in re.findall(r'\b(\w+)\s*=\s*(\w+):new\s*\{', text):
+        definitions = list(re.finditer(r'\b(\w+)\s*=\s*(\w+):new\s*\{', text))
+        for index, definition in enumerate(definitions):
+            symbol, parent = definition.groups()
             parents[symbol] = parent; sources[symbol] = source; raw_hashes[source] = digest
+            body = text[definition.end():definitions[index+1].start() if index+1<len(definitions) else len(text)]
+            block = re.search(r'\bplayerRaces\s*=\s*\{([^}]*)\}', body)
+            if block:
+                values = re.findall(r'"(object/[^"]+\.iff)"', block[1])
+                if values or not block[1].strip(): races[symbol] = values
         for symbol, template in re.findall(r'ObjectTemplates:addTemplate\(\s*(\w+)\s*,\s*"(object/[a-z0-9_/]+\.iff)"', text):
             registrations[template] = symbol
     result = {}
@@ -126,6 +135,8 @@ def native_shared_templates(core3, requested, inputs):
         symbol = registrations.get(template); visited = set()
         while symbol and symbol not in visited:
             visited.add(symbol)
+            if race_rules is not None and template not in race_rules and symbol in races:
+                race_rules[template] = races[symbol]
             source = sources.get(symbol)
             if source: inputs[str(source.resolve())] = {'sha256':raw_hashes[source], 'kind':'Core3 loot shared-template inheritance'}
             if symbol in clients:
@@ -137,6 +148,8 @@ def native_shared_templates(core3, requested, inputs):
 class InventoryImporter:
     def __init__(self, tre_dir, out):
         self.out = out
+        self.equipment_importers = {}
+        self.equipment_bodies = {}
         self.character = PreviewCharacterImporter(tre_dir, out)
         self.static = StaticAssets(tre_dir, out)
         self.static.t = self.character.t
@@ -235,6 +248,20 @@ class InventoryImporter:
             descriptor['failures'].append({'phase': 'inventory_appearance', 'error': str(error)})
         return descriptor
 
+    def reusable_equipment(self, previous, shared, race_id):
+        if previous.get('status') != 'ready' or previous.get('shared_template') != shared:
+            return False
+        path = self.out / previous.get('model', '')
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != previous.get('model_sha256'):
+            return False
+        if previous.get('kind') == 'rigid': return True
+        character_dir = ROOT / 'runtime/assets/characters'
+        if race_id not in self.equipment_bodies:
+            race = json.loads((character_dir/'catalog.json').read_text())['races'][race_id]
+            raw = (character_dir/race['body']).read_bytes()
+            self.equipment_bodies[race_id] = (raw, json.loads(raw))
+        return hashlib.sha256(self.equipment_bodies[race_id][0]).hexdigest() == previous.get('source_owner_model_sha256')
+
     def equipment(self, template, shared, race_id):
         """Original wearable bound to a prepared player rig, never preview geometry."""
         descriptor = {'template': template, 'shared_template': shared, 'race': race_id, 'status': 'unsupported', 'failures': []}
@@ -243,7 +270,10 @@ class InventoryImporter:
             characters = json.loads((character_dir / 'catalog.json').read_text())
             race = characters['races'][race_id]
             body_path = character_dir / race['body']
-            body_raw = body_path.read_bytes(); body = json.loads(body_raw)
+            if race_id not in self.equipment_bodies:
+                raw = body_path.read_bytes()
+                self.equipment_bodies[race_id] = (raw, json.loads(raw))
+            body_raw, body = self.equipment_bodies[race_id]
             bones = copy.deepcopy(body['bones']); names = {bone['name']: index for index, bone in enumerate(bones)}
             properties = template_properties(self.read, shared)
             appearance = properties.get('appearanceFilename', '')
@@ -256,15 +286,22 @@ class InventoryImporter:
                 descriptor.update({key: visual[key] for key in ('model', 'model_sha256', 'appearance', 'source_meshes', 'material_pipeline', 'bounds_min', 'bounds_max')})
                 descriptor.update(status='ready', kind='rigid')
                 return descriptor
-            importer = EquipmentCharacterImporter(self.character.t.archives[0].parent, self.out)
-            importer.t = self.character.t
-            importer.dependencies = self.character.dependencies
+            if race_id not in self.equipment_importers:
+                prepared = EquipmentCharacterImporter(self.character.t.archives[0].parent, self.out, tre_set=self.character.t)
+                prepared.dependencies = self.character.dependencies
+                self.equipment_importers[race_id] = prepared
+            importer = self.equipment_importers[race_id]
             body_surface = next((s for part in body['parts'] for s in part['mesh']['surfaces'] if '_body' in s['shader']), None)
             if body_surface is None:
                 raise ValueError('Original player body shader binding unavailable')
             # Resolve owner-bound OPST clothing shaders from this actual race's
             # original body material; source palette controls remain per owner.
             importer.skin_material = importer.shader(body_surface['shader'])
+            importer.owner_materials = {'body': importer.skin_material}
+            # Twi'lek hats expose the owner's lekku, using a distinct original OPST alias.
+            for alias in ('leccu', 'skull', 'face', 'eye', 'mouth', 'eyelash'):
+                candidates = {surface['shader'] for part in body['parts'] for surface in part['mesh']['surfaces'] if surface['shader'].endswith('_'+alias+'.sht')}
+                if len(candidates) == 1: importer.owner_materials[alias] = importer.shader(next(iter(candidates)))
             previous_count = len(bones)
             item = importer.wearable(shared, race_id, bones, names)
             model_path = self.out / item['model']
@@ -277,7 +314,7 @@ class InventoryImporter:
             digest = hashlib.sha256(encoded).hexdigest()
             relative = 'equipment/' + race_id + '/' + digest[:24] + '.json'
             destination = self.out / relative; destination.parent.mkdir(parents=True, exist_ok=True)
-            if not destination.exists(): destination.write_bytes(encoded)
+            if not destination.exists() or hashlib.sha256(destination.read_bytes()).hexdigest() != digest: destination.write_bytes(encoded)
             descriptor.update(status='ready', kind='skinned', model=relative, model_sha256=digest,
                               appearance=item['appearance'], material_pipeline='original_character',
                               skeleton_bones=[bone['name'] for bone in body['bones']],
@@ -320,6 +357,8 @@ def main():
     parser.add_argument('--template', action='append', default=[])
     parser.add_argument('--snapshot', type=Path, action='append', default=[])
     parser.add_argument('--loot-items', action='store_true', help='Prepare original ground loot item appearances from native loot definitions')
+    parser.add_argument('--wearable-items', action='store_true', help='Prepare native clothing/armor registrations, including loot and crafted aliases')
+    parser.add_argument('--all-equipment-races', action='store_true', help='Bind selected wearables to every prepared player rig')
     parser.add_argument('--starter-items', action='store_true', help='Prepare source creation-manager items as preview assets, never grant them')
     parser.add_argument('--gathering-assets', action='store_true', help='Prepare original Core3 survey tools and concrete resource-container templates; grants nothing')
     parser.add_argument('--spice-assets', action='store_true', help='Prepare all concrete original Core3 spice appearances for crafting previews; grants nothing')
@@ -333,7 +372,10 @@ def main():
     catalog = json.loads(path.read_text()) if path.exists() else {'schema_version': 1, 'items': {}, 'aliases': {}, 'provenance': {'dependencies': {}, 'inputs': {}}}
     requested = {canonical(t)[0] for t in args.template} | {GENERIC_BACKPACK}
     pairs = {}
+    race_rules = {}
     equipment_races = set(args.equipment_race)
+    if args.all_equipment_races:
+        equipment_races.update(json.loads((ROOT/'runtime/assets/characters/catalog.json').read_text())['races'])
     inputs = catalog['provenance'].setdefault('inputs', {})
     # Live readback files are routinely refreshed after real mutations. Preserve
     # their selection history without pretending an old state is still current.
@@ -392,6 +434,20 @@ def main():
         requested.update(references)
         pairs.update(native_shared_templates(args.core3_root, references, inputs))
         catalog['loot_assets'] = {'templates':sorted(references), 'policy':'Appearance dependencies only; loot eligibility, drops and ownership remain native server authority'}
+    if args.wearable_items:
+        references = set()
+        for source in sorted((args.core3_root/'MMOCoreORB/bin/scripts/object/tangible/wearables').rglob('*.lua')):
+            raw = source.read_bytes(); text = re.sub(r'--[^\n]*', '', raw.decode())
+            templates = re.findall(r'ObjectTemplates:addTemplate\(\s*\w+\s*,\s*"(object/[a-z0-9_/]+\.iff)"', text)
+            references.update(templates)
+            if templates: inputs[str(source.resolve())] = {'sha256':hashlib.sha256(raw).hexdigest(), 'kind':'Core3 wearable appearance registration'}
+        requested.update(references)
+        pairs.update(native_shared_templates(args.core3_root, references, inputs, race_rules))
+        # Do not advertise meshes for native-forbidden race/item pairs.
+        for race, variants in catalog.get('equipment', {}).items():
+            for template, allowed in race_rules.items():
+                if allowed and 'object/creature/player/'+race+'.iff' not in allowed: variants.pop(template, None)
+        catalog['wearable_assets'] = {'templates':sorted(references), 'races':sorted(equipment_races | set(catalog.get('equipment', {}))), 'race_restrictions':race_rules, 'policy':'Original rig-bound appearances; native species/equip restrictions remain authoritative'}
     if args.starter_items:
         source = args.core3_root / 'MMOCoreORB/bin/scripts/managers/player_creation_manager.lua'
         raw = source.read_bytes()
@@ -473,10 +529,15 @@ def main():
             for template in sorted(requested):
                 if not template.startswith(('object/tangible/wearables/', 'object/weapon/')):
                     continue
-                descriptor = importer.equipment(template, pairs.get(template, canonical(template)[1]), race_id)
+                allowed = race_rules.get(template, [])
+                if allowed and 'object/creature/player/'+race_id+'.iff' not in allowed: continue
+                shared = pairs.get(template, canonical(template)[1])
+                cached = variants.get(template, {})
+                descriptor = cached if not args.refresh and importer.reusable_equipment(cached, shared, race_id) else importer.equipment(template, shared, race_id)
                 variants[template] = descriptor
                 previous = catalog['items'].get(template, {})
-                if descriptor['status'] == 'ready' and descriptor['kind'] == 'skinned' and (previous.get('status') != 'ready' or previous.get('owner_race')):
+                preview_race = 'wookiee_male' if '/kashyyykian_' in template else 'human_male'
+                if descriptor['status'] == 'ready' and descriptor['kind'] == 'skinned' and (previous.get('status') != 'ready' or (previous.get('owner_race') and race_id == preview_race)):
                     catalog['items'][template] = importer.owner_bound_preview(descriptor, previous)
                 print('equipment', race_id, descriptor['status'], template, flush=True)
     catalog['provenance']['dependencies'].update(importer.character.dependencies)

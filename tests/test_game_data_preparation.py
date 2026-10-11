@@ -26,6 +26,9 @@ class GameDataPreparationTests(unittest.TestCase):
         self.assertLess(order.index('population_sources'),order.index('pets'))
         self.assertLess(order.index('combat_assets'),order.index('mobile_audio'))
         self.assertLess(order.index('space_effects'),order.index('space_audio'))
+        self.assertLess(order.index('animation_messages'),order.index('player_equipment'))
+        self.assertIn('--all-equipment-races',dict(STEPS)['player_equipment'])
+        self.assertIn('--wearable-items',dict(STEPS)['player_equipment'])
 
     def test_bad_and_conflicting_archives_rejected(self):
         with tempfile.TemporaryDirectory() as folder:

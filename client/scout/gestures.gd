@@ -1,5 +1,7 @@
 extends RefCounted
 ## Gesture input only. Native Core3 decides availability, costs and cooldowns.
+const DIG_NEAR := 0.45
+const DIG_LOW := 0.20
 var previous_left:=Vector3.ZERO
 var previous_right:=Vector3.ZERO
 var have_previous:=false
@@ -7,16 +9,17 @@ var run_side:=0
 var run_count:=0
 var run_time:=0.0
 var dig_low:=false
+var dig_bottom:=INF
 var dig_count:=0
 var dig_time:=0.0
 var dig_latched:=false
 var throw_samples: Array=[]
 var clock:=0.0
 func reset() -> void:
-	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_latched=false;throw_samples.clear()
+	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_low=false;dig_latched=false;throw_samples.clear()
 func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, ground_left: float, ground_right: float, tracked: bool) -> Dictionary:
 	var out: Dictionary={"burst_run":false,"forage":false}
-	if not tracked or delta<=0 or delta>0.15: reset();return out
+	if not tracked or not head.is_finite() or not left.is_finite() or not right.is_finite() or not is_finite(delta) or delta<=0 or delta>0.15: reset();return out
 	clock+=delta;run_time+=delta;dig_time+=delta
 	var l:=head.affine_inverse()*left;var r:=head.affine_inverse()*right
 	if not have_previous: previous_left=l;previous_right=r;have_previous=true;return out
@@ -31,16 +34,18 @@ func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, grou
 		if run_side!=0 and run_time<0.12: run_count=0
 		run_side=next;run_time=0;run_count+=1
 		if run_count>=6: out.burst_run=true;run_count=0
-	var near:=is_finite(ground_left) and is_finite(ground_right) and ground_left>=-0.08 and ground_right>=-0.08 and ground_left<0.18 and ground_right<0.18
+	var near:=is_finite(ground_left) and is_finite(ground_right) and ground_left>=-0.08 and ground_right>=-0.08 and ground_left<DIG_NEAR and ground_right<DIG_NEAR
 	if not near:
 		dig_count=0;dig_latched=false;dig_low=false
 	elif not dig_latched:
-		if dig_time>1.2: dig_count=0
+		if dig_time>1.2: dig_count=0;dig_low=false
 		var height: float=(ground_left+ground_right)/2
-		if height<0.045 and not dig_low: dig_low=true;dig_time=0
-		elif height>0.105 and dig_low:
+		# Controller origins sit above the fingertips and cannot safely touch a real floor.
+		if height<DIG_LOW and not dig_low: dig_low=true;dig_bottom=height;dig_time=0
+		elif dig_low and height-dig_bottom>=0.08:
 			dig_low=false;dig_count+=1;dig_time=0
 			if dig_count>=3: out.forage=true;dig_latched=true;dig_count=0
+		elif dig_low: dig_bottom=minf(dig_bottom,height)
 	return out
 func sample_throw(delta: float, head: Transform3D, hand: Vector3, held: bool) -> void:
 	if not held or delta<=0 or delta>0.15: throw_samples.clear();return

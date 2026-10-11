@@ -19,6 +19,7 @@ var disband: Button
 var message:=""
 var last_reply:=100.0
 var cooldown_queue: Array=[]
+var forage_pending_until:=0
 var camp_catalog: Dictionary={}
 func setup(host: Node, inventory: Node3D) -> void:
 	app=host;bag=inventory;rig=bag.rig;body=bag.body;offhand=bag.offhand;process_priority=125
@@ -38,7 +39,7 @@ func setup(host: Node, inventory: Node3D) -> void:
 func reset() -> void:
 	if is_instance_valid(ranger):ranger.reset()
 	if is_instance_valid(inspection):inspection.reset()
-	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();dna_input.reset();camp_id="";cooldown_queue.clear()
+	state={};epoch=app.datapad_epoch;next_poll=0;last_reply=100;gestures.reset();dna_input.reset();camp_id="";cooldown_queue.clear();forage_pending_until=0
 	mask_gesture.reset()
 	var terrain:Variant=app.get("terrain")
 	if is_instance_valid(terrain) and terrain.has_method("set_modification_group"):terrain.set_modification_group("camps",[])
@@ -332,7 +333,12 @@ func update_reticle() -> void:
 	if ranged_reticle():combat.reticle.update_aim(aim_pose(),bag.allowed)
 	else:combat.reticle.update_head_aim(rig.get_node("XRCamera3D"),bag.allowed)
 func ground_distance(point: Vector3) -> float:
-	var query:=PhysicsRayQueryParameters3D.create(point+Vector3.UP*0.1,point-Vector3.UP*0.25,2)
+	# Query the same terrain/interior layers as locomotion, below a reachable
+	# controller origin. Interior floors must not resolve to terrain underneath.
+	var mask:=body.collision_mask if is_instance_valid(body) else 7
+	var excluded:Array[RID]=[]
+	if is_instance_valid(body):excluded.append(body.get_rid())
+	var query:=PhysicsRayQueryParameters3D.create(point+Vector3.UP*0.1,point-Vector3.UP*0.5,mask,excluded)
 	var hit:=get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty() or Vector3(hit.normal).dot(Vector3.UP)<0.65:return INF
 	return point.y-Vector3(hit.position).y
@@ -393,10 +399,17 @@ func _process(delta: float) -> void:
 	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)
 	var main: XRController3D=left if bag.held_hand_side()=="left" else right
 	gestures.sample_throw(delta,head.global_transform,main.global_position,tracked and trap_held())
-	if not busy and not bag.is_open and last_reply<12:
-		if sample.forage and state.get("forage_available",false) and not state.get("foraging",false) and bag.held_item.is_empty():request("forage")
-		elif sample.burst_run and state.get("burst_available",false) and not state.get("burst_active",false) and float(state.get("burst_cooldown",0))<=0:request("burst_run")
+	gesture_actions(sample,tracked)
 	update_camp_ui();update_reticle()
+func gesture_actions(sample:Dictionary,tracked:bool)->void:
+	var forage_permitted:bool=tracked and not bag.is_open and last_reply<12 and state.get("forage_available",false) and not state.get("foraging",false) and bag.held_item.is_empty()
+	if not forage_permitted:forage_pending_until=0
+	elif sample.forage:forage_pending_until=Time.get_ticks_msec()+2000
+	if not busy and not app.inventory_request_pending and not bag.action_pending and not bag.is_open and last_reply<12:
+		if forage_pending_until>Time.get_ticks_msec():
+			forage_pending_until=0;request("forage")
+		elif sample.burst_run and state.get("burst_available",false) and not state.get("burst_active",false) and float(state.get("burst_cooldown",0))<=0:request("burst_run")
+
 func _exit_tree() -> void:
 	if RenderingServer.frame_pre_draw.is_connected(update_reticle):RenderingServer.frame_pre_draw.disconnect(update_reticle)
 	if is_instance_valid(movement):movement.state={}

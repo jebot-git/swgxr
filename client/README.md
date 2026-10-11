@@ -725,3 +725,133 @@ server restart with unread status and original Naboo resource results intact
 desktop Vulkan Forward+. Neither validates live headset behavior. These changes
 are prepared locally for the next release; the Downloads client and remote realm
 were not patched or restarted for this work.
+
+
+Rodian Mabari clothing and NPC/forage interaction corrections (prepared locally)
+-----------------------------------------------------------------------------
+The installed human-only equipment selection omitted Rodian male Mabari
+Armorweave boots, although their original appearance was present. The launcher
+recipe now prepares registered clothing and armor against all twenty original
+player rigs after character animation preparation. Native `playerRaces`
+inheritance limits applicable pairs; source body bones, rest poses, owner
+materials and hashes are retained. An unchanged verified variant is reusable on
+subsequent preparation runs. Twi'lek hats resolve their original lekku/skull
+owner shaders instead of failing the body-only alias resolver. No replacement
+art or proprietary media is committed.
+
+Preparation produced 8,520 applicable wearable variants from 803 registrations
+across twenty rigs. The complete inventory audit validates 8,605 equipment
+models, including previously prepared weapons, without integrity errors. All six
+Mabari pieces pass on fourteen native-allowed rigs; the 197-check clothing test
+also samples 26 Rodian clothing families. Original species and Imperial faction
+equipment restrictions remain authoritative. Missing artwork adds no new equip
+restriction. The five previously failing Twi'lek owner-shader hats now convert.
+
+Coverage is not complete: supplied media lacks `bodysuit_s07_f.sat` and
+`earring_s05.apt` (36 applicable variants), besides abstract base registrations.
+Rigid Rodian earring/ring attachment also remains unresolved: conversion of a
+preview does not establish an original equipped hardpoint. These are recorded
+separately in `runtime/evidence/player-equipment-audit.json` and
+`player-clothing-smoke.json`, not replaced with invented meshes. Desktop Vulkan
+`rodian-mabari-preview.png` visibly confirms the boots and full armor.
+
+NPC clicks target an upright body volume from any side, regardless of heading
+or screen metadata. Creature vendors use the same NPC classification as waves;
+terrain presentation offsets move the interaction point with the visible actor.
+Waves can use an unobstructed torso sample if the head sample is obscured.
+Collision and native range/cell checks still apply.
+
+Forage uses three deliberate scoops with both hands near the floor. Controller
+origins can remain 15–20 cm above it; a scoop rises at least 8 cm, and hands may
+stay within 45 cm during the gesture. The ground query includes the locomotion
+floor layers and excludes the player body. A completed gesture survives a brief
+background status request, expires after two seconds, and cancels on lost
+tracking or an unavailable interaction. Native CoreCU still determines skill,
+posture, location, cooldown and reward eligibility.
+
+Regression entry points: `player_clothing_smoke.gd`, `player_clothing_preview.gd`,
+`npc_wave_smoke.gd`, `npc_visibility_smoke.gd`, `services_controller_smoke.gd`,
+`scout_smoke.gd`, `tools/assets/audit_player_equipment.py`, and
+`tools/assets/test_inventory_cache.py`. The before-preparation clothing test
+reproduces missing Rodian Mabari appearances. Headless gesture tests use synthetic
+tracking, not a headset. These changes are staged for a future release; they do
+not update the running Downloads client or live realm.
+
+Held-weapon readout (prepared locally)
+-------------------------------------
+Ranged weapons carry a capacity bar and firing-mode light on the rear of the
+original mesh, tilted upward 30 degrees. Single fire is blue, automatic fire is
+steady red, and burst fire uses three red flashes. The bar tracks remaining
+shots; consumable weapons track observed native charges independently of crafted
+magazine statistics. Holstered weapons and melee weapons hide this display.
+The old held labels, weapon statistics and buff text are removed. Inventory and
+crafting statistics remain available. The display does not change grip pose,
+muzzle direction, collision bounds or controller tracking.
+
+`weapon_readout_smoke.gd` covers capacity, empty/refill, native charges, modes,
+holstering and unchanged weapon geometry. `weapon_readout_preview.gd` captures
+the original pistol, carbine and rifle in standalone desktop Vulkan Forward+;
+this does not validate headset readability. XR input and Commando, Rifleman and
+Carbineer routing regressions pass with the new display.
+
+Bestine decoration and roaming-citizen corrections (prepared locally)
+-------------------------------------------------------------------
+Inspection of `Downloads/rec.mp4` identified overlapping consoles in Bestine's
+association hall. Native housing snapshots include authored public-building
+furniture; housing presentation rendered it again without the static building's
+rotation. The world stream now exposes object ownership and building orientation.
+Housing skips those objects, removes duplicates when a chunk arrives late, and
+uses the original building basis for genuinely dynamic furniture in public
+buildings. Player furniture remains interactive. Service presentation also uses
+the shared NPC classification, avoiding a second frozen pilot-trainer mesh.
+
+Passive roaming citizens sample their original cell floor at their current
+interpolated position. Exterior approach floors supplement terrain support.
+Corrections are bounded to 1.5 metres and retain native position, cell ownership
+and server navigation; missing cells do not borrow an unrelated floor. Combat
+actors, sitting/dead/incapacitated actors and nonhumanoid rigs are excluded.
+This corrects visible floor following, not horizontal server pathfinding.
+
+`actor_floor_projection_smoke.gd` passes 31 checks, including real Bestine
+interior and exterior slopes, ascent/descent, missing cells and combat exclusion.
+Housing, streamed-world ownership/unload, NPC motion and interaction regressions
+pass. Standalone Vulkan `bestine_decor_preview.gd` reproduces the old two-copy
+console with `-- --before`; the fixed capture has one original instance. Images
+are under `runtime/evidence/rec-inspection/bestine-{before,after}.png`. These
+captures do not connect to the server or validate live headset behavior.
+
+Original pilot trainer/progression inspection
+--------------------------------------------
+The filmed trainer is Lt. Akal Colzet. His Core3 mobile has an empty
+`conversationTemplate`, and `StormSquadronScreenplay:start()` is empty. The
+existing native conversation bridge correctly requires a real screenplay;
+changing NPC facing or exposing a generic dialogue cannot supply this progression.
+Eight map-marked pilot trainers have no conversation: Akal Colzet, Barn Sinkko,
+Da'la Socuna, Denner, Dravis, Hakassha Sireen, Shamdon Kree and V3-FX.
+
+The pinned [original Akal conversation](https://github.com/SWG-Source/dsrc/blob/e3aac29b55b46fec2ce2b1518db80a8f70d798a5/sku.0/sys.server/compiled/game/script/conversation/tatooine_imperial_trainer_1.java)
+contains enlistment, novice skill and eligible starter-ship grants, then:
+
+1. Patrol `tatooine_imperial_1`, splitting into a three-pirate surprise attack.
+2. Destroy four pirates in `tatooine_imperial_2`.
+3. Patrol `tatooine_imperial_3`, splitting into a freighter escort.
+4. Assassinate the pirate leader in `tatooine_imperial_4`.
+
+Reward-received flags unlock the next mission, independently of victory flags;
+failed/aborted missions can be retried. Rewards, faction standing, training,
+repeatable destroy/escort duties and authorization to transfer to the next
+trainer belong to persisted server progression. Original `faceTo` calls turn
+the NPC after interaction; they are not a player approach-angle requirement.
+
+Five original Storm conversations and eight Akal mission tables were inspected.
+Their pinned hashes and comparison with Core3 and supplied dialogue can be
+rechecked using `python3 tools/space/audit_pilot_progression.py` after placing the
+recorded reference corpus in ignored `runtime/reference/pilot-progression`.
+The audit is read-only and records `playable_progression_validated: false`.
+The later source references 70 Akal dialogue keys absent from the supplied
+Total Experience STF; the other four conversations also differ. A compatible
+port must reconcile those branches, implement quest/skill/reward persistence
+through Core3's existing space quest handlers, and validate the mission chain,
+relog recovery and duplicate-reward protection. Server mission tables are not
+missing client media. Akal's full conversation/progression is not implemented
+by this client patch.

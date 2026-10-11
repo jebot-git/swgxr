@@ -196,7 +196,9 @@ func equipment_selection(equipment: Array) -> Dictionary:
 	var known: Array = race.get("default_outfit", []).duplicate()
 	for items in race.get("profession_outfits", {}).values(): known.append_array(items)
 	var directory := asset_path("res://../runtime/assets/inventory")
-	var inventory_catalog := read_json(directory.path_join("catalog.json"))
+	var inventory_path:=directory.path_join("catalog.json")
+	if not catalog_cache.has(inventory_path):catalog_cache[inventory_path]=read_json(inventory_path)
+	var inventory_catalog:Dictionary=catalog_cache[inventory_path]
 	var variants: Dictionary = inventory_catalog.get("equipment",{}).get(race_id,{})
 	for value in equipment:
 		var item: Dictionary = value if value is Dictionary else {"template":str(value)}

@@ -60,7 +60,7 @@ func apply_actor(actor:Node3D,row:Dictionary,initial:bool)->void:
 	var pose:=Transform3D(app.stage.global_basis*Basis(Vector3.UP,-float(row.heading_radians)),app.multiplayer_sync.world(row.position))
 	actor.apply_record(row,pose,snapshot_seconds,initial,float(presentation_usec)/1000000.0)
 	actor.snapshot_usec=snapshot_usec
-	floor_projection.apply(actor,row,app.get("terrain"),app.stage)
+	floor_projection.bind(actor,row,app.get("terrain"),app.stage)
 	apply_cell_visibility(actor,row)
 func apply_cell_visibility(actor:Node3D,row:Dictionary)->void:
 	# The source cell is authoritative, including out-of-cell stale collision.

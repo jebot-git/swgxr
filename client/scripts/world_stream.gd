@@ -19,6 +19,8 @@ var observer := Vector3.ZERO
 var last_observer := Vector3.INF
 var simulation_observers: Array = []
 var retained_objects: Dictionary = {}
+var retained_bases: Dictionary = {}
+var authored_objects: Dictionary = {}
 var retained_buildings: Dictionary = {}
 var retained_cells: Dictionary = {}
 var cell_owner: Node3D
@@ -72,6 +74,8 @@ func configure(manifest_path: String, existing_stage = null) -> bool:
 			return false
 		for entry in stage_data.get("instances", []):
 			retained_objects[str(int(entry.get("object_id", -1)))] = true
+			var q:Array=entry.get("quaternion",[0,0,0,1])
+			retained_bases[str(int(entry.get("object_id",-1)))]=Basis(Quaternion(q[0],q[1],q[2],q[3]).normalized())
 			var building := int(entry.get("building_object_id", 0))
 			if building > 0:
 				retained_buildings[str(building)] = true
@@ -310,6 +314,9 @@ func add_instance(key: String, source: Dictionary) -> void:
 		instance.add_child(body)
 
 	chunks[key].node.add_child(instance)
+	var object_id:=str(int(source.get("object_id",0)))
+	if not authored_objects.has(object_id):authored_objects[object_id]=[]
+	authored_objects[object_id].append(instance)
 	if body != null:
 		chunks[key].colliders.append(body)
 		cell_owner._collect_combat_surfaces(body,chunks[key].combat_surfaces)
@@ -322,6 +329,15 @@ func add_instance(key: String, source: Dictionary) -> void:
 	if source.get("is_exterior", false):
 		chunks[key].exteriors.append(instance)
 		cell_owner.refresh_exterior(instance)
+
+func has_authored_object(id:String)->bool:
+	return retained_objects.has(id) or authored_objects.has(id)
+
+func authored_basis(id:String)->Variant:
+	if retained_bases.has(id):return cell_owner.global_basis*retained_bases[id]
+	for node:Node3D in authored_objects.get(id,[]):
+		if is_instance_valid(node):return node.global_basis
+	return null
 
 func set_collision(record: Dictionary) -> void:
 	var active: bool = record.source_collision and record.instance.position.distance_to(observer) <= collision_distance + float(record.radius)
@@ -354,6 +370,11 @@ func remove_chunk(key: String) -> void:
 	for id in chunk.mesh_ids:
 		if mesh_cache.has(id):
 			mesh_cache[id].refs -= 1
+	for record:Dictionary in chunk.instances:
+		var id:=str(int(record.instance.get_meta("object_id",0)))
+		if authored_objects.has(id):
+			authored_objects[id].erase(record.instance)
+			if authored_objects[id].is_empty():authored_objects.erase(id)
 	remove_child(chunk.node)
 	chunk.node.queue_free()
 	chunks.erase(key)

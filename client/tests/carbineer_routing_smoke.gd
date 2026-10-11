@@ -36,6 +36,8 @@ class Entities extends Node:
 class Sync extends Node:
 	var entities:Entities
 class Actor extends StaticBody3D:
+	var snapshot_usec:=Time.get_ticks_usec()
+	var session_id:="carbineer-session"
 	var record:Dictionary={"id":"201","kind":"creature","relation":"hostile","dead":false,"incapacitated":false,"health":1000,"boss":false,"level":50,"melee_control_available":true,"knockdown_available":true}
 	var visual:Node3D
 	func is_targetable()->bool:return not record.dead
@@ -175,7 +177,7 @@ func run()->void:
 	check(rig.weapons[0].state.configure(ee3,ee3.core3.certificationsRequired),"Actual EE-3 burst carbine configures")
 	reset();neutral();sweep();check(live.queue.size()==1,"Actual EE-3 recognizes and routes Full Auto Sweep")
 	reset();neutral();brace();check(live.queue.size()==1,"Actual EE-3 recognizes and routes Tactical Brace")
-	rig.carbineer_context.tactical_brace["active"]=true;rig.update_visuals();check("Tactical Brace" in rig.weapons[0].label.text,"EE-3 readout exposes active Tactical Brace")
+	rig.carbineer_context.tactical_brace["active"]=true;rig.update_visuals();check(rig.weapons[0].visual.find_children("*","Label3D",true,false).is_empty(),"EE-3 held display hides Tactical Brace text")
 	check(is_equal_approx(preload("res://combat/movement_spread.gd").maximum(ee3),1.2),"EE-3 retains carbine movement spread cap")
 	rig.weapons[0].state.configure(profile,profile.core3.certificationsRequired)
 	reset();neutral();move_to(16);check(rig.carbineer_input_captured,"Gesture captures competing combat input during sweep")

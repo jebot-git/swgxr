@@ -10,8 +10,8 @@ from facial_materials import material_extensions,renderer,supported_variables
 ROOT=Path(__file__).resolve().parents[2]
 
 class CharacterImporter:
- def __init__(self,tre,out):
-  self.t=TreSet(tre);self.out=Path(out);self.out.mkdir(parents=True,exist_ok=True);self.dependencies={};self.materials={};self.failures=[]
+ def __init__(self,tre,out,tre_set=None):
+  self.t=tre_set if tre_set is not None else TreSet(tre);self.out=Path(out);self.out.mkdir(parents=True,exist_ok=True);self.dependencies={};self.materials={};self.failures=[]
  def read(self,path):
   path=path.lower().replace('\\','/');d=self.t.read(path)
   self.dependencies[path]={'archive':self.t.entries[path][0].name,'bytes':len(d),'sha256':hashlib.sha256(d).hexdigest()}
@@ -170,7 +170,8 @@ class CharacterImporter:
   sex='f' if race.endswith('_female') else 'm';stem=re.sub(r'_[mf]$','_'+sex,stem)
   prefix='wke_' if race.startswith('wookiee_') else 'ith_' if race.startswith('ithorian_') else ''
   candidates=['appearance/'+prefix+stem+'.sat','appearance/'+stem+'.sat',appearance]
-  appearance=next(x for x in candidates if x in self.t.entries)
+  appearance=next((x for x in candidates if x in self.t.entries),None)
+  if appearance is None:raise ValueError('Original wearable appearance unavailable: '+', '.join(dict.fromkeys(candidates)))
   model=self.model(appearance,bones,names);path='clothing/'+race+'/'+Path(template).stem+'.json';self.write(path,model)
   return {'template':template.replace('/shared_','/'),'shared_template':template,'appearance':appearance,'model':path}
  def model(self,appearance,bones=None,names=None):

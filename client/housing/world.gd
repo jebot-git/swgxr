@@ -55,6 +55,12 @@ func color_preview(node:Node3D,valid:bool)->void:
 	var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;material.transparency=BaseMaterial3D.TRANSPARENCY_ALPHA;material.albedo_color=Color(.15,.9,1,.16) if valid else Color(1,.12,.08,.24);material.no_depth_test=false
 	for mesh:MeshInstance3D in node.find_children("*","MeshInstance3D",true,false):mesh.material_override=material;mesh.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 func mirror_quaternion(q:Array)->Quaternion:return Quaternion(-float(q[0]),-float(q[1]),float(q[2]),float(q[3])).normalized()
+func static_world()->Node:
+	var stream:Variant=app.get("world_stream") if is_instance_valid(app) else null
+	return stream if is_instance_valid(stream) and stream.has_method("has_authored_object") else null
+func source_owned(row:Dictionary)->bool:
+	var stream:=static_world()
+	return bool(row.get("client_object",false)) or (stream!=null and stream.has_authored_object(str(row.get("id",""))))
 func apply(state:Dictionary)->void:
 	if not is_instance_valid(app.stage):return
 	var terrain:Variant=app.get("terrain")
@@ -72,7 +78,9 @@ func apply(state:Dictionary)->void:
 		if not keep.has(id):app.stage.unregister_cell_region("house:"+id);structures[id].queue_free();structures.erase(id)
 	keep={}
 	for row:Dictionary in state.get("items",[]):
-		if row.get("terminal",false):continue
+		# Public-building snapshot furniture is already rendered with its original
+		# cell transform. Native housing discovery is not a second visual owner.
+		if row.get("terminal",false) or source_owned(row):continue
 		var id:=str(row.id);keep[id]=true
 		if not items.has(id):
 			var mesh:ArrayMesh=models.model(str(row.template))
@@ -88,10 +96,17 @@ func apply(state:Dictionary)->void:
 		elif not node.has_meta("fall_target"):node.global_position=destination
 		var basis:=Basis.IDENTITY
 		if structures.has(str(row.building_id)):basis=structures[str(row.building_id)].global_basis
+		elif static_world()!=null:
+			var authored:Variant=static_world().authored_basis(str(row.building_id))
+			if authored is Basis:basis=authored
 		node.global_basis=basis*Basis(mirror_quaternion(row.quaternion))
 	for id:String in items.keys():
 		if not keep.has(id):items[id].queue_free();items.erase(id)
 func _process(dt:float)->void:
+	# Streaming may finish after the housing snapshot; transfer visual ownership
+	# as soon as the original static instance becomes available.
+	for id:String in items.keys():
+		if source_owned(items[id].get_meta("native",{})):items[id].queue_free();items.erase(id)
 	for node:Node3D in items.values():
 		if not node.has_meta("fall_target"):continue
 		var target:Vector3=node.get_meta("fall_target");var speed:float=float(node.get_meta("fall_speed"))+9.81*minf(dt,.05)

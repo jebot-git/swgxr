@@ -36,6 +36,8 @@ class Entities extends Node:
 class Sync extends Node:
 	var entities:Entities
 class Actor extends StaticBody3D:
+	var snapshot_usec:=Time.get_ticks_usec()
+	var session_id:="commando-session"
 	var record:Dictionary={"id":"201","kind":"creature","relation":"hostile","dead":false,"incapacitated":false,"health":1000,"boss":false,"level":50,"melee_control_available":true,"knockdown_available":true}
 	var visual:Node3D
 	func is_targetable()->bool:return not record.dead
@@ -138,7 +140,7 @@ func run()->void:
 	equip(2);state=rig.weapons[2].state;state.profile.capacity=20;state.rounds=20;state.charge_observation.clear()
 	session.weapon_state.charges=40;session.sequence+=1;live.refresh_authority()
 	check(state.rounds==40 and not state.reload(),"Forty native charges remain usable with crafted magazine capacity twenty")
-	rig.update_visuals();check("40 charges" in str(rig.weapons[2].label.text) and "/20" not in str(rig.weapons[2].label.text),"Consumable HUD displays actual charges rather than a false magazine fraction")
+	rig.update_visuals();check(rig.weapons[2].readout.report.capacity==40 and rig.weapons[2].readout.report.fraction==1,"Consumable HUD displays actual charges rather than a false magazine fraction")
 	var equipment:Dictionary=state.profile.duplicate(true);equipment.source_kind="core3_weapon_instance";equipment.erase("charges");equipment.capacity=20
 	check(state.refresh_instance(equipment) and state.rounds==40,"Re-equipping a charged item does not truncate uses to crafted capacity")
 	var before_ham:Array=rig.abilities.ham.duplicate()
@@ -179,7 +181,7 @@ func run()->void:
 	# for native shape or explosive delivery.
 	equip(0);rig.shot_authority=Callable();var cosmetic_count:int=rig.rounds_sim.fired_presentations
 	check(discharge() and rig.rounds_sim.bolts.is_empty() and rig.rounds_sim.fired_presentations==cosmetic_count+1,"Offline flamethrower uses source shape effects without a projectile bolt")
-	rig.update_visuals();check("Effects preview" in str(rig.weapons[0].label.text),"Offline Commando source inspection is labeled as effects preview")
+	rig.update_visuals();check(rig.weapons[0].visual.find_children("*","Label3D",true,false).is_empty(),"Offline inspection also uses the compact held display; inspection status remains in the lab UI")
 	equip(6);rig.shot_authority=Callable();check(discharge() and rig.rounds_sim.bolts.size()==1 and rig.rounds_sim.bolts[0].shot.get("cosmetic_only",false),"Offline rocket remains physical presentation with no substitute local damage")
 	var flight:Dictionary=preload("res://scout/controller.gd").grenade_flight({"landing_position":[1,2,3],"fuse_seconds":2.,"detonation_at_ms":12000},10500.)
 	check(flight.remaining==1.5 and flight.progress==.25,"Grenade arc skips elapsed receipt latency")

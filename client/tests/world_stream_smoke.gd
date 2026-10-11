@@ -25,6 +25,7 @@ func run() -> void:
 	for chunk in stream.chunks.values():
 		for record in chunk.instances:
 			assert(not stream.retained_objects.has(str(int(record.instance.get_meta("object_id")))))
+			assert(stream.has_authored_object(str(int(record.instance.get_meta("object_id")))),"Stream ownership records each original object")
 	await physics_frame
 	var real_hit := {}
 	for chunk in stream.chunks.values():
@@ -59,6 +60,8 @@ func run() -> void:
 	for key in first_chunks:
 		if not stream.chunks.has(key):
 			removed += 1
+	for id in stream.authored_objects:
+		assert(stream.authored_objects[id].all(func(node):return is_instance_valid(node) and not node.is_queued_for_deletion()),"Unloaded geometry leaves no stale ownership")
 	assert(removed > 0, "Old chunks were not unloaded")
 	print("WORLD_STREAM_PASS ", JSON.stringify({"mos_eisley":initial,"distant":stream.report,"removed_chunks":removed,"collision_hit":str(real_hit.position),"distant_observer":str(distant)}))
 	quit()

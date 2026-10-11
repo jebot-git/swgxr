@@ -123,7 +123,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 		# Called droids and house furniture already have authoritative world visuals.
 		if row.get("kind","")=="container" and (row.get("client_object",false) or str(row.get("template","")).begins_with("object/mobile/") or str(row.get("template","")).begins_with("object/creature/") or str(row.get("building_id","0"))!="0"):continue
 		# Trainers reuse the authored ambient/native NPC, never a terminal mesh.
-		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld","herald"]: continue
+		if preload("res://scripts/npc_wave_gesture.gd").is_npc(row): continue
 		var id := str(row.get("id", ""))
 		if id.is_empty() or static_ids.has(id): continue
 		var p := vec(row.get("position", []))

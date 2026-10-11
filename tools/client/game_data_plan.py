@@ -47,6 +47,7 @@ STEPS = [
  ('gcw', ['tools/assets/prepare_gcw.py', '--prepare-previews', '--prepare-npcs']),
  ('dynamic_terrain', ['tools/assets/prepare_dynamic_terrain.py']),
  ('animation_messages', ['tools/assets/refresh_animation_messages.py']),
+ ('player_equipment', ['tools/assets/prepare_inventory.py', '--wearable-items', '--all-equipment-races']),
  ('ground_actions', ['tools/assets/prepare_ground_actions.py']),
  ('loot_marker', ['tools/assets/prepare_loot_marker.py']),
  ('materials', ['tools/assets/refresh_static_materials.py', '--ensure']),

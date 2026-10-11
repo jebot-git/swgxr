@@ -38,6 +38,12 @@ class Scenery extends Node3D:
 	func apply_snapshot(_state: Dictionary,_position: Vector3) -> void: pass
 	func boarding_rows() -> Array:
 		return rows.filter(func(row): return bool(row.get("boarding",false)))
+class PresentedActor extends Node3D:
+	var presentation_floor_offset:=Vector3(0,.6,0)
+class Entities extends Node:
+	var actors:Dictionary={}
+class Sync extends Node:
+	var entities:Node
 class Host extends Node3D:
 	signal release_api
 	var active_planet:="tatooine"
@@ -48,6 +54,7 @@ class Host extends Node3D:
 	var xr_origin: XROrigin3D
 	var vr_settings: Dictionary={"offhand":"left"}
 	var player: CharacterBody3D
+	var multiplayer_sync:Node
 	var stage: Node3D
 	var tracked_avatar: Node3D
 	var datapad: Node3D
@@ -221,8 +228,19 @@ func run() -> void:
 	var scenery:=Scenery.new();host.add_child(scenery);coordinator.scenery=scenery
 	coordinator.state_age=0
 	coordinator.state={"terminals":[{"id":"barak","kind":"underworld","position":[3500,5,-4801],"building_id":"100","cell_index":2},{"id":"bank-screen","kind":"bank","position":[3500,5,-4802],"building_id":"100","cell_index":2}]}
+	var vendor:Dictionary={"id":"npc-vendor","kind":"vendor","template":"object/mobile/vendor.iff","position":[3500,5,-4801],"building_id":"100","cell_index":2}
+	coordinator.state.terminals.append(vendor)
+	host.multiplayer_sync=Sync.new();host.add_child(host.multiplayer_sync)
+	host.multiplayer_sync.entities=Entities.new();host.multiplayer_sync.add_child(host.multiplayer_sync.entities)
+	var presented:=PresentedActor.new();host.add_child(presented);presented.position=Vector3(0,.2,1)
+	host.multiplayer_sync.entities.actors["npc-vendor"]=presented
+	var vendor_rows:Array=coordinator.terminal_records()
+	check(vendor_rows[-1].position==Vector3(0,.8,1),"NPC interaction follows rendered terrain lift as well as interpolated position")
+	check(not vendor_rows[-1].has("ui_anchors") and not vendor_rows[-1].has("pick_geometry"),"Creature vendor cannot inherit one-sided machine screen or mesh picking")
+	coordinator.state.terminals.pop_back();scenery.screen_requests.clear()
 	var broker_rows:Array=coordinator.terminal_records()
 	check(broker_rows.size()==2 and not broker_rows[0].has("ui_anchors") and scenery.screen_requests==["bank-screen"],"Underworld NPC discovery skips terminal-screen offsets while original terminal screens remain")
+	ui.wave_visible=func(_from,_to,_row):return true # Geometry is isolated in this coordinator fixture.
 	var broker:Dictionary=ui.pointed_terminal(broker_rows,Vector3.ZERO,Vector3(0,1,0),Vector3.BACK)
 	check(broker.get("id","")=="barak","Controller targets broker at NPC torso height instead of a machine screen")
 	ui.set_pending(false);ui.close_interface();before=host.calls.size()

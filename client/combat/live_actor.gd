@@ -22,6 +22,7 @@ var equipment:=NPCEquipment.new()
 var rigid_equipment:Array=[]
 var carrier:RefCounted
 var presentation_floor_offset:=Vector3.ZERO
+var presentation_floor_update:Callable
 var presentation_floor_height:=0.0
 var mobile_sound:Node3D
 var action_event_epoch:=-1
@@ -226,6 +227,7 @@ func get_radar_contact()->Dictionary:
 
 func _process(delta:float)->void:
 	global_transform=motion.advance(Time.get_ticks_usec()/1000000.0,delta)
+	if presentation_floor_update.is_valid():presentation_floor_update.call()
 	speed=motion.get_velocity().length()
 	if present_action_pose():return
 	if carrier==null and is_instance_valid(visual) and visual.has_method("update_motion") and not record.dead:visual.update_motion(delta,speed,{"grounded":true,"velocity":Vector3(0,0,-speed)})

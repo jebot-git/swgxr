@@ -336,9 +336,12 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		var sync:Variant=app.get("multiplayer_sync")
 		if preload("res://scripts/npc_wave_gesture.gd").is_npc(record) and is_instance_valid(sync) and is_instance_valid(sync.get("entities")):
 			var actor:Variant=sync.entities.actors.get(str(record.id))
-			if is_instance_valid(actor):value.position=actor.global_position
+			if is_instance_valid(actor):
+				value.position=actor.global_position
+				var floor_offset:Variant=actor.get("presentation_floor_offset")
+				if floor_offset is Vector3:value.position+=floor_offset
 
-		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer"]:
+		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and not preload("res://scripts/npc_wave_gesture.gd").is_npc(record):
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis
 			var object_pose:=Transform3D(basis,value.position)

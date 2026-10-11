@@ -34,12 +34,15 @@ objects; it does not grant a replacement JSON mission. Active space missions
 appear in the datapad, with current-sector mission waypoints on the sector map.
 Conversation choices carry a current-screen token and replay-safe request ID.
 
-The pinned Core3 source implements the CorSec, Royal Security Force and Havoc
-trainer paths and their supported greeters. Some original trainer appearances
-have no implemented handler in that source: Imperial squadron paths, Crimson
-Phoenix, Vortex and the final Havoc trainer Arkon are incomplete upstream. These
-are not presented as fully playable campaign paths. The live smoke test covers
-RSF enlistment and its first patrol, not every campaign's progression.
+Test.17 integrates all nine original squadron progression paths through 46
+trainer/conversation bindings and 475 mission-leg definitions. Akal Colzet and
+the previously missing Imperial, Crimson Phoenix, Vortex and late Havoc paths
+use the shared original-source conversion and native quest runtime. Missing
+Total Experience narrative strings use functional fallback text. All nine paths
+reach mastery in simulated progression checks; native tests cover trainer
+bindings, rewards and distinct pickup/delivery docking. Complete gameplay and
+balance testing of every mission remains pending. See `docs/PILOT_MISSIONS.md`
+in the source repository for conversion provenance and detailed limits.
 
 Craft chassis tokens with the native Shipwright crafting session. Experiment
 while points remain, review the result, and finish construction. At a chassis

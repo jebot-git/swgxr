@@ -24,7 +24,7 @@ except ImportError:
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
 ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
-ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
+ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
 MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
  if action not in ACTIONS:raise ValueError('Unsupported terminal service action.')
@@ -52,7 +52,7 @@ def command(action,data):
   out.update(building_id=v,cell_index=ci)
  required={
   'ship_manage':('terminal_id','ship_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
-  'pilot_begin':('terminal_id',),'pilot_choose':('terminal_id',),
+  'pilot_begin':('terminal_id',),'pilot_choose':('terminal_id',),'herald_begin':('terminal_id',),'herald_choose':('terminal_id',),
   'underworld_accept':('terminal_id',),
   'recruiter_promote':('terminal_id',),'recruiter_join':('terminal_id',),'recruiter_status_toggle':('terminal_id',),'recruiter_purchase':('terminal_id',),'contraband_answer':('scan_id',),
   'vendor_place':('vendor_id',),'vendor_customize':('vendor_id',),'vendor_recover':('vendor_id',),'vendor_sell':('terminal_id','item_id'),'vendor_buy':('terminal_id','listing_id'),'vendor_retrieve':('terminal_id','listing_id'),'vendor_cancel':('terminal_id','listing_id'),
@@ -73,9 +73,9 @@ def command(action,data):
   price=data.get('price')
   if type(price) is not int or not 0<=price<=2000000000:raise ValueError('Reviewed native chassis dealer price required.')
   out['price']=price
- if action=='pilot_choose':
+ if action in ('pilot_choose','herald_choose'):
   option=data.get('option');token=data.get('screen_token','')
-  if type(option) is not int or not 0<=option<128 or not isinstance(token,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',token):raise ValueError('Current native pilot conversation option required.')
+  if type(option) is not int or not 0<=option<128 or not isinstance(token,str) or not re.fullmatch(r'[A-Za-z0-9_-]{8,64}',token):raise ValueError('Current native conversation option required.')
   out.update(option=option,screen_token=token)
  if action in ('bank_transfer','pay'):
   n=data.get('amount')
@@ -197,7 +197,7 @@ def snapshot(raw,oid,attributes=None):
   terminal['name']=label(terminal.get('name',''))
   if terminal.get('kind')=='mission' and terminal.get('terminal_type') in ('artisan','scout','bounty','entertainer','imperial','rebel'):
    terminal['name']=label('@terminal_name:terminal_mission_'+terminal['terminal_type'])
-  if terminal.get('kind')=='pilot_trainer':
+  if terminal.get('kind') in ('pilot_trainer','herald'):
    terminal['dialogue']=label(terminal.get('dialogue',''))
    for option in terminal.get('options',[]):option['name']=label(option.get('name',''))
   if terminal.get('kind') in ('ship_outfit','chassis_dealer'):

@@ -1,0 +1,56 @@
+#pragma once
+#include "server/zone/objects/creature/conversation/LuaConversationObserver.h"
+#include "server/zone/objects/player/sessions/ConversationSession.h"
+#include <set>
+// Original herald screenplays own destinations, credit costs and waypoint creation.
+// Present native screens through the existing service dialogue interface.
+class SwgxrHeralds {
+ using Json=JSONSerializationType;
+ static std::string text(const String& s){return s.toCharArray();}
+ static std::string id(SceneObject* s){return std::to_string(s->getObjectID());}
+ static ConversationTemplate* conversation(SceneObject* npc){
+  if(!npc || !npc->isAiAgent())return nullptr;
+  auto mobile=npc->asAiAgent()->getCreatureTemplate();
+  return mobile?CreatureTemplateManager::instance()->getConversationTemplate(mobile->getConversationTemplate()):nullptr;
+ }
+public:
+ static bool supports(SceneObject* npc){
+  auto t=conversation(npc);if(!t)return false;
+  static const std::set<std::string> handlers={"herald_conv_handler","multi_dest_herald_conv_handler","herald_tatooine2_conv_handler"};
+  return handlers.count(text(t->getLuaClassHandler()))!=0;
+ }
+ static void describe(CreatureObject* c,SceneObject* npc,Json& out){
+  auto stored=c->getPlayerObject()->getScreenPlayData("swgxr_herald","view");
+  Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
+  if(!stored.isEmpty() && session && session->getNPC().get()==npc){
+   auto view=Json::parse(stored.toCharArray());if(view.value("npc_id",std::string())==id(npc)){out.update(view);return;}
+  }
+  out["dialogue"]="Ask about local places of interest.";
+  out["options"]=Json::array({{{"name","Speak to herald"},{"begin",true}}});
+ }
+ static Json run(CreatureObject* c,SceneObject* npc,const Json& request){
+  if(!supports(npc) || npc->asAiAgent()->isDead() || c->isDead() || c->isIncapacitated() || npc->getZone()!=c->getZone() || !c->isInRange(npc,5) || c->getParentID()!=npc->getParentID() || !CollisionManager::checkLineOfSight(c,npc))throw std::runtime_error("herald_out_of_reach");
+  auto ghost=c->getPlayerObject();auto t=conversation(npc);
+  Reference<ConversationSession*> session=c->getActiveSession(SessionFacadeType::CONVERSATION).castTo<ConversationSession*>();
+  bool begin=request.at("action")=="herald_begin";int selected=-1;
+  if(begin){if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);session=new ConversationSession(npc);c->addActiveSession(SessionFacadeType::CONVERSATION,session);ghost->setConversatingObject(npc);}
+  else{
+   auto saved=ghost->getScreenPlayData("swgxr_herald","view");auto view=saved.isEmpty()?Json::object():Json::parse(saved.toCharArray());
+   if(!session || session->getNPC().get()!=npc || view.value("npc_id",std::string())!=id(npc) || view.value("screen_token",std::string())!=request.value("screen_token",std::string()))throw std::runtime_error("herald_conversation_changed");
+   auto screen=session->getLastConversationScreen();selected=request.at("option").get<int>();
+   if(!screen || selected<0 || selected>=screen->getOptionCount())throw std::runtime_error("herald_conversation_option_unavailable");
+  }
+  Reference<LuaConversationObserver*> observer=new LuaConversationObserver(npc->asAiAgent()->getCreatureTemplate()->getConversationTemplate());
+  Reference<ConversationScreen*> screen=observer->getNextConversationScreen(c,selected,npc);
+  if(screen)screen=observer->runScreenHandlers(c,npc,selected,screen);
+  Json view={{"npc_id",id(npc)},{"screen_token",request.at("request_id")},{"options",Json::array()},{"dialogue","Conversation finished."}};
+  if(screen){
+   view["dialogue"]=text(screen->getDialogText()->getFullPath());view["screen_id"]=text(screen->getScreenID());
+   for(int i=0;i<screen->getOptionCount();++i)view["options"].push_back({{"name",text(screen->getOptionText(i))},{"option",i}});
+   screen->sendTo(c,npc);
+  }else{if(session)session->cancelSession();c->dropActiveSession(SessionFacadeType::CONVERSATION);}
+  if(view["options"].empty())view["options"].push_back({{"name","Speak again"},{"begin",true}});
+  ghost->setScreenPlayData("swgxr_herald","view",String(view.dump().c_str()));c->updateToDatabaseAllObjects(false);
+  return view;
+ }
+};

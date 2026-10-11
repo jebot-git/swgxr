@@ -40,6 +40,7 @@ class Scenery extends Node3D:
 		return rows.filter(func(row): return bool(row.get("boarding",false)))
 class Host extends Node3D:
 	signal release_api
+	var active_planet:="tatooine"
 	var datapad_account:="fixture"
 	var datapad_character_id:="1000"
 	var datapad_epoch:=1
@@ -66,6 +67,7 @@ class Host extends Node3D:
 	var background_families: Array=[]
 	func try_background_poll(family: String) -> bool:
 		background_families.append(family);return background_allowed
+	func datapad_source_position()->Vector3:return source_position_at(player.global_position)
 	func source_position_at(point: Vector3) -> Vector3:
 		return Vector3(point.x+3500,point.y+5,-4800-point.z)
 	func reconcile_inventory_presentations() -> void: reconciled+=1

@@ -58,9 +58,9 @@ def rows(text, name):
             continue
 
 
-def herald_rows(text, planet):
+def herald_rows(text, planet, name="heraldList"):
     """Literal herald placements use named fields, not city mobile tuples."""
-    body, offset = table(clean(text), 'heraldList')
+    body, offset = table(clean(text), name)
     for match in re.finditer(r'\{([^{}]*)\}', body):
         fields = dict(re.findall(r'(\w+)\s*=\s*("[^"\n]*"|[-+]?\d+(?:\.\d+)?)(?=\s*(?:,|$))', match[1]))
         if fields.get('planet') != '"'+planet+'"':
@@ -193,11 +193,11 @@ def main():
     for path in city_files:
         text = read(path)
         commoners = strings(table(text,'stationaryCommoners')[0]); citizens = strings(table(text,'stationaryNpcs')[0])
-        for kind in (('heraldList',) if path == herald_file else ('mobiles','stationaryMobiles','gcwMobs')):
-            for row_index,(row,line) in enumerate(herald_rows(text,args.planet) if kind=="heraldList" else rows(text,kind)):
+        for kind in (('heraldList','multiDestHeraldList') if path == herald_file else ('mobiles','stationaryMobiles','gcwMobs')):
+            for row_index,(row,line) in enumerate(herald_rows(text,args.planet,kind) if kind in ("heraldList","multiDestHeraldList") else rows(text,kind)):
                 identity = f'{path.stem}:{kind}:{line}:{row_index}'
                 try:
-                    if kind in ('mobiles','heraldList'):
+                    if kind in ('mobiles','heraldList','multiDestHeraldList'):
                         name = row[0]; xyz = list(map(float,row[2:5])); heading=float(row[5]); cell=int(row[6]); mood=row[7] if len(row)>7 else ''
                     elif kind == 'stationaryMobiles':
                         seed=int(hashlib.sha256(identity.encode()).hexdigest()[:8],16)

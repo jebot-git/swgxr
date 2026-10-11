@@ -26,16 +26,15 @@ uses a 14 cm radius. Held buttons and pending requests cannot repeat collection.
 ## NPC outfit coverage
 
 The reported Mos Eisley Lorne Prestar is `herald_lorne_prestar`, at source
-coordinates (3376.1, 5, -4786), rather than the separate quest NPC. The prior city
-table export omitted the `heraldList` screenplay. The exporter now includes all
-50 literal herald placements across the ten original ground planets. All seven
-Tatooine heralds bind to their exact original appearances; Lorne has his original
-five-piece `mos_taike_guard_old_outfit`.
+coordinates (3376.1, 5, -4786). The exporter now includes all 58 original herald
+placements across the ten ground planets, including the multiple-destination
+list. Lorne retains his original five-piece `mos_taike_guard_old_outfit`.
 
-This closes the identified herald gap. Arbitrary quest, themepark and procedural
-spawners are not covered by static placement matching, so the earlier fix cannot
-be described as covering every NPC. Other planets' herald placements were audited;
-their complete asset rebuild and live presentation have not been tested here.
+The subsequent [herald integration](HERALD_INTEGRATION.md) adds native dialogue
+through the existing panel, prepares all randomized herald appearance variants
+and binds wandering heralds by their native home position. Arbitrary quest,
+themepark and procedural spawners are not covered by static placement matching,
+so this cannot be described as covering every NPC.
 
 ## Combat feedback
 

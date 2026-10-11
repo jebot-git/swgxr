@@ -60,6 +60,8 @@ def main():
   # Native placements may use numeric mood IDs. This converter resolves the
   # named LAT selector only; numeric 0 means the default standing animation.
   templates.setdefault(instance['template'],set()).add(mood if isinstance(mood,str) else 'neutral')
+  if instance.get('selection',{}).get('kind') in ('heraldList','multiDestHeraldList'):
+   for variant in instance.get('source_templates',[]):templates.setdefault(variant,set()).add(mood if isinstance(mood,str) else 'neutral')
  if args.limit:templates=dict(list(templates.items())[:args.limit])
  previous=json.loads((args.out/'catalog.json').read_text()) if args.merge and (args.out/'catalog.json').exists() else None
  catalog={'schema_version':1,'races':{},'failures':imp.failures,'warnings':['Exact source NPC SAT/CDF definitions, not player-race stand-ins.','Placement selection is the supplied Core3 export; NPCs are visual noninteractive presentation.','Source root motion is not applied. Unsupported wearables/appearance references are reported.']};body_cache={};clothing_cache={}

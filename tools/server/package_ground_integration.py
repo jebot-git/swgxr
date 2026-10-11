@@ -17,8 +17,8 @@ def main():
  verify(ROOT);catalog=ROOT/'runtime/assets/combat_actions/catalog.json';data=json.loads(catalog.read_text());assert data['revision'] and not data['failures']
  dest.mkdir(parents=True)
  code=dest/'code';private=dest/'private-assets';manifest={}
- paths=list((ROOT/'server').rglob('*.py'))+list((ROOT/'server/combat').glob('*'))+list((ROOT/'server/patches').glob('*.patch'))
- paths+=[ROOT/p for p in ('server/ACTION_COMBAT_PROTOCOL.md','server/GROUND_COMBAT_INTEGRATION.md','tools/server/start-core3.sh','tools/server/native_build_receipt.py','tools/server/update_ground_combat_patch.py','tools/assets/prepare_ground_actions.py','tools/assets/character_animations.py','tools/client/install_ground_actions.py','runtime/server/native-build.json')]
+ paths=list((ROOT/'server').rglob('*.py'))+list((ROOT/'server/combat').glob('*'))+list((ROOT/'server/services').glob('*.h'))+list((ROOT/'server/patches').glob('*.patch'))
+ paths+=[ROOT/p for p in ('server/ACTION_COMBAT_PROTOCOL.md','server/GROUND_COMBAT_INTEGRATION.md','docs/HERALD_INTEGRATION.md','tools/server/start-core3.sh','tools/server/native_build_receipt.py','tools/server/update_ground_combat_patch.py','tools/server/update_herald_patch.py','tools/server/heralds_smoke.py','tools/assets/prepare_ground_actions.py','tools/assets/character_animations.py','tools/client/install_ground_actions.py','runtime/server/native-build.json')]
  paths+=[ROOT/'vendor/Core3/MMOCoreORB/bin'/n for n in ('corecu','core3','core3client')]
  paths+=[ROOT/'client'/p for p in ('combat/action_clock.gd','combat/action_combat.gd','combat/action_pose.gd','combat/action_timeline.gd','combat/live_actor.gd','multiplayer/client_sync.gd','scripts/main.gd')]
  paths+=[ROOT/p for p in ('tests/ground_action_policy.cpp','tests/test_ground_action.py','tools/assets/test_ground_actions.py','client/tests/ground_action_smoke.gd','client/tests/action_pose_rig_smoke.gd')]

@@ -90,9 +90,10 @@ func source_visual_records(snapshot_actors:Array)->Array:
 		if ambient_bindings.bindings.has(id):
 			var placement_id:=str(ambient_bindings.bindings[id])
 			var placement:Dictionary=ambient_bindings.placements[placement_id]
-			if str(placement.get("mobile",""))=="chassis_dealer" or placement.get("source_templates",[]).size()>1:
+			var herald_variant:bool=placement.get("selection",{}).get("kind","") in ["heraldList","multiDestHeraldList"] and placement.get("source_templates",[]).size()>1
+			if str(placement.get("mobile",""))=="chassis_dealer" or (placement.get("source_templates",[]).size()>1 and not herald_variant):
 				projected.append(copy);continue # Native randomized appearance owns this exact placement.
-			copy["source_placement_visual"]={"placement_id":placement_id,"appearance_id":str(placement.get("appearance_id",placement.template)),"catalog":str(ambient_source.catalog_path),"cell_id":str(placement.get("cell_id",""))}
+			copy["source_placement_visual"]={"placement_id":placement_id,"appearance_id":str(copy.template) if herald_variant else str(placement.get("appearance_id",placement.template)),"catalog":str(ambient_source.catalog_path),"cell_id":str(placement.get("cell_id",""))}
 		projected.append(copy)
 	return projected
 

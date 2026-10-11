@@ -121,7 +121,7 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 	keep.clear()
 	for row: Dictionary in snapshot.get("terminals", [])+collector_records(snapshot):
 		# Trainers reuse the authored ambient/native NPC, never a terminal mesh.
-		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld"]: continue
+		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld","herald"]: continue
 		var id := str(row.get("id", ""))
 		if id.is_empty() or static_ids.has(id): continue
 		var p := vec(row.get("position", []))

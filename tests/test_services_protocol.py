@@ -3,6 +3,21 @@ from unittest.mock import patch
 from server.services_protocol import command,snapshot
 class ServicesProtocolTests(unittest.TestCase):
  def data(self,**kw):return dict(request_id='services_test_001',position=[3527,5,-4820],terminal_id='123',**kw)
+ def test_herald_native_choices_and_gateway(self):
+  from server.remote_gateway import POST
+  self.assertIn('/services/herald_begin',POST);self.assertIn('/services/herald_choose',POST)
+  base=self.data(option=2,screen_token='native_screen_1')
+  self.assertEqual(command('herald_choose',base)['option'],2)
+  self.assertEqual(command('herald_begin',base)['terminal_id'],'123')
+  for field,values in [('option',[-1,128,True,'2']),('screen_token',['','short',None])]:
+   for value in values:
+    with self.subTest(field=field,value=value),self.assertRaises(ValueError):command('herald_choose',dict(base,**{field:value}))
+  raw={'source_kind':'core3_services','character_id':'100','terminal':{'id':'2','kind':'herald','dialogue':'@herald:hello','screen_token':'native_screen_1','options':[{'option':0,'name':'@herald:reply'}]}}
+  with patch('server.services_protocol.display',side_effect=lambda table,key,value:'Localized '+value):
+   state=snapshot(raw,'100')['state']
+  self.assertEqual(state['terminal']['dialogue'],'Localized @herald:hello')
+  self.assertEqual(state['terminal']['options'][0]['name'],'Localized @herald:reply')
+  self.assertEqual(state['terminal']['screen_token'],'native_screen_1')
  def test_ship_components_and_dealer_validate_reviewed_transaction(self):
   base=self.data(ship_id='789',component_id='456',slot=12)
   self.assertEqual(command('ship_component_install',base)['slot'],12)

@@ -176,6 +176,8 @@ func request(action: String, detail: Dictionary = {}) -> Dictionary:
 			var notice:="Mission parcel added to Data. Grip and pull it out; present it to the recipient and press trigger." if action=="delivery_pickup" else "Parcel handed over. CoreCU is completing the mission."
 			if action=="delivery_pickup" and state.get("terminal",{}).get("mission_kind","")=="crafting":notice="Mission recipe and components received. Craft the commissioned item; it will appear in Data when ready."
 			app.datapad.ui.set_status(notice)
+	if action in ["herald_begin","herald_choose"] and bool(response.get("mutation",{}).get("success",false)) and app.has_method("refresh_datapad"):
+		app.call_deferred("refresh_datapad")
 	if action in ["trainer_train", "skill_forget"] and bool(response.get("mutation",{}).get("success",false)):
 		var persistent_reserved: bool=bool(app.get("live_combat_reserved")) or (is_instance_valid(app.live_combat) and app.live_combat.live)
 		if not persistent_reserved and app.has_method("refresh_weapon_statistics"):
@@ -311,7 +313,7 @@ func terminal_records(require_fresh: bool=true) -> Array:
 		if str(record.get("building_id","0")) != str(identity.building_id) or int(record.get("cell_index",0)) != int(identity.cell_index): continue
 		var value := record.duplicate(true)
 		value.position = world(record.position)
-		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","chassis_dealer"]:
+		if is_instance_valid(scenery) and scenery.has_method("screen_offsets") and record.get("kind") not in ["trainer","delivery","recruiter","underworld","bounty_informant","pilot_trainer","herald","chassis_dealer"]:
 			var basis: Basis=scenery.terminal_basis(record)
 			if is_instance_valid(app.stage):basis=app.stage.global_basis*basis
 			var object_pose:=Transform3D(basis,value.position)

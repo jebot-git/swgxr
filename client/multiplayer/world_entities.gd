@@ -43,7 +43,8 @@ func accept(rows:Array,owner:String,world_revision:int,age_seconds:=INF)->void:
 		var id:=str(value.id)
 		if bindings.bindings.has(id) and is_instance_valid(ambient):
 			var placement:Dictionary=bindings.placements[bindings.bindings[id]]
-			value.source_placement_visual={"placement_id":str(placement.id),"appearance_id":str(placement.get("appearance_id",placement.template)),"catalog":ambient.catalog_path,"cell_id":str(placement.get("cell_id",""))}
+			var herald_variant:bool=placement.get("selection",{}).get("kind","") in ["heraldList","multiDestHeraldList"] and placement.get("source_templates",[]).size()>1
+			value.source_placement_visual={"placement_id":str(placement.id),"appearance_id":str(value.template) if herald_variant else str(placement.get("appearance_id",placement.template)),"catalog":ambient.catalog_path,"cell_id":str(placement.get("cell_id",""))}
 		desired[id]=value
 	for id in actors.keys():
 		if not desired.has(id):actors[id].free();actors.erase(id)

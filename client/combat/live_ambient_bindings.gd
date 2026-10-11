@@ -32,7 +32,7 @@ func configure(manifest:Dictionary,trainer_audit:Dictionary={})->void:
 		if chassis_dealer:variants=CHASSIS_VARIANTS
 		for variant:String in variants:
 			if not by_template.has(variant):by_template[variant]=[]
-			by_template[variant].append({"id":id,"position":position,"trainer":basic_trainer or chassis_dealer or variant!=template,
+			by_template[variant].append({"id":id,"position":position,"herald":entry.get("selection",{}).get("kind","") in ["heraldList","multiDestHeraldList"],"trainer":basic_trainer or chassis_dealer or variant!=template,
 				"building_id":str(entry.get("building_object_id","0")),"cell_index":int(str(entry.get("cell_id","0:0")).get_slice(":",1))})
 func update(actors:Array)->Dictionary:
 	var candidates:Array=[]
@@ -45,7 +45,15 @@ func update(actors:Array)->Dictionary:
 		for placement:Dictionary in by_template.get(str(actor.get("template","")),[]):
 			if suppressed.has(placement.id):continue
 			if bool(placement.trainer) and (not actor.has("building_id") or not actor.has("cell_index") or str(actor.building_id)!=placement.building_id or int(actor.cell_index)!=int(placement.cell_index)):continue
-			var distance:=position.distance_to(placement.position)
+			var match_position:=position
+			# Heralds wander. Native home position preserves exact placement identity
+			# without snapping their rendered body back to a static source spawn.
+			if placement.herald and actor.has("herald_home_position"):
+				var home:Variant=actor.herald_home_position
+				if not home is Array or home.size()!=3:continue
+				match_position=Vector3(float(home[0]),float(home[1]),float(home[2]))
+				if not match_position.is_finite():continue
+			var distance:=match_position.distance_to(placement.position)
 			if distance<=MATCH_DISTANCE:candidates.append({"native_id":native_id,"placement_id":placement.id,"distance":distance})
 	candidates.sort_custom(func(a,b):return a.distance<b.distance if a.distance!=b.distance else str(a.native_id)+str(a.placement_id)<str(b.native_id)+str(b.placement_id))
 	for candidate:Dictionary in candidates:

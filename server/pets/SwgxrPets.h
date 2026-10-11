@@ -2,6 +2,7 @@
 #define SWGXR_PETS_H
 #include "server/zone/objects/intangible/PetControlDevice.h"
 #include "server/zone/objects/creature/ai/AiAgent.h"
+#include "server/zone/objects/creature/ai/DroidObject.h"
 #include "server/zone/managers/creature/PetManager.h"
 #include "server/zone/managers/collision/CollisionManager.h"
 #include "templates/creature/SharedCreatureObjectTemplate.h"
@@ -28,13 +29,16 @@ class SwgxrPets {
    {17,"Recharge droid","petrechargeother","droid","",false},{18,"Transfer ownership","pettransfer","player","",false},
    {19,"Repair droid","petrepair","droid","",false},{20,"Throw trap","petthrow","hostile","",false},
    {21,"Harvest","petharvest","corpse","owner",false},{22,"Mark patrol point here","petgetpatrolpoint","","",true},
-   {23,"Clear patrol points","petclearpatrolpoints","","",true}};
+   {23,"Clear patrol points","petclearpatrolpoints","","",true},{24,"Recharge from battery","petrecharge","","",true}};
   return all;
  }
  static const Command& definition(int id){for(auto& entry:definitions())if(entry.id==id)return entry;throw std::runtime_error("Unknown pet command");}
  static bool supports(PetControlDevice* device,const Command& entry){
-  if(!device->hasTrainedCommand(entry.id))return false;
+  // Chassis recharge actions are direct XR interactions, independent of voice aliases.
+  if(entry.id!=17 && entry.id!=24 && !device->hasTrainedCommand(entry.id))return false;
   auto pet=device->getControlledObject();if(pet==nullptr)return false;
+  if(entry.id==24 && !pet->isDroidObject())return false;
+  if(entry.id==17 && (!pet->isDroidObject() || !static_cast<DroidObject*>(pet)->isPowerDroid()))return false;
   if(entry.id==18 && device->getPetType()!=PetManager::CREATUREPET)return false;
   if((entry.id==17 || entry.id==19 || entry.id==20 || entry.id==21) && !pet->asCreatureObject()->isDroidObject())return false;
   return pet->getZoneServer()->getObjectController()->getQueueCommand(entry.name)!=nullptr;
@@ -93,7 +97,7 @@ public:
  static Json commands(PetControlDevice* device){
   Json out=Json::array();if(!supported(device))return out;
 
-  for(auto& e:definitions())if(supports(device,e))out.push_back({{"id","pet_"+std::to_string(e.id)},{"command_id",e.id},{"label",e.label},{"source_command",(e.id==1 || e.id==4 || e.id==6)?"follow":e.id==2?"store":e.id==16?"stopfollow":(e.id==10 || e.id==11)?"formation":(e.id==5 || e.id==15)?"group":e.id==21?"harvestcorpse":(e.id==17 || e.id==19)?"vrepairother":"animalattack"},{"target_kind",e.target},{"requires_target",std::string(e.target)!=""},{"range_m",64}});
+  for(auto& e:definitions())if(supports(device,e))out.push_back({{"id","pet_"+std::to_string(e.id)},{"command_id",e.id},{"label",e.label},{"source_command",(e.id==1 || e.id==4 || e.id==6)?"follow":e.id==2?"store":e.id==16?"stopfollow":(e.id==10 || e.id==11)?"formation":(e.id==5 || e.id==15)?"group":e.id==21?"harvestcorpse":(e.id==17 || e.id==19 || e.id==24)?"vrepairother":"animalattack"},{"target_kind",e.target},{"requires_target",std::string(e.target)!=""},{"range_m",e.id==17?30:64}});
   return out;
  }
  static void execute(CreatureObject* owner,const Json& q,Json& mutation){

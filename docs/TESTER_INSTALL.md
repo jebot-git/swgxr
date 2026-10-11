@@ -38,7 +38,7 @@ The bundled `engine/docs/MEDIA_SCOPE.md` documents missing original references t
 
 ## Updates and shortcuts
 
-Use **Check & install updates** or `updates.cmd` / `./updates.sh`. Close the game first. Updates preserve accounts, connection settings and original source archives. When the conversion recipe changes, the next preparation updates local data from those retained sources. The updater itself does not launch the game.
+Use **Check & install updates** or `updates.cmd` / `./updates.sh`. Close the game first. Updates preserve accounts, connection settings and original source archives. When the conversion recipe changes, the next preparation updates local data from those retained sources. The updater itself does not launch the game. From test.15 onward, matching installations use verified incremental bundles from the corresponding `-patches` release tag. A changed or unsupported baseline falls back to the complete client archive. To bootstrap an older launcher without a full download, replace only `update_test_client.py` in the closed client folder with the standalone file from the test.15 patches release, then use the normal Updates shortcut.
 
 Existing test.11 installations can update in place, then choose **Prepare game data…** and supply their original installation or five ISOs once. The old private asset archive alone does not include the new audio banks. The legacy `--asset-archive` import remains available for older distributions.
 

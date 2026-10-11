@@ -44,6 +44,7 @@ func setup(host: Node) -> void:
 		ui.remote_hands_provider = remote_hands
 		ui.inventory_focus_provider=func()->bool:return is_instance_valid(app.inventory) and app.inventory.has_method("blocks_services") and app.inventory.blocks_services()
 		ui.action_requested.connect(request)
+		ui.container_grab_requested.connect(take_container_item)
 		ui.opened.connect(interface_opened)
 		ui.closed.connect(func():
 			if is_instance_valid(app.get("space")):app.space.lobby_closed())
@@ -86,7 +87,7 @@ func blocks_combat() -> bool:
 	return is_instance_valid(ui) and ui.blocks_combat()
 
 func inventory_accessible() -> bool:
-	return is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor"] and not ui.wallet_held
+	return is_instance_valid(ui) and ui.terminal.get("kind","") in ["bazaar","vendor","container"] and not ui.wallet_held
 
 func blocks_inventory() -> bool:
 	return blocks_combat() and not inventory_accessible()
@@ -577,3 +578,35 @@ func services_poll_interval(snapshot: Dictionary) -> float:
 			if not shuttle is Dictionary or not shuttle.get("position") is Array or shuttle.position.size()!=3:continue
 			if world(shuttle.position).distance_to(app.player.global_position)<=40.0:return 1.0
 	return 5.0
+
+func take_container_item(item:Dictionary)->void:
+	var bag:Node3D=app.inventory
+	if busy or not is_instance_valid(bag) or bag.action_pending or not bag.held_item.is_empty():return
+	var epoch_before:int=app.datapad_epoch
+	var destination:=str(app.inventory_snapshot.get("equipped_backpack",{}).get("id","")) if app.inventory_snapshot.get("equipped_backpack") is Dictionary else ""
+	if bag.is_open and not str(bag.ui.container_id).begins_with("@"):destination=str(bag.ui.container_id)
+	if destination.is_empty():destination=str(app.inventory_snapshot.get("inventory",{}).get("id",""))
+	bag.begin_mutation("Taking item from container…")
+	var response:Dictionary=await request("container_transfer",{"terminal_id":str(item.external_anchor_id),"container_id":str(item.external_container_id),"item_id":str(item.id),"destination_id":destination,"direction":"take"})
+	if epoch_before!=app.datapad_epoch:return
+	bag.finish_item_action(false,str(response.get("error","")))
+	if response.get("ok",false) and response.get("mutation",{}).get("success",false):
+		var owned:Dictionary=app.owned_inventory_item(str(item.id))
+		if not owned.is_empty():bag.take_item(owned)
+	else:bag.set_busy(false,str(response.get("error","Transfer unconfirmed. Refresh inventory before retrying.")))
+
+func release_into_container(item:Dictionary,pose:Transform3D)->bool:
+	if not is_instance_valid(ui) or ui.terminal.get("kind","")!="container" or busy:return false
+	var p:Vector3=ui.surface.to_local(pose.origin)
+	if absf(p.x)>ui.PANEL_METERS.x*.6 or absf(p.y)>ui.PANEL_METERS.y*.6 or absf(p.z)>.25:return false
+	var storage:Dictionary=ui.terminal.get("storage",{})
+	if storage.is_empty():return false
+	app.inventory.begin_mutation("Storing item in container…")
+	store_container_item(item,storage)
+	return true
+
+func store_container_item(item:Dictionary,storage:Dictionary)->void:
+	var epoch_before:int=app.datapad_epoch
+	var response:Dictionary=await request("container_transfer",{"terminal_id":str(storage.anchor_id),"container_id":str(storage.inventory.id),"item_id":str(item.id),"direction":"store"})
+	if epoch_before!=app.datapad_epoch:return
+	app.inventory.finish_item_action(response.get("ok",false) and response.get("mutation",{}).get("success",false),str(response.get("error","Transfer unconfirmed. Refresh inventory before retrying.")))

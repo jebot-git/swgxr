@@ -28,6 +28,7 @@ const InventoryAssets = preload("res://scripts/inventory_assets.gd")
 var assets := InventoryAssets.new()
 var world_pickup_provider: Callable
 var external_grab_blocker: Callable
+var external_item_release: Callable
 var external_use_active := false
 var hologram: Node3D
 var loadout_request:Callable
@@ -254,6 +255,7 @@ func update_gestures(tracked: bool, head: Transform3D, hand: Transform3D, off_gr
 		var fresh_release:=not main_grip_armed
 		main_grip_armed=true
 		if not held_item.is_empty() and not action_pending and fresh_release:
+			if external_item_release.is_valid() and bool(external_item_release.call(held_item.duplicate(true),item_hand_pose(item_hand,item_pose))):sync_presentation();return
 			var slot: Dictionary=hologram.highlighted if is_instance_valid(hologram) and hologram.active else {}
 			if not slot.is_empty():
 				if bool(slot.get("available",false)):

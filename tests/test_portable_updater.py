@@ -92,6 +92,69 @@ class UpdaterTests(unittest.TestCase):
             downloads.clear();updater.update(self.root)
             self.assertEqual(downloads,['checks'])
 
+    def test_incremental_reconstruction_and_preservation(self):
+        from tools.client.build_portable_patch import build
+        # An unchanged large engine is absent from the network payload.
+        shutil.copy2(self.root/'engine/godot',self.stage/'engine/godot')
+        for row in self.package['files']:
+            if row['path']=='engine/godot':row['sha256']=updater.sha(self.stage/'engine/godot')
+        (self.stage/'PACKAGE.json').write_text(json.dumps(self.package))
+        result=build(self.root,self.stage,self.base/'patches')
+        extracted=self.base/'delta';extracted.mkdir()
+        files=updater.unpack(Path(result['path']),extracted,delta=True)
+        self.assertNotIn('engine/godot',files)
+        package=updater.prepare_delta(self.root,extracted,'linux-x86_64',files)
+        updater.install(self.root,extracted,package,'test-delta','digest')
+        self.assertEqual((self.root/'client/main.gd').read_bytes(),b'new')
+        self.assertEqual((self.root/'server.json').read_bytes(),b'old')
+        self.assertEqual((self.root/'runtime/assets/original').read_bytes(),b'private')
+
+    def test_incremental_corrupt_unchanged_baseline_rejected(self):
+        from tools.client.build_portable_patch import build
+        result=build(self.root,self.root,self.base/'patches')
+        extracted=self.base/'delta';extracted.mkdir()
+        files=updater.unpack(Path(result['path']),extracted,delta=True)
+        (self.root/'engine/godot').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError,'baseline file differs'):
+            updater.prepare_delta(self.root,extracted,'linux-x86_64',files)
+
+    def test_incremental_payload_checksum_rejected(self):
+        from tools.client.build_portable_patch import build
+        result=build(self.root,self.stage,self.base/'patches')
+        extracted=self.base/'delta';extracted.mkdir()
+        files=updater.unpack(Path(result['path']),extracted,delta=True)
+        (extracted/'client/main.gd').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError,'checksum'):
+            updater.prepare_delta(self.root,extracted,'linux-x86_64',files)
+
+    def test_patch_update_and_corrupt_baseline_full_fallback(self):
+        from tools.client.build_portable_patch import build
+        shutil.copy2(self.root/'engine/godot',self.stage/'engine/godot')
+        for row in self.package['files']:
+            if row['path']=='engine/godot':row['sha256']=updater.sha(self.stage/'engine/godot')
+        (self.stage/'PACKAGE.json').write_text(json.dumps(self.package))
+        result=build(self.root,self.stage,self.base/'patches');delta=Path(result['path'])
+        archive=self.archive();checks=self.base/'checks';checks.write_text(updater.sha(archive)+'  client.tar.gz\n')
+        patch_checks=self.base/'patch-checks';patch_checks.write_text(result['sha256']+'  '+delta.name+'\n')
+        assets={'archive':archive,'checks':checks,'delta':delta,'patch-checks':patch_checks}
+        patch_asset={'name':delta.name,'browser_download_url':'delta','checksums':{'browser_download_url':'patch-checks'}}
+        release=('v2026.10.11-test.15',{'name':'client.tar.gz','browser_download_url':'archive','patches':[patch_asset]},{'browser_download_url':'checks'})
+        clean=self.base/'clean';shutil.copytree(self.root,clean)
+        for corrupt in (False,True):
+            with self.subTest(corrupt=corrupt):
+                if corrupt:
+                    shutil.rmtree(self.root);shutil.copytree(clean,self.root)
+                    (self.root/'engine/godot').write_bytes(b'corrupt')
+                downloaded=[]
+                def download(url,path,maximum=0):downloaded.append(url);shutil.copy2(assets[url],path)
+                with patch.object(updater,'discover',return_value=release),patch.object(updater,'download',side_effect=download):
+                    receipt=updater.update(self.root)
+                self.assertEqual(receipt['incremental'],not corrupt)
+                self.assertEqual('archive' in downloaded,corrupt)
+                self.assertEqual((self.root/'engine/godot').read_bytes(),b'old')
+                self.assertEqual((self.root/'server.json').read_bytes(),b'old')
+                self.assertEqual((self.root/'runtime/assets/original').read_bytes(),b'private')
+
     def test_safe_paths(self):
         for name in ['../a','/a','a/../b','a//b','C:/a','a\\b','']:
             with self.assertRaises(ValueError):updater.safe_name(name)

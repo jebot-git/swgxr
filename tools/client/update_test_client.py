@@ -85,17 +85,29 @@ def discover(target):
         if len(choices)!=1 or 'CHECKSUMS.sha256' not in assets:continue
         for asset in [choices[0],assets['CHECKSUMS.sha256']]:
             if not asset['browser_download_url'].startswith('https://github.com/'+REPOSITORY+'/releases/download/'+release['tag_name']+'/'):raise ValueError('Unexpected release download origin')
-        return release['tag_name'],choices[0],assets['CHECKSUMS.sha256']
+        # Patch assets live under their own tag; full archives remain the fallback.
+        selected=dict(choices[0]);selected['patches']=[]
+        patch_tag=release['tag_name']+'-patches'
+        for patch_release in releases:
+            if patch_release.get('draft') or patch_release.get('tag_name')!=patch_tag:continue
+            patch_assets={a['name']:a for a in patch_release['assets']}
+            if 'CHECKSUMS.sha256' not in patch_assets:continue
+            for name,a in patch_assets.items():
+                if re.fullmatch('patch-'+re.escape(target)+r'-[0-9a-f]{64}\.tar\.gz',name):
+                    origin='https://github.com/'+REPOSITORY+'/releases/download/'+patch_tag+'/'
+                    if not all(x['browser_download_url'].startswith(origin) for x in (a,patch_assets['CHECKSUMS.sha256'])):raise ValueError('Unexpected patch origin')
+                    selected['patches'].append(dict(a,checksums=patch_assets['CHECKSUMS.sha256']))
+        return release['tag_name'],selected,assets['CHECKSUMS.sha256']
     raise ValueError('No complete portable client release is available.')
 
-def unpack(archive,destination):
+def unpack(archive,destination,delta=False):
     seen=set();total=0;roots=set()
     def write(name,size,mode,source):
         nonlocal total
         full=safe_name(name);parts=PurePosixPath(full).parts
         if len(parts)<2:raise ValueError('Expected one package folder')
         roots.add(parts[0]);name='/'.join(parts[1:]);safe_name(name)
-        if len(roots)>1 or name in seen or not (managed(name) or name in PRESERVED):raise ValueError('Unexpected or duplicate update file: '+name)
+        if len(roots)>1 or name in seen or not (managed(name) or name in PRESERVED or (delta and name=='DELTA.json')):raise ValueError('Unexpected or duplicate update file: '+name)
         seen.add(name);total+=size
         if size<0 or total>3*LIMIT or len(seen)>50000:raise ValueError('Expanded update exceeds limit')
         path=destination/name;path.parent.mkdir(parents=True,exist_ok=True)
@@ -128,6 +140,35 @@ def validate(stage,target,extracted):
         if path.stat().st_size!=row['bytes'] or sha(path)!=row['sha256']:raise ValueError('Package file checksum mismatch: '+name)
     if expected!=extracted:raise ValueError('Unlisted files in release')
     return package
+
+def prepare_delta(root,stage,target,extracted):
+    """Reconstruct a complete verified package before touching the installation."""
+    meta=json.loads((stage/'DELTA.json').read_text())
+    if meta.get('schema')!=1 or meta.get('base_package_sha256')!=sha(root/'PACKAGE.json'):
+        raise ValueError('Patch baseline does not match this installation')
+    if meta.get('target_package_sha256')!=sha(stage/'PACKAGE.json'):
+        raise ValueError('Patch target manifest checksum mismatch')
+    package=json.loads((stage/'PACKAGE.json').read_text())
+    listed={safe_name(r['path']) for r in package['files']}|{'PACKAGE.json'}
+    if not extracted<=listed|{'DELTA.json'}:raise ValueError('Unlisted patch payload')
+    for row in package['files']:
+        name=safe_name(row['path'])
+        if not (managed(name) or name in PRESERVED):raise ValueError('Unexpected patch file')
+        if name in extracted:continue
+        source=root/name
+        if source.is_symlink() or any(p.is_symlink() for p in source.parents if p!=root and p.is_relative_to(root)):
+            raise ValueError('Linked patch baseline file: '+name)
+        if not source.is_file() or source.stat().st_size!=row['bytes'] or sha(source)!=row['sha256']:
+            raise ValueError('Patch baseline file differs: '+name)
+        dest=stage/name;dest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,dest)
+    (stage/'DELTA.json').unlink()
+    return validate(stage,target,listed)
+
+def release_checksum(asset,checksums,work):
+    path=work/'CHECKSUMS.sha256';download(checksums['browser_download_url'],path,65536)
+    matches=[line.split()[0] for line in path.read_text().splitlines() if len(line.split())==2 and line.split()[1].lstrip('*')==asset['name']]
+    if len(matches)!=1 or not re.fullmatch('[0-9a-fA-F]{64}',matches[0]):raise ValueError('Missing release checksum')
+    return matches[0].lower()
 
 def ensure_closed(root):
     # Older portable clients have no launcher lock; inspect Linux executables too.
@@ -187,24 +228,38 @@ def update(root):
         installed=receipt.get('version','')
         if installed and tuple(map(int,re.findall(r'\d+',installed)))>tuple(map(int,re.findall(r'\d+',version))):raise ValueError('Refusing release downgrade')
         with tempfile.TemporaryDirectory(prefix='.swgxr-update-',dir=root.parent) as temporary:
-            work=Path(temporary);archive=work/asset['name'];checksum_file=work/'CHECKSUMS.sha256'
-            download(checksums['browser_download_url'],checksum_file,65536)
-            matches=[line.split()[0] for line in checksum_file.read_text().splitlines() if len(line.split())==2 and line.split()[1].lstrip('*')==asset['name']]
-            if len(matches)!=1 or not re.fullmatch('[0-9a-fA-F]{64}',matches[0]):raise ValueError('Missing release checksum')
-            # A release may receive a launcher revision without changing its tag.
-            # Compare the published archive digest before accepting a local receipt.
-            if installed==version and receipt.get('archive_sha256','').lower()==matches[0].lower():
+            work=Path(temporary)
+            full_digest=release_checksum(asset,checksums,work)
+            if installed==version and receipt.get('archive_sha256','').lower()==full_digest:
                 inventory=json.loads((root/'PACKAGE.json').read_text())
                 rows=[r for r in inventory['files'] if managed(safe_name(r['path']))]
                 if all((root/r['path']).is_file() and not (root/r['path']).is_symlink() and sha(root/r['path'])==r['sha256'] for r in rows):
                     print('Already up to date: '+version,flush=True);return receipt
-            print('Downloading '+version+' ('+asset['name']+')…',flush=True);download(asset['browser_download_url'],archive)
-            digest=sha(archive)
-            if digest.lower()!=matches[0].lower():raise ValueError('Release archive checksum mismatch')
-            stage=work/'package';stage.mkdir();files=unpack(archive,stage);package=validate(stage,target,files)
+            patch_name='patch-'+target+'-'+sha(root/'PACKAGE.json')+'.tar.gz'
+            candidates=[p for p in asset.get('patches',[]) if p['name']==patch_name]
+            stage=work/'package';stage.mkdir();package=None;used_patch=False
+            if candidates:
+                patch_asset=candidates[0];archive=work/patch_name
+                digest=release_checksum(patch_asset,patch_asset['checksums'],work)
+                print('Downloading incremental patch for '+version+'…',flush=True)
+                download(patch_asset['browser_download_url'],archive)
+                if sha(archive)!=digest:raise ValueError('Patch archive checksum mismatch')
+                files=unpack(archive,stage,delta=True)
+                try:package=prepare_delta(root,stage,target,files);used_patch=True
+                except ValueError as error:
+                    print(str(error)+'. Downloading complete release to repair the baseline.',flush=True)
+                    shutil.rmtree(stage);stage.mkdir()
+            if package is None:
+                archive=work/asset['name']
+                print('Downloading '+version+' ('+asset['name']+')…',flush=True);download(asset['browser_download_url'],archive)
+                if sha(archive)!=full_digest:raise ValueError('Release archive checksum mismatch')
+                files=unpack(archive,stage);package=validate(stage,target,files)
+            digest=full_digest
             print('Verified. Installing code; keeping assets and connection settings…',flush=True)
             ensure_closed(root)
             receipt=install(root,stage,package,version,digest)
+            receipt['incremental']=used_patch
+            (root/'UPDATE_RECEIPT.json').write_text(json.dumps(receipt,indent=2)+'\n')
             print('Updated to '+version+'. No game was launched.',flush=True)
             return receipt
 

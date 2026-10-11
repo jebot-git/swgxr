@@ -120,6 +120,8 @@ func apply_snapshot(snapshot: Dictionary, observer_position: Vector3) -> void:
 			shuttles.erase(id)
 	keep.clear()
 	for row: Dictionary in snapshot.get("terminals", [])+collector_records(snapshot):
+		# Called droids and house furniture already have authoritative world visuals.
+		if row.get("kind","")=="container" and (row.get("client_object",false) or str(row.get("template","")).begins_with("object/mobile/") or str(row.get("template","")).begins_with("object/creature/") or str(row.get("building_id","0"))!="0"):continue
 		# Trainers reuse the authored ambient/native NPC, never a terminal mesh.
 		if str(row.get("kind", "")) in ["trainer","vendor","recruiter","underworld","herald"]: continue
 		var id := str(row.get("id", ""))

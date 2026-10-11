@@ -1,0 +1,290 @@
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrServices.h
+@@ -4,6 +4,7 @@
+ #include "SwgxrPlanets.h"
+ #include "SwgxrPlayerSummary.h"
+ #include "SwgxrInventory.h"
++#include "SwgxrContainers.h"
+ #include "SwgxrFishing.h"
+ #include "SwgxrHousing.h"
+ #include "SwgxrTrainers.h"
+@@ -39,8 +40,8 @@
+  static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
+  static uint64 oid(const Json& r,const char* k){auto v=r.at(k).get<std::string>();if(v.empty() || v.size()>20 || v.find_first_not_of("0123456789")!=std::string::npos)throw std::runtime_error("invalid_object_id");return std::stoull(v);}
+  static Json pos(SceneObject* o){auto p=o->getWorldPosition();return Json::array({p.getX(),p.getZ(),p.getY()});}
+- static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrShipServices::dealer(o)?"chassis_dealer":SwgxrPilotTrainers::supports(o)?"pilot_trainer":SwgxrHeralds::supports(o)?"herald":SwgxrJtl::starshipTerminal(o)?"starship":SwgxrUnderworld::broker(o)?"underworld":SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":SwgxrGcw::recruiter(o)?"recruiter":!SwgxrTrainers::type(o).empty()?"trainer":"";}
+- static Json terminal(SceneObject* o,CreatureObject* c){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";SwgxrSlicing::describeTerminal(c,o,out);}return out;}
++ static std::string kind(SceneObject* o){int t=o->getGameObjectType();return SwgxrContainers::supports(o)?"container":SwgxrShipServices::dealer(o)?"chassis_dealer":SwgxrPilotTrainers::supports(o)?"pilot_trainer":SwgxrHeralds::supports(o)?"herald":SwgxrJtl::starshipTerminal(o)?"starship":SwgxrUnderworld::broker(o)?"underworld":SwgxrHousing::controlled(o)?"house":o->isVendor()?"vendor":t==SceneObjectType::BANK?"bank":t==SceneObjectType::BAZAAR?"bazaar":o->isMissionTerminal()?"mission":t==SceneObjectType::TRAVELTERMINAL?"travel":o->isCraftingStation()?"crafting":SwgxrGcw::recruiter(o)?"recruiter":!SwgxrTrainers::type(o).empty()?"trainer":"";}
++ static Json terminal(SceneObject* o,CreatureObject* c){auto parent=o->getParent().get();auto root=o->getRootParent();int cell=parent!=nullptr && parent->isCellObject()?static_cast<CellObject*>(parent.get())->getCellNumber():0;Json out={{"id",id(o)},{"kind",kind(o)},{"name",str(o->getDisplayedName())},{"position",pos(o)},{"heading_radians",o->getDirection()->getRadians()+(cell && root!=nullptr?root->getDirection()->getRadians():0)},{"building_id",cell && root!=nullptr?id(root):"0"},{"cell_index",cell},{"client_crc",o->getClientObjectCRC()},{"client_object",o->isClientObject()},{"template",str(o->getObjectTemplate()->getFullTemplateString())}};if(o->isMissionTerminal()){auto t=static_cast<MissionTerminal*>(o);out["terminal_type"]=t->isArtisanTerminal()?"artisan":t->isScoutTerminal()?"scout":t->isGeneralTerminal()?"general":t->isEntertainerTerminal()?"entertainer":t->isBountyTerminal()?"bounty":t->isImperialTerminal()?"imperial":t->isRebelTerminal()?"rebel":t->isNewbieTerminal()?"newbie":"statue";SwgxrSlicing::describeTerminal(c,o,out);}return out;}
+  static ManagedReference<SceneObject*> nearby(CreatureObject* c,const Json& r,const std::string& expected=""){
+   auto t=c->getZoneServer()->getObject(oid(r,"terminal_id"));if(t==nullptr || kind(t).empty() || (!expected.empty() && kind(t)!=expected) || t->getZone()!=c->getZone() || c->getParentID()!=t->getParentID() || !c->isInRange(t,kind(t)=="mission"?6:kind(t)=="crafting"?7:8))throw std::runtime_error("terminal_type_cell_or_distance");if(kind(t)=="trainer")SwgxrTrainers::validate(c,t);return t;
+  }
+@@ -87,7 +88,7 @@
+   auto cell=c->getParent().get();if(cell!=nullptr && cell->isCellObject())for(int i=0;i<cell->getContainerObjectsSize();++i)objects.put(cell->getContainerObject(i));
+   for(int i=0;i<objects.size() && out["terminals"].size()<128;++i){auto o=static_cast<SceneObject*>(objects.get(i));if(!kind(o).empty()){auto entry=terminal(o,c);if(kind(o)=="trainer"){entry["trainer_type"]=SwgxrTrainers::type(o);entry["profession"]=SwgxrTrainers::type(o).substr(8);}if(kind(o)=="recruiter"){entry["can_salute"]=SwgxrGcw::canToggle(c,o) && c->isInRange(o,3) && c->getParentID()==o->getParentID() && CollisionManager::checkLineOfSight(o,c);entry["faction"]=SwgxrGcw::faction(o->asCreatureObject());out["gcw"]["recruiters"].push_back(entry);}out["terminals"].push_back(entry);}}
+   auto travel=Json::parse(c->getZone()->getPlanetManager()->swgxrServicesTravel(c).toCharArray());out["tickets"]=tickets(c,travel);out["shuttle"]=travel.value("shuttle",Json::object());
+-  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t,c);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);view["search_scope"]=r.value("search_scope",std::string("galaxy"));}else if(k=="chassis_dealer")SwgxrShipServices::describeDealer(c,view);else if(k=="pilot_trainer")SwgxrPilotTrainers::describe(c,t,view);else if(k=="herald")SwgxrHeralds::describe(c,t,view);else if(k=="underworld")SwgxrUnderworld::describe(c,t,view);else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="recruiter"){SwgxrGcw::validate(c,t);SwgxrGcw::describe(c,t,view);}else if(k=="starship"){SwgxrJtl::provision(c);auto state=SwgxrJtl::snapshot(c);view["ships"]=state["ships"];view["jtl"]=state;if(r.contains("ship_id") && r.value("action",std::string()).rfind("ship_",0)==0)SwgxrShipServices::describeComponents(c,r,view);}else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
++  if(r.contains("terminal_id")){auto t=nearby(c,r);auto view=terminal(t,c);auto k=kind(t);if(k=="bazaar" || k=="vendor"){view["listings"]=listings(c,r);view["has_more"]=view["listings"].size()>100;if(view["listings"].size()>100)view["listings"].erase(view["listings"].begin()+100);view["page"]=r.value("page",0);view["category_id"]=r.value("category_id",0);view["search_scope"]=r.value("search_scope",std::string("galaxy"));}else if(k=="container")view["storage"]=SwgxrContainers::snapshot(c,t,r);else if(k=="chassis_dealer")SwgxrShipServices::describeDealer(c,view);else if(k=="pilot_trainer")SwgxrPilotTrainers::describe(c,t,view);else if(k=="herald")SwgxrHeralds::describe(c,t,view);else if(k=="underworld")SwgxrUnderworld::describe(c,t,view);else if(k=="house")SwgxrHousing::describe(c,t,view);else if(k=="trainer")SwgxrTrainers::describe(c,t,view);else if(k=="recruiter"){SwgxrGcw::validate(c,t);SwgxrGcw::describe(c,t,view);}else if(k=="starship"){SwgxrJtl::provision(c);auto state=SwgxrJtl::snapshot(c);view["ships"]=state["ships"];view["jtl"]=state;if(r.contains("ship_id") && r.value("action",std::string()).rfind("ship_",0)==0)SwgxrShipServices::describeComponents(c,r,view);}else if(k=="mission")view["missions"]=missions(c,false);else if(k=="travel"){view["destinations"]=travel["destinations"];view["departure"]=travel.value("departure",std::string());auto city=c->getCityRegion().get();int tax=city!=nullptr && !city->isClientRegion()?city->getTravelTax():0;for(auto& d:view["destinations"])d["price"]=d["price"].get<int>()+tax;}
+    else if(k=="crafting"){auto station=static_cast<CraftingStation*>(t.get());view["station_type"]=station->getStationType();view["complexity"]=station->getComplexityLevel();view["tools"]=Json::array();auto inv=c->getInventory();if(inv!=nullptr)for(int i=0;i<inv->getContainerObjectsSize();++i){auto o=inv->getContainerObject(i);if(o->isCraftingTool()){auto tool=static_cast<CraftingTool*>(o.get());auto compatible=c->getZoneServer()->getPlayerManager()->getNearbyCraftingStation(c,tool->getToolType());if(compatible==t)view["tools"].push_back(Json{{"id",id(tool)},{"name",str(tool->getDisplayedName())},{"template",str(tool->getObjectTemplate()->getFullTemplateString())},{"client_crc",tool->getClientObjectCRC()}});}}}
+    out["terminal"]=view;
+   }return out;
+@@ -96,11 +97,12 @@
+   if(r.value("action",std::string()).rfind("house_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrHousing::run(c,r);out["player"]=location(c);out["zone"]=SwgxrPlanets::name(c);if(r.contains("terminal_id")){auto complete=snapshot(c,r);for(auto& entry:out.items())complete[entry.key()]=entry.value();return complete;}return out;}
+   if(r.value("action",std::string()).rfind("fishing_",0)==0){SwgxrPlanets::require(c,r);auto out=SwgxrFishing::run(c,r);out["player"]=location(c);return out;}
+   SwgxrPlanets::require(c,r);auto action=r.value("action",std::string("status"));auto key=r.value("request_id",std::string());bool mutation=action!="slicing_status" && action!="status" && action!="open" && action!="delivery_open";auto ghost=c->getPlayerObject();Json receipts=Json::array();auto saved=ghost->getScreenPlayData("swgxr_services","receipts");if(!saved.isEmpty())receipts=Json::parse(saved.toCharArray());
+-  Json receiptRequest=r;if(action.rfind("bounty_",0)==0)for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
+-  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());if(action.rfind("ship_",0)==0 || action.rfind("pilot_",0)==0 || action.rfind("herald_",0)==0){try{out=snapshot(c,r);}catch(const std::exception&){}}out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
++  Json receiptRequest=r;if(action=="container_transfer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("bounty_",0)==0)for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action.rfind("slicing_",0)==0)for(auto field:{"position","building_id","cell_index","zone"})receiptRequest.erase(field);if(action=="underworld_accept" || action=="pay" || action.rfind("recruiter_",0)==0 || action=="contraband_answer")for(auto field:{"position","building_id","cell_index","heading_radians","zone"})receiptRequest.erase(field);if(action=="delivery_pickup" || action=="delivery_complete" || action=="vendor_customize" || action=="vendor_recover" || action=="vendor_sell" || action=="bazaar_sell")for(auto field:{"position","building_id","cell_index","heading_radians","terminal_id"})if(std::string(field)!="terminal_id" || (action!="vendor_sell" && action!="bazaar_sell"))receiptRequest.erase(field);
++  if(mutation){if(key.size()<8 || key.size()>64)throw std::runtime_error("request_id_required");for(auto& entry:receipts)if(entry["id"]==key){if(entry["request"]!=receiptRequest)throw std::runtime_error("request_id_reused");auto out=snapshot(c,Json::object());if(action.rfind("ship_",0)==0 || action.rfind("pilot_",0)==0 || action.rfind("herald_",0)==0 || action=="container_transfer"){try{out=snapshot(c,r);}catch(const std::exception&){}}out["mutation"]=entry["mutation"];out["mutation"]["replayed"]=true;if(action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete")out["inventory"]=SwgxrInventory::snapshot(c);return out;}}
+   move(c,r);Json result={{"success",true},{"operation",action},{"request_id",key}};if(action!="status" && action!="slicing_status" && action!="slicing_cancel" && (c->isDead() || c->isIncapacitated() || c->hasBuff(STRING_HASHCODE("private_feign_buff")) || c->isInCombat()))throw std::runtime_error("native_player_unavailable");
+   if(action.rfind("slicing_",0)==0){auto changed=SwgxrSlicing::run(c,r);for(auto& field:changed.items())result[field.key()]=field.value();}
+-  else if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
++  else if(action=="open" || action=="mission_refresh"){auto t=nearby(c,r);if(kind(t)=="container")SwgxrContainers::open(c,t,r);if(kind(t)=="mission"){auto previous=ghost->getScreenPlayData("swgxr_services","mission_terminal");if(action=="mission_refresh" || previous!=String(id(t).c_str()) || missions(c,false).empty()){auto terminal=static_cast<MissionTerminal*>(t.get());if(terminal->isStatueTerminal() || terminal->isNewbieTerminal())throw std::runtime_error("This original mission terminal is disabled");if(terminal->isBountyTerminal() && !c->hasSkill("combat_bountyhunter_novice"))throw std::runtime_error("Novice Bounty Hunter is required for this terminal");if(!c->checkCooldownRecovery("mission_list_request"))throw std::runtime_error("Mission list is refreshing; retry shortly");auto bag=c->getSlottedObject("mission_bag");if(bag==nullptr)throw std::runtime_error("Native mission container is missing");int counter=System::random(1000000000);c->getZoneServer()->getMissionManager()->handleMissionListRequest(terminal,c,counter);bool refreshed=false;for(int i=0;i<bag->getContainerObjectsSize();++i){auto m=bag->getContainerObject(i).castTo<MissionObject*>();if(m!=nullptr && m->getRefreshCounter()==counter)refreshed=true;}if(!refreshed)throw std::runtime_error("Core3 did not generate offers for this terminal; check profession and city access");ghost->setScreenPlayData("swgxr_services","mission_terminal",String(id(t).c_str()));}}}
++  else if(action=="container_transfer"){SwgxrContainers::transfer(c,nearby(c,r,"container"),r);}
+   else if(action=="ship_manage" || action=="ship_component_install" || action=="ship_component_remove" || action=="ship_chassis_redeem" || action=="ship_register"){SwgxrShipServices::run(c,nearby(c,r),r);}
+   else if(action=="herald_begin" || action=="herald_choose"){result["conversation"]=SwgxrHeralds::run(c,nearby(c,r,"herald"),r);}
+   else if(action=="pilot_begin" || action=="pilot_choose"){auto view=SwgxrPilotTrainers::run(c,nearby(c,r,"pilot_trainer"),r);result["conversation"]=view;}
+@@ -124,7 +126,7 @@
+   else if(action=="travel_board"){auto ticket=c->getZoneServer()->getObject(oid(r,"ticket_id")).castTo<TicketObject*>();if(ticket==nullptr || !ticket->isASubChildOf(c) || (!SwgxrPlanets::supported(ticket->getArrivalPlanet()) || c->getZoneServer()->getZone(ticket->getArrivalPlanet())==nullptr))throw std::runtime_error("owned_renderable_ticket_required");auto departure=c->getZone()->getPlanetManager()->getNearestPlanetTravelPoint(c,128);if(departure==nullptr || !departure->isPoint(ticket->getDeparturePlanet(),ticket->getDeparturePoint()) || ticket->getParent().get()!=c->getInventory())throw std::runtime_error("ticket_departure_mismatch");command(c,"boardshuttle",ticket->getObjectID());if(ticket->isASubChildOf(c))throw std::runtime_error("native_boarding_did_not_consume_ticket");result["transport_destination"]=location(c);}
+   else if(action!="status")throw std::runtime_error("unknown_services_action");
+   if(mutation){receipts.push_back({{"id",key},{"request",receiptRequest},{"mutation",result}});while(receipts.size()>64)receipts.erase(receipts.begin());ghost->setScreenPlayData("swgxr_services","receipts",String(receipts.dump().c_str()));c->updateToDatabaseAllObjects(false);}
+-  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
++  auto viewRequest=r;if(action=="travel_board" || action=="delivery_open" || action=="delivery_pickup" || action=="delivery_complete")viewRequest.erase("terminal_id");auto out=snapshot(c,viewRequest);out["mutation"]=result;if(action=="container_transfer" || action.rfind("ship_",0)==0 || action.rfind("bounty_",0)==0 || action.rfind("slicing_",0)==0 || action=="recruiter_purchase" || action=="contraband_answer" || action=="vendor_retrieve" || action=="vendor_recover" || action=="vendor_customize" || action=="vendor_sell" || action=="bazaar_sell" || action=="vendor_place" || action=="mission_abort" || action=="delivery_pickup" || action=="delivery_complete" || action=="bazaar_retrieve" || action=="crafting_station" || action=="travel_purchase" || action=="travel_board")out["inventory"]=SwgxrInventory::snapshot(c);return out;
+  }
+ };
+ #endif
+--- /dev/null
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrContainers.h
+@@ -0,0 +1,71 @@
++#ifndef SWGXR_CONTAINERS_H
++#define SWGXR_CONTAINERS_H
++#include "SwgxrInventory.h"
++#include "server/zone/objects/tangible/Container.h"
++#include "server/zone/objects/creature/ai/DroidObject.h"
++#include "server/zone/objects/scene/variables/ContainerPermissions.h"
++#include "server/zone/managers/collision/CollisionManager.h"
++// Native containers only. Scenery without server storage is not made lootable.
++class SwgxrContainers {
++ using Json=JSONSerializationType;
++ static std::string id(SceneObject* o){return o?std::to_string(o->getObjectID()):"0";}
++ static bool volume(SceneObject* o){return o && (o->getContainerType()==ContainerType::VOLUME || o->getContainerType()==ContainerType::GENERIC) && o->getContainerVolumeLimit()>0 && !o->isCraftingTool() && !o->isCraftingStation() && !o->isFactoryCrate() && !o->isResourceContainer() && !o->isCreatureObject() && !o->isBuildingObject() && !o->isCellObject() && !o->isInstallationObject() && !o->isTerminal();}
++ static void permission(CreatureObject* c,SceneObject* o){
++  auto box=dynamic_cast<Container*>(o);if(box && box->isContainerLocked())throw std::runtime_error("Container is locked");
++  if(!o->checkContainerPermission(c,ContainerPermissions::OPEN))throw std::runtime_error("Container access denied");
++ }
++public:
++ static SceneObject* root(SceneObject* o){
++  if(o && o->isDroidObject()){
++   auto d=static_cast<DroidObject*>(o);if(!d->getModule("item_storage_module"))return nullptr;
++   return d->getSlottedObject("inventory");
++  }
++  auto p=o?o->getParent().get():nullptr;
++  return volume(o) && (!p || p->isCellObject())?o:nullptr;
++ }
++ static bool supports(SceneObject* o){return root(o)!=nullptr;}
++ static SceneObject* selected(CreatureObject* c,SceneObject* anchor,const Json& r){
++  auto storage=root(anchor);if(!storage || anchor->getZone()!=c->getZone() || anchor->getParentID()!=c->getParentID() || !c->isInRange(anchor,3) || !CollisionManager::checkLineOfSight(c,anchor) || c->isDead() || c->isIncapacitated())throw std::runtime_error("Container is out of reach");
++  if(anchor->isDroidObject()){
++   auto d=static_cast<DroidObject*>(anchor);if(d->isDead() || d->isIncapacitated() || d->getLinkedCreature().get()!=c)throw std::runtime_error("Called owned storage droid required");
++  }
++  permission(c,storage);
++  auto key=r.value("container_id",id(storage));auto o=c->getZoneServer()->getObject(std::stoull(key));
++  if(!o || !volume(o) || (o!=storage && !o->isASubChildOf(storage)))throw std::runtime_error("Container is outside selected storage");
++  ManagedReference<SceneObject*> current=o;bool reached=false;
++  for(int depth=0;current && depth<=8;++depth){permission(c,current);if(current==storage){reached=true;break;}current=current->getParent().get();}
++  if(!reached)throw std::runtime_error("Container depth exceeds limit");return o;
++ }
++ static void open(CreatureObject* c,SceneObject* anchor,const Json& r){
++  auto o=selected(c,anchor,r);auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("opencontainer");
++  if(!cmd || cmd->doQueueCommand(c,o->getObjectID(),UnicodeString())!=QueueCommand::SUCCESS)throw std::runtime_error("Native container could not be opened");
++ }
++ static Json snapshot(CreatureObject* c,SceneObject* anchor,const Json& r){
++  auto o=selected(c,anchor,r);Locker lock(o,c);permission(c,o);
++  if(o->getContainerObjectsSize()>256)throw std::runtime_error("Container snapshot exceeds item limit");
++  Json items=Json::array(),ids=Json::array();
++  for(int i=0;i<o->getContainerObjectsSize();++i){auto child=o->getContainerObject(i);if(!child)continue;
++   auto row=SwgxrInventory::describe(child,c);row["external_container_id"]=id(o);row["external_anchor_id"]=id(anchor);row["split_supported"]=false;row["split_available"]=false;row["equipped"]=false;row["consume_available"]=false;
++   items.push_back(row);ids.push_back(id(child));child->sendAttributeListTo(c);
++  }
++  Json bag={{"id",id(o)},{"parent_id",o==root(anchor)?id(o):id(o->getParent().get())},{"capacity",o->getContainerVolumeLimit()},{"occupied",o->getCountableObjectsRecursive()},{"direct_count",ids.size()},{"depth",0},{"item_ids",ids}};
++  return {{"source_kind","core3_inventory"},{"character_id",id(c)},{"external",true},{"anchor_id",id(anchor)},{"root_id",id(root(anchor))},{"inventory",bag},{"containers",Json::array({bag})},{"items",items},{"equipment",Json::array()},{"equipped_backpack",nullptr}};
++ }
++ static void transfer(CreatureObject* c,SceneObject* anchor,const Json& r){
++  auto container=selected(c,anchor,r);auto item=c->getZoneServer()->getObject(std::stoull(r.at("item_id").get<std::string>()));
++  if(!item)throw std::runtime_error("Item no longer exists");Locker itemLock(item,c);
++  SceneObject* destination=nullptr;
++  if(r.at("direction")=="take"){
++   if(item->getParent().get()!=container)throw std::runtime_error("Container item has moved");
++   auto bag=c->getZoneServer()->getObject(std::stoull(r.at("destination_id").get<std::string>()));
++   if(!volume(bag) || (bag!=c->getInventory() && !SwgxrEquipment::inInventory(bag,c) && !(bag->isWearableContainerObject() && bag->getParent().get()==c)))throw std::runtime_error("Owned backpack or inventory destination required");
++   destination=bag;
++  }else if(r.at("direction")=="store"){
++   if(!SwgxrEquipment::inInventory(item,c))throw std::runtime_error("Owned inventory item required");destination=container;
++  }else throw std::runtime_error("Invalid container transfer direction");
++  auto cmd=c->getZoneServer()->getObjectController()->getQueueCommand("transferitemmisc");auto args=id(destination)+" -1 0 0 0";
++  if(!cmd || cmd->doQueueCommand(c,item->getObjectID(),UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS || item->getParent().get()!=destination)throw std::runtime_error("Native container transfer rejected: permission, item type or capacity");
++  item->updateToDatabaseAllObjects(false);
++ }
++};
++#endif
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPets.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrPets.h
+@@ -2,6 +2,7 @@
+ #define SWGXR_PETS_H
+ #include "server/zone/objects/intangible/PetControlDevice.h"
+ #include "server/zone/objects/creature/ai/AiAgent.h"
++#include "server/zone/objects/creature/ai/DroidObject.h"
+ #include "server/zone/managers/creature/PetManager.h"
+ #include "server/zone/managers/collision/CollisionManager.h"
+ #include "templates/creature/SharedCreatureObjectTemplate.h"
+@@ -28,13 +29,16 @@
+    {17,"Recharge droid","petrechargeother","droid","",false},{18,"Transfer ownership","pettransfer","player","",false},
+    {19,"Repair droid","petrepair","droid","",false},{20,"Throw trap","petthrow","hostile","",false},
+    {21,"Harvest","petharvest","corpse","owner",false},{22,"Mark patrol point here","petgetpatrolpoint","","",true},
+-   {23,"Clear patrol points","petclearpatrolpoints","","",true}};
++   {23,"Clear patrol points","petclearpatrolpoints","","",true},{24,"Recharge from battery","petrecharge","","",true}};
+   return all;
+  }
+  static const Command& definition(int id){for(auto& entry:definitions())if(entry.id==id)return entry;throw std::runtime_error("Unknown pet command");}
+  static bool supports(PetControlDevice* device,const Command& entry){
+-  if(!device->hasTrainedCommand(entry.id))return false;
++  // Chassis recharge actions are direct XR interactions, independent of voice aliases.
++  if(entry.id!=17 && entry.id!=24 && !device->hasTrainedCommand(entry.id))return false;
+   auto pet=device->getControlledObject();if(pet==nullptr)return false;
++  if(entry.id==24 && !pet->isDroidObject())return false;
++  if(entry.id==17 && (!pet->isDroidObject() || !static_cast<DroidObject*>(pet)->isPowerDroid()))return false;
+   if(entry.id==18 && device->getPetType()!=PetManager::CREATUREPET)return false;
+   if((entry.id==17 || entry.id==19 || entry.id==20 || entry.id==21) && !pet->asCreatureObject()->isDroidObject())return false;
+   return pet->getZoneServer()->getObjectController()->getQueueCommand(entry.name)!=nullptr;
+@@ -93,7 +97,7 @@
+  static Json commands(PetControlDevice* device){
+   Json out=Json::array();if(!supported(device))return out;
+ 
+-  for(auto& e:definitions())if(supports(device,e))out.push_back({{"id","pet_"+std::to_string(e.id)},{"command_id",e.id},{"label",e.label},{"source_command",(e.id==1 || e.id==4 || e.id==6)?"follow":e.id==2?"store":e.id==16?"stopfollow":(e.id==10 || e.id==11)?"formation":(e.id==5 || e.id==15)?"group":e.id==21?"harvestcorpse":(e.id==17 || e.id==19)?"vrepairother":"animalattack"},{"target_kind",e.target},{"requires_target",std::string(e.target)!=""},{"range_m",64}});
++  for(auto& e:definitions())if(supports(device,e))out.push_back({{"id","pet_"+std::to_string(e.id)},{"command_id",e.id},{"label",e.label},{"source_command",(e.id==1 || e.id==4 || e.id==6)?"follow":e.id==2?"store":e.id==16?"stopfollow":(e.id==10 || e.id==11)?"formation":(e.id==5 || e.id==15)?"group":e.id==21?"harvestcorpse":(e.id==17 || e.id==19 || e.id==24)?"vrepairother":"animalattack"},{"target_kind",e.target},{"requires_target",std::string(e.target)!=""},{"range_m",e.id==17?30:64}});
+   return out;
+  }
+  static void execute(CreatureObject* owner,const Json& q,Json& mutation){
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/SwgxrVehicles.h
+@@ -227,7 +227,7 @@
+   }
+   if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["pet_datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isPetControlDevice())continue;
+    auto device=static_cast<PetControlDevice*>(item.get());auto object=device->getControlledObject();if(!object || !object->isCreatureObject() || !SwgxrPets::supported(device))continue;
+-   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);row["creature_handler"]=SwgxrCreatureHandler::petState(c,device);auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
++   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);row["creature_handler"]=SwgxrCreatureHandler::petState(c,device);if(pet->isDroidObject()){auto d=static_cast<DroidObject*>(pet);row["power_droid"]=d->isPowerDroid();row["has_power"]=d->hasPower();row["storage_available"]=d->getModule("item_storage_module")!=nullptr;}auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
+    if(pet->getZone()==c->getZone() && c->isInRange(pet,128))out["pets"].push_back(row);
+   }
+   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/pet/PetRechargeCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/pet/PetRechargeCommand.h
+@@ -32,7 +32,8 @@
+ 
+ 		// Recharge
+ 		Locker plocker(player, creature);
+-		droidPet->rechargeFromBattery(player);
++		if (!droidPet->isInRange(player, 8) || !CollisionManager::checkLineOfSight(player, droidPet) || droidPet->rechargeFromBattery(player) != 1)
++			return GENERALERROR;
+ 
+ 		return SUCCESS;
+ 	}
+--- a/MMOCoreORB/src/server/zone/objects/creature/commands/pet/PetRechargeOtherCommand.h
++++ b/MMOCoreORB/src/server/zone/objects/creature/commands/pet/PetRechargeOtherCommand.h
+@@ -22,7 +22,7 @@
+ 
+ 		ManagedReference<DroidObject*> droidPet = cast<DroidObject*>(creature);
+ 
+-		if (droidPet == nullptr)
++		if (droidPet == nullptr || !droidPet->isPowerDroid() || droidPet->isDead() || droidPet->isIncapacitated())
+ 			return GENERALERROR;
+ 
+ 		// Target must be a droid
+@@ -34,7 +34,7 @@
+ 		}
+ 
+ 		// Check range between droids
+-		if (!checkDistance(droidPet, targetDroid, 30.0f)) {						  // Same range as auto-repair
++		if (!checkDistance(droidPet, targetDroid, 30.0f) || droidPet->getParentID() != targetDroid->getParentID() || !CollisionManager::checkLineOfSight(droidPet, targetDroid)) {						  // Same range as auto-repair
+ 			droidPet->showFlyText("npc_reaction/flytext", "confused", 204, 0, 0); // "?!!?!?!"
+ 			return GENERALERROR;
+ 		}
+--- a/MMOCoreORB/src/server/zone/objects/creature/ai/DroidObjectImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/creature/ai/DroidObjectImplementation.cpp
+@@ -1,3 +1,4 @@
++#include <functional>
+ /*
+ 				Copyright <SWGEmu>
+ 		See file COPYING for copying conditions. */
+@@ -139,11 +140,19 @@
+ 	}
+ 
+ 	ManagedReference<SceneObject*> batterySceno = nullptr;
+-	for (int i = 0; i < inventory->getContainerObjectsSize(); ++i) {
+-		ManagedReference<SceneObject*> sceno = inventory->getContainerObject(i);
+-		if (sceno->getObjectTemplate()->getFullTemplateString() == "object/tangible/droid_battery/battery.iff") {
+-			batterySceno = sceno;
+-		}
++	// Search carried bags as well as the top-level inventory, never bank/datapad.
++	std::function<void(SceneObject*, int)> findBattery = [&](SceneObject* bag, int depth) {
++		if (!bag || depth > 8 || batterySceno) return;
++		for (int i = 0; i < bag->getContainerObjectsSize() && !batterySceno; ++i) {
++			auto item = bag->getContainerObject(i);
++			if (item->getObjectTemplate()->getFullTemplateString() == "object/tangible/droid_battery/battery.iff" && item->isTangibleObject() && item->asTangibleObject()->getUseCount() > 0) batterySceno = item;
++			else if (item->getContainerVolumeLimit() > 0) findBattery(item, depth + 1);
++		}
++	};
++	findBattery(inventory, 0);
++	for (int i = 0; i < player->getSlottedObjectsSize() && !batterySceno; ++i) {
++		auto bag = player->getSlottedObject(i);
++		if (bag && bag->isWearableContainerObject()) findBattery(bag, 0);
+ 	}
+ 
+ 	// Battery not found
+@@ -159,19 +168,21 @@
+ 		return 0;
+ 	}
+ 
++	Locker locker(batteryTano, player);
++	if (!batteryTano->isASubChildOf(player) || batteryTano->getUseCount() <= 0) return 0;
++
+ 	// Reset power to max and heal droid's BF
+ 	power = MAX_POWER;
+ 	int droidsbf = getShockWounds();
+ 	addShockWounds(-droidsbf, true, false);
+ 
+ 	// Consume battery
+-	Locker locker(batteryTano);
+ 
+ 	batteryTano->decreaseUseCount();
+ 
+ 	showFlyText("npc_reaction/flytext","recharged", 0, 153, 0);  // "*Recharged*"
+ 	doAnimation("power_up");
+-	return 0;
++	return 1;
+ }
+ 
+ void DroidObjectImplementation::rechargeFromDroid() {
+--- a/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
++++ b/MMOCoreORB/src/client/actions/ZoneInCharacterAction.cpp
+@@ -224,6 +224,9 @@
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["scout_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }if((input.value("action",std::string())=="services" || input.value("action",std::string())=="crafting" || input.value("action",std::string())=="vehicles" || input.value("action",std::string())=="gathering" || input.value("action",std::string())=="inventory") && reply.contains("mutation")){
+                          auto inventory=reply["mutation"].value("inventory",JSONSerializationType::object());reply["service_attributes"]=JSONSerializationType::object();
++                         auto storage=reply["mutation"].value("terminal",JSONSerializationType::object()).value("storage",JSONSerializationType::object());
++                         for(auto& item:storage.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
++
+                          for(auto& item:inventory.value("items",JSONSerializationType::array())){auto key="o"+item.at("id").get<std::string>();reply["service_attributes"][key]=core.getVar<JSONSerializationType>(String(("weaponAttributes/"+key).c_str()),JSONSerializationType::object());}
+                      }if(input.value("action",std::string())=="gathering" && reply.contains("mutation")){
+                        auto state=reply["mutation"].value("state",JSONSerializationType::object());JSONSerializationType items=JSONSerializationType::array();for(auto key:{"tool","hip_tool"})if(state.contains(key) && state[key].is_object())items.push_back(state[key]);for(auto& dep:state.value("deployments",JSONSerializationType::array()))items.push_back(dep["tool"]);
+--- a/MMOCoreORB/src/server/zone/objects/intangible/PetControlDeviceImplementation.cpp
++++ b/MMOCoreORB/src/server/zone/objects/intangible/PetControlDeviceImplementation.cpp
+@@ -284,7 +284,8 @@
+ 					player->sendSystemMessage("@pet/pet_menu:at_max"); // You already have the maximum number of pets of this type that you can call.
+ 					return;
+ 				}
+-			} else if (object->isDroidObject() && petType == PetManager::DROIDPET) {
++			} else if (object->isDroidObject() && !object->isHelperDroidObject() && petType == PetManager::DROIDPET) {
++				// The automatic tutorial helper has its own pet type and is not a crafted companion slot.
+ 				if (++currentlySpawned >= maxPets) {
+ 					player->sendSystemMessage("@pet/pet_menu:at_max"); // You already have the maximum number of pets of this type that you can call.
+ 					return;

@@ -6,7 +6,7 @@ class PetCommands(unittest.TestCase):
  def body(self, number=1, **extra):
   return dict(device_id='123',command_id=number,request_id='pet_command_001',**extra)
  def test_command_range_and_identity(self):
-  for number in [0,24,True,1.5,'1',None]:
+  for number in [0,25,True,1.5,'1',None]:
    with self.subTest(number=number),self.assertRaises(ValueError):command('pet_command',self.body(number))
   for key in ['device_id','request_id']:
    body=self.body();body.pop(key)
@@ -18,7 +18,7 @@ class PetCommands(unittest.TestCase):
     for target in [None,'','0',456,'-1',str(2**64),'１２３']:
      with self.assertRaises(ValueError):command('pet_command',self.body(number,target_id=target))
  def test_untargeted_commands_never_adopt_weapon_target(self):
-  for number in (1,2,7,8,9,10,11,14,15,16,22,23):
+  for number in (1,2,7,8,9,10,11,14,15,16,22,23,24):
    self.assertNotIn('target_id',command('pet_command',self.body(number)))
    with self.assertRaises(ValueError):command('pet_command',self.body(number,target_id='456'))
  def test_recovery_still_requires_two_hand_evidence(self):

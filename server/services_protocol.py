@@ -23,7 +23,7 @@ except ImportError:
  from datapad_protocol import display,template_label
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
-ACTIONS=('status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
+ACTIONS=('container_transfer','status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
 ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
 MUTATIONS=set(ACTIONS)-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
@@ -51,6 +51,7 @@ def command(action,data):
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<=int(v)<2**64 or type(ci) is not int or not 0<=ci<=256 or ((int(v)==0)!=(ci==0)):raise ValueError('Valid source building and cell required.')
   out.update(building_id=v,cell_index=ci)
  required={
+  'container_transfer':('terminal_id','container_id','item_id'),
   'ship_manage':('terminal_id','ship_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
   'pilot_begin':('terminal_id',),'pilot_choose':('terminal_id',),'herald_begin':('terminal_id',),'herald_choose':('terminal_id',),
   'underworld_accept':('terminal_id',),
@@ -65,6 +66,14 @@ def command(action,data):
   v=data.get(k)
   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+k)
   out[k]=v
+ if action=='container_transfer' or (action=='open' and 'container_id' in data):
+  for field in (('container_id','destination_id') if action=='container_transfer' and data.get('direction')=='take' else ('container_id',)):
+   v=data.get(field)
+   if not isinstance(v,str) or not v.isascii() or not v.isdigit() or not 0<int(v)<2**64:raise ValueError('Invalid native '+field)
+   out[field]=v
+  if action=='container_transfer':
+   if data.get('direction') not in ('take','store'):raise ValueError('Choose take or store.')
+   out['direction']=data['direction']
  if action in ('ship_component_install','ship_component_remove'):
   slot=data.get('slot')
   if type(slot) is not int or not 0<=slot<=19:raise ValueError('Original ship component slot required.')
@@ -231,6 +240,10 @@ def snapshot(raw,oid,attributes=None):
   parcel.update(category='data',type='mission_parcel',deletable=False,source='core3_delivery_objective')
  if 'dialogue' in mutation:mutation['dialogue']=label(mutation['dialogue'])
  if state.get('terminal',{}).get('kind')=='mission':state['terminal'].setdefault('missions',[]).extend(deepcopy(state.get('missions',[])))
+ if state.get('terminal',{}).get('storage'):
+  storage=state['terminal']['storage']
+  if not storage.get('external') or storage.get('anchor_id')!=state['terminal']['id']:raise ValueError('Native external storage context required.')
+  state['terminal']['storage']=inventory_snapshot({'variables':{'inventory':storage,'weaponAttributes':attributes or {}}},oid)
  if state.get('inventory'):state['inventory']=inventory_snapshot({'variables':{'inventory':state['inventory'],'weaponAttributes':attributes or {}}},oid)
  if 'housing' in state:
   owned={item['id']:item for item in state.get('inventory',{}).get('items',[])}

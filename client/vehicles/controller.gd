@@ -84,11 +84,11 @@ func native_session() -> Node:
 	if is_instance_valid(app.live_combat) and app.live_combat.live:return app.live_combat
 	var gameplay:Variant=app.get("gameplay_session")
 	return gameplay if is_instance_valid(gameplay) and bool(gameplay.get("live")) else null
-func request(action: String,detail: Dictionary={})->void:
+func request(action: String,detail: Dictionary={})->Dictionary:
 	if busy:
 		if action not in ["status","ch_status"]: status="Vehicle request in progress. Try again shortly."
-		return
-	if app.datapad_character_id.is_empty(): return
+		return {}
+	if app.datapad_character_id.is_empty(): return {}
 	busy=true;var generation: int=app.datapad_epoch
 	var source: Vector3=app.source_position_at(body.global_position)
 	var payload: Dictionary={"account":app.datapad_account,"character_id":app.datapad_character_id,"position":[source.x,source.y,source.z],"building_id":"0","cell_index":0}
@@ -100,7 +100,7 @@ func request(action: String,detail: Dictionary={})->void:
 	payload.merge(detail,true)
 	var result: Dictionary=await app.api(HTTPClient.METHOD_POST,"/vehicles/"+action,payload)
 	busy=false
-	if generation!=app.datapad_epoch:return
+	if generation!=app.datapad_epoch:return {}
 	if result.get("ok",false) and result.get("state",{}).get("source_kind","")=="core3_vehicles" and str(result.state.get("character_id",""))==app.datapad_character_id:
 		var was_seated:=seated();observe(result.state)
 		var mutation: Dictionary=result.get("mutation",{})
@@ -116,6 +116,7 @@ func request(action: String,detail: Dictionary={})->void:
 	else:status=str(result.get("error",result.get("mutation",{}).get("error_code","Vehicle action not confirmed")))
 	if action.begins_with("ch_") and action!="ch_status":creature_action_finished.emit(action,status)
 	if is_instance_valid(app.datapad) and (action not in ["status","ch_status"] or not status.is_empty()):app.datapad.ui.set_status(status if not status.is_empty() else "Vehicle ready")
+	return result
 func call_vehicle(entry: Dictionary)->void:
 	var generation:int=app.datapad_epoch
 	if native_session()==null:

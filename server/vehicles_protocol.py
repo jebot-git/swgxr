@@ -49,7 +49,7 @@ def command(action,data):
   out['command_id']=number
  if action=='pet_command':
   number=data.get('command_id')
-  if type(number)is not int or not 1<=number<=23:raise ValueError('Invalid trained pet command')
+  if type(number)is not int or not 1<=number<=24:raise ValueError('Invalid trained pet command')
   out['command_id']=number
   targeted=number in (3,4,5,6,12,13,17,18,19,20,21)
   target=data.get('target_id','')

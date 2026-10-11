@@ -19,6 +19,8 @@ def main():
  dest.mkdir(parents=True)
  code=dest/'code';private=dest/'private-assets';manifest={}
  paths=list((ROOT/'server').rglob('*.py'))+list((ROOT/'server/combat').glob('*'))+list((ROOT/'server/services').glob('*.h'))+list((ROOT/'server/patches').glob('*.patch'))
+ paths+=list((ROOT/'server/containers').glob('*.h'))+list((ROOT/'server/pets').glob('*.h'))+list((ROOT/'server/vehicles').glob('*.h'))
+ paths+=[ROOT/'tools/server/update_containers_patch.py',ROOT/'tools/server/containers_smoke.py',ROOT/'tools/server/power_droids_smoke.py']
  paths+=[ROOT/p for p in ('server/ACTION_COMBAT_PROTOCOL.md','server/GROUND_COMBAT_INTEGRATION.md','docs/HERALD_INTEGRATION.md','tools/server/start-core3.sh','tools/server/native_build_receipt.py','tools/server/update_ground_combat_patch.py','tools/server/update_global_ground_patch.py','tools/server/update_herald_patch.py','tools/server/heralds_smoke.py','tools/server/global_ground_smoke.py','tools/assets/prepare_ground_actions.py','tools/assets/ground_catalogs.py','tools/assets/ground_specials.py','tools/assets/character_animations.py','tools/client/install_ground_actions.py','runtime/server/native-build.json')]
  paths+=[ROOT/'vendor/Core3/MMOCoreORB/bin'/n for n in ('corecu','core3','core3client')]
  paths+=[ROOT/'client'/p for p in ('combat/action_clock.gd','combat/action_combat.gd','combat/action_pose.gd','combat/action_timeline.gd','combat/live_actor.gd','multiplayer/client_sync.gd','scripts/main.gd','scripts/avatar.gd','scripts/animation_clip_cache.gd')]

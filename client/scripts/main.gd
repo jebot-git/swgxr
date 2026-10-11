@@ -1697,6 +1697,7 @@ func initialize_xr() -> bool:
 	add_child(inventory_drops)
 	inventory_drops.configure(inventory.assets)
 	inventory.world_pickup_provider = inventory_pickup_candidate
+	inventory.external_item_release=func(item:Dictionary,pose:Transform3D)->bool:return is_instance_valid(services) and services.release_into_container(item,pose)
 	inventory.refresh_requested.connect(refresh_inventory)
 	inventory.stack_split_requested.connect(split_inventory_stack)
 	inventory.equip_requested.connect(equip_inventory_item)

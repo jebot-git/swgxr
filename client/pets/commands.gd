@@ -123,6 +123,7 @@ func target_id()->String:
 	return str(found.get("id",""))
 func menu_entries(row:Dictionary)->Array:
 	var entries:Array=row.get("commands",[]).duplicate(true)
+	if row.get("storage_available",false):entries.append({"id":"droid_storage","command_id":0,"label":"Open item storage","action":"open_storage","requires_target":false,"source_command":"inventory"})
 	for entry:Dictionary in entries:
 		# Core3's trained petgroup command toggles membership for both pet kinds.
 		if int(entry.get("command_id",-1))==15:entry.label="Invite / remove from party"
@@ -152,9 +153,16 @@ func frame(trigger:float,stick:Vector2,permitted:bool,nearby:Dictionary)->void:
 		if not state.selection.is_empty():
 			var target:=target_id() if state.aiming else ""
 			var action:=str(state.selection.get("action","pet_command"))
+			var selected_pet:=current_pet()
 			var proposal:Dictionary=state.activate(target)
 			if not proposal.is_empty():
-				proposal.request_id="pet-%d"%Time.get_ticks_usec();status="Command requested";vehicles.request(action,proposal)
+				if action=="open_storage":
+					var pet:=selected_pet
+					if not pet.is_empty() and is_instance_valid(app.services.ui):
+						app.services.ui.open_terminal({"id":str(pet.id),"kind":"container","name":str(pet.name),"position":vehicles.world(pet.position)})
+					reset()
+				else:
+					proposal.request_id="pet-%d"%Time.get_ticks_usec();status="Command requested";command_request(action,proposal)
 			elif state.aiming:status="Aim, then click trigger"
 		elif not nearby.is_empty():
 			open_menu(nearby)
@@ -173,3 +181,11 @@ func _process(_delta:float)->void:
 	wheel.update_badge(state.selection,state.aiming,0,hand.global_position+Vector3.UP*.20,available_now,status)
 func _exit_tree()->void:
 	if is_instance_valid(body):body.pet_controls=null;body.pet_stick_side=""
+
+func command_request(action:String,proposal:Dictionary)->void:
+	var epoch:int=app.datapad_epoch
+	var response:Dictionary=await vehicles.request(action,proposal)
+	if epoch!=app.datapad_epoch:return
+	if int(proposal.get("command_id",0))==24 and response.get("ok",false):await app.refresh_inventory()
+	if epoch!=app.datapad_epoch:return
+	status="Confirmed by CoreCU" if response.get("ok",false) and response.get("mutation",{}).get("success",false) else str(response.get("error","Command not confirmed"))

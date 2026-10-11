@@ -227,7 +227,7 @@ public:
   }
   if(pad)for(int i=0;i<pad->getContainerObjectsSize() && out["pet_datapad"].size()<32;++i){auto item=pad->getContainerObject(i);if(!item->isPetControlDevice())continue;
    auto device=static_cast<PetControlDevice*>(item.get());auto object=device->getControlledObject();if(!object || !object->isCreatureObject() || !SwgxrPets::supported(device))continue;
-   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);row["creature_handler"]=SwgxrCreatureHandler::petState(c,device);auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
+   auto pet=object->asCreatureObject();Locker pl(pet,c);auto row=describePet(device,pet);row["creature_handler"]=SwgxrCreatureHandler::petState(c,device);if(pet->isDroidObject()){auto d=static_cast<DroidObject*>(pet);row["power_droid"]=d->isPowerDroid();row["has_power"]=d->hasPower();row["storage_available"]=d->getModule("item_storage_module")!=nullptr;}auto entry=row;entry["id"]=id(device);entry["pet_id"]=id(pet);out["pet_datapad"].push_back(entry);
    if(pet->getZone()==c->getZone() && c->isInRange(pet,128))out["pets"].push_back(row);
   }
   SortedVector<TreeEntry*> objects(128,128);c->getZone()->getInRangeObjects(c->getWorldPositionX(),c->getWorldPositionZ(),c->getWorldPositionY(),128,&objects,true);

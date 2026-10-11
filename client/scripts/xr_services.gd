@@ -2,10 +2,11 @@ extends Node3D
 ## Runtime-neutral, local presentation and gestures for authoritative Core3 services.
 ## No balance, inventory, mission, or travel state is mutated here.
 signal action_requested(action: String, payload: Dictionary)
+signal container_grab_requested(item: Dictionary)
 signal opened
 signal closed
 signal wallet_changed(held: bool)
-const ServicePanel=preload("res://gcw/panel.gd")
+const ServicePanel=preload("res://containers/panel.gd")
 const HandInput=preload("res://scripts/tracked_hand_input.gd")
 const InventoryAssets=preload("res://scripts/inventory_assets.gd")
 const PANEL_METERS=Vector2(0.64,0.4614)
@@ -35,6 +36,7 @@ var grip_armed:=false
 var trigger_armed:=false
 var pointer_pressed:=false
 var pointer_grip_armed:=false
+var container_grip_armed:=false
 var pointer_button:=""
 var pointer_visual: Node3D
 var stick_scroll:=0.0
@@ -142,7 +144,7 @@ func apply_response(response: Dictionary, resolve_pending: bool=true) -> void:
 	if terminal.get("kind","")!="ship_crew" and not terminal.is_empty() and str(updated.get("id",""))==str(terminal.get("id","")) and not updated.is_empty() and (terminal.get("kind","")!="delivery" or str(updated.get("mission_id",""))==str(terminal.get("mission_id",""))):
 		var anchor: Variant=terminal.get("position",terminal_origin)
 		var changed:=false
-		for key in ["front_money","reputation","reward_faction","reward_credits","duration_seconds","tier_minimum","tier_maximum","blocked_reason","tier","eligible","kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","ships","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
+		for key in ["storage","front_money","reputation","reward_faction","reward_credits","duration_seconds","tier_minimum","tier_maximum","blocked_reason","tier","eligible","kind","listings","missions","destinations","tools","categories","category_id","page","has_more","skills","ships","trainer_text","profession","dialogue","confirm_action","stage","parcel_id","options","maintenance","maintenance_rate","item_count","item_limit","owner","recruiter_text","faction","status","can_join","can_toggle","reason","rewards","gcw","scan","rank","rank_name","next_rank","next_rank_name","promotion_cost_faction_points","can_promote","promotion_reason"]:
 			if updated.has(key) and updated[key]!=terminal.get(key): changed=true
 		terminal.merge(updated,true);terminal.position=anchor
 		if changed:
@@ -191,7 +193,7 @@ func open_terminal(record: Dictionary) -> void:
 
 func close_interface() -> void:
 	var was_open:=not terminal.is_empty()
-	terminal={};interaction_epoch+=1
+	terminal={};interaction_epoch+=1;container_grip_armed=false
 	pointer_pressed=false;pointer_button="";stick_scroll=0
 	set_stick_capture(false)
 	if is_instance_valid(pointer_visual):pointer_visual.hide()
@@ -340,6 +342,15 @@ func update_proximity(player_position: Vector3) -> void:
 		close_interface()
 
 func pointer_frame(hit: Dictionary, trigger: float, grip: float) -> void:
+	if terminal.get("kind","")=="container":
+		if grip<.35:container_grip_armed=true
+		elif grip>=.65 and container_grip_armed:
+			container_grip_armed=false
+			if not pending and not hit.is_empty():
+				var item:Dictionary=panel.storage_item_at(hit.pixel)
+				if not item.is_empty():container_grab_requested.emit(item);return
+		# Grip is reserved for taking an item; trigger retains normal selection.
+		grip=0.0
 	# Trigger click and grip drag have independent edges. Holding an unrelated
 	# grip must never prevent the trigger from rearming or releasing a click.
 	if trigger<0.3:trigger_armed=true
@@ -419,7 +430,7 @@ func _process(delta: float) -> void:
 	if not tracked:
 		npc_wave.interrupt()
 		close_interface();pointer_pressed=false;trigger_armed=false;return
-	if inventory_focus:
+	if inventory_focus and terminal.get("kind","")!="container":
 		npc_wave.interrupt()
 		update_proximity(body.global_position);pointer_visual.hide();return
 	update_npc_wave(delta,head.global_transform)

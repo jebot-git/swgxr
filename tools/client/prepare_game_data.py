@@ -106,8 +106,17 @@ def prepare(root,bundle=None,installation=None,python=None,steps=None):
     receipt=root/'GAME_DATA_RECEIPT.json'
     if receipt.is_file():
         previous=json.loads(receipt.read_text())
-        if previous.get('signature')==signature and previous.get('workspace')==root.as_posix() and all((root/'runtime/assets'/p).is_file() for p in REQUIRED):
-            print('Local game data is current.',flush=True);return previous
+        same_inputs = previous.get('signature') == signature
+        if not same_inputs:
+            # Legacy receipts name the full bundle, including unrelated server
+            # code/docs. The publisher proves equivalence from prior manifests.
+            same_inputs = any(previous.get('signature') == old+':'+source_signature
+                              for old in recipe.get('compatible_recipes', []))
+        if same_inputs and previous.get('ready') is True and previous.get('workspace')==root.as_posix() and all((root/'runtime/assets'/p).is_file() for p in REQUIRED):
+            if previous.get('signature') != signature:
+                previous.update(signature=signature, recipe=recipe['signature'], asset_signature=recipe.get('asset_signature'))
+                write(receipt,previous)
+            print('Local game data is current; no staging or conversion needed.',flush=True);return previous
     if shutil.disk_usage(root).free<40*1024**3:raise ValueError('Local preparation requires at least 40 GB free for source, conversion and rollback data')
     work=root/'runtime/preparation/workspace';work.mkdir(parents=True,exist_ok=True)
     for name,digest in recipe['files'].items():
@@ -154,7 +163,7 @@ def prepare(root,bundle=None,installation=None,python=None,steps=None):
     except BaseException:
         if backup.exists():backup.replace(installed)
         raise
-    result=dict(schema=1,signature=signature,workspace=root.as_posix(),source_archives=len(source_files),recipe=recipe['signature'],completed=state['completed'],asset_backup=str(backup) if backup.exists() else None,ready=True)
+    result=dict(schema=1,signature=signature,asset_signature=recipe.get('asset_signature'),workspace=root.as_posix(),source_archives=len(source_files),recipe=recipe['signature'],completed=state['completed'],asset_backup=str(backup) if backup.exists() else None,ready=True)
     write(receipt,result)
     print('Original game data prepared. Source archives retained for future updates.',flush=True)
     return result

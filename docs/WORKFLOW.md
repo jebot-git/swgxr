@@ -1980,3 +1980,15 @@ No tutorial video or proprietary media is added to the public repository.
 The prepared interaction fixes above were subsequently deployed and released as
 `v2026.10.11-test.18` at the user's request. See `VPS_DEPLOYMENT.md` for the
 gateway-only restart, verified incremental clients and local closed-client update.
+
+
+2026-10-11 launcher cache follow-up: test.18 differed from the installed test.17
+asset recipe only in `server/remote_gateway.py` and
+`server/GROUND_COMBAT_INTEGRATION.md`, yet the full-bundle hash invalidated the
+prepared data. Separate conservative asset fingerprints now exclude prose,
+gateway code and cache-driver orchestration. A versioned asset-format fence
+covers driver output semantics; converters, definitions and step arguments
+remain inputs. Equivalent previous full manifests generate bounded compatibility
+receipts, retaining source-media and workspace checks. Eight preparation tests
+pass, including equivalent upgrade/repeat launch without staging, missing-output
+and source-change invalidation, conversion failure preservation and resumability.

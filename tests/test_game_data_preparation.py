@@ -30,6 +30,53 @@ class GameDataPreparationTests(unittest.TestCase):
         self.assertIn('--all-equipment-races',dict(STEPS)['player_equipment'])
         self.assertIn('--wearable-items',dict(STEPS)['player_equipment'])
 
+    def test_asset_fingerprint_ignores_only_non_asset_changes(self):
+        from tools.client.package_data_preparation import asset_signature, compatible_recipes
+        files={'tools/assets/convert.py':'a'*64,'server/catalog.py':'b'*64,
+               'server/remote_gateway.py':'c'*64,'server/GROUND_COMBAT_INTEGRATION.md':'d'*64,
+               'tools/client/prepare_game_data.py':'e'*64}
+        changed=dict(files, **{'server/remote_gateway.py':'f'*64,
+                              'server/GROUND_COMBAT_INTEGRATION.md':'0'*64,
+                              'tools/client/prepare_game_data.py':'1'*64})
+        self.assertEqual(asset_signature(files),asset_signature(changed))
+        with tempfile.TemporaryDirectory() as temporary:
+            old=Path(temporary)/'recipe.json'
+            signature=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()
+            old.write_text(json.dumps(dict(files=files,signature=signature)))
+            self.assertEqual(compatible_recipes(changed,[old]),[signature])
+            for key in ('tools/assets/convert.py','server/catalog.py','tools/client/game_data_plan.py'):
+                new=dict(changed,**{key:'2'*64})
+                self.assertNotEqual(asset_signature(files),asset_signature(new))
+                self.assertEqual(compatible_recipes(new,[old]),[])
+            old.write_text(json.dumps(dict(files=files,signature='invalid')))
+            self.assertEqual(compatible_recipes(changed,[old]),[])
+
+    def test_equivalent_upgrade_and_repeat_launch_never_stage_assets(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);bundle=root/'engine/data-preparation';bundle.mkdir(parents=True)
+            source_signature=hashlib.sha256(json.dumps([],sort_keys=True).encode()).hexdigest()
+            recipe=dict(signature='new',compatible_recipes=['old'],files={},asset_signature='same-assets')
+            (bundle/'recipe.json').write_text(json.dumps(recipe))
+            installed=root/'runtime/assets/catalog.json';installed.parent.mkdir(parents=True);installed.write_text('{}')
+            before=installed.stat().st_mtime_ns
+            receipt=root/'GAME_DATA_RECEIPT.json'
+            receipt.write_text(json.dumps(dict(signature='old:'+source_signature,recipe='old',workspace=root.as_posix(),ready=True)))
+            with patch.object(prep,'REQUIRED',['catalog.json']),patch.object(prep,'collect_sources',return_value=({},dict(archives=[]))),patch.object(prep.shutil,'disk_usage',side_effect=AssertionError('Must not stage or convert current data')):
+                for _ in range(2):
+                    result=prep.prepare(root)
+                    self.assertEqual(result['signature'],'new:'+source_signature)
+                    self.assertEqual(installed.stat().st_mtime_ns,before)
+                    self.assertFalse((root/'runtime/preparation').exists())
+                # Missing prepared data must invalidate even an equivalent recipe.
+                installed.unlink()
+                with self.assertRaisesRegex(AssertionError,'Must not stage'):
+                    prep.prepare(root)
+                installed.write_text('{}')
+                # New source media must not inherit a previous conversion receipt.
+                with patch.object(prep,'collect_sources',return_value=({},dict(archives=[{'sha256':'changed'}]))):
+                    with self.assertRaisesRegex(AssertionError,'Must not stage'):
+                        prep.prepare(root)
+
     def test_bad_and_conflicting_archives_rejected(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'a.tre').write_bytes(b'not TRE')

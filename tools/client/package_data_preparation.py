@@ -6,6 +6,33 @@ import shutil
 import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 
+# The preparation driver is cache/staging orchestration, not a converter.
+# Bump this when driver output semantics change independently of bundled inputs.
+ASSET_FORMAT = 1
+NON_ASSET_FILES = {'server/remote_gateway.py', 'tools/client/prepare_game_data.py'}
+
+
+def asset_signature(files):
+    inputs = {name: digest for name, digest in files.items()
+              if name not in NON_ASSET_FILES and not name.endswith('.md')}
+    return hashlib.sha256(json.dumps({'format': ASSET_FORMAT, 'files': inputs}, sort_keys=True).encode()).hexdigest()
+
+
+def compatible_recipes(files, candidates):
+    signature = asset_signature(files)
+    compatible = set()
+    for path in candidates:
+        previous = json.loads(Path(path).read_text())
+        # Only trust a complete, self-consistent prior manifest, never a
+        # version label or a blanket compatibility promise across releases.
+        recorded = hashlib.sha256(json.dumps(previous['files'], sort_keys=True).encode()).hexdigest()
+        if previous.get('signature') != recorded:
+            continue
+        if previous.get('asset_format', 1) == ASSET_FORMAT and asset_signature(previous['files']) == signature:
+            compatible.add(recorded)
+    return sorted(compatible)
+
+
 def package(destination):
     destination = Path(destination)
     selected = []
@@ -29,7 +56,9 @@ def package(destination):
     (destination/'vendor/Core3/REVISION').write_text(revision+'\n')
     files['vendor/Core3/REVISION']=hashlib.sha256((revision+'\n').encode()).hexdigest()
     signature=hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest()
-    (destination/'recipe.json').write_text(json.dumps(dict(schema=1,signature=signature,files=files),indent=2)+'\n')
+    previous = (ROOT/'runtime/releases').glob('test*-*/test-client-*/engine/data-preparation/recipe.json')
+    compatible = compatible_recipes(files, (p for p in previous if p.resolve() != (destination/'recipe.json').resolve()))
+    (destination/'recipe.json').write_text(json.dumps(dict(schema=2,signature=signature,asset_format=ASSET_FORMAT,asset_signature=asset_signature(files),compatible_recipes=compatible,files=files),indent=2)+'\n')
     return dict(signature=signature,files=len(files),proprietary_assets=False)
 
 if __name__=='__main__':

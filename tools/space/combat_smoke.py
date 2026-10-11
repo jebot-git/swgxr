@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--fixture',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--ship-report',type=Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=18080);p.add_argument('--fixture',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--ship-report',type=Path,required=True);a=p.parse_args()
  os.umask(0o077);f=json.loads(a.fixture.read_text());assert f['account'].startswith('invtest') and str(f['id']).isdigit()
  checks=[];samples=[];latencies=[];sid='';player={};original=None
  def check(ok,label):
@@ -17,7 +17,7 @@ def main():
  def call(path,data=None,required=True):
   nonlocal player
   body=None if data is None else {'account':f['account'],'character_id':f['id'],'session_id':sid,**data}
-  req=urllib.request.Request('http://127.0.0.1:18080'+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'})
+  req=urllib.request.Request('http://127.0.0.1:'+str(a.port)+path,None if body is None else json.dumps(body).encode(),{'Content-Type':'application/json'})
   started=time.monotonic()
   try:
    with urllib.request.urlopen(req,timeout=90) as r:value=json.load(r)

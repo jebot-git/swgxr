@@ -26,7 +26,7 @@ except ImportError:
  from character_protocol import decode_customization,template_names
  from inventory_protocol import inventory_snapshot
 ACTIONS=('container_transfer','status','open','mission_refresh','mission_accept','mission_abort','delivery_open','delivery_pickup','delivery_complete','bazaar_buy','bazaar_retrieve','bazaar_sell','bazaar_cancel','bank_transfer','pay','crafting_station','travel_purchase','travel_board','trainer_train','skill_forget','vendor_place','vendor_sell','vendor_buy','vendor_retrieve','vendor_cancel','vendor_customize','vendor_recover')
-ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
+ACTIONS+=('ship_manage','ship_component_install','ship_component_remove','ship_ammo_load','ship_chassis_redeem','ship_register','pilot_begin','pilot_choose','herald_begin','herald_choose','underworld_accept',)+FISHING_ACTIONS+HOUSING_ACTIONS+SLICING_ACTIONS+BOUNTY_ACTIONS+('recruiter_join','recruiter_status_toggle','recruiter_purchase','recruiter_promote','contraband_answer')
 ACTIONS+=MAIL_ACTIONS
 MUTATIONS=set(ACTIONS)-MAIL_READS-{'status','open','delivery_open','fishing_status','slicing_status','house_status','house_preview','house_harvester_status','house_factory_status'}
 def command(action,data):
@@ -57,7 +57,7 @@ def command(action,data):
  required={
   'bank_quote':('terminal_id',),'bank_pay':('terminal_id',),
   'container_transfer':('terminal_id','container_id','item_id'),
-  'ship_manage':('terminal_id','ship_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
+  'ship_manage':('terminal_id','ship_id'),'ship_ammo_load':('terminal_id','ship_id','component_id'),'ship_component_install':('terminal_id','ship_id','component_id'),'ship_component_remove':('terminal_id','ship_id','component_id'),'ship_chassis_redeem':('terminal_id','item_id'),'ship_register':('terminal_id','item_id'),
   'pilot_begin':('terminal_id',),'pilot_choose':('terminal_id',),'herald_begin':('terminal_id',),'herald_choose':('terminal_id',),
   'underworld_accept':('terminal_id',),
   'recruiter_promote':('terminal_id',),'recruiter_join':('terminal_id',),'recruiter_status_toggle':('terminal_id',),'recruiter_purchase':('terminal_id',),'contraband_answer':('scan_id',),
@@ -79,7 +79,7 @@ def command(action,data):
   if action=='container_transfer':
    if data.get('direction') not in ('take','store'):raise ValueError('Choose take or store.')
    out['direction']=data['direction']
- if action in ('ship_component_install','ship_component_remove'):
+ if action in ('ship_component_install','ship_component_remove','ship_ammo_load'):
   slot=data.get('slot')
   if type(slot) is not int or not 0<=slot<=19:raise ValueError('Original ship component slot required.')
   out['slot']=slot
@@ -221,6 +221,7 @@ def snapshot(raw,oid,attributes=None):
     item=label(option.get('item_name',''));operation=option.get('operation','')
     if operation=='ship_chassis_redeem':option['name']=f"Redeem {item} · {option['price']} credits"
     elif operation=='ship_register':option['name']=f'Register {item}'
+    elif operation=='ship_ammo_load':option['name']='Load '+label(option.get('item_name','ammunition'))+' · '+option.get('slot_name','').replace('_',' ').title()
     elif operation in ('ship_component_install','ship_component_remove'):option['name']=('Install ' if operation.endswith('install') else 'Remove ')+option.get('slot_name','').replace('_',' ').title()+': '+item
   if terminal.get('kind')=='delivery':
    terminal['mission_name']=label(terminal.get('mission_name',''))

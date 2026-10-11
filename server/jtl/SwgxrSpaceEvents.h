@@ -19,6 +19,7 @@ class SwgxrSpaceEvents {
  }
 public:
  static void projectile(ShipObject* ship,const ShipProjectile* p){if(p)push(ship,p->getThisPosition(),{{"kind","projectile"},{"direction",vector(p->getDirection())},{"speed",p->getSpeed()},{"range",p->getRange()},{"projectile_type",p->getProjectileType()}});}
+ static void missile(ShipObject* ship,const ShipMissile* p,bool done=false){if(p)push(ship,p->getThisPosition(),{{"kind","missile"},{"missile_id",std::to_string(p->getUniqueID())},{"done",done}});}
  static void hit(ShipObject* ship,const Vector3& position,int type){push(ship,position,{{"kind","hit"},{"hit_type",type}});}
  static Json snapshot(ShipObject* observer){
   Json out=Json::array();if(!observer || !observer->getZone())return out;auto& s=store();std::lock_guard<std::mutex> lock(s.mutex);double stamp=now();

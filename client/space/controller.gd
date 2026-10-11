@@ -46,9 +46,12 @@ var interaction_waiting:=false
 var station_labels:Dictionary={}
 var station_pointer:Node3D
 var hyperspace_effect:Node3D
+var target_hud:Node3D
+var target_buttons:Dictionary={}
 var space_audio:Node
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
+	target_hud=preload("res://space/targeting_hud.gd").new();add_child(target_hud)
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
 	readout=Label3D.new();readout.font=preload("res://resources/fonts/Jupiteroid-Regular.ttf");readout.font_size=22;readout.pixel_size=.0007;readout.billboard=BaseMaterial3D.BILLBOARD_ENABLED;add_child(readout);readout.hide()
 	control_handles=Node3D.new();add_child(control_handles);control_handles.hide()
@@ -69,6 +72,8 @@ func restore_seat_height()->void:
 	app.xr_origin.global_position.y=body_pose.origin.y+seat_floor_offset
 	app.player.global_transform=body_pose;seat_height_applied=false
 func reset()->void:
+	if is_instance_valid(target_hud):target_hud.hide()
+	target_buttons.clear()
 	fire_armed=false;lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
 	leave_scene();state={};ship={};revision=-1;sequence=0;walk_sequence=0;pending_mutations.clear();needs_reconcile=false;busy=false;age=100;poll=0;station="ground";inputs.reset()
 	if is_instance_valid(app):
@@ -251,7 +256,7 @@ func leave_scene()->void:
 		if app.stage.interior_cells_changed.is_connected(app.portal_visibility.refresh_instances):app.stage.interior_cells_changed.disconnect(app.portal_visibility.refresh_instances)
 		app.portal_visibility.configure(app.stage,app.player.get_camera(),app.xr_spectator.camera if is_instance_valid(app.xr_spectator) and app.xr_spectator.enabled else null)
 	scene.queue_free();scene=null;ground={};station="ground";inputs.reset();app.player._update_locomotion()
-	readout.hide();control_handles.hide();wheel.close()
+	readout.hide();target_hud.hide();control_handles.hide();wheel.close()
 	if is_instance_valid(app.datapad):app.datapad.ui.set_skill_forgetting_available(true)
 	if is_instance_valid(app.services):app.services.poll_clock=0
 func refresh_datapad()->void:
@@ -383,7 +388,11 @@ func pilot_pose()->Transform3D:
 		if row.get("id","")=="pilot":location=row.get("position",location);break
 	return Transform3D(Basis.IDENTITY,scene.world(location))
 func button(name:String,side:String)->bool:
-	if not aboard() or name!="primary_click":return false
+	if not aboard():return false
+	if seated() and station=="pilot" and name in ["ax_button","by_button"] and not ship.get("combat_excluded",true):
+		if targeting_permitted() and Hands.controller_tracked(app.xr_origin.get_node("RightHand" if side=="right" else "LeftHand")) and not wheel.opened:target_action(("look" if side==app.player.dominant_hand else "next") if name=="ax_button" else ("component" if side==app.player.dominant_hand else "fire"))
+		return true
+	if name!="primary_click":return false
 	if not seated():return false
 	if side==app.player.dominant_hand:
 		if wheel.opened:wheel.close()
@@ -414,6 +423,7 @@ func command_rows()->Array:
 	var rows:Array=[]
 	if not seated():return rows
 	rows.append({"id":"navigation","label":"Sector map · hyperspace planner","available":true})
+	if station=="pilot" and not ship.get("combat_excluded",true):rows.append({"id":"targeting","label":"Targeting · subsystems · missiles","available":true})
 	for group in ["shield","power","droid"]:
 		var available:bool=ship.get("commands",[]).any(func(row):return str(row.get("id","")).begins_with(group))
 		if available:rows.append({"id":"group_"+group,"label":{"shield":"Shield distribution","power":"Power distribution","droid":"Droid commands"}[group],"available":true})
@@ -425,6 +435,14 @@ func command_rows()->Array:
 	if seated() and ship.get("kind","pob")=="pob":rows.append({"id":"leave","label":"Leave station","available":true})
 	return rows
 func command(id:String)->void:
+	if id=="targeting":open_target_menu();return
+	if id=="target_subsystems":open_subsystems();return
+	if id=="target_missiles":open_missiles();return
+	if id.begins_with("target_action:"):target_action(id.trim_prefix("target_action:"));return
+	if id.begins_with("target_page:"):open_subsystems(int(id.trim_prefix("target_page:")));return
+	if id.begins_with("target_slot:"):
+		var parts:=id.split(":");request("subsystem",{"target_id":parts[1],"component_slot":int(parts[2])});return
+	if id.begins_with("missile_slot:"):request("missile_select",{"weapon_slot":int(id.trim_prefix("missile_slot:"))});return
 	if id=="communications":
 		var rows:Array=[]
 		for target:Dictionary in state.get("nearby_ships",[]):
@@ -519,14 +537,17 @@ func flight_inventory_busy()->bool:
 func controls(delta:float)->Dictionary:
 	var left:XRController3D=app.xr_origin.get_node("LeftHand");var right:XRController3D=app.xr_origin.get_node("RightHand")
 	var tracked:bool=bool(app.player.combat_tracking_context().tracked) and Hands.controller_tracked(left) and Hands.controller_tracked(right)
+	var hardware:Dictionary=preferences.physical_values() if preferences.mode=="physical_hotas" else {}
+	var flight_ready:bool=bool(app.player.combat_tracking_context().tracked) and (bool(hardware.get("available",false)) if preferences.mode=="physical_hotas" else tracked)
 	if app.menu.visible or not app.xr_focused or not bool(app.player.combat_tracking_context().tracked) or wheel.opened or app.datapad.is_open or flight_inventory_busy() or (is_instance_valid(app.services) and app.services.blocks_combat()) or age>3:
-		inputs.reset();fire_armed=false;return inputs.neutral()
-	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,preferences.physical_values() if preferences.mode=="physical_hotas" else {})
+		inputs.reset();fire_armed=false;var neutral:Dictionary=inputs.neutral();neutral.targeting_active=flight_ready and app.xr_focused and not app.menu.visible and age<=3;return neutral
+	var output:Dictionary=inputs.sample(preferences,tracked,left.global_transform,right.global_transform,left.get_float("grip"),right.get_float("grip"),left.get_vector2("primary"),right.get_vector2("primary"),hotas_pose(),delta,hardware)
 	var main:XRController3D=right if app.player.dominant_hand=="right" else left
 	var firing:bool=main.get_float("trigger")>.65
 	if preferences.mode=="physical_hotas":firing=preferences.physical_fire()
 	if not firing:fire_armed=true
-	output.primary_fire=tracked and fire_armed and firing and not ship.get("combat_excluded",true)
+	output.targeting_active=flight_ready
+	output.primary_fire=flight_ready and fire_armed and firing and not ship.get("combat_excluded",true)
 	return output
 func _process(delta:float)->void:
 	if not is_instance_valid(app) or app.session_leaving:return
@@ -544,6 +565,10 @@ func _process(delta:float)->void:
 		if app.world_ready and not busy and poll<=0:
 			poll=.5 if not launch_stage().is_empty() else 5.0;request("status")
 		return
+	if seated() and station=="pilot" and not ship.get("combat_excluded",true) and age<=3:
+		target_hud.update_view(scene,ship,app.player.get_camera().global_transform,delta)
+		poll_target_buttons()
+	else:target_hud.hide()
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
 	if ship.get("hyperspacing",false):
@@ -635,3 +660,53 @@ func finish_drop(payload:Dictionary)->void:
 	if version!=app.datapad_epoch:return
 	var success:bool=response.get("ok",false) and response.get("mutation",{}).get("success",false)
 	app.inventory.finish_item_action(success,str(response.get("error",response.get("mutation",{}).get("message","Placement was not confirmed. Check inventory before retrying."))))
+
+func targeting_permitted()->bool:
+	return seated() and station=="pilot" and not ship.get("hyperspacing",false) and app.xr_focused and not app.menu.visible and not app.datapad.is_open and not flight_inventory_busy() and age<=3 and bool(app.player.combat_tracking_context().tracked) and not (is_instance_valid(app.services) and app.services.blocks_combat())
+func poll_target_buttons()->void:
+	if preferences.mode!="physical_hotas":target_buttons.clear();return
+	for action in ["look","next","previous","component","fire"]:
+		var pressed:bool=preferences.physical_button(action)
+		if pressed and not target_buttons.get(action,true) and targeting_permitted() and not wheel.opened:target_action(action)
+		target_buttons[action]=pressed
+func target_action(action:String)->void:
+	if not targeting_permitted():return
+	var data:Dictionary=ship.get("targeting",{});var id:=str(data.get("target_id","0"))
+	var logic=preload("res://space/targeting.gd")
+	if action in ["look","next","previous"]:
+		var chosen:=""
+		if action=="look":
+			var head:Transform3D=app.player.get_camera().global_transform
+			chosen=logic.pick(state.get("nearby_ships",[]),head.origin,-head.basis.z,target_hud.positions(scene,state.get("nearby_ships",[])))
+		else:chosen=logic.cycle(state.get("nearby_ships",[]),id,action=="previous")
+		if chosen.is_empty():notice("No suitable ship in view" if action=="look" else "No hostile ship in sensor range");return
+		request("target",{"target_id":chosen})
+	elif action=="clear":request("target",{"target_id":"0"})
+	elif action=="component" and id!="0":request("subsystem",{"target_id":id,"component_slot":logic.next_component(data.get("target",{}))})
+	elif action=="fire":request("missile_fire",{"target_id":id,"component_slot":int(data.get("component_slot",-1)),"weapon_slot":int(data.get("missile_slot",-1))})
+	elif action in ["inspect","dock"] and id!="0":request(action,{"target_id":id})
+	elif action=="undock":request("undock")
+func open_target_menu()->void:
+	var target:Dictionary=ship.get("targeting",{});var selected:bool=str(target.get("target_id","0"))!="0"
+	var rows:Array=[]
+	for entry in [["look","Select looked-at ship"],["next","Next hostile ship"],["previous","Previous hostile ship"],["clear","Clear target"]]:rows.append({"id":"target_action:"+entry[0],"label":entry[1],"available":true})
+	rows.append({"id":"target_subsystems","label":"Choose subsystem","available":selected})
+	rows.append({"id":"target_missiles","label":"Missile launcher · fire","available":true})
+	for action in ["inspect","dock","undock"]:rows.append({"id":"target_action:"+action,"label":action.capitalize(),"available":selected or action=="undock"})
+	rows.append({"id":"back","label":"Back","available":true});wheel.open(app.player.get_camera().global_transform,rows)
+func open_subsystems(page:int=0)->void:
+	var data:Dictionary=ship.get("targeting",{});var target_id:=str(data.get("target_id","0"))
+	var components:Array=data.get("target",{}).get("components",[])
+	page=clampi(page,0,maxi(0,(components.size()-1)/6))
+	var rows:Array=[{"id":"target_slot:"+target_id+":-1","label":"Whole ship · no subsystem","available":target_id!="0"}]
+	for row:Dictionary in components.slice(page*6,page*6+6):
+		rows.append({"id":"target_slot:"+target_id+":"+str(row.slot),"label":str(row.name).replace("_"," ").capitalize()+" · %d%%"%int(100*float(row.health)/maxf(1,float(row.maximum))),"available":row.get("available",false),"reason":"Destroyed or protected subsystem"})
+	if page>0:rows.append({"id":"target_page:"+str(page-1),"label":"Previous subsystems","available":true})
+	if (page+1)*6<components.size():rows.append({"id":"target_page:"+str(page+1),"label":"More subsystems","available":true})
+	rows.append({"id":"targeting","label":"Back","available":true});wheel.open(app.player.get_camera().global_transform,rows)
+func open_missiles()->void:
+	var data:Dictionary=ship.get("targeting",{});var rows:Array=[]
+	for row:Dictionary in data.get("weapons",[]):
+		if row.get("missile",false):rows.append({"id":"missile_slot:"+str(row.slot),"label":"Launcher %d · %d missiles"%[int(row.slot)-11,int(row.ammo)],"available":row.get("available",false)})
+	rows.append({"id":"target_action:fire","label":"Fire locked missile","available":data.get("lock_acquired",false),"reason":str(data.get("lock_reason","Acquire a target first"))})
+	rows.append({"id":"targeting","label":"Back","available":true});wheel.open(app.player.get_camera().global_transform,rows)

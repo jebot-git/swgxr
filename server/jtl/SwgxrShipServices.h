@@ -13,6 +13,10 @@ class SwgxrShipServices {
   auto d=s?c->getZoneServer()->getObject(s->getControlDeviceID()):nullptr;
   if(!s || s->getOwnerID()!=c->getObjectID() || !d || !d->isShipControlDevice() || !d->isASubChildOf(c) || s->isShipLaunched())throw std::runtime_error("owned_stored_ship_required");return s;
  }
+ static bool compatibleAmmo(ShipObject* s,SceneObject* item,int slot){
+  if(!item || !s->getComponentObject(slot) || item->getGameObjectType()!=SceneObjectType::SHIPMISSILE)return false;
+  auto component=dynamic_cast<Component*>(item);return component && component->getUseCount()>0 && ShipMissileData::getMissileAmmoType(item->getServerObjectCRC())==s->getAmmoClassMap()->get(slot);
+ }
  static bool fixedComponents(ShipObject* s){return s->getObjectTemplate()->getFullTemplateString()=="object/ship/player/player_sorosuub_space_yacht.iff";}
 public:
  static bool dealer(SceneObject* npc){
@@ -31,7 +35,10 @@ public:
   view["kind"]="ship_outfit";view["ship_id"]=id(s);view["name"]=text(s->getDisplayedName());view["options"]=Json::array();view["mass"]=s->getChassisMass();view["maximum_mass"]=s->getChassisMaxMass();auto inventory=c->getInventory();
   if(fixedComponents(s)){view["description"]="Luxury Yacht components are fixed and cannot be removed or replaced.";return;}
   for(int slot=0;slot<=Components::FIGHTERSLOTMAX;++slot){
-   auto installed=s->getComponentObject(slot);std::string slotName=text(Components::shipComponentSlotToString(slot));
+   auto installed=s->getComponentObject(slot);
+   if(installed && slot>=Components::WEAPON_START && s->getCurrentAmmoMap()->get(slot)<=0){
+    for(int i=0;inventory && i<inventory->getContainerObjectsSize();++i){auto ammo=inventory->getContainerObject(i);if(compatibleAmmo(s,ammo,slot))view["options"].push_back({{"name","Load "+text(ammo->getDisplayedName())},{"item_name",text(ammo->getDisplayedName())},{"slot_name",text(Components::shipComponentSlotToString(slot))},{"operation","ship_ammo_load"},{"slot",slot},{"component_id",id(ammo)}});}
+   }std::string slotName=text(Components::shipComponentSlotToString(slot));
    if(installed){view["options"].push_back({{"name","Remove "+slotName+": "+text(installed->getDisplayedName())},{"operation","ship_component_remove"},{"slot",slot},{"slot_name",slotName},{"item_name",text(installed->getDisplayedName())},{"component_id",id(installed)}});continue;}
    for(int i=0;inventory && i<inventory->getContainerObjectsSize();++i){auto o=inventory->getContainerObject(i);auto component=dynamic_cast<ShipComponent*>(o.get());
     if(component && install->isSlotCompatibleWithComponent(s,component,slot))view["options"].push_back({{"name","Install "+slotName+": "+text(component->getDisplayedName())},{"operation","ship_component_install"},{"slot",slot},{"slot_name",slotName},{"item_name",text(component->getDisplayedName())},{"component_id",id(component)},{"mass",component->getMass()}});
@@ -57,6 +64,13 @@ public:
    if(fixedComponents(s))throw std::runtime_error("luxury_yacht_components_fixed");
    int slot=request.at("slot").get<int>();if(slot<0 || slot>Components::FIGHTERSLOTMAX)throw std::runtime_error("native_ship_slot_invalid");
    auto component=c->getZoneServer()->getObject(oid(request,"component_id"));if(!component)throw std::runtime_error("native_ship_component_missing");
+   if(action=="ship_ammo_load"){
+    if(slot<Components::WEAPON_START || !SwgxrEquipment::inInventory(component,c) || !compatibleAmmo(s,component,slot) || s->getCurrentAmmoMap()->get(slot)>0)throw std::runtime_error("compatible_ammo_and_empty_launcher_required");
+    auto q=c->getZoneServer()->getObjectController()->getQueueCommand("insertitemintoshipcomponentslot");
+    std::string args=id(s)+" "+std::to_string(slot)+" "+id(component);
+    if(!q || q->doQueueCommand(c,0,UnicodeString(String(args.c_str())))!=QueueCommand::SUCCESS || s->getCurrentAmmoMap()->get(slot)<=0)throw std::runtime_error("native_ship_ammo_load_rejected");
+    s->updateToDatabaseAllObjects(false);c->updateToDatabaseAllObjects(false);return;
+   }
    bool installing=action=="ship_component_install";auto old=s->getComponentObject(slot);
    if(installing && (old || !SwgxrEquipment::inInventory(component,c)))throw std::runtime_error("empty_slot_and_owned_component_required");
    if(!installing && old!=component)throw std::runtime_error("installed_component_changed");

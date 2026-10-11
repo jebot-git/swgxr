@@ -1,0 +1,65 @@
+{
+  "revision": "949451032647e45e42c3aaef3f41b132c8af36e3",
+  "sources": [
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/controller/PlayerShipController.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/controller/PlayerShipController.cpp",
+      "sha256": "515fb969d5058d0e155e12d0a2f78afea52d96c18893a8c7e67dca777a7cf332"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/controller/ShipControllerTargetingProcessMessage.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/controller/ShipControllerTargetingProcessMessage.cpp",
+      "sha256": "e2358deb221b15d8faec566aa883e760e1b8752304255c88b38c4a9cd46700e4"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/object/ShipObject.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/object/ShipObject.cpp",
+      "sha256": "c847e3614bf615391332716d8fb360ab8e59a64d7336d2ba344de12232ee235f"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/object/ShipObject_MissileUpdate.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/object/ShipObject_MissileUpdate.cpp",
+      "sha256": "3e44434c5af2970f7d2ff14c105650519bdd89a4a05ff4e4e27de1088cd30b57"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/ClientShipTargeting.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/ClientShipTargeting.cpp",
+      "sha256": "3c968b3e66e5615ae651576d0617fc9245641ab6d1d4e66263c7744a713e22f7"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/space/ShipWeaponGroupManager.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/space/ShipWeaponGroupManager.cpp",
+      "sha256": "2e4e7f3fed2ed579f5d1b607887f5b3abe7d2a0c616ec0c8c939457926c6b712"
+    },
+    {
+      "path": "src/engine/client/library/clientUserInterface/src/shared/page/CuiShipTargetInfo.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientUserInterface/src/shared/page/CuiShipTargetInfo.cpp",
+      "sha256": "86290502e2aa252a99a6d1a8c4006f5fa50df4d0ef46c981d5ebad45c0954375"
+    },
+    {
+      "path": "src/engine/shared/library/sharedGame/src/shared/space/ShipTargeting.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedGame/src/shared/space/ShipTargeting.cpp",
+      "sha256": "ad18004ff850b8bd6fd8d18b13ba80b05130bc2630ee466812e4c5d985393895"
+    },
+    {
+      "path": "src/game/client/library/swgClientUserInterface/src/shared/page/SwgCuiShipReticle.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/game/client/library/swgClientUserInterface/src/shared/page/SwgCuiShipReticle.cpp",
+      "sha256": "83d83cb8b8580c2c8cf06ee135ea69bbcace0cda57cbc2fc77cd24603308f48e"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/scene/ProjectileManager.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/client/library/clientGame/src/shared/scene/ProjectileManager.cpp",
+      "sha256": "a298437ccd245fd98037c6118d012d4468a65bead755632df69e1ec602ac3a4c"
+    },
+    {
+      "path": "src/engine/shared/library/sharedGame/src/shared/space/ShipChassisSlotType.h",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/engine/shared/library/sharedGame/src/shared/space/ShipChassisSlotType.h",
+      "sha256": "32d2c4578af9e50e2fbad5f0eaf978b35f471cc7626133cf32ed17bb109322eb"
+    },
+    {
+      "path": "src/game/client/library/swgClientUserInterface/src/shared/page/SwgCuiAllTargetsSpace.cpp",
+      "url": "https://raw.githubusercontent.com/SWG-Source/client-tools/949451032647e45e42c3aaef3f41b132c8af36e3/src/game/client/library/swgClientUserInterface/src/shared/page/SwgCuiAllTargetsSpace.cpp",
+      "sha256": "fa6f323b69d2e4d86e9ef159dd8c06f7dbe3dbd47a109e6da55ac0f50174ebc7"
+    }
+  ]
+}

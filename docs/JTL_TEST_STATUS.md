@@ -196,3 +196,57 @@ mammoth asteroid templates remain missing source media, not replaced assets.
 Validation: 205 sector-rule checks with the dummy renderer and desktop Forward+
 Vulkan captures of all ten sectors. These checks do not validate headset stereo.
 VR launches remain suspended.
+
+## Explicit JtL targeting (local integration, 2026-10-11)
+
+Ship selection is now a persistent native pilot/ship target. Dominant-hand A/X
+selects the looked-at ship; the other A/X cycles hostile contacts. Dominant-hand
+B/Y cycles available subsystems; the other B/Y fires an acquired missile.
+Ship commands → Targeting provides previous/next selection, clear, named paged
+subsystems (including whole ship), launcher selection, inspection and docking
+commands. Physical HOTAS buttons are configurable and saved in Flight Controls.
+Selection never rotates the HMD or redirects fixed guns.
+
+The HUD separates target brackets, ship-forward gun reticle and projectile-speed
+lead. Lead smoothing applies to the predicted offset, not ship steering.
+Core3 validates target identity, same-sector distance, targetable components and
+missile eligibility. Protected/destroyed components are shown unavailable;
+a destroyed selected component does not silently switch selection to hull.
+Native shields, component damage, inspection observers and quest logic remain
+authoritative. Native docking permission is still restrictive: the current Core3
+DockCommand permits only god-mode pilots. This integration does not claim normal
+mission docking is complete.
+
+The XR projectile no-subsystem byte is 255, not reactor slot 0. A requested
+component applies only to the selected victim, so intervening ships do not inherit
+that component request. Collision candidates refresh on native projectile batches
+and are no longer truncated to the AI's 32-contact view. The AI view remains
+bounded. This does not change the separate ground hit protocol.
+
+Missile acquisition uses original ammunition cone/time plus launcher range,
+requires fresh flight control, and resets on loss of eligibility or changed
+ship/component/launcher. Launch checks native ammunition, recharge and capacitor,
+and uses native guided ShipMissile simulation. Retry receipts prevent double
+consumption. The existing outfitting interface exposes compatible ammunition
+loading for empty missile launchers; it calls the native loader. Its obsolete
+fltmaxammo-only check now uses the ammunition item's actual count (original
+templates also use the ammo attribute). Missile presentation consumes native
+position/termination receipts, with bounded smoothing and expiry.
+
+Original-derived client reference paths and hashes are recorded in
+server/jtl/targeting_reference.json. Later client enum slot numbers are deliberately
+not copied: this Core3 revision places weapons at slot 12.
+
+Validation passed: full native build and build receipt, 30 protocol/policy tests,
+10 native flight/crew/transaction/spatial regression tests, Godot import and
+headless targeting/effects smoke, and 70 synthetic flight/interior checks on
+the original yacht geometry. The isolated crafted Z-95 / original NPC test passed
+17 targeting, subsystem, inspection, lock-loss and missile-ammunition checks;
+9 further live checks verified fixed-gun damage, destruction, native kill loot
+and payout after the no-subsystem change. NPCs were repositioned and the fixture
+hull repaired for deterministic targeting; these are not free-flight balance or
+remote latency tests. Validation artifacts are local under
+runtime/evidence/jtl-targeting-*.
+The client smoke uses the dummy renderer with XR off; it does not validate headset
+stereo or controller ergonomics. No remote deployment or Downloads-client release
+is included in this integration.

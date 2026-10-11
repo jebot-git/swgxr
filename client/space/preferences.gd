@@ -6,6 +6,7 @@ var device:=-1
 var axis_devices:Dictionary={"pitch":-1,"yaw":-1,"roll":-1,"throttle":-1}
 var axes:Dictionary={"pitch":1,"yaw":2,"roll":0,"throttle":3}
 var inverted:Dictionary={"pitch":false,"yaw":false,"roll":false,"throttle":false}
+var buttons:Dictionary={"primary":0,"look":1,"next":2,"previous":3,"component":4,"fire":5}
 var deadzone:=.12
 var grip_radius:=.22
 func load_preferences()->void:
@@ -19,9 +20,11 @@ func load_preferences()->void:
 		axes[name]=clampi(int(cfg.get_value("axes",name,axes[name])),0,9)
 		axis_devices[name]=clampi(int(cfg.get_value("axis_devices",name,-1)),-1,15)
 		inverted[name]=bool(cfg.get_value("invert",name,false))
+	for name in buttons:buttons[name]=clampi(int(cfg.get_value("buttons",name,buttons[name])),-1,127)
 func save_preferences()->Error:
 	var cfg:=ConfigFile.new();cfg.set_value("flight","mode",mode);cfg.set_value("flight","device",device);cfg.set_value("flight","deadzone",deadzone)
 	for name in axes:cfg.set_value("axes",name,axes[name]);cfg.set_value("invert",name,inverted[name]);cfg.set_value("axis_devices",name,axis_devices[name])
+	for name in buttons:cfg.set_value("buttons",name,buttons[name])
 	return cfg.save(path)
 func axis(value:float,name:String)->float:
 	if not is_finite(value):return 0
@@ -38,7 +41,9 @@ func physical_values()->Dictionary:
 		values[name]=Input.get_joy_axis(source,int(axes[name]))
 	return values
 
-func physical_fire()->bool:
+func physical_fire()->bool:return physical_button("primary")
+func physical_button(action:String)->bool:
 	var connected:=Input.get_connected_joypads()
 	var chosen:int=connected[0] if device<0 and not connected.is_empty() else device
-	return chosen in connected and Input.is_joy_button_pressed(chosen,JOY_BUTTON_A)
+	var index:int=int(buttons.get(action,-1))
+	return chosen in connected and index>=0 and Input.is_joy_button_pressed(chosen,index)

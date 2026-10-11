@@ -27,8 +27,13 @@ func setup(value:RefCounted)->void:
 		for i in source.item_count:
 			if source.get_item_metadata(i)==preferences.axis_devices[name]:source.select(i)
 		source.item_selected.connect(func(index):preferences.axis_devices[name]=source.get_item_metadata(index);save());row.add_child(source)
+	for action in preferences.buttons:
+		var row:=HBoxContainer.new();mappings.add_child(row)
+		var label:=Label.new();label.text={"primary":"Primary fire","look":"Select looked-at ship","next":"Next hostile","previous":"Previous hostile","component":"Next subsystem","fire":"Fire missile"}[action];label.custom_minimum_size.x=210;row.add_child(label)
+		var button:=SpinBox.new();button.min_value=-1;button.max_value=127;button.step=1;button.prefix="Button ";button.value=preferences.buttons[action];button.tooltip_text="-1 disables this binding";row.add_child(button)
+		button.value_changed.connect(func(value):preferences.buttons[action]=int(value);save())
 	var deadzone:=HSlider.new();deadzone.min_value=0;deadzone.max_value=.45;deadzone.step=.01;deadzone.value=preferences.deadzone;mappings.add_child(deadzone)
 	deadzone.tooltip_text="Rotational axis deadzone";deadzone.value_changed.connect(func(value):preferences.deadzone=value;save())
-	notice=Label.new();notice.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;notice.text="Pilot: right stick pitches/rolls; left stick adjusts throttle/yaw. Right stick click opens ship commands; left stick click leaves the station. To return, walk near the seat, aim at Take pilot seat above the chair, and press trigger. Virtual HOTAS grips are beside the seat.";notice.add_theme_font_size_override("font_size",14);add_child(notice)
+	notice=Label.new();notice.autowrap_mode=TextServer.AUTOWRAP_WORD_SMART;notice.text="Pilot: right stick pitches/rolls; left stick adjusts throttle/yaw. Right stick click opens ship commands; left stick click leaves the station. To return, walk near the seat, aim at Take pilot seat above the chair, and press trigger. Virtual HOTAS grips are beside the seat. Dominant A/X selects the looked-at ship; other A/X cycles hostiles. Dominant B/Y cycles subsystems; other B/Y fires a locked missile. Choose a launcher and named subsystems from Ship commands → Targeting.";notice.add_theme_font_size_override("font_size",14);add_child(notice)
 func save()->void:
 	if preferences.save_preferences()!=OK and is_instance_valid(notice):notice.text="Flight settings updated for this session; could not save preferences."

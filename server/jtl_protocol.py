@@ -14,7 +14,8 @@ ACTIONS = ('status', 'launch', 'land', 'station', 'leave', 'control', 'walk',
            'decorate', 'recover', 'command', 'crew_prepare', 'crew_cancel',
            'crew_remove', 'crew_join', 'boarding_request', 'boarding_accept',
            'boarding_decline', 'return_ship', 'hyperspace', 'abort_hyperspace',
-           'terminal', 'terminal_recover', 'comm_begin', 'comm_choose')
+           'terminal', 'terminal_recover', 'comm_begin', 'comm_choose',
+           'target', 'subsystem', 'missile_select', 'missile_fire', 'inspect', 'dock', 'undock')
 SPACE_ZONES = tuple('space_'+name for name in ('corellia', 'dantooine', 'dathomir',
     'endor', 'lok', 'naboo', 'tatooine', 'yavin4', 'light1', 'heavy1'))
 COMMANDS = ('shield_front', 'shield_rear', 'shield_balance', 'power_engines', 'power_balanced',
@@ -105,7 +106,23 @@ def command(action, data):
         if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9_]{1,64}', value):
             raise ValueError('Original hyperspace destination required.')
         out['destination'] = value
+    if action in ('target', 'subsystem', 'missile_fire', 'inspect', 'dock'):
+        value = data.get('target_id')
+        out['target_id'] = '0' if action == 'target' and value == '0' else identifier(value)
+    if action in ('subsystem', 'missile_fire'):
+        value = data.get('component_slot')
+        if type(value) is not int or not -1 <= value <= 111:
+            raise ValueError('Native target subsystem required.')
+        out['component_slot'] = value
+    if action in ('missile_select', 'missile_fire'):
+        value = data.get('weapon_slot')
+        if type(value) is not int or not 12 <= value <= 19:
+            raise ValueError('Native missile weapon slot required.')
+        out['weapon_slot'] = value
     if action == 'control':
+        active = data.get('targeting_active', False)
+        if type(active) is not bool: raise ValueError('Boolean targeting intent required.')
+        out['targeting_active'] = active
         fire = data.get('primary_fire', False)
         if type(fire) is not bool: raise ValueError('Boolean primary fire intent required.')
         out['primary_fire'] = fire

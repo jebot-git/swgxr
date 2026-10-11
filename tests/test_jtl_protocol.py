@@ -11,7 +11,7 @@ class JtlProtocolTests(unittest.TestCase):
         raw = dict(sequence=2, throttle=.5, pitch=-1, yaw=0, roll=1,
                    zone='space_tatooine', ship_id='999', speed=9999, damage=999)
         out = protocol.command('control', raw)
-        self.assertEqual(set(out), {'action','sequence','throttle','pitch','yaw','roll','zone','primary_fire'})
+        self.assertEqual(set(out), {'action','sequence','throttle','pitch','yaw','roll','zone','primary_fire','targeting_active'})
         self.assertFalse(out['primary_fire'])
         self.assertTrue(protocol.command('control',dict(raw,primary_fire=True))['primary_fire'])
         for field, value in [('sequence',True),('sequence',0),('sequence',2**53),

@@ -32,6 +32,7 @@ foreach ($entry in $entries) {
  if ($entry[1].Contains('--launcher')) { $link.TargetPath = Join-Path $env:SWGXR_SHORTCUT_ROOT 'python\\pythonw.exe' }
  $link.Arguments = '-I -X utf8 "' + (Join-Path $env:SWGXR_SHORTCUT_ROOT 'start_client.py') + '" ' + $entry[1]
  $link.WorkingDirectory = $env:SWGXR_SHORTCUT_ROOT
+ $link.IconLocation = (Join-Path $env:SWGXR_SHORTCUT_ROOT 'client\\resources\\icons\\swgxr.ico') + ',0'
  $link.Save()
 }
 '''
@@ -49,7 +50,8 @@ foreach ($entry in $entries) {
                 path = directory / (name.lower().replace(' ', '-') + '.desktop')
                 command = desktop_quote(sys.executable) + ' ' + desktop_quote(root/'start_client.py')
                 if argument: command += ' ' + argument
-                path.write_text('[Desktop Entry]\nType=Application\nName='+name+'\nExec='+command+'\nTerminal='+('false' if '--launcher' in argument else 'true')+'\nIcon=applications-games\nCategories=Game;\n', encoding='utf-8')
+                icon = str(root/'client/resources/icons/swgxr.png').replace('\\', '\\\\').replace('\n', '\\n').replace('\r', '\\r')
+                path.write_text('[Desktop Entry]\nType=Application\nName='+name+'\nExec='+command+'\nTerminal='+('false' if '--launcher' in argument else 'true')+'\nIcon='+icon+'\nCategories=Game;\n', encoding='utf-8')
                 path.chmod(0o755)
     print('Installed SWGXR desktop shortcuts. They point to ' + str(root), flush=True)
 
@@ -129,6 +131,10 @@ class LauncherWindow:
         self.buttons = []
         self.bg, self.panel, self.fg, self.muted, self.accent = '#101b27', '#192b3b', '#eef7fc', '#a9becc', '#6ee7dc'
         window.title('SWGXR Launcher')
+        icon = self.root/'client/resources/icons/swgxr.png'
+        if icon.is_file():
+            self.window_icon = tk.PhotoImage(file=str(icon))
+            window.iconphoto(True, self.window_icon)
         window.geometry('840x660')
         window.minsize(740, 620)
         window.configure(bg=self.bg)

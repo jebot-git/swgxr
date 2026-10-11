@@ -21,6 +21,7 @@ class LauncherTests(unittest.TestCase):
                         entry=(directory/'swgxr-desktop.desktop').read_text()
                         self.assertIn(launcher.desktop_quote(root/'start_client.py')+' --desktop',entry)
                         self.assertIn('Terminal=true',entry)
+                        self.assertIn('Icon='+str(root/'client/resources/icons/swgxr.png'),entry)
                         self.assertTrue((directory/'swgxr.desktop').stat().st_mode & 0o111)
                         self.assertIn('Terminal=false',(directory/'swgxr.desktop').read_text())
                         self.assertIn('--launcher --updates',(directory/'swgxr-updates.desktop').read_text())
@@ -40,6 +41,7 @@ class LauncherTests(unittest.TestCase):
             entry = home/'Desktop/swgxr.desktop'
             entry.write_text(entry.read_text().replace('Terminal=true','Terminal=false'))
             app = Gio.DesktopAppInfo.new_from_filename(str(entry))
+            self.assertEqual(app.get_icon().get_file().get_path(), str(root/'client/resources/icons/swgxr.png'))
             app.launch([], None)
             for _ in range(30):
                 if (root/'launched').exists(): break

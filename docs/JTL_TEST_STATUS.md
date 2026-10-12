@@ -309,12 +309,12 @@ unchanged. Slow/fast synthetic traces span 0.35–4 Hz; headset gesture reliabil
 still requires physical testing.
 
 
-## jtl2.mp4 follow-up — 2026-10-12, local integration
+## jtl2.mp4 follow-up — released as test.22 on 2026-10-12
 
 The recording ends with hull **0/800** while still in the cockpit. Earlier engine
 failure at 774/800 was a separate component-disable state. The retained client
 network ring contained successful responses, rather than the earlier session
-conflicts. This patch is local and has not superseded the published test.21.
+conflicts. This patch is deployed and published as `v2026.10.12-test.22`.
 
 - Native `DestroyShipTask` iteration 1 returned without rescheduling the final
   storage/ejection stage. It now runs that stage after the five-second destruction
@@ -363,7 +363,21 @@ original mission/NPC communications, automatic return to Tatooine and continued
 hull ownership, and restores temporary Lua fixture code. This tests the recovery
 path; it is not a new prolonged combat or lethal-damage test. The final probe
 passed all 9 checks and returned to ground in 10.13 seconds, including the
-fixture task's four-second scheduling delay. The next release
-must include native patch 0153, the adapter/client changes and the revised local
-media preparation recipe. Existing launcher recipe hashing invalidates changed
+fixture task's four-second scheduling delay. The release includes native patch 0153, the adapter/client changes and the revised
+local media preparation recipe. Existing launcher recipe hashing invalidates changed
 conversion inputs; proprietary assets are not shipped in public patch bundles.
+
+
+Deployment completed to `87.106.27.237` with 21 accounts and 19 characters
+preserved. Native, adapter, gateway and voice services are active. The daily
+05:00 UTC restart remains enabled. Saved database/configuration and previous-file
+backup: `runtime/deploy/jtl-test22-20261012/backup` on the server. Running native
+SHA-256: `9cac164d2e533230315adde96cb2911e48604f97f12da6053d53ba446ec581e9`.
+
+Linux/Windows full packages and 16 incremental bundles (test.14–21) are published
+under `v2026.10.12-test.22` and `v2026.10.12-test.22-patches`. Source commit:
+`8b63977`. All bundle reconstructions match the target package manifests. The
+local Downloads installation received the test.21 delta (20,858,519 bytes), with
+separate client and prepared-data backups, and remains closed. Installed preflight
+passes; two unchanged preparation checks skip staging/conversion in 45–54 ms.
+Release evidence: `runtime/releases/test22-20261012/`.

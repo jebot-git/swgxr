@@ -36,7 +36,7 @@ function PilotObjectiveQuest:waypoint(p)
  SpaceHelpers:clearQuestWaypoint(p,self.className)
  local point=self.objectivePoints[self:get(p,"stage")]
  local ghost=CreatureObject(p):getPlayerObject()
- local waypoint=PlayerObject(ghost):addWaypoint(self.questZone,"@spacequest/"..self.questType.."/"..self.questName..":title","",point.x,point.z,point.y,WAYPOINT_SPACE,true,true,WAYPOINTQUESTTASK)
+ local waypoint=PlayerObject(ghost):addWaypoint(point.zoneName or self.questZone,"@spacequest/"..self.questType.."/"..self.questName..":title","",point.x,point.z,point.y,WAYPOINT_SPACE,true,true,WAYPOINTQUESTTASK)
  setQuestStatus(SceneObject(p):getObjectID()..":"..self.className..":waypointID",waypoint)
 end
 function PilotObjectiveQuest:spawn(p,types,role,target)
@@ -45,7 +45,7 @@ function PilotObjectiveQuest:spawn(p,types,role,target)
  local spawned={}
  for i,template in ipairs(types) do
   local offset=role=="ally" and -500 or role=="target" and 0 or 500
-  local ship=spawnShipAgent(template,self.questZone,point.x+offset,point.z,point.y+i*35)
+  local ship=spawnShipAgent(template,point.zoneName or self.questZone,point.x+offset,point.z,point.y+i*35)
   if ship==nil then self:failQuest(p,"true");return nil end
   ShipAiAgent(ship):setMissionOwner(p)
   local playerShip=self:ship(p)
@@ -89,13 +89,15 @@ end
 function PilotObjectiveQuest:tick(p,generation)
  if not self:active(p) or tonumber(generation)~=self:get(p,"generation") then return end
  local ship=self:ship(p)
- local inZone=SceneObject(p):getZoneName()==self.questZone
+ local stage=self:get(p,"stage");local point=self.objectivePoints[stage]
+ local inZone=SceneObject(p):getZoneName()==(point.zoneName or self.questZone)
  if self:get(p,"entered")==1 and (not inZone or ship==nil) then self:failQuest(p,"true");return end
  if not inZone or ship==nil then createEvent(1000,self.className,"tick",p,generation);return end
  if self:get(p,"entered")==0 then
-  self:set(p,"entered",1);self:task(p,0,true);self:task(p,1,false);self:waypoint(p)
+  self:set(p,"entered",1)
+  if stage==1 then self:task(p,0,true);self:task(p,1,false) end
+  self:waypoint(p)
  end
- local stage=self:get(p,"stage");local point=self.objectivePoints[stage]
  local dx=SceneObject(ship):getPositionX()-point.x
  local dy=SceneObject(ship):getPositionY()-point.y
  local dz=SceneObject(ship):getPositionZ()-point.z
@@ -151,6 +153,10 @@ function PilotObjectiveQuest:dockedShip(p,target)
  -- Pickup cannot satisfy delivery; the next rendezvous has a distinct ship ID.
  if stage<#self.objectivePoints then
   self:set(p,"stage",stage+1);self:set(p,"arrived",0);self:set(p,"wave",0)
+  -- Some original deliveries cross sectors. Wait for the next rendezvous's
+  -- sector instead of failing hyperspace travel or spawning it in the old one.
+  local destination=self.objectivePoints[stage+1].zoneName or self.questZone
+  if destination~=SceneObject(p):getZoneName() then self:set(p,"entered",0) end
   self:task(p,3,false);self:waypoint(p)
  else self:completeQuest(p,"true");return 1 end
  return 0

@@ -46,6 +46,12 @@ def main():
     if not args.prepare_only:
         try: verify_native_build(ROOT)
         except ValueError as exc: raise SystemExit(str(exc)) from exc
+    if not args.prepare_only:
+        collision=ROOT/'vendor/Core3/MMOCoreORB/bin/conf/swgxr-space-collision.json'
+        if not collision.is_file():raise SystemExit('Prepare native space collision data with tools/space/prepare_collision.py first.')
+        geometry=json.loads(collision.read_text());catalog=json.loads((ROOT/'runtime/assets/jtl/catalog.json').read_text())
+        if set(geometry.get('sectors',{}))!=set(catalog['sectors']) or any(geometry.get('source_sha256',{}).get(zone)!=row['sha256'] for zone,row in catalog['sectors'].items()):
+            raise SystemExit('Native asteroid collision data differs from the client sector catalog; regenerate it before packaging.')
     catalogs = vehicle_catalog_status(ROOT)
     if not catalogs['passed']: raise SystemExit('; '.join(catalogs['errors']))
     native = 'vendor/Core3/MMOCoreORB/bin/'

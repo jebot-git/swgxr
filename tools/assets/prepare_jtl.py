@@ -14,7 +14,8 @@ from cockpit_controls import camera_anchor, prepare_controls
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT))
-from server.jtl_catalog import SMALL_SHIPS
+from server.jtl_catalog import SMALL_SHIPS, POB_SHIPS
+from prepare_player_pob import prepare_pob
 TEMPLATE = 'object/ship/player/player_sorosuub_space_yacht.iff'
 SHARED = 'object/ship/player/shared_player_sorosuub_space_yacht.iff'
 
@@ -66,20 +67,12 @@ def small_ships(assets, out):
     ordered=sorted(templates, key=lambda key: 0 if 'z95' in key else 1)
     for source in ordered:
         entry=templates[source]
-        family='z95' if 'z95' in source else 'hutt' if 'hutt' in source else 'tie' if 'tie' in source else ''
+        cockpit=entry['cockpit_source'].split('/')[-1]
+        family='z95' if 'z95' in source else 'xwing' if source.endswith('player_xwing.iff') else 'hutt' if cockpit=='hutt_light.iff' else 'tie' if cockpit=='tiefighter.iff' else ''
         entry['controls']=prepare_controls(out,entry['descriptor'],family,assets)
         entry['sha256']=hashlib.sha256((out/entry['descriptor']).read_bytes()).hexdigest()
-    # Prepare the approved Xwing cockpit fitment without expanding native ship
-    # gameplay/crafting support beyond SMALL_SHIPS.
-    descriptor='fighter_xwing_cockpit.json'
-    cpit=parse_iff(assets.read('cockpit/xwing.iff'))
-    frame=cstring(cpit.first('FRAM').data)[0]
-    eye,camera_source=camera_anchor(assets,frame,struct.unpack('<3f',cpit.first('1OFF').data))
-    digest=appearance_stage(frame,descriptor,eye)
-    controls=prepare_controls(out,descriptor,'xwing',assets)
-    (out/'authored_cockpits.json').write_text(json.dumps({'xwing':dict(descriptor=descriptor,
-        sha256=digest,cockpit_position=eye,cockpit_camera_source=camera_source,
-        controls=controls)},separators=(',',':')))
+    # The authored preview and enabled X-wing share exactly one conversion.
+    (out/'authored_cockpits.json').write_text(json.dumps({'xwing':templates['object/ship/player/player_xwing.iff']},separators=(',',':')))
     return templates
 
 
@@ -148,6 +141,8 @@ def prepare(tre, out):
                                        sha256=hashlib.sha256(source.read_bytes()).hexdigest()),
                    provenance=assets.dependencies, conversion_failures=assets.failures)
     catalog['templates'].update(small_ships(assets,out))
+    for name in POB_SHIPS:
+        catalog['templates']['object/ship/player/player_'+name+'.iff']=prepare_pob(assets,out,name)
     (out / 'catalog.json').write_text(json.dumps(catalog, indent=2) + '\n')
     result = dict(stage=str(path), meshes=len(meshes), instances=len(instances), cells=len(cells),
                   interior_cells=len([c for c in cells.values() if not c['is_exterior']]),

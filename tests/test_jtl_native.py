@@ -15,6 +15,7 @@ class JtlNative(unittest.TestCase):
    result=subprocess.run([str(temp/'test')],capture_output=True,text=True,timeout=10)
    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
    print(result.stdout.strip())
+ def test_flight_collision(self):self.compile_run('jtl_flight_collision.cpp')
  def test_flight_policy(self):self.compile_run('jtl_policy.cpp')
  def test_ground_building_never_indexes_ship_cells(self):
   source=(ROOT/'server/jtl/SwgxrJtl.h').read_text()

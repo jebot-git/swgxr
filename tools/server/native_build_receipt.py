@@ -22,6 +22,7 @@ def inputs(root):
             path=root/'vendor/Core3'/entry['path']
             if sha(path)!=entry['sha256']:raise ValueError('Installed pilot bundle differs from its manifest: '+entry['path'])
             paths.append(path)
+    paths += [root/'server/jtl_catalog.py',root/'tools/space/prepare_collision.py',root/'vendor/Core3/MMOCoreORB/bin/conf/swgxr-space-collision.json']
     paths += [root/'tools/configure_core3.py',root/'tools/server/build.sh',root/'tools/server/native_build_receipt.py']
     return {'upstream':subprocess.check_output(['git','-C',str(root/'vendor/Core3'),'rev-parse','HEAD'],text=True).strip(),
             'engine3':subprocess.check_output(['git','-C',str(root/'vendor/Core3/MMOCoreORB/utils/engine3'),'rev-parse','HEAD'],text=True).strip(),

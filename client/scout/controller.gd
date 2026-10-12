@@ -338,7 +338,7 @@ func ground_distance(point: Vector3) -> float:
 	var mask:=body.collision_mask if is_instance_valid(body) else 7
 	var excluded:Array[RID]=[]
 	if is_instance_valid(body):excluded.append(body.get_rid())
-	var query:=PhysicsRayQueryParameters3D.create(point+Vector3.UP*0.1,point-Vector3.UP*0.5,mask,excluded)
+	var query:=PhysicsRayQueryParameters3D.create(point+Vector3.UP*0.1,point-Vector3.UP*0.65,mask,excluded)
 	var hit:=get_world_3d().direct_space_state.intersect_ray(query)
 	if hit.is_empty() or Vector3(hit.normal).dot(Vector3.UP)<0.65:return INF
 	return point.y-Vector3(hit.position).y
@@ -391,14 +391,16 @@ func _process(delta: float) -> void:
 	last_reply+=delta;next_poll-=delta
 	if is_instance_valid(app.combat_rig):app.combat_rig.scout=self
 	var head: Node3D=rig.get_node("XRCamera3D");var left: XRController3D=rig.get_node("LeftHand");var right: XRController3D=rig.get_node("RightHand")
-	var tracked: bool=bag.allowed and HandInput.controller_tracked(left) and HandInput.controller_tracked(right)
+	var left_tracked:bool=bag.allowed and HandInput.controller_tracked(left)
+	var right_tracked:bool=bag.allowed and HandInput.controller_tracked(right)
+	var tracked:bool=left_tracked or right_tracked
 	sample_mask_gesture(delta,left,right)
 	if not busy and not app.inventory_request_pending and not bag.action_pending:
 		if not cooldown_queue.is_empty():request(cooldown_queue.pop_front())
 		elif next_poll<=0 and (not app.has_method("try_background_poll") or app.try_background_poll("scout")):next_poll=5;request("ranger_status")
-	var sample:=gestures.sample(delta,head.global_transform,left.global_position,right.global_position,ground_distance(left.global_position),ground_distance(right.global_position),tracked)
+	var sample:=gestures.sample(delta,head.global_transform,left.global_position if left_tracked else head.global_position,right.global_position if right_tracked else head.global_position,ground_distance(left.global_position) if left_tracked else INF,ground_distance(right.global_position) if right_tracked else INF,tracked)
 	var main: XRController3D=left if bag.held_hand_side()=="left" else right
-	gestures.sample_throw(delta,head.global_transform,main.global_position,tracked and trap_held())
+	gestures.sample_throw(delta,head.global_transform,main.global_position,bag.allowed and HandInput.controller_tracked(main) and trap_held())
 	if tracked and not bag.is_open and bag.held_item.is_empty() and last_reply<12 and state.get("forage_available",false) and not state.get("foraging",false):
 		for index:int in sample.get("dig_hands",[]):
 			var point:Vector3=left.global_position if index==0 else right.global_position
@@ -410,7 +412,8 @@ func _process(delta: float) -> void:
 	update_camp_ui();update_reticle()
 func gesture_actions(sample:Dictionary,tracked:bool)->void:
 	var forage_permitted:bool=tracked and not bag.is_open and last_reply<12 and state.get("forage_available",false) and not state.get("foraging",false) and bag.held_item.is_empty()
-	if not forage_permitted:forage_pending_until=0
+	if not forage_permitted:
+		forage_pending_until=0;gestures.reset_dig()
 	elif sample.forage:forage_pending_until=Time.get_ticks_msec()+2000
 	if not busy and not app.inventory_request_pending and not bag.action_pending and not bag.is_open and last_reply<12:
 		if forage_pending_until>Time.get_ticks_msec():

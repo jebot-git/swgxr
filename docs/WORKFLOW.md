@@ -2020,3 +2020,55 @@ converts the authored native files normally, retaining vertex colour.
 Local evidence: runtime/releases/test20-20261012 and
 runtime/evidence/original-stick-{cockpit-v2,xwing}. Desktop Vulkan renders are
 not headset validation. These changes require no server code or service restart.
+
+### 2026-10-12 — test.20 published; subsequent waypoint audit
+
+Published `v2026.10.12-test.20` and its `-patches` prerelease at commit `0d8c0e9`.
+Verified all 20 uploaded GitHub assets and launcher discovery for both platforms
+(seven patch baselines each). Installed the test.19-to-test.20 Linux patch and
+prepared cockpit data in the closed Downloads client; bundled preflight passed
+and unchanged-data startup checks skipped staging/conversion in 46–58 ms.
+Remote CoreCU, adapter, gateway and voice were healthy; no server binary changed
+or restart was needed. The 05:00 UTC restart remains active. Release evidence:
+`runtime/releases/test20-20261012/`. No VR gameplay launch was performed.
+
+The subsequent user-requested JTL waypoint investigation found fixes for the
+map heading, hyperspace map coordinates, patrol completion/follow-on events and
+cross-sector deliveries. These are
+local pending changes, **not included in test.20**. Scope and test limitations
+are recorded in `docs/PILOT_MISSIONS.md`.
+
+### 2026-10-12 — pending fleet, flight and gesture integration
+
+The live Downloads client was terminated on request and remains closed. The
+`jtl.mp4` recording and retained network ring show repeated HTTP 409
+`live_session_conflict` responses; the ring does not retain the initial cause of
+session loss. The client now stops control/prediction and exposes reconnection
+instead of silently polling that terminal error. TIE eye clearance is adjusted
+through the cockpit frame, without driving tracked head/controller transforms.
+
+All 44 original craftable/certified player templates plus the existing Yacht
+are prepared and enabled locally. See `PLAYER_SPACECRAFT.md` for the complete
+inventory and remaining crew-control/media limits. POB chairs/cells now come
+from native hull definitions. Two original redemption bugs are fixed: the
+Black Sun light s03 template typo and Yacht exclusion from the regular POB cap.
+Native collision sweeps include original scenery and the same 17,106 seeded
+asteroid extents used by the ten client sectors. Private collision data is
+required and validated by runtime packaging.
+
+Cockpit mission waypoint markers preserve original colors, distance and the
+50-metre arrival suppression, with XR edge arrows added. Foraging recognizes
+three deliberate out-and-back hand strokes over slow and fast gesture rates,
+with existing dirt feedback on completed strokes.
+
+Evidence: `runtime/evidence/jtl-forage-20261012/`. Actual production scenes for
+all 45 player hulls pass 99 headless checks; session/client 74, scout 53,
+waypoints 15, yoke 23 and flight/doorway 13 checks pass. Native compiled policy
+tests and nine original deed-capacity decisions pass. An isolated live native
+fixture using its previously crafted/outfitted Z-95 passes nine collision
+checks, including stopping, held-throttle blocking and turning away to resume.
+Fixture hooks and its temporary asteroid were removed. The native server builds
+successfully and its build receipt is recorded. Desktop Forward+ Vulkan cockpit
+captures on Intel Arc A770 were inspected; these and dummy-renderer tests do not
+validate headset comfort or every ship's combat behavior. This work is not yet
+installed in Downloads or deployed to the live server.

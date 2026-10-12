@@ -73,6 +73,15 @@ func run() -> void:
 			if stroke.forage:digs+=1
 		check(digs==(0 if mode in ["walking_low","jitter_low","head_turn"] else 1),"Forage trace "+mode+" recognizes deliberate strokes only and latches")
 		check(dirt_strokes==(0 if mode in ["walking_low","jitter_low","head_turn"] else 3),"Dirt feedback accompanies each deliberate stroke: "+mode)
+	# Slow and fast shovelling at comfortable controller height, both axes.
+	for hz in [.35,1.0,4.0]:
+		for axis in [0,1,2]:
+			gesture.reset();digs=0
+			for i in range(int(90*6/hz)):
+				var t:=i/90.0
+				var hand:=Vector3(-.2,.38,-.3);hand[axis]+=sin(t*TAU*hz)*.10
+				if gesture.sample(1.0/90,Transform3D(Basis.IDENTITY,Vector3(0,.9,0)),hand,Vector3(.2,1,-.3),hand.y,1,true).forage:digs+=1
+			check(digs==1,"Single-hand digging speed %.2f Hz axis %d triggers once"%[hz,axis])
 	gesture.reset()
 	for i in range(20):
 		gesture.sample(1.0/90,Transform3D.IDENTITY,Vector3.ZERO,Vector3.ZERO,1,1,true)

@@ -3,6 +3,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 CONTAINER=${SWGXR_CONTAINER:-swgxr-core3-build}
 JOBS=${SWGXR_BUILD_JOBS:-12}
+python3 "$ROOT/tools/space/prepare_collision.py"
 mkdir -p "$ROOT/runtime/server"
 if [[ -d "$ROOT/runtime/asset_sources/active_tre" ]]; then
   python3 "$ROOT/tools/configure_core3.py"

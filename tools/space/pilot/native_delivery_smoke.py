@@ -2,12 +2,12 @@
 """Exercise the converted two-stop delivery through real native docking.
 Original quest relocated near a crafted fixture ship; hostile waves disabled.
 Does not claim original-route travel, combat balance, or XR validation."""
-import argparse,json,os,re,subprocess,time,urllib.request,urllib.error,uuid
+import argparse,json,math,os,re,subprocess,time,urllib.request,urllib.error,uuid
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[3]
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=18088);p.add_argument('--fixture',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--ship-report',type=Path,required=True);a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=18088);p.add_argument('--fixture',type=Path,required=True);p.add_argument('--output',type=Path,required=True);p.add_argument('--ship-report',type=Path,required=True);p.add_argument('--cross-sector',action='store_true');a=p.parse_args()
  os.umask(0o077);f=json.loads(a.fixture.read_text());assert f['account'].startswith('invtest') and str(f['id']).isdigit()
  checks=[];samples=[];latencies=[];sid='';player={};original=None
  def check(ok,label):
@@ -55,9 +55,6 @@ function Tests:swgxrPilotDelivery(mode)
  elseif mode=="mission" then
   if PlayerObject(CreatureObject(p):getPlayerObject()):hasGodMode() then return "admin_forbidden" end
   PilotQuests.clear(p,"delivery","corellia_rebel_tier3_3")
-  q.questZone="space_tatooine";q.sideQuest=false;q.attackShips={}
-  local x=SceneObject(s):getPositionX();local z=SceneObject(s):getPositionZ()+80;local y=SceneObject(s):getPositionY()
-  q.objectivePoints={{x=x,z=z,y=y},{x=x,z=z+150,y=y}}
   PilotQuests.grant(p,nil,"delivery","corellia_rebel_tier3_3")
   return "mission"
  elseif mode=="progress" then
@@ -69,6 +66,7 @@ function Tests:swgxrPilotDelivery(mode)
 end
 '''.replace('__ID__',str(f['id'])).replace('__SHIP__',ship_id).replace('__NAME__',f['name'].split()[0].lower())
  report={'passed':False,'native_corecu':True,'client_launched':False,'fixture_id':f['id'],'crafted_ship_id':ship_id,'checks':checks,'samples':samples,'fixture_controls':'Original delivery corellia_rebel_tier3_3 relocated to two nearby rendezvous in Tatooine, waves and follow-on quest disabled; original target templates, native docking, journal tasks and completion observer retained.'}
+ if a.cross_sector:report['fixture_controls']='Original delivery relocated to Tatooine pickup and 200 m above Naboo Royal Way arrival for real hyperspace/docking; waves and follow-on disabled. The approach retains native collision checks. This tests sector transition, not the original mission route.'
  registration=ROOT/'vendor/Core3/MMOCoreORB/bin/scripts/screenplays/space/swgxr_pilot/registration.lua';original_registration=registration.read_text()
  launched=False;sequence=0
  try:
@@ -87,21 +85,45 @@ end
   check(state['ship']['id']==ship_id and not state['ship']['combat_excluded'],'Crafted and outfitted Z-95 launches')
   # Reload the same fixture override in each native Lua worker, not only the console worker.
   x,z,y=state['ship']['position'];z+=80
-  registration.write_text(original_registration+'\nlocal q=PilotQuests.instances["delivery:corellia_rebel_tier3_3"]\nq.questZone="space_tatooine";q.sideQuest=false;q.attackShips={}\nq.objectivePoints={{x='+str(x)+',z='+str(z)+',y='+str(y)+'},{x='+str(x)+',z='+str(z+150)+',y='+str(y)+'}}\n')
+  destination_zone='space_naboo' if a.cross_sector else 'space_tatooine'
+  destination=[x,z+150,y]
+  if a.cross_sector:
+   catalog=json.loads((ROOT/'runtime/assets/jtl/catalog.json').read_text())
+   arrival=next(d['position'] for d in catalog['sectors'][destination_zone]['navigation'] if d['id']=='space_naboo_0')
+   destination=list(arrival);destination[1]+=200
+  endpoint='{x='+str(destination[0])+',z='+str(destination[1])+',y='+str(destination[2])+',zoneName="'+destination_zone+'"}'
+  registration.write_text(original_registration+'\nlocal q=PilotQuests.instances["delivery:corellia_rebel_tier3_3"]\nq.questZone="space_tatooine";q.sideQuest=false;q.attackShips={}\nq.objectivePoints={{x='+str(x)+',z='+str(z)+',y='+str(y)+',zoneName="space_tatooine"},'+endpoint+'}\n')
   console('reloadscreenplays')
   check(console('runLuaFunction Tests:swgxrPilotDelivery:mission')=='mission','Original converted delivery activated on non-admin fixture')
   def tick():
    nonlocal sequence,state
    sequence+=1;state=act('control',sequence=sequence,throttle=0,pitch=0,yaw=0,roll=0,primary_fire=False,targeting_active=True)['state']
   def progress():return console('runLuaFunction Tests:swgxrPilotDelivery:progress').split(':')
-  targets=[]
+  targets=[];waypoint_ids=[]
   for phase in (1,2):
+   if phase==2 and a.cross_sector:
+    tick();current=progress()
+    check(current[1]=='0' and current[2]=='true','Cross-sector delivery waits without spawning in pickup sector')
+    check(not any(w['name']==waypoint['name'] for w in state.get('waypoints',[])),'Other-sector delivery waypoint excluded from current-sector snapshot')
+    state=act('hyperspace',destination='space_naboo_0')['state'];deadline=time.monotonic()+65
+    while state['ship'].get('hyperspacing') and time.monotonic()<deadline:
+     time.sleep(.5);state=act('status')['state']
+    check(state['ship'].get('zone')==destination_zone and not state['ship'].get('hyperspacing'),'Native hyperspace reaches delivery sector')
+    check(math.dist(state['ship']['position'],arrival)<=math.sqrt(3)*100+.1,'Hyperspace map point matches native arrival within its original random offset')
+    sequence=max(sequence,state['ship']['control_sequence'])
    deadline=time.monotonic()+15
    while time.monotonic()<deadline:
     current=progress()
     if int(float(current[0]))==phase and int(float(current[1])):break
     tick();time.sleep(.25)
    npc=str(int(float(current[1])));check(npc!='0','Delivery phase '+str(phase)+' spawns its target')
+   tick()
+   expected=destination if phase==2 else [x,z,y]
+   waypoints=[w for w in state.get('waypoints',[]) if all(abs(float(v)-e)<.01 for v,e in zip(w.get('position',[]),expected)) and len(w.get('position',[]))==3]
+   check(len(waypoints)==1,'Phase '+str(phase)+' exports the exact native XYZ waypoint')
+   waypoint=waypoints[0];check(bool(waypoint.get('name')) and not waypoint['name'].startswith('@'),'Phase '+str(phase)+' waypoint label resolves')
+   check(not any(w['id'] in waypoint_ids for w in state.get('waypoints',[])),'Previous delivery waypoint removed before phase '+str(phase))
+   waypoint_ids.append(waypoint['id'])
    targets.append(npc);act('target',target_id=npc);tick()
    check(state['ship']['targeting']['target'].get('dock_permitted'),'Native journal grants phase '+str(phase)+' docking permission')
    state=act('dock',target_id=npc)['state'];check(state['ship']['docking'],'Native docking starts for phase '+str(phase))
@@ -117,6 +139,7 @@ end
     check(act('dock',False,target_id=npc).get('ok') is False,'Pickup permission cannot be reused for delivery')
    else:check(current[3]=='true','Native SHIPDOCKED observer completes the delivery')
   check(targets[0]!=targets[1],'Pickup and delivery use distinct native ship IDs')
+  tick();check(not any(w['id'] in waypoint_ids for w in state.get('waypoints',[])),'Completion removes delivery waypoints from the native snapshot')
   report['passed']=True
  except Exception as error:report['error']=str(error);raise
  finally:

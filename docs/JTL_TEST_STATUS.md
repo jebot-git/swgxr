@@ -275,3 +275,34 @@ Validation: 36 gesture checks, including both dominant hands, a rotated cockpit,
 axis signs, release/reacquisition, ignored grip/stick values and tracking loss;
 70 original-yacht integration checks. Both ran headless with XR off and the dummy
 renderer. Controller ergonomics and live headset behavior remain unvalidated.
+
+
+## Flight and spacecraft patch — test.21 (2026-10-12)
+
+The enabled hull set expands to 45 templates including the existing Yacht. See
+[the complete player spacecraft inventory](PLAYER_SPACECRAFT.md). These changes
+are included in test.21, following test.20.
+
+The TIE desktop camera anchor placed the eye 32 cm behind and 23 cm above the
+yoke grips. VR frame alignment adds 23 cm rearward and 20 cm upward clearance;
+tracked poses stay untouched, and approved Z-95/X-wing stick placement is retained.
+A terminal JTL session-conflict response now stops polling, freezes extrapolation,
+drops queued actions and opens normal reconnect handling. Reconnection clears
+old scene/revision state before admitting a fresh owned snapshot. The retained
+recording-session network ring contains only the subsequent 409 status failures;
+it does not establish why the original owned session ended.
+
+Cockpit waypoints follow the original SwgCuiAllTargetsSpace active-waypoint,
+colour, ship-distance and 50 m suppression rules. The XR adaptation adds bounded
+edge arrows for objectives outside the forward view. Markers survive long range
+without far-plane clipping and clear on objective changes, landing or session
+loss. This complements the native mission/map waypoint corrections already
+recorded in PILOT_MISSIONS.md.
+
+Foraging now accepts distance-based out-and-back strokes on all three axes at
+controller heights up to 55 cm, with a 4-second stroke-gap allowance. Either
+tracked hand can dig while the other is untracked. Near-ground dirt feedback is
+retained, action dispatch still waits for native availability, and unavailable
+states no longer permanently latch a gesture. Native costs and cooldowns remain
+unchanged. Slow/fast synthetic traces span 0.35–4 Hz; headset gesture reliability
+still requires physical testing.

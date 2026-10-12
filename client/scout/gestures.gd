@@ -1,7 +1,6 @@
 extends RefCounted
 ## Gesture input only. Native Core3 decides availability, costs and cooldowns.
-const DIG_NEAR := 0.45
-const DIG_LOW := 0.20
+const DIG_NEAR := 0.55
 var previous_left:=Vector3.ZERO
 var previous_right:=Vector3.ZERO
 var have_previous:=false
@@ -18,7 +17,7 @@ func reset() -> void:
 	have_previous=false;run_side=0;run_count=0;run_time=0;dig_count=0;dig_time=0;dig_hands=[{},{}];dig_latched=false;throw_samples.clear()
 func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, ground_left: float, ground_right: float, tracked: bool) -> Dictionary:
 	var out: Dictionary={"burst_run":false,"forage":false,"dig_hands":[]}
-	if not tracked or not head.is_finite() or not left.is_finite() or not right.is_finite() or not is_finite(delta) or delta<=0 or delta>0.15: reset();return out
+	if not tracked or not head.is_finite() or not left.is_finite() or not right.is_finite() or not is_finite(delta) or delta<=0 or delta>0.25: reset();return out
 	clock+=delta;run_time+=delta;dig_time+=delta
 	var l:=head.affine_inverse()*left;var r:=head.affine_inverse()*right
 	if not have_previous: previous_left=l;previous_right=r;have_previous=true;return out
@@ -40,7 +39,7 @@ func sample(delta: float, head: Transform3D, left: Vector3, right: Vector3, grou
 	elif not dig_latched:
 		# Each hand completes its own strokes: alternating scoops must not cancel
 		# each other, and the other hand may stay comfortably above the ground.
-		if dig_time>1.2: dig_count=0;dig_hands=[{},{}];dig_time=0
+		if dig_time>4.0: dig_count=0;dig_hands=[{},{}];dig_time=0
 		var stroke_left:=dig_stroke(0,left-head.origin,ground_left,near_left)
 		var stroke_right:=dig_stroke(1,right-head.origin,ground_right,near_right)
 		if stroke_left:out.dig_hands.append(0)
@@ -56,32 +55,30 @@ func dig_stroke(index: int, point: Vector3, height: float, near: bool) -> bool:
 		dig_hands[index]={};return false
 	var hand: Dictionary=dig_hands[index]
 	if hand.is_empty():
-		hand.merge({"bottom":point.y,"low":height<DIG_LOW,"horizontal":[{"min":point.x,"max":point.x,"back":false},{"min":point.z,"max":point.z,"back":false}],"time":clock})
-	# Head-relative movement rejects body translation and floor-height changes.
+		hand.axes=[]
+		for axis in range(3):hand.axes.append({"extreme":point[axis],"direction":0,"armed":false})
+	# Complete an out-and-back stroke along any axis. Distance hysteresis,
+	# rather than speed or crossing an absolute floor height, admits both a
+	# slow scoop and a quick shovel while rejecting tracking jitter/crouching.
 	var scoop:=false
-	if height<DIG_LOW and not hand.low:
-		hand.low=true;hand.bottom=point.y
-	elif hand.low and point.y-float(hand.bottom)>=0.08:
-		hand.low=false;scoop=true
-	elif hand.low: hand.bottom=minf(float(hand.bottom),point.y)
-	# A low shovel sweeps out and back at least 14 cm, without requiring the
-	# controller to touch the floor. Small tracking jitter cannot complete it.
-	for axis in range(2):
-		var travel:Dictionary=hand.horizontal[axis]
-		var value:float=point.x if axis==0 else point.z
-		if height>0.30:
-			travel.back=false;travel.max=value;travel.min=value
-		elif not travel.back:
-			travel.max=maxf(float(travel.max),value)
-			if float(travel.max)-value>=0.14:
-				travel.back=true;travel.min=value
-		else:
-			travel.min=minf(float(travel.min),value)
-			if value-float(travel.min)>=0.14:
-				scoop=true;travel.back=false;travel.max=value
-	if scoop and clock-float(hand.time)>=0.18:
-		hand.time=clock;return true
-	return false
+	for axis in range(3):
+		var travel:Dictionary=hand.axes[axis]
+		var value:float=point[axis]
+		var threshold:=.08 if axis==1 else .12
+		var displacement:float=value-float(travel.extreme)
+		if travel.direction==0:
+			if absf(displacement)>=.015:
+				travel.direction=signf(displacement);travel.extreme=value
+		elif displacement*float(travel.direction)>=0:travel.extreme=value
+		elif absf(displacement)>=threshold:
+			if travel.armed:scoop=true
+			travel.direction=-float(travel.direction);travel.extreme=value;travel.armed=not travel.armed
+	if scoop:
+		# A diagonal shovel counts once, not once for each axis it crosses.
+		for axis in range(3):hand.axes[axis]={"extreme":point[axis],"direction":0,"armed":false}
+	return scoop
+func reset_dig()->void:
+	dig_count=0;dig_time=0;dig_latched=false;dig_hands=[{},{}]
 func sample_throw(delta: float, head: Transform3D, hand: Vector3, held: bool) -> void:
 	if not held or delta<=0 or delta>0.15: throw_samples.clear();return
 	var point:=head.affine_inverse()*hand

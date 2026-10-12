@@ -48,6 +48,12 @@ def local_source(path):
     return dict(path=str(path.relative_to(ROOT)), sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
 
+def hyperspace_position(row):
+    # ShipManager loads Vector3(X,Y,Z), then HyperspaceToLocationTask calls
+    # switchZone(X,Z,Y). Match that actual native arrival in our Y-up snapshot.
+    return [row[k] for k in ('X', 'Z', 'Y')]
+
+
 def shared(path):
     p = Path(path)
     return str(p.parent / ('shared_'+p.name)) if not p.name.startswith('shared_') else path
@@ -187,7 +193,7 @@ def prepare(tre, out, allow_missing_original_media=False):
         instances, markers = stations(assets, zone)
         scenery, points = landmarks(assets, zone); instances.extend(scenery); markers.extend(points)
         navigation = [dict(id=r['HYPERSPACE_POINT_NAME'], zone=r['SCENE'], name=names.get(r['HYPERSPACE_POINT_NAME'],r['HYPERSPACE_POINT_NAME']),
-            description=descriptions.get(r['HYPERSPACE_POINT_NAME'], ''), position=[r[k] for k in ('X','Y','Z')],
+            description=descriptions.get(r['HYPERSPACE_POINT_NAME'], ''), position=hyperspace_position(r),
             required_command=r.get('REQUIRED_COMMAND','')) for r in jumps if r['SCENE']==zone]
         tables = {}
         for kind in ('asteroidfield','nebula'):

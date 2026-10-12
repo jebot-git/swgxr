@@ -65,3 +65,76 @@ A complete gameplay pass of every mission in every sector, multiplayer objective
 - Native two-stop delivery: 13 checks passed, including distinct pickup/delivery targets and completion through the real `SHIPDOCKED` observer.
 
 Reports are under ignored `runtime/evidence/`: `pilot-progression.json`, `pilot-native-integration.json`, `pilot-integration-docking.json` and `pilot-native-delivery.json`. These results are from the isolated local CoreCU test instance. They do not establish a live-realm deployment or a full gameplay pass of all missions.
+
+## Waypoint audit (2026-10-12, pending release)
+
+Audited all 475 converted mission definitions and their 1,496 navigation points.
+The native journal exports active waypoints only for the player's current sector,
+with XYZ in the same Y-up coordinate convention as ship positions. The client
+puts these on its sector map and wrist map; it does not currently provide a
+cockpit waypoint bearing/distance marker.
+
+Five defects were found and corrected locally:
+
+- The sector-map ship arrow read `orientation`, although native snapshots supply
+  `quaternion`, leaving the arrow fixed while the ship turned.
+- Upstream `SpacePatrolScreenplay` removed the last waypoint without completing
+  the journal. The converted quest wrapper now completes an in-order final
+  arrival, preserving the native completion/follow-on handling. This affects
+  `corellia_privateer_tier3_3_a`, `corellia_privateer_tier4_1a` and
+  `tat_priv_quest_trans`. Akal's second-point encounter trigger is unchanged.
+- The quest wrapper cancelled the pending encounter when completing a
+  point-triggered patrol. It now preserves that already-scheduled start on
+  successful completion; failure/abort still cancels it. The Akal regression
+  executes completion with actual cancellation semantics, not just scheduling.
+- Hyperspace map points used the original table's XYZ directly, but Core3's
+  arrival task applies XZY. Preparation now matches the native arrival frame;
+  all 32 navigation entries across the ten sectors were regenerated and checked
+  against the supplied hyperspace table. Mission buildout positions are unchanged.
+- The delivery runtime used the initial quest sector for every rendezvous.
+  `tatooine_rebel_tier3_3` crosses Lok to Dathomir,
+  `tatooine_rebel_tier4_2_a` crosses Dathomir to Yavin, and
+  `tatooine_privateer_tier4_1a` crosses Lok to Dantooine. Each stop now uses its
+  original `zoneName` for waypoint and ship creation. After pickup, the mission
+  waits for the destination sector instead of spawning there in the old sector
+  or failing the required zone transition.
+
+Regression commands:
+
+```sh
+runtime/pilot-source-venv/bin/python tools/space/pilot/test_waypoints.py
+godot --headless --xr-mode off --path client --script res://tests/jtl_waypoints_smoke.gd
+python tools/space/pilot/native_delivery_smoke.py --cross-sector --port 18088 \
+  --fixture runtime/server/pilot-combat-fixture.json \
+  --ship-report runtime/evidence/pilot-ship-services-native.json \
+  --output runtime/evidence/jtl-waypoints-native-hyperspace.json
+```
+
+The six Lua regression tests exercise actual patrol/objective code with modeled
+engine calls, including all three original cross-sector deliveries, all three
+final-point patrols, Akal waypoint order, and delivery cleanup. They are not live
+flight tests. The headless map test checks eight projection, heading and marker
+replacement conditions; it does not validate GPU/headset rendering. Existing
+JTL client regression: 70 checks passed. Pilot compiler/runtime suite: 22 tests
+passed; JTL protocol/sector-asset suite: 16 tests passed.
+
+The separate native same-sector delivery run passed 20 checks with a genuinely
+crafted Z-95, original target templates, real docking, exact XYZ readback,
+localized labels, replacement and completion cleanup. Its original rendezvous
+are relocated near the fixture and hostile waves are disabled. Reports are
+`runtime/evidence/jtl-waypoints-source-audit.json` and
+`runtime/evidence/jtl-waypoints-native-delivery.json`.
+
+The native cross-sector run passed 24 checks: real pickup docking, native
+hyperspace from Tatooine to Naboo, arrival within the original 100 m per-axis
+random offset of the corrected map point, destination waypoint/target creation,
+real delivery docking and final waypoint removal. The recipient was placed
+200 m above the Royal Way arrival for a clear approach; original docking
+collision checks remained enabled. A prior obstructed approach was rejected
+by that guard and retained separately as evidence, not counted as a completion.
+The isolated server enabled both space sectors for this test. No live-realm
+mutation or headset launch was performed. Evidence:
+`runtime/evidence/jtl-waypoints-native-hyperspace.json`.
+
+These are pending source/data changes after test.20, not a deployed waypoint
+patch. Complete route playthroughs across all 475 missions remain untested.

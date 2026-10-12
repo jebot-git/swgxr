@@ -19,7 +19,7 @@ public:
   }
   auto zone=c->getZone();if(!zone)return;
   for(int i=0;i<ghost->getWaypointListSize();++i){auto w=ghost->getWaypoint(i);if(!w || !w->isActive() || w->getPlanetCRC()!=zone->getZoneName().hashCode())continue;
-   out["waypoints"].push_back({{"id",std::to_string(w->getObjectID())},{"kind","waypoint"},{"name",w->getDisplayedName().toCharArray()},{"position",Json::array({w->getPositionX(),w->getPositionZ(),w->getPositionY()})}});
+   out["waypoints"].push_back({{"id",std::to_string(w->getObjectID())},{"kind","waypoint"},{"color",int(w->getColor())},{"name",w->getDisplayedName().toCharArray()},{"position",Json::array({w->getPositionX(),w->getPositionZ(),w->getPositionY()})}});
   }
  }
 };

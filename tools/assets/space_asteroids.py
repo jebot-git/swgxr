@@ -65,6 +65,7 @@ def field_instances(assets,field):
         return (values+[0.,0.,0.])[:3]
     points=[source_vector(point) for point in field['SplineControlPoints'].split(':')] if field['Type']==2 else []
     toward=source_vector(field['FaceTowards'])
+    field['collision_spheres']=[]
     accepted=[];result=[];attempts=0;r=field['Radius']
     while len(accepted)<field['NumAsteroids']:
         attempts+=1
@@ -90,6 +91,7 @@ def field_instances(assets,field):
         size=radii[index]*scale
         if any(sum((a-b)**2 for a,b in zip(p,old))<(size+rad)**2 for old,rad in accepted):continue
         accepted.append((p,size))
+        if styles[index]['meshes']:field['collision_spheres'].append(dict(position=p,radius=size))
         for mesh in styles[index]['meshes']:
             result.append(dict(mesh=mesh,position=mirror(p),quaternion=quaternion(rotation),scale=scale,spin=spin))
     return result

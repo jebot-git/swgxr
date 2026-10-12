@@ -20,6 +20,8 @@ class FullHost extends "res://scripts/main.gd":
 	func _process(_delta:float)->void:pass
 	func _physics_process(_delta:float)->void:pass
 class NativeSession extends Node:
+	signal connection_lost(message:String)
+	var last_error:=""
 	var live:=true
 	var session_id:="owned-native-session"
 	var sequence:=-1
@@ -200,6 +202,16 @@ func run()->void:
 	var before:int=full.ship_calls.size()
 	await flight.request("launch")
 	check(full.ship_calls.size()==before and "terminal" in flight.error,"Datapad cannot bypass reachable native starship terminal")
+	flight.observe(launched,17)
+	full.response={"ok":false,"session_live":false,"http_status":409,"error_code":"live_session_conflict","error":"JtL requires an owned native gameplay session."}
+	await flight.request("status")
+	check(not full.gameplay_session.live and not flight.scene.is_processing(),"Terminal 409 invalidates native authority and freezes ship prediction")
+	check(flight.pending_mutations.is_empty() and not flight.waypoint_hud.visible and not flight.target_hud.visible,"Session loss discards pending ship actions and guidance")
+	before=full.ship_calls.size();await flight.request("status")
+	check(full.ship_calls.size()==before,"Lost session stops the rejected JTL polling loop")
+	full.gameplay_session.live=true
+	flight.observe(launched,18)
+	check(flight.scene.is_processing(),"Fresh native recovery resumes ship presentation")
 	full.free()
 	var report:Dictionary={"passed":failures.is_empty(),"checks":checks,"failures":failures,"geometry":"original yacht","controls":"synthetic tracked poses","live_core3":false,"live_xr":false}
 	print(JSON.stringify(report));quit(0 if failures.is_empty() else 1)

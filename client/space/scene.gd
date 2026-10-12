@@ -10,6 +10,7 @@ var builder:=SwgMeshBuilder.new()
 var catalog_path:="res://../runtime/assets/jtl/catalog.json"
 var catalog:Dictionary={}
 var error:=""
+var collision_sequence:=0
 var ship_id:=""
 var template_entry:Dictionary={}
 var cockpit:Node3D
@@ -120,7 +121,12 @@ func control_pivot()->Vector3:
 func align_cockpit(eye_world:Vector3)->void:
 	if not is_instance_valid(cockpit):return
 	var eye:Array=template_entry.get("cockpit_position",[0,0,0])
-	cockpit.position=to_local(eye_world)-Vector3(float(eye[0]),float(eye[1]),float(eye[2]))
+	var vr_eye:=Vector3(float(eye[0]),float(eye[1]),float(eye[2]))
+	# Original TIE desktop framing leaves the grips only 32cm in front and
+	# 23cm below the eye. Seat the tracked VR pilot back/up for arm clearance.
+	# Move the frame once; never write a tracked camera/controller transform.
+	if str(template_entry.get("cockpit_source","")).get_file()=="tiefighter.iff":vr_eye+=Vector3(0,.20,.23)
+	cockpit.position=to_local(eye_world)-vr_eye
 func source(point:Vector3)->Array:
 	var p:=stage.to_local(point);return [p.x,p.y,-p.z]
 func world(value:Array)->Vector3:
@@ -136,6 +142,9 @@ func observe(ship:Dictionary)->void:
 	if is_instance_valid(exterior) and ship.get("position") is Array and ship.get("quaternion") is Array:
 		var p:Array=ship.position;var q:Array=ship.quaternion
 		var pose:=Transform3D(Basis(Quaternion(-q[0],-q[1],q[2],q[3]).normalized()),Vector3(p[0],p[1],-p[2]))
+		var incoming_collision:=int(ship.get("collision_sequence",0))
+		if incoming_collision!=collision_sequence:
+			collision_sequence=incoming_collision;visual_stamp=-1
 		var v:Array=ship.get("velocity",[])
 		var a:Array=ship.get("angular_velocity",[0,0,0])
 		observe_motion(pose,Vector3(v[0],v[1],-v[2]) if v.size()==3 else pose.basis*Vector3(0,0,-float(ship.get("speed_mps",0))),Vector3(-a[0],-a[1],a[2]))

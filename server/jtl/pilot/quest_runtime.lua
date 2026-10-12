@@ -3,9 +3,9 @@
 PilotQuests = {definitions={}, blocked={}, instances={}}
 function PilotQuests.hasCertifiedNonNewbieShip(p) return CreatureObject(p):hasCertifiedShip(true,true) end
 registerScreenPlay("PilotQuests",false)
-function PilotQuests.cancel(p,q)
+function PilotQuests.cancel(p,q,preserveSplit)
  for _,method in ipairs(q.sourceTimedMethods or {}) do cancelEvent(q.className,method,p) end
- if q.sideQuest then cancelEvent(q.sideQuestType.."_"..q.sideQuestName,"startQuest",p) end
+ if q.sideQuest and not preserveSplit then cancelEvent(q.sideQuestType.."_"..q.sideQuestName,"startQuest",p) end
  if q.sideFailQuestType and q.sideFailQuestType~="" then cancelEvent(q.sideFailQuestType.."_"..q.sideFailQuestName,"startQuest",p) end
 end
 function PilotQuests:onLogin(p)
@@ -115,7 +115,10 @@ function PilotQuests.bind(k,base)
  end
  function q:completeQuest(p,notify)
   if p==nil or not SpaceHelpers:isSpaceQuestActive(p,self.questType,self.questName) then return end
-  PilotQuests.cancel(p,self)
+  -- Point-triggered patrols schedule the child just after their own completion.
+  -- Cancelling that pending start here silently breaks the mission chain.
+  local pointSplit=(self.questType=="patrol" or self.questType=="patrol_duty") and self.sideQuestSplitType==4
+  PilotQuests.cancel(p,self,pointSplit)
   if self.questType=="assassinate" and not self.sourceMustDestroyEscort and self.despawnTargetShips then self:despawnTargetShips(p) end
   complete(self,p,notify)
   if SpaceHelpers:isSpaceQuestComplete(p,self.questType,self.questName) then
@@ -132,6 +135,23 @@ function PilotQuests.bind(k,base)
   if p==nil then return end
   PilotQuests.cancel(p,self)
   put(p,k,"outcome","aborted");reset(self,p)
+ end
+ if q.questType=="patrol" or q.questType=="patrol_duty" then
+  local entered=q.notifyEnteredQuestArea
+  function q:notifyEnteredQuestArea(area,ship)
+   -- Upstream removes the final waypoint but returns before completing the
+   -- journal. In particular this strands the one-stop privateer rendezvous.
+   local pilot=ship and SceneObject(ship):isPlayerShip() and LuaShipObject(ship):getPilot() or nil
+   local final=false
+   if area and pilot and SceneObject(pilot):isPlayerCreature() and CreatureObject(pilot):getPlayerObject() and SpaceHelpers:isSpaceQuestActive(pilot,self.questType,self.questName) then
+    local point=readData(SceneObject(area):getObjectID()..":"..self.className)
+    local previous=readData(SceneObject(pilot):getObjectID()..":"..self.className)
+    final=point==#self.patrolPoints and point-1==previous
+   end
+   local result=entered(self,area,ship)
+   if final then self:completeQuest(pilot,"true") end
+   return result
+  end
  end
  if q.questType=="assassinate" and not q.sourceMustDestroyEscort then
   local destroyed=q.notifyShipDestroyed

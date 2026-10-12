@@ -45,12 +45,14 @@ var interaction_waiting:=false
 var station_labels:Dictionary={}
 var station_pointer:Node3D
 var hyperspace_effect:Node3D
+var waypoint_hud:Node3D
 var target_hud:Node3D
 var target_buttons:Dictionary={}
 var space_audio:Node
 var yoke:=preload("res://space/flight_yoke.gd").new()
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
+	waypoint_hud=preload("res://space/waypoint_hud.gd").new();add_child(waypoint_hud)
 	target_hud=preload("res://space/targeting_hud.gd").new();add_child(target_hud)
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
 	readout=Label3D.new();readout.font=preload("res://resources/fonts/Jupiteroid-Regular.ttf");readout.font_size=22;readout.pixel_size=.0007;readout.billboard=BaseMaterial3D.BILLBOARD_ENABLED;add_child(readout);readout.hide()
@@ -69,6 +71,7 @@ func restore_seat_height()->void:
 	app.xr_origin.global_position.y=body_pose.origin.y+seat_floor_offset
 	app.player.global_transform=body_pose;seat_height_applied=false
 func reset()->void:
+	if is_instance_valid(waypoint_hud):waypoint_hud.clear()
 	if is_instance_valid(target_hud):target_hud.hide()
 	target_buttons.clear()
 	fire_armed=false;lobby_open=false;cancel_lobby=false;handshake.reset();crew_poses=[];interaction_waiting=false
@@ -122,6 +125,9 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	var response:Dictionary=await app.api(HTTPClient.METHOD_POST,"/jtl/"+action,payload)
 	if version!=app.datapad_epoch:return {}
 	busy=false
+	if response.get("session_live",true)==false and response.get("error_code","")=="live_session_conflict":
+		lose_session(native,str(response.get("error","CoreCU session ended.")))
+		return response
 	if response.get("source_kind","")!="core3_jtl" or str(response.get("character_id",""))!=app.datapad_character_id:
 		error=str(response.get("error","CoreCU did not confirm the ship action"));notice(error)
 		if action in ["walk","control"]:needs_reconcile=true;poll=0
@@ -160,6 +166,19 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 		app.inventory_snapshot=response.inventory.duplicate(true);app.reconcile_inventory_presentations();app.update_inventory_presentation()
 	if action not in ["status","control","walk"]:notice(str(response.get("mutation",{}).get("message","Ship action confirmed")))
 	return response
+func lose_session(native:Node,message:String)->void:
+	reset_controls();pending_mutations.clear();needs_reconcile=true;age=100
+	if is_instance_valid(target_hud):target_hud.hide()
+	if is_instance_valid(waypoint_hud):waypoint_hud.hide()
+	if is_instance_valid(scene):scene.set_process(false)
+	if is_instance_valid(wheel):wheel.close()
+	notice("Connection lost · Reconnect to resume")
+	if is_instance_valid(readout):readout.text="Connection lost · Reconnect to resume"
+	if native.has_method("fail"):
+		native.fail(message)
+		app.gameplay_connection_lost(message)
+	else:
+		native.live=false;native.last_error=message;native.connection_lost.emit(message)
 func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	if str(value.get("source_kind","core3_jtl"))!="core3_jtl" or str(value.get("character_id",app.datapad_character_id))!=app.datapad_character_id:return false
 	if value.get("scope","") not in ["noncombat_yacht","noncombat_navigation","original_sectors"] or not value.get("enabled",false):return false
@@ -180,6 +199,7 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	elif next=="ground" and aboard():leave_scene()
 	station=next
 	if aboard():
+		scene.set_process(true)
 		scene.observe(ship)
 		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]),scene.visual_ship_pose)
 		if is_instance_valid(hyperspace_effect):hyperspace_effect.observe(ship.get("hyperspace",{}),app.player.get_camera())
@@ -238,6 +258,7 @@ func enter_scene(value:Dictionary)->bool:
 	if is_instance_valid(app.datapad):app.datapad.set_open(false);app.datapad.ui.set_skill_forgetting_available(false,"Return to ground before forgetting skills.")
 	return true
 func leave_scene()->void:
+	if is_instance_valid(waypoint_hud):waypoint_hud.clear()
 	if is_instance_valid(app.get("xr_menu")):app.xr_menu.set_reference_frame(null)
 	restore_seat_height()
 	show_station_targets(false)
@@ -572,6 +593,8 @@ func _process(delta:float)->void:
 		if aboard():reset_controls()
 		return
 	if not app.world_ready:return
+	if aboard() and age>15:
+		lose_session(session(),"CoreCU ship state timed out.");return
 	if interaction_waiting:return
 	if not aboard():
 		if cancel_lobby and not busy:
@@ -579,12 +602,16 @@ func _process(delta:float)->void:
 		if app.world_ready and not busy and poll<=0:
 			poll=.5 if not launch_stage().is_empty() else 5.0;request("status")
 		return
+	if seated() and age<=3 and not app.menu.visible:
+		waypoint_hud.update_view(scene,state.get("waypoints",[]),app.player.get_camera().global_transform)
+	else:waypoint_hud.hide()
 	if seated() and station=="pilot" and not ship.get("combat_excluded",true) and age<=3:
 		target_hud.update_view(scene,ship,app.player.get_camera().global_transform,delta)
 		poll_target_buttons()
 	else:target_hud.hide()
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
+	if ship.get("collision_blocked",false):readout.text+="\nCollision · Release throttle or turn away"
 	if ship.get("docking",false):readout.text+="\nDocking · Undock in Ship commands to cancel"
 	if ship.get("hyperspacing",false):
 		var jump:Dictionary=ship.get("hyperspace",{})

@@ -835,15 +835,17 @@ func gameplay_connection_lost(message: String) -> void:
 	update_buttons()
 
 func reconnect_gameplay() -> void:
-	if loading_stage or session_leaving or gameplay_session.busy:return
+	if loading_stage or session_leaving or (is_instance_valid(gameplay_session) and gameplay_session.busy):return
+	live_combat_reserved=false
 	loading_stage=true;world_ready=false;player.active=false;player.velocity=Vector3.ZERO;player.set_physics_process(false)
+	datapad_epoch+=1
+	if is_instance_valid(space):space.reset()
 	loading_screen.begin("Reconnecting to CoreCU…")
 	if not await ensure_gameplay_session():
 		loading_stage=false;world_ready=true;loading_screen.finish()
 		gameplay_connection_lost(gameplay_session.last_error);return
 	# Resume only at the freshly confirmed native location. Never replay failed
 	# deeds, combat, purchases or other actions from the disconnected session.
-	datapad_epoch+=1
 	var placed:=true
 	if not gameplay_session.pending_transport.is_empty():
 		placed=await perform_live_transport(gameplay_session.pending_transport,true)

@@ -11,7 +11,7 @@ func set_sector(value: Dictionary, ship: Dictionary, nearby: Array) -> void:
 	if sector.get("source_zone", "") != value.get("source_zone", ""): center=Vector2.ZERO; zoom=1.0
 	sector=value; contacts=nearby
 	var p: Array = ship.get("position", [0,0,0]); sector_ship=Vector3(p[0],p[1],p[2])
-	var q:Array=ship.get("orientation",[0,0,0,1]);sector_forward=Basis(Quaternion(q[0],q[1],q[2],q[3]))*Vector3.BACK
+	var q:Array=ship.get("quaternion",[0,0,0,1]);sector_forward=Basis(Quaternion(q[0],q[1],q[2],q[3]))*Vector3.BACK
 	queue_redraw()
 func axes(value: Vector3) -> Vector2:
 	return Vector2(value.x,value.z) if projection==0 else Vector2(value.x,value.y) if projection==1 else Vector2(value.z,value.y)

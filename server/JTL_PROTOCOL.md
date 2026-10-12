@@ -29,7 +29,7 @@ Rejected native JtL intents return HTTP 400 with `ok:false`, the typed JtL snaps
 
 Launch requires the original starship terminal in the same ground cell, within eight metres and line of sight. Selecting a ship opens a second confirmation with a separate Launch button and clickable crew names for removal. A free, tracked, mutually gripped handshake with the preparing pilot enrolls a passenger. The gesture must begin after preparation, following observed separation or grip release; contact lasts at least 250 ms. The adapter binds a consumed proof to that pilot, passenger, launch and request. It cannot authorize party formation or payment. Native code independently rechecks proximity, the current preparation, readiness and capacity. Walking away cancels preparation. Crew formation does not require a party.
 
-No separate authored Yacht passenger maximum exists in the pinned Core3 source. The prototype preserves the original group-launch limit of 20 people including its pilot, reported as `original_group_launch_limit`; this is separate from the 100-decoration limit. Original single-seat fighters take one pilot, and the supported two-seat fighter takes one pilot and one gunner. Original pilot certifications and owned control devices remain required. `Core3.JTL.SwgxrShipTemplates` enables only the eleven small-craft templates with converted original cockpit and exterior assets in `server/jtl_catalog.py`; no extra tester ships or certifications are granted.
+No separate authored Yacht passenger maximum exists in the pinned Core3 source. The prototype preserves the original group-launch limit of 20 people including its pilot, reported as `original_group_launch_limit`; this is separate from the 100-decoration limit. Original single-seat fighters take one pilot, and supported two-seat fighters take one pilot and one gunner. Original pilot certifications and owned control devices remain required. `Core3.JTL.SwgxrShipTemplates` enables only the 44 certified/craftable player templates with converted original cockpit/exterior or POB assets in `server/jtl_catalog.py`; no extra tester ships or certifications are granted.
 
 Native source component statistics bound speed, acceleration and rotation. Controls supply neither elapsed time nor ship statistics. A stalled connection cannot accumulate catch-up movement. The original Tatooine station remains a navigation landmark; ship collision, station docking, combat missions and space combat are outside this implementation.
 
@@ -54,3 +54,12 @@ The profile also sets `Core3.SWGXR.RetailGroundOnly=false`; the earlier prototyp
 Flight uses a native 50 ms task and held throttle/pitch/yaw/roll inputs. It integrates three-dimensional ship pose using original engine statistics independently of request arrival cadence. A 1.5-second control lease stops the ship on input loss; disconnected/unpiloted/stored ships cannot continue receiving flight ticks. No ground movement or terrain rules apply to flight. Player walking inside original POB rooms separately uses native character run speed, a bounded two-second distance budget, room connectivity, floor and wall checks.
 
 Rendering ignores duplicate ship snapshots and blends across measured receipt intervals, with at most 350 ms of visual velocity extrapolation. This presentation never moves the physics body or submits ship position. The spectator camera shares the headset camera’s local space environment and restores the ground environment on return. Recovery confirms the current native ship room before transferring a decoration back to inventory.
+
+
+The flight update includes `collision_sequence`, `collision_object` and
+`collision_blocked`. A new sequence invalidates client pose extrapolation at
+contact. The client never supplies collision results. Native object volumes and
+private deterministic sector extents own flight collision; original docking and
+hyperspace movement remain separate. Active same-sector waypoint rows additionally
+include their native `color` byte. See `docs/PLAYER_SPACECRAFT.md` for the enabled
+hull inventory and integration limits.

@@ -125,6 +125,7 @@ class CapacityTests(unittest.TestCase):
         def request(n):
             body=dict(account='p'+str(n),character_id=str(n+1),session_id='session_'+str(n),shot_id='testshot_'+str(n),item_id='99',origin=[0,1,0],direction=[0,0,1])
             raw=json.dumps(body).encode();handler=object.__new__(adapter.Handler)
+            handler.close_connection=True
             handler.headers={'Content-Length':str(len(raw))};handler.rfile=io.BytesIO(raw);handler.path='/combat/session/melee';handler.respond=Mock()
             handler.do_POST();return handler.respond.call_args.args
         try:

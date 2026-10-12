@@ -51,6 +51,13 @@ Generated files live under `runtime/remote`: `db-password`, `config-local.lua`,
 `resource_manager.lua`, `bootstrap.json`, `schema-ready`, `mysql/`, `databases/`,
 and `logs/`. The config and resource overrides are read-only container mounts
 onto the standard native paths. Native source files are never modified.
+When changing the reviewed spacecraft allowlist, migrate both the
+`Core3.JTL.SwgxrShipTemplates` setting in `config-local.lua` and the persisted
+`ship_templates` field in `capacity.json` during the stopped, backed-up
+deployment. The runtime validates the complete persisted profile against the
+current reviewed profile; replacing `server/jtl_catalog.py` alone prevents
+startup. Preserve all unrelated capacity, planet and registration settings and
+restore both files together when rolling back.
 Tatooine alone is enabled, with two zone threads, one navmesh job, no scripted
 initial resource population and a fixed iron pool without JTL additions.
 

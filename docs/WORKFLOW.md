@@ -2072,3 +2072,30 @@ successfully and its build receipt is recorded. Desktop Forward+ Vulkan cockpit
 captures on Intel Arc A770 were inspected; these and dummy-renderer tests do not
 validate headset comfort or every ship's combat behavior. This work is not yet
 installed in Downloads or deployed to the live server.
+
+### 2026-10-12 — test.21 deployed and published
+
+Released `v2026.10.12-test.21` and its separate `-patches` tag from `dc35849`.
+The live realm installed 132 verified files and the new native binary after a
+clean save and SQL/BDB/auth/configuration backup. All 21 accounts and 19
+characters were preserved. The first start was blocked by the persisted capacity
+profile still naming the previous ship allowlist; synchronizing its
+`ship_templates` with the new reviewed profile resolved startup. CoreCU, adapter,
+gateway and voice are healthy, and the 05:00 UTC timer remains enabled/active.
+Backup: remote `runtime/deploy/jtl-test21-20261012/backup`.
+
+Linux and Windows packages passed headless preflight (Windows through Wine).
+All 16 incremental bundles from test.13–20 reconstruct the exact target package.
+All 22 uploaded assets match their recorded hashes, and public launcher discovery
+selects test.21 with eight patch baselines on each platform.
+The test.20 deltas are 20,871,530 bytes for Linux and 20,734,642 bytes for Windows.
+The closed Downloads client was updated with a package rollback backup and
+separate `runtime/preparation/assets-before-test21` data backup. Its expanded
+JTL, space audio and seating assets were staged against verified retained media.
+Packaged preflight passes; repeated data preparation checks skip staging and
+conversion in 45–86 ms. No live client/headset launch was performed.
+
+Evidence: `runtime/releases/test21-20261012/`, including server deployment,
+package validation, asset checksums and local installation receipts. Deployment
+regressions pass 32 tests; the existing concurrent-request fixture now initializes
+the HTTP handler connection state that real requests receive from the base class.

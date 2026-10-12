@@ -154,6 +154,18 @@ def command(action, data):
 def normalize_state(state):
     try:from .datapad_protocol import display
     except ImportError:from datapad_protocol import display
+    try:from .mail_protocol import translated, parameter, plain
+    except ImportError:from mail_protocol import translated, parameter, plain
+    for row in state.get('communications', []):
+        if row.get('kind') != 'message':continue
+        if row.get('sender'):row['sender']=translated(row['sender'])
+        values=row.pop('parameters', None)
+        if isinstance(values, dict):
+            text=display(values.get('file',''),values.get('stringID',''),'')
+            for key in ('TT','TU','TO'):text=text.replace('%'+key,parameter(values.get(key,{})))
+            text=text.replace('%DI',str(values.get('DI',0))).replace('%DF',str(values.get('DF',0)))
+            row['text']=plain(text)
+        else:row['text']=translated(row.get('text',''))
     for row in state.get("missions",[])+state.get("waypoints",[]):
         for field in ("name","description"):
             value=row.get(field,"")

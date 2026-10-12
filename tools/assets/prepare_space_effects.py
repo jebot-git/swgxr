@@ -4,6 +4,7 @@ import json, struct
 from pathlib import Path
 from prepare_space_sectors import SectorAssets, ROOT, dump
 from swg_formats import parse_iff, cstring
+from character_formats import datatable
 
 def prepare():
     out=ROOT/'runtime/assets/space_effects'
@@ -28,13 +29,19 @@ def prepare():
     nebula={}
     for index,shader in enumerate(['shader/pt_nebulae_gas_4_2.sht','shader/pt_nebulae_gas_4_alpha_2.sht']):nebula[str(index)]=assets.shader_textures(shader)
     distant={}
+    combat={'projectiles':{},'hits':{}}
+    for row in datatable(assets.read('datatables/projectile/projectile.iff')):
+        source=row['appearanceTemplateName']
+        if source:combat['projectiles'][str(row['index'])]=assets.particle(source)
+    for index,kind in enumerate(('shield','armor','component','chassis')):
+        combat['hits'][str(index)]=assets.effect('clienteffect/combat_ship_hit_'+kind+'.cef')
     for descriptor in sorted((ROOT/'runtime/assets/jtl').glob('space_*.json')):
         data=json.loads(descriptor.read_text())
         for field in data.get('nebula',[]):
             if field.get('ambientSound'):assets.audio_importer.sound(field['ambientSound'])
         for row in data['environment'].get('distant',[]):
             if row['source'].endswith('.prt'):assets.particle(row['source'])
-    dump(out/'assets.json',dict(schema_version=1,hyperspace=stages,nebula=nebula,
+    dump(out/'assets.json',dict(schema_version=1,hyperspace=stages,nebula=nebula,combat=combat,
         effects=assets.effects,particles=assets.particles,sounds=assets.audio_importer.sounds,
         provenance={**assets.dependencies,**assets.audio_importer.dependencies},conversion_failures=assets.failures+assets.audio_importer.failures))
     # Seat clips and ship audio share this original-media preparation stage.

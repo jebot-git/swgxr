@@ -49,9 +49,11 @@ var waypoint_hud:Node3D
 var target_hud:Node3D
 var target_buttons:Dictionary={}
 var space_audio:Node
+var communications:Node3D
 var yoke:=preload("res://space/flight_yoke.gd").new()
 func setup(host:Node,prefs:RefCounted)->void:
 	app=host;preferences=prefs;epoch=app.datapad_epoch
+	communications=preload("res://space/communications.gd").new();add_child(communications)
 	waypoint_hud=preload("res://space/waypoint_hud.gd").new();add_child(waypoint_hud)
 	target_hud=preload("res://space/targeting_hud.gd").new();add_child(target_hud)
 	wheel=preload("res://space/command_wheel.gd").new();add_child(wheel);wheel.selected.connect(command)
@@ -71,6 +73,7 @@ func restore_seat_height()->void:
 	app.xr_origin.global_position.y=body_pose.origin.y+seat_floor_offset
 	app.player.global_transform=body_pose;seat_height_applied=false
 func reset()->void:
+	if is_instance_valid(communications):communications.clear()
 	if is_instance_valid(waypoint_hud):waypoint_hud.clear()
 	if is_instance_valid(target_hud):target_hud.hide()
 	target_buttons.clear()
@@ -167,6 +170,7 @@ func request(action:String,detail:Dictionary={},synchronize_walk:=false)->Dictio
 	if action not in ["status","control","walk"]:notice(str(response.get("mutation",{}).get("message","Ship action confirmed")))
 	return response
 func lose_session(native:Node,message:String)->void:
+	if is_instance_valid(communications):communications.clear()
 	reset_controls();pending_mutations.clear();needs_reconcile=true;age=100
 	if is_instance_valid(target_hud):target_hud.hide()
 	if is_instance_valid(waypoint_hud):waypoint_hud.hide()
@@ -201,7 +205,8 @@ func observe(value:Dictionary,incoming_revision:int=-1)->bool:
 	if aboard():
 		scene.set_process(true)
 		scene.observe(ship)
-		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]),scene.visual_ship_pose)
+		if is_instance_valid(space_audio):space_audio.observe(ship,state.get("combat_events",[]),scene.visual_ship_pose,scene.global_transform)
+		if is_instance_valid(communications):communications.receive(state.get("communications",[]),space_audio)
 		if is_instance_valid(hyperspace_effect):hyperspace_effect.observe(ship.get("hyperspace",{}),app.player.get_camera())
 		scene.update_nearby(state.get("nearby_ships",[]),ship,state.get("nearby_ships_busy",false))
 		if is_instance_valid(scene.combat_effects):scene.combat_effects.receive(state.get("combat_events",[]))
@@ -258,6 +263,7 @@ func enter_scene(value:Dictionary)->bool:
 	if is_instance_valid(app.datapad):app.datapad.set_open(false);app.datapad.ui.set_skill_forgetting_available(false,"Return to ground before forgetting skills.")
 	return true
 func leave_scene()->void:
+	if is_instance_valid(communications):communications.clear()
 	if is_instance_valid(waypoint_hud):waypoint_hud.clear()
 	if is_instance_valid(app.get("xr_menu")):app.xr_menu.set_reference_frame(null)
 	restore_seat_height()
@@ -605,6 +611,7 @@ func _process(delta:float)->void:
 	if seated() and age<=3 and not app.menu.visible:
 		waypoint_hud.update_view(scene,state.get("waypoints",[]),app.player.get_camera().global_transform)
 	else:waypoint_hud.hide()
+	if is_instance_valid(communications):communications.update_view(app.player.get_camera().global_transform,age<=3 and not app.menu.visible)
 	if seated() and station=="pilot" and not ship.get("combat_excluded",true) and age<=3:
 		target_hud.update_view(scene,ship,app.player.get_camera().global_transform,delta)
 		poll_target_buttons()
@@ -612,7 +619,8 @@ func _process(delta:float)->void:
 	readout.show();readout.global_position=pilot_pose().origin+Vector3(0,1.05,-.85)
 	var position:Array=ship.get("position",[0,0,0]);readout.text="%s · %s\n%.0f m/s · X %.0f  Y %.0f  Z %.0f\n%s"%[str(ship.get("name","Starship")).to_upper(),"NON-COMBAT" if ship.get("combat_excluded",true) else "COMBAT SHIP",float(ship.get("speed_mps",0)),float(position[0]),float(position[1]),float(position[2]),("Crew %d · Right stick click · commands"%ship.get("crew",[]).size()) if error.is_empty() else error]
 	if ship.get("collision_blocked",false):readout.text+="\nCollision · Release throttle or turn away"
-	if ship.get("docking",false):readout.text+="\nDocking · Undock in Ship commands to cancel"
+	if ship.get("destroyed",false):readout.text+="\nShip destroyed · Returning to the launch port"
+	elif ship.get("docking",false):readout.text+="\nDocking · Undock in Ship commands to cancel"
 	if ship.get("hyperspacing",false):
 		var jump:Dictionary=ship.get("hyperspace",{})
 		readout.text+="\nHyperspace · "+str(jump.get("phase","calculating")).capitalize()+(" · %d"%int(jump.countdown) if int(jump.get("countdown",0))>0 else "")

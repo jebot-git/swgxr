@@ -1,0 +1,34 @@
+{
+  "repository": "https://github.com/SWG-Source/client-tools",
+  "revision": "949451032647e45e42c3aaef3f41b132c8af36e3",
+  "files": [
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/objectTemplate/ClientDataFile.cpp",
+      "sha256": "6412adfa2249028d2ed56adef7de391c6652555b2ecbb65df8ab6c5bf2627510"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/objectTemplate/ClientDataFile_InterpolatedSound.cpp",
+      "sha256": "d287828cd20392554b3ff720d11b9143e529bea466be147a98f9f5cc2b8d6382"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/objectTemplate/ClientDataFile_InterpolatedSoundRuntime.cpp",
+      "sha256": "593e7293f3b4cb2fb37ee401e3c5d187aacbb4f59d9573b7eeecee781bfcab44"
+    },
+    {
+      "path": "src/engine/client/library/clientGame/src/shared/object/ShipObjectEffects.cpp",
+      "sha256": "e74d589df8efbe95a3218883b63cee452d5c77cf03d6c74f6d4d98335b58760d"
+    },
+    {
+      "path": "src/engine/client/library/clientAudio/src/win32/Sound2d.cpp",
+      "sha256": "0559ff1c56c53302afae7878ffbe3888e6723c93383766eb9b0666c453dc3b2c"
+    },
+    {
+      "path": "src/engine/client/library/clientParticle/src/shared/ParticleEmitterDescription.cpp",
+      "sha256": "8daf018b6ac964b6b80f541fdab92ecbfac51c20beba4f398f3c427b16dd33a8"
+    },
+    {
+      "path": "src/engine/client/library/clientParticle/src/shared/ParticleTexture.cpp",
+      "sha256": "6e6b63d558a65c6e3992a9b40530f60ac948329f8abbd660a4ce86e7513295e0"
+    }
+  ]
+}

@@ -4,35 +4,51 @@ var seen:Dictionary={}
 var effects:Array[Dictionary]=[]
 var missiles:Dictionary={}
 var missile_receipts:Dictionary={}
+var assets=preload("res://combat/original_assets.gd").new()
+var available:=false
+var missing:Dictionary={}
+func _ready()->void:
+	assets.directory=ProjectSettings.globalize_path("res://../runtime/assets/space_effects")
+	available=assets.load_catalog()
+func particles(source:String,parent:Node3D,age:float,persistent:bool)->void:
+	var definition:Dictionary=assets.catalog.get("particles",{}).get(source,{})
+	if definition.is_empty():missing[source]=true;return
+	var node:=preload("res://space/original_particles.gd").new();parent.add_child(node)
+	node.play(definition,assets,persistent,age)
 func receive(events:Array)->void:
 	for event:Dictionary in events:
 		var id:=str(event.get("id",""))
 		if id.is_empty() or seen.has(id):continue
 		seen[id]=Time.get_ticks_msec()
 		if event.get("kind")=="missile":receive_missile(event);continue
+		if not available or effects.size()>=64:continue
 		var age:=float(event.get("age_seconds",0))
 		var point:Array=event.get("position",[])
 		if point.size()!=3:continue
 		var position:=Vector3(point[0],point[1],-point[2])
-		var direction:=Vector3.ZERO;var duration:=.35
-		var shape:PrimitiveMesh
+		var direction:=Vector3.ZERO;var duration:=0.0
+		var source:="";var effect:Dictionary={}
 		if event.get("kind")=="projectile":
 			var v:Array=event.get("direction",[])
 			if v.size()!=3:continue
 			direction=Vector3(v[0],v[1],-v[2]).normalized()*float(event.get("speed",0))
 			duration=float(event.get("range",0))/maxf(1,direction.length())
-			if age>=duration:continue
-			var bolt:=CylinderMesh.new();bolt.top_radius=.12;bolt.bottom_radius=.12;bolt.height=8;shape=bolt
+			source=str(assets.catalog.get("combat",{}).get("projectiles",{}).get(str(event.get("projectile_type",-1)),""))
 		else:
-			if age>=duration:continue
-			var flash:=SphereMesh.new();flash.radius=2;flash.height=4;shape=flash
-		var node:=MeshInstance3D.new();node.mesh=shape;node.cast_shadow=GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		var material:=StandardMaterial3D.new();material.shading_mode=BaseMaterial3D.SHADING_MODE_UNSHADED;material.albedo_color=Color(1,.4,.12);node.material_override=material
-		add_child(node)
+			source=str(assets.catalog.get("combat",{}).get("hits",{}).get(str(event.get("hit_type",-1)),""))
+			effect=assets.catalog.get("effects",{}).get(source,{})
+			for appearance:Dictionary in effect.get("appearances",[]):duration=maxf(duration,float(appearance.duration))
+		if source.is_empty() or age>=duration:continue
+		var node:=Node3D.new();add_child(node);node.set_meta("original_source",source)
 		if direction.length_squared()>0:
 			var axis:=direction.normalized();var side:=axis.cross(Vector3.UP)
 			if side.length_squared()<.01:side=axis.cross(Vector3.RIGHT)
 			side=side.normalized();node.basis=Basis(side,axis,side.cross(axis)).orthonormalized()
+			particles(source,node,age,true)
+		else:
+			for appearance:Dictionary in effect.get("appearances",[]):
+				if age<float(appearance.duration):particles(str(appearance.particle),node,age,false)
+		node.position=position+direction*age
 		effects.append({"node":node,"position":position,"velocity":direction,"age":age,"duration":duration})
 	for id in seen.keys():
 		if Time.get_ticks_msec()-int(seen[id])>10000:seen.erase(id)

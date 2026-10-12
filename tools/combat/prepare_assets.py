@@ -97,10 +97,12 @@ class Assets(StaticAssets):
         if root.tag != 'PEFT': raise ValueError('Unsupported particle appearance '+root.tag)
         for emitter in root.walk('EMTR'):
             version = emitter.children[0]
-            # The supplied 0009/0011/0012/0013 emitters share this decoded prefix
+            # The supplied 0009/0011/0012/0013/0014 emitters share this decoded prefix
             # and their tagged curves/quad data. Version-specific extensions
             # remain opaque, byte-for-byte, rather than guessed simulation.
-            if version.tag not in ('0009', '0011', '0012', '0013'): raise ValueError('Unsupported EMTR '+version.tag)
+            # Original load_0014 only appends usePriorityParticles after 0013's
+            # extension fields; retain that tail while decoding shared curves.
+            if version.tag not in ('0009', '0011', '0012', '0013', '0014'): raise ValueError('Unsupported EMTR '+version.tag)
             waves = [curve(n) for n in version.children if n.tag=='WVFM']
             if len(waves)!=16: raise ValueError('Unexpected emitter curves')
             data = next(n.data for n in version.children if n.tag=='0000')

@@ -1,4 +1,5 @@
 #pragma once
+#include "SwgxrSpaceMessages.h"
 #include "server/zone/managers/player/QuestTasks.h"
 #include "server/zone/objects/waypoint/WaypointObject.h"
 // Read the existing owner-only Core3 journal and server-created quest waypoints.
@@ -6,6 +7,7 @@ class SwgxrSpaceJournal {
  using Json=JSONSerializationType;
 public:
  static void snapshot(CreatureObject* c,Json& out){
+  out["communications"]=SwgxrSpaceMessages::snapshot(c);
   out["missions"]=Json::array();out["waypoints"]=Json::array();auto ghost=c->getPlayerObject();if(!ghost)return;
   auto quests=ghost->getPlayerQuestsData();auto manager=c->getZoneServer()->getPlayerManager();
   for(int i=0;i<quests->size();++i){

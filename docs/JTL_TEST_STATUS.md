@@ -23,8 +23,9 @@ angular velocity for at most 750 ms. Serialized native requests reuse verified
 TLS connections without automatic mutation retries. Ground locomotion rules do not govern flight.
 Primary fixed blasters use native projectile collision, capacitor drain, refire,
 damage attribution and loot. Missiles, countermeasures and gunner turrets are
-not yet exposed by the client. Bolt and hit visuals are simplified presentation,
-not the complete original weapon effects.
+not yet exposed by the client. Bolt and hit visuals now use original projectile/CEF/PRT resources, including
+animated texture frames. Missile presentation remains simplified; see the
+2026-10-12 recording follow-up below for validation limits.
 
 ## Pilot missions and ship services
 
@@ -306,3 +307,63 @@ retained, action dispatch still waits for native availability, and unavailable
 states no longer permanently latch a gesture. Native costs and cooldowns remain
 unchanged. Slow/fast synthetic traces span 0.35–4 Hz; headset gesture reliability
 still requires physical testing.
+
+
+## jtl2.mp4 follow-up — 2026-10-12, local integration
+
+The recording ends with hull **0/800** while still in the cockpit. Earlier engine
+failure at 774/800 was a separate component-disable state. The retained client
+network ring contained successful responses, rather than the earlier session
+conflicts. This patch is local and has not superseded the published test.21.
+
+- Native `DestroyShipTask` iteration 1 returned without rescheduling the final
+  storage/ejection stage. It now runs that stage after the five-second destruction
+  effect and uses the exact control-device landing point. The isolated test also
+  caught unsigned underflow in the original random landing offset; recovery uses
+  `getStoredPosition(false)`, as the existing launch flow already does. The hull
+  remains owned and damaged; normal native storage returns the crew to ground.
+  Zero hull stops flight integration and primary/secondary weapon delivery.
+- Space audio passed scene-local positions into the global spatial mixer. The
+  cockpit scene is at Y=10000, so the distance gate rejected nearby shots/hits.
+  Positions now include the scene's global transform. Original engine ENGS banks
+  resolve from chassis/component attachment tables, including damage bands; root
+  INTS booster audio follows the native booster-active flag. These are distinct
+  loops with the original volume, interpolation and semitone-pitch parameters.
+- Original native quest system messages, music and NPC taunts are bridged as
+  owner-only, bounded, expiring receipts. Existing STF strings/parameters supply
+  the text. The cockpit shows deduplicated nonmodal messages and NPC sender names.
+  Existing station reply conversations remain unchanged. This adds no invented
+  voiced dialogue or alternate mission state machine.
+- Seventeen original projectile entries and four shield/armor/component/chassis
+  hit effects now select their original CEF/PRT textures, curves and colours.
+  GPU playback handles source texture-sheet animation and projectile alignment;
+  reusable curve textures are cached. EMTR 0014 decoding follows the original
+  source's shared prefix, retaining extension bytes. Nested particle attachments,
+  CEF camera shake/lights and missile models are not claimed complete; the HMD is
+  never driven by an effect.
+
+Original implementation references and SHA-256 values are recorded in
+`server/jtl/presentation_reference.json`. Converted user media remains ignored.
+The space audio catalog now contains 63 sounds. Its 11 pre-existing missing CDF
+records belong to NPC transport/escape-pod templates; they remain reported in
+conversion failures, rather than silently replaced. Combat effect conversion has
+no missing dependencies in the supplied media.
+
+Validation evidence is in `runtime/evidence/jtl2-20261012/`: native build, Python
+protocol tests, the 74-check client smoke, receipt/coordinate/expiry effects test,
+and the combat-audio/communications test. The latter decodes an original sample
+and verifies admission to the spatial mixer with a listener at Y=10000; dummy
+audio does not prove headset audibility. `original-effects.png` is a Forward+
+Vulkan capture on Intel Arc A770, with XR disabled. It is GPU evidence, not a
+headset test.
+
+`tools/space/destruction_smoke.py` uses an isolated invtest account and an already
+natively crafted Z-95. It invokes the real destruction task directly, checks
+original mission/NPC communications, automatic return to Tatooine and continued
+hull ownership, and restores temporary Lua fixture code. This tests the recovery
+path; it is not a new prolonged combat or lethal-damage test. The final probe
+passed all 9 checks and returned to ground in 10.13 seconds, including the
+fixture task's four-second scheduling delay. The next release
+must include native patch 0153, the adapter/client changes and the revised local
+media preparation recipe. Existing launcher recipe hashing invalidates changed
+conversion inputs; proprietary assets are not shipped in public patch bundles.

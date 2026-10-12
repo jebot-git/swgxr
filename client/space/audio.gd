@@ -32,7 +32,7 @@ func stream(sound:String)->AudioStream:
 	return cache.request(ProjectSettings.globalize_path(directory.path_join(source.samples[0])),bool(source.get("loop",false)))
 func request_music(sound:String)->void:
 	pending_music=sound;music.stop()
-func observe(ship:Dictionary,events:Array=[],ship_pose:=Transform3D.IDENTITY)->void:
+func observe(ship:Dictionary,events:Array=[],ship_pose:=Transform3D.IDENTITY,world_frame:=Transform3D.IDENTITY)->void:
 	var next:=str(ship.get("zone",""));var environment:Dictionary=catalog.get("sectors",{}).get(next,{})
 	if next!=zone:
 		zone=next;combat_hold=0;combat_active=false;sector_music=str(environment.get("music",""));request_music(sector_music)
@@ -43,6 +43,20 @@ func observe(ship:Dictionary,events:Array=[],ship_pose:=Transform3D.IDENTITY)->v
 		queue_effect(str(definition.get("accel" if moving else "decel","")),Vector3.ZERO,false)
 	engine_moving=moving;engine_initialized=true
 	desired={"interior":{"sound":definition.get("interior",""),"gain":1.0},"ambient":{"sound":environment.get("ambient",""),"gain":1.0},"idle":{"sound":definition.get("idle",""),"gain":1-power},"run":{"sound":definition.get("run",""),"gain":power}}
+	var banks:Array=[]
+	var bindings:Dictionary=catalog.get("engine_bindings",{}).get(str(ship.get("audio_chassis","")),{})
+	for source:String in bindings.get(str(ship.get("engine_component","")),[]):
+		var bank:Array=catalog.get("engines",{}).get(source,[])
+		var band:=mini(bank.size()-1,floori(clampf(float(ship.get("engine_damage",0)),0,1)*bank.size()))
+		for index in bank.size():
+			if index==0 or index==band:banks.append({"engine":bank[index],"running":float(ship.get("max_speed_mps",0))>0,"power":power})
+	for booster:Dictionary in definition.get("booster",[]):banks.append({"engine":booster,"running":ship.get("booster_active",false),"power":1.0 if ship.get("booster_active",false) else 0.0})
+	for index in banks.size():
+		var key:="engine_%d"%index
+		if not layers.has(key):
+			var player:=AudioStreamPlayer.new();player.bus="SWG Ambience";add_child(player);layers[key]={"player":player,"sound":"","gain":0.0,"level":0.0}
+		var bank:Dictionary=banks[index];var engine:Dictionary=bank.engine
+		desired[key]={"sound":engine.sound,"engine":engine,"power":bank.power,"running":not ship.get("destroyed",false) and bank.running}
 	for event:Dictionary in events:
 		var id:=str(event.get("id",""))
 		if id.is_empty() or seen.has(id):continue
@@ -54,7 +68,7 @@ func observe(ship:Dictionary,events:Array=[],ship_pose:=Transform3D.IDENTITY)->v
 		var sounds:Array=[]
 		if event.get("kind","")=="projectile":sounds=catalog.get("projectiles",{}).get(str(event.get("projectile_type",-1)),[])
 		elif event.get("kind","")=="hit":sounds=catalog.get("hits",{}).get(str(event.get("hit_type",-1)),[])
-		for sound:String in sounds:queue_effect(sound,ship_pose.affine_inverse()*Vector3(p[0],p[1],-p[2]),true)
+		for sound:String in sounds:queue_effect(sound,world_frame*ship_pose.affine_inverse()*Vector3(p[0],p[1],-p[2]),true)
 	while seen.size()>256:seen.erase(seen.keys()[0])
 func _process(delta:float)->void:
 	cache.poll()
@@ -84,7 +98,12 @@ func _process(delta:float)->void:
 		if not name.is_empty() and layer.player.stream==null:
 			var audio:=stream(name)
 			if audio!=null:layer.player.stream=audio;layer.player.play()
-		layer.gain=move_toward(float(layer.gain),float(target.get("gain",0)),delta*2)
+		if target.has("engine"):
+			var engine:Dictionary=target.engine
+			layer.level=move_toward(float(layer.level),float(target.power),delta*maxf(0.01,float(engine.rate_up if float(target.power)>float(layer.level) else engine.rate_down)))
+			layer.gain=clampf(lerpf(float(engine.volume_min),float(engine.volume_max),float(layer.level)),0,1) if target.running else 0.0
+			layer.player.pitch_scale=pow(2.0,lerpf(float(engine.pitch_min),float(engine.pitch_max),float(layer.level))/12.0)
+		else:layer.gain=move_toward(float(layer.gain),float(target.get("gain",0)),delta*2)
 		layer.player.volume_db=linear_to_db(maxf(.00001,float(layer.gain)*float(catalog.get("sounds",{}).get(name,{}).get("volume",1))))
 func _exit_tree()->void:cache.shutdown()
 

@@ -280,7 +280,7 @@ renderer. Controller ergonomics and live headset behavior remain unvalidated.
 ## Flight and spacecraft patch — test.21 (2026-10-12)
 
 The enabled hull set expands to 45 templates including the existing Yacht. See
-[the complete player spacecraft inventory](PLAYER_SPACECRAFT.md). These changes
+[the complete player spacecraft inventory](https://github.com/jebot-git/swgxr/blob/main/docs/PLAYER_SPACECRAFT.md) (also bundled in `engine/docs/`). These changes
 are included in test.21, following test.20.
 
 The TIE desktop camera anchor placed the eye 32 cm behind and 23 cm above the

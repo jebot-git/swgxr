@@ -868,3 +868,11 @@ drag without replaying a click. The detached side panes retain their size.
 Validation: 63 production SubViewport input checks, 98 mocked view-follow
 checks, and the datapad UI smoke pass with the dummy renderer and XR off.
 These checks do not validate live headset rendering.
+
+Published as [test.23](https://github.com/jebot-git/swgxr/releases/tag/v2026.10.13-test.23)
+from source commit `6cf7a77`. Linux and Windows packaged preflights passed (Windows
+through Wine), all 18 test.14–22 incremental bundles reconstructed the target
+manifests, and all 24 uploaded asset sizes and SHA-256 digests matched. Launcher
+discovery selects test.23 with nine patches per platform. Release evidence is in
+`runtime/releases/test23-20261013/`. No server changes or live client launch were
+performed.

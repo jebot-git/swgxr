@@ -855,3 +855,16 @@ through Core3's existing space quest handlers, and validate the mission chain,
 relog recovery and duplicate-reward protection. Server mission tables are not
 missing client media. Akal's full conversation/progression is not implemented
 by this client patch.
+
+Datapad layout update (2026-10-13):
+
+The main floating datapad is square (36 cm, 900 × 900 pixels). Opening the
+planet or sector map expands it to 70 cm and 1260 × 1260 pixels; returning to
+entries restores the compact square. Hold the pointing trigger and drag the
+description text to scroll, or use the stick. Captured pointer motion also
+reaches the existing map/list drag handlers. Tracking loss cancels a pending
+drag without replaying a click. The detached side panes retain their size.
+
+Validation: 63 production SubViewport input checks, 98 mocked view-follow
+checks, and the datapad UI smoke pass with the dummy renderer and XR off.
+These checks do not validate live headset rendering.

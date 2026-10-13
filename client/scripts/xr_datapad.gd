@@ -51,7 +51,7 @@ func configure(origin: XROrigin3D, player: CharacterBody3D, side := "left") -> v
 	offhand = "right" if side == "right" else "left"
 	process_priority = 120 # Read the final tracked avatar pose after its animation/IK.
 	ui = UI.new()
-	add_surface(ui,Vector2i(900,625),Vector2(0.36,0.25))
+	add_surface(ui,Vector2i(900,900),Vector2(0.36,0.36))
 	add_surface(ui.take_detail_panel(),Vector2i(550,625),Vector2(0.22,0.25))
 	summary_ui=preload("res://scripts/player_summary_ui.gd").new()
 	add_surface(summary_ui,Vector2i(550,625),Vector2(.22,.25))
@@ -111,8 +111,8 @@ func add_surface(control: Control, pixels: Vector2i, meters: Vector2) -> void:
 
 func resize_map(expanded: bool) -> void:
 	cancel_press()
-	var meters := Vector2(0.70,0.46) if expanded else Vector2(0.36,0.25)
-	var pixels := Vector2i(1260,828) if expanded else Vector2i(900,625)
+	var meters := Vector2(0.70,0.70) if expanded else Vector2(0.36,0.36)
+	var pixels := Vector2i(1260,1260) if expanded else Vector2i(900,900)
 	surfaces[0].meters = meters
 	surfaces[0].viewport.size = pixels
 	surfaces[0].mesh.mesh.size = meters
@@ -357,12 +357,14 @@ func update_pointer(hit: Dictionary, trigger: float) -> void:
 	else:last_hover=hit.duplicate()
 	if trigger < 0.35: released_trigger = true
 	if pressed:
-		# Ordinary buttons retain press ownership; dropdowns support the same
-		# pointer dragging and release-outside cancellation as the frontend.
-		if preload("res://scripts/frontend_choice.gd").active(surfaces[int(capture.surface)].viewport):
-			capture.pixel=hit.pixel if not hit.is_empty() and hit.surface==capture.surface else Vector2(-100,-100)
-			var drag:=InputEventMouseMotion.new();drag.position=capture.pixel;drag.global_position=capture.pixel;drag.button_mask=MOUSE_BUTTON_MASK_LEFT
-			surfaces[int(capture.surface)].viewport.push_input(drag,true)
+		# Keep sending captured motion to the owning viewport so map, list and
+		# description drag scrolling share the same input as desktop pointers.
+		var same_surface:bool=not hit.is_empty() and hit.surface==capture.surface
+		var dropdown:bool=preload("res://scripts/frontend_choice.gd").active(surfaces[int(capture.surface)].viewport)
+		var pixel:Vector2=hit.pixel if same_surface else Vector2(-100,-100) if dropdown else capture.pixel
+		var drag:=InputEventMouseMotion.new();drag.position=pixel;drag.global_position=pixel;drag.relative=pixel-capture.pixel;drag.button_mask=MOUSE_BUTTON_MASK_LEFT
+		surfaces[int(capture.surface)].viewport.push_input(drag,true)
+		capture.pixel=pixel
 		if trigger < 0.35:
 			send_button(capture,false)
 			pressed = false
@@ -415,6 +417,8 @@ func cancel_press() -> void:
 		var hit := capture.duplicate()
 		hit.pixel = Vector2(-100,-100)
 		var viewport: SubViewport = surfaces[int(hit.surface)].viewport
+		var scroll:=viewport.get_node_or_null("UniversalDragScroll")
+		if scroll!=null:scroll.cancel()
 		var motion := InputEventMouseMotion.new()
 		motion.position = hit.pixel
 		motion.global_position = hit.pixel

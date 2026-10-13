@@ -22,6 +22,7 @@ func hit_button(pad: Node3D, button: Control) -> Dictionary:
 	var local := Vector3((pixel.x/surface.viewport.size.x-0.5)*surface.meters.x,(0.5-pixel.y/surface.viewport.size.y)*surface.meters.y,0)
 	return pad.find_hit({"tip":surface.mesh.global_transform*(local+Vector3(0,0,0.15)),"direction":-surface.mesh.global_basis.z})
 func run() -> void:
+	root.add_child(preload("res://ui/scroll_registry.gd").new())
 	var world := Node3D.new()
 	root.add_child(world)
 	var rig := XROrigin3D.new()
@@ -71,6 +72,28 @@ func run() -> void:
 		check(not pad.touch_minimap({"tip":pad.radar.display.global_transform*offset,"direction":-pad.radar.display.global_basis.z}),"Expanded minimap touch zone remains bounded: "+str(offset))
 	check(pad.touch_minimap({"tip":pad.radar.display.global_position,"direction":Vector3.FORWARD}) and pad.is_open,"Touching the minimap opens full datapad")
 	check(not controllers[0].get_node("FunctionPointer").enabled and not controllers[1].get_node("FunctionPointer").enabled,"Default XR pointers suspended while datapad open")
+	check(pad.surfaces[0].meters==Vector2(.36,.36) and pad.surfaces[0].viewport.size==Vector2i(900,900),"Main datapad is square in pixels and metres")
+	pad.ui.show_map(true)
+	check(pad.ui.expanded and pad.surfaces[0].meters==Vector2(.70,.70) and pad.surfaces[0].viewport.size==Vector2i(1260,1260),"Opening full map expands square datapad")
+	pad.ui.show_map(false)
+	check(pad.surfaces[0].meters==Vector2(.36,.36),"Returning to entries restores compact square")
+	for frame in 3:await process_frame
+	pad.ui.detail_description.text="Long description.\n".repeat(150)
+	for frame in 3:await process_frame
+	var description_pixel:Vector2=pad.ui.detail_description.get_global_rect().get_center()
+	var description_hit:Dictionary={"surface":1,"pixel":description_pixel,"world":pad.surfaces[1].mesh.global_position}
+	pad.update_pointer(description_hit,0)
+	pad.update_pointer(description_hit,.8)
+	description_hit.pixel-=Vector2(0,100)
+	pad.update_pointer(description_hit,.8)
+	check(pad.ui.detail_description.get_v_scroll_bar().value>90,"Captured trigger drag scrolls description through actual viewport")
+	pad.update_pointer(description_hit,0)
+	var description_scroll:float=pad.ui.detail_description.get_v_scroll_bar().value
+	pad.update_pointer(description_hit,.8)
+	pad.cancel_press()
+	check(pad.ui.detail_description.get_v_scroll_bar().value==description_scroll and pad.surfaces[1].viewport.get_node("UniversalDragScroll").target==null,"Cancelled press clears drag without scrolling or replaying a click")
+	pad.ui.detail_description.text=""
+	pad.released_trigger=false
 	var mount: Transform3D = pad.wrist_mount(controllers[0])
 	check(mount.basis.y.dot(Vector3.UP)>0.9999,"Datapad mount rises vertically rather than following palm plane")
 	var original_hand_rotation := controllers[0].rotation
@@ -122,8 +145,8 @@ func run() -> void:
 	pad.update_pointer(map_hit,0.0)
 	await process_frame
 	check(pad.ui.map_visible and pad.ui.expanded,"SubViewport Planet map click opens expanded map")
-	check(pad.surfaces[0].viewport.size==Vector2i(1260,828),"Expanded map uses1260x828viewport")
-	check(pad.surfaces[0].meters.is_equal_approx(Vector2(0.70,0.46)),"Expanded physical map size")
+	check(pad.surfaces[0].viewport.size==Vector2i(1260,1260),"Expanded map uses1260x1260viewport")
+	check(pad.surfaces[0].meters.is_equal_approx(Vector2(0.70,0.70)),"Expanded physical map size")
 	check(pad.surfaces[0].mesh.position.y==0,"Expansion keeps the interface centered")
 	var touch_surface: Dictionary = pad.surfaces[0]
 	var touch: Dictionary = pad.find_hit({"tip":touch_surface.mesh.global_transform*Vector3(0,0,0.005),"direction":Vector3.ZERO})
@@ -150,7 +173,7 @@ func run() -> void:
 		await RenderingServer.frame_post_draw
 		root.get_texture().get_image().save_png(ProjectSettings.globalize_path("res://../runtime/evidence/xr-datapad-expanded.png"))
 	pad.resize_map(false)
-	check(pad.surfaces[0].viewport.size==Vector2i(900,625),"Compact map restores original viewport")
+	check(pad.surfaces[0].viewport.size==Vector2i(900,900),"Compact map restores original viewport")
 	pad.ui.select_category("skills")
 	await process_frame
 	await process_frame
